@@ -6,6 +6,7 @@ import {
   Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
   Package, AlertTriangle, Clock, X, Eraser,
 } from "lucide-react";
+import { ShortageProductPicker } from "./ShortageProductPicker";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
@@ -21,7 +22,7 @@ interface ShortageModalProps {
   shortageShopId: string;
   onZoneChange: (id: string) => void;
   onShopChange: (id: string) => void;
-  products: { id: string; name: string }[];
+  productScope: string | null;
   newShortage: Partial<Shortage>;
   onNewShortageChange: (shortage: Partial<Shortage>) => void;
   shortageDraft: { productId: string; productName: string; quantity: number }[];
@@ -321,7 +322,7 @@ export function ShortageModal({
   shortageShopId,
   onZoneChange,
   onShopChange,
-  products,
+  productScope,
   newShortage,
   onNewShortageChange,
   shortageDraft,
@@ -401,26 +402,13 @@ export function ShortageModal({
             {/* Product + Qty picker */}
             <div className="grid grid-cols-5 gap-3 items-end bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
               <div className="col-span-2 flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-slate-600">المنتج</span>
-                <select
-                  value={newShortage.productId || ""}
-                  onChange={e => {
-                    const product = products.find(item => item.id === e.target.value);
-                    onNewShortageChange({
-                      ...newShortage,
-                      productId: e.target.value,
-                      productName: product?.name || "",
-                    });
-                  }}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20 transition-all"
-                >
-                  {products.map(prod => (
-                    <option key={prod.id} value={prod.id}>{prod.name}</option>
-                  ))}
-                </select>
+                <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.product")}</span>
+                <ShortageProductPicker scope={productScope} selected={newShortage.productId && newShortage.productName
+                  ? { id: newShortage.productId, name: newShortage.productName } : null} drafted={shortageDraft}
+                  onSelect={(productId, productName) => onNewShortageChange({ ...newShortage, productId, productName })} />
               </div>
               <div className="col-span-2 flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-slate-600">الكمية</span>
+                <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.quantity")}</span>
                 <input
                   type="number"
                   value={newShortage.quantity || 0}
@@ -434,7 +422,7 @@ export function ShortageModal({
                 disabled={!shortageShopId}
                 className="h-[46px] rounded-xl font-bold text-sm bg-[#1e87bb] text-white hover:bg-[#156a94] transition-colors shadow-lg shadow-[#1e87bb]/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                + إضافة
+                {t("dispatchProductSearch.add")}
               </button>
             </div>
 

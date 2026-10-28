@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
-import { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
@@ -26,20 +26,14 @@ import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
-import {
-  DISPATCH_PRODUCT_WINDOW_LIMIT,
-  boundedDispatchProductSearch,
-  mergeDispatchProductWindow,
-  selectedDispatchProducts,
-} from "@/features/dispatch/productWindow";
+import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { apiErrorMessage } from "@/lib/apiErrors";
-import { formatQuantity, type Quantity } from "@/lib/quantity";
+import { type Quantity } from "@/lib/quantity";
 import {
-  buildRouteLoadBaseTargets, formatRouteLoadQuantity, parseRouteLoadUomWindow,
-  parseRouteLoadVehicleInventory, routeLoadReview, type RouteLoadUom,
+  buildRouteLoadBaseTargets, parseRouteLoadVehicleInventory, type RouteLoadUom,
 } from "@/features/dispatch/routeLoadUom";
 
 interface WarehouseOption {
@@ -52,7 +46,6 @@ interface DispatchInitPayload {
   drivers?: { id: string; name: string }[];
   vehicles?: { id: string; label: string; can_execute: boolean }[];
   warehouses?: { id: string; label: string; can_execute: boolean }[];
-  products?: { id: string; name: string }[];
 }
 
 interface VehicleInventoryPayload {
@@ -258,7 +251,8 @@ export default function DispatchBoard() {
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
-  const { isCompanyOwner } = useInventoryAccess();
+  const { isCompanyOwner, data: discoveryAccess } = useInventoryAccess();
+  const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   useEffect(() => {
     if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
   }, [isCompanyOwner, activeTab]);
@@ -266,7 +260,6 @@ export default function DispatchBoard() {
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
   const [vehicles, setVehicles] = useState<{ id: string; label: string; can_execute: boolean }[]>([]);
-  const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
   const [warehouses, setWarehouses] = useState<Array<WarehouseOption & { can_execute: boolean }>>([]);
   const [selectedSourceWarehouseId, setSelectedSourceWarehouseId] = useState("");
   const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
@@ -301,7 +294,6 @@ export default function DispatchBoard() {
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
   const [routeLoadNames, setRouteLoadNames] = useState<Record<string, string>>({});
-  const [routeLoadMetaError, setRouteLoadMetaError] = useState(false);
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
@@ -389,35 +381,14 @@ export default function DispatchBoard() {
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
   const [confirmName, setConfirmName] = useState("");
 
-  // C-03: React-state product search filter (replaces DOM manipulation)
-  const [productSearch, setProductSearch] = useState("");
-  const deferredProductSearch = useDeferredValue(productSearch);
-  const productsById = useMemo(
-    () => new Map(products.map((product) => [product.id, product] as const)),
-    [products],
-  );
-  const searchedLaunchProducts = useMemo(
-    () => boundedDispatchProductSearch(products, deferredProductSearch),
-    [products, deferredProductSearch],
-  );
-  const selectedLaunchProducts = useMemo(() => {
-    const selectedIds = new Set([...Object.keys(routeLoadCurrent), ...Object.keys(routeLoadTargets)]);
-    const selected = selectedDispatchProducts(productsById,
-      Object.fromEntries([...selectedIds].map((id) => [id, 1])));
-    const unavailableInBootstrap = [...selectedIds]
-      .filter((id) => !productsById.has(id))
-      .map((id) => ({ id, name: routeLoadNames[id] || id }));
-    return [...selected, ...unavailableInBootstrap];
-  }, [productsById, routeLoadCurrent, routeLoadTargets, routeLoadNames]);
-  const visibleLaunchProducts = useMemo(
-    () => mergeDispatchProductWindow(selectedLaunchProducts, searchedLaunchProducts),
-    [selectedLaunchProducts, searchedLaunchProducts],
-  );
-
   // CS-WH-03: Warehouse audit lock status for dispatch warning banner
   const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
   const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
-  const [vehicleInventoryLoadedForId, setVehicleInventoryLoadedForId] = useState<string | null>(null);
+  const [vehicleInventoryLoadedForContext, setVehicleInventoryLoadedForContext] = useState<string | null>(null);
+  const activeRouteContext = pendingRoutes.find((route) => route.id === activeRoute?.id) ?? activeRoute;
+  const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
+    ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
+  const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const fetchInitialData = useCallback(() => {
@@ -429,13 +400,11 @@ export default function DispatchBoard() {
         const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
         const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
         const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
-        const nextProducts = Array.isArray(data.products) ? data.products : [];
 
         setZones(sorted);
         setDrivers(nextDrivers);
         setVehicles(nextVehicles);
         setWarehouses(nextWarehouses);
-        setProducts(nextProducts);
 
         setSelectedZoneIdForZones((prev) =>
           sorted.some((zone) => zone.id === prev)
@@ -455,17 +424,7 @@ export default function DispatchBoard() {
           nextWarehouses.some((warehouse) => warehouse.id === prev) ? prev : ""
         );
 
-        if (nextProducts.length > 0) {
-          setNewShortage((prev) =>
-            prev.productId
-              ? prev
-              : {
-                  productId: nextProducts[0].id,
-                  productName: nextProducts[0].name,
-                  quantity: 1,
-                }
-          );
-        }
+
       })
       .catch((err: unknown) => {
         if (!(err instanceof Error && err.name === "AbortError")) {
@@ -673,26 +632,26 @@ export default function DispatchBoard() {
       setRouteLoadTargets({});
       setRouteLoadUnits({});
       setRouteLoadNames({});
-      setRouteLoadMetaError(false);
-      setVehicleInventoryLoadedForId(null);
+      setVehicleInventoryLoadedForContext(null);
       return;
     }
 
+    setPreloadQuantities({});
     setRouteLoadCurrent({});
     setRouteLoadTargets({});
     setRouteLoadUnits({});
     setRouteLoadNames({});
-    setRouteLoadMetaError(false);
     const requestedVehicleId = selectedVehicleId;
     const controller = new AbortController();
-    setVehicleInventoryLoadedForId(null);
+    setVehicleInventoryLoadedForContext(null);
 
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
       signal: controller.signal,
     })
       .then((data) => {
+        if (controller.signal.aborted) return;
         if (!Array.isArray(data)) {
-          throw new Error("استجابة مخزون المركبة غير صالحة.");
+          throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
         // The legacy carton fields are used only for older Route Management actions.
         const inventory: Record<string, number> = {};
@@ -709,39 +668,16 @@ export default function DispatchBoard() {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
           return [String(item.product_id), String(item.product_name || item.product_id)];
         })));
-        setVehicleInventoryLoadedForId(requestedVehicleId);
+        setVehicleInventoryLoadedForContext(vehicleLoadContext);
       })
       .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setVehicleInventoryLoadedForId(null);
-        toast.error("خطأ في جلب مخزون المركبة: " + getErrorMessage(err));
+        if (controller.signal.aborted) return;
+        setVehicleInventoryLoadedForContext(null);
+        toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
 
     return () => controller.abort();
-  }, [selectedVehicleId, vehicleInventoryReloadKey, authenticatedFetch]);
-
-  // Resolve only visible products not already present in the exact vehicle snapshot.
-  useEffect(() => {
-    if (!selectedVehicleId || vehicleInventoryLoadedForId !== selectedVehicleId) return;
-    const missing = visibleLaunchProducts.filter((p) => !routeLoadUnits[p.id]).map((p) => p.id);
-    if (!missing.length) return;
-    const controller = new AbortController();
-    const params = new URLSearchParams({ vehicle_id: selectedVehicleId });
-    missing.slice(0, 100).forEach((id) => params.append("product_ids", id));
-    authenticatedFetch(`/dispatch/route-load/uom?${params.toString()}`, { signal: controller.signal })
-      .then((raw) => {
-        const units = parseRouteLoadUomWindow(raw);
-        if (missing.some((id) => !units[id])) throw new Error("DISPATCH_UOM_METADATA_MISSING");
-        setRouteLoadUnits((current) => ({ ...current, ...units }));
-        setRouteLoadMetaError(false);
-      })
-      .catch((err: unknown) => {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setRouteLoadMetaError(true);
-        toast.error(t("dispatchRouteLoad.blocked"));
-      });
-    return () => controller.abort();
-  }, [visibleLaunchProducts, routeLoadUnits, vehicleInventoryLoadedForId, selectedVehicleId, authenticatedFetch, t]);
+  }, [selectedVehicleId, vehicleLoadContext, vehicleInventoryReloadKey, authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -890,7 +826,7 @@ export default function DispatchBoard() {
     if (isWarehouseLocked) {
       return toast.error("🔒 مستودع المصدر تحت الجرد حالياً ولا يمكن إطلاق حمولة منه.");
     }
-    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+    if (!vehicleCustodyReady) {
       return toast.info("جاري تحميل مخزون السيارة. حاول بعد اكتمال القراءة.");
     }
 
@@ -902,7 +838,7 @@ export default function DispatchBoard() {
 
     let inventoryBase: Record<string, Quantity>;
     try {
-      if (routeLoadMetaError || visibleLaunchProducts.some((p) => !routeLoadUnits[p.id])) {
+      if (Object.keys(routeLoadTargets).some((id) => !routeLoadUnits[id])) {
         throw new Error("DISPATCH_UOM_METADATA_MISSING");
       }
       inventoryBase = buildRouteLoadBaseTargets(routeLoadTargets, routeLoadUnits);
@@ -946,7 +882,7 @@ export default function DispatchBoard() {
       toast.error("⚠️ اختر السيارة.");
       return;
     }
-    if (vehicleInventoryLoadedForId !== selectedVehicleId) {
+    if (!vehicleCustodyReady) {
       toast.info("جاري تحميل مخزون السيارة. انتظر اكتمال القراءة قبل الاعتماد.");
       return;
     }
@@ -1357,13 +1293,7 @@ export default function DispatchBoard() {
       const wasEditing = editingShortageIds.length > 0;
       setEditingShortageIds([]);
       setShortageDraft([]);
-      if (products.length > 0) {
-        setNewShortage({
-          productId: products[0].id,
-          productName: products[0].name,
-          quantity: 1,
-        });
-      }
+      setNewShortage({ quantity: 1 });
       toast.success(
         wasEditing
           ? "تم حفظ تعديلات الطلبات ذرياً"
@@ -1377,12 +1307,12 @@ export default function DispatchBoard() {
 
   const handleAddProductToDraft = () => {
     if (!newShortage.productId || !newShortage.quantity) {
-      return toast.error("⚠️ اختر منتج وكمية");
+      return toast.error(t("dispatchProductSearch.chooseQuantity"));
     }
 
-    const product = products.find((item) => item.id === newShortage.productId);
+    const product = newShortage.productName ? { id: newShortage.productId, name: newShortage.productName } : null;
     if (!product) {
-      return toast.error("المنتج المحدد لم يعد متاحاً.");
+      return toast.error(t("dispatchProductSearch.unavailable"));
     }
 
     setShortageDraft((prev) => {
@@ -1573,7 +1503,7 @@ export default function DispatchBoard() {
                       setRouteModalType(t);
                       setTransferDriverId(r.driverId);
                       setPreloadQuantities({});
-                      setVehicleInventoryLoadedForId(null);
+                      setVehicleInventoryLoadedForContext(null);
                       setSelectedVehicleId(r.vehicleId);
                       setVehicleInventoryReloadKey((key) => key + 1);
                       setIsRouteModalOpen(true);
@@ -1671,108 +1601,15 @@ export default function DispatchBoard() {
                 />
               </div>
 
-              {/* +++ الحاوية الثانية: جدول الحمولة (محدود الارتفاع بـ 400px لحل مشكلة المليون منتج) +++ */}
-              <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm mb-4 mt-0">
-                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
-                  📦 إدخال الحمولة (كرتونة)
-                </div>
-                
-                {/* +++ تقييد الارتفاع الصارم h-[400px] لمنع تمدد الصفحة اللانهائي +++ */}
-                <div className="w-full mt-6 h-[400px] overflow-y-auto custom-scrollbar rounded-b-2xl">
-                  <table className="w-full text-sm">
-                    <thead className="sticky top-0 z-10 bg-slate-50/90 backdrop-blur-md shadow-sm border-b border-slate-200">
-                      <tr className="text-slate-500 text-xs uppercase">
-                        <th className="text-start py-3 px-6 font-extrabold w-1/3">
-                          <div className="flex flex-col md:flex-row md:items-center gap-4">
-                            <span>المنتج</span>
-                            <div className="relative font-normal flex-1 max-w-sm">
-                              <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-                              <input
-                                type="search"
-                                placeholder="ابحث عن منتج (مثال: لولو شيبس)..."
-                                value={productSearch}
-                                onChange={(e) => setProductSearch(e.target.value)}
-                                className="w-full pl-4 pr-9 py-1.5 text-xs border border-slate-200 rounded-lg outline-none focus:border-[#1e87bb] bg-white transition-all shadow-sm"
-                              />
-                              <span className="mt-1 block text-[10px] font-semibold text-slate-400">
-                                يعرض حتى {DISPATCH_PRODUCT_WINDOW_LIMIT} نتيجة فقط للحفاظ على سرعة الصفحة. ابحث بالاسم للوصول لأي منتج.
-                              </span>
-                            </div>
-                          </div>
-                        </th>
-                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.current")}</th>
-                        <th className="text-center py-3 px-3 font-extrabold relative">
-                          {/* +++ سنترة الكلمة فوق العدادات بالضبط +++ */}
-                          <span className="block w-full text-center">{t("dispatchRouteLoad.target")}</span>
-                          {/* +++ زر التصفير تم نقله لأقصى اليسار ليفسح المجال للسنترة المطلقة +++ */}
-                          <button onClick={() => setRouteLoadTargets({})} className="absolute left-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-500 hover:text-red-700 flex items-center gap-1 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-md transition-colors border border-red-100 shadow-sm shrink-0">
-                            <Eraser className="w-3.5 h-3.5" /> تصفير الحمولة
-                          </button>
-                        </th>
-                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.difference")}</th>
-                        <th className="text-center py-3 px-3 font-extrabold">{t("dispatchRouteLoad.action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {visibleLaunchProducts.map((prod) => {
-                        const unit = routeLoadUnits[prod.id];
-                        const current = routeLoadCurrent[prod.id] ?? "0";
-                        const target = routeLoadTargets[prod.id] ?? "0";
-                        let review: ReturnType<typeof routeLoadReview> | null = null;
-                        try {
-                          if (unit) review = routeLoadReview(current, target, unit);
-                        } catch {
-                          // Invalid draft stays visible, but launch validation fails closed.
-                        }
-                        return (
-                          <tr key={prod.id} className="hover:bg-slate-50 transition-colors">
-                            <td className="py-3 px-6 font-bold text-slate-800 text-base">{prod.name}</td>
-                            <td className="py-3 px-3 text-center">
-                              {unit ? (
-                                <div className="font-semibold">
-                                  {formatRouteLoadQuantity(current, unit)}
-                                  <div className="text-xs text-slate-500">{formatQuantity(current, unit.base_uom_name)}</div>
-                                </div>
-                              ) : t("dispatchRouteLoad.loading")}
-                            </td>
-                            <td className="py-3 px-3">
-                              <div className="flex flex-col items-center gap-1">
-                                <label className="sr-only" htmlFor={`route-base-${prod.id}`}>
-                                  {t("dispatchRouteLoad.target")} — {prod.name}
-                                </label>
-                                <input
-                                  id={`route-base-${prod.id}`}
-                                  type="text"
-                                  inputMode="decimal"
-                                  disabled={!unit}
-                                  aria-invalid={Boolean(unit && !review)}
-                                  title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
-                                  className="w-28 rounded-lg border border-slate-300 p-2 text-center focus-visible:ring-2 focus-visible:ring-sky-500"
-                                  value={target}
-                                  onChange={(event) => {
-                                    const value = event.target.value;
-                                    setRouteLoadTargets((previous) => ({ ...previous, [prod.id]: value }));
-                                  }}
-                                />
-                                <span className="text-xs text-slate-500">{unit?.base_uom_name ?? ""}</span>
-                                {unit && review && <span className="text-xs text-slate-600">{formatRouteLoadQuantity(target, unit)}</span>}
-                              </div>
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              {unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              {!review ? t("dispatchRouteLoad.blocked") :
-                                t(review.direction === "ADD" ? "dispatchRouteLoad.add" :
-                                  review.direction === "UNLOAD" ? "dispatchRouteLoad.unload" : "dispatchRouteLoad.unchanged")}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <RouteLoadProductTable vehicleId={selectedVehicleId} warehouseId={selectedSourceWarehouseId} scope={productScope}
+                current={vehicleCustodyReady ? routeLoadCurrent : {}} targets={vehicleCustodyReady ? routeLoadTargets : {}}
+                units={vehicleCustodyReady ? routeLoadUnits : {}} names={vehicleCustodyReady ? routeLoadNames : {}} custodyReady={vehicleCustodyReady}
+                onClear={() => setRouteLoadTargets({})}
+                onTargetChange={(id, name, unit, value) => {
+                  setRouteLoadTargets((previous) => ({ ...previous, [id]: value }));
+                  setRouteLoadUnits((previous) => ({ ...previous, [id]: unit }));
+                  setRouteLoadNames((previous) => ({ ...previous, [id]: name }));
+                }} />
 
               {/* Keep the primary launch action reachable on short viewports. */}
               <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
@@ -1909,7 +1746,7 @@ export default function DispatchBoard() {
         shortageShopId={shortageShopId}
         onZoneChange={id => { setShortageZoneId(id); setShortageShopId(""); }}
         onShopChange={id => { setShortageShopId(id); }}
-        products={products}
+        productScope={productScope}
         newShortage={newShortage}
         onNewShortageChange={setNewShortage}
         shortageDraft={shortageDraft}
@@ -1935,15 +1772,18 @@ export default function DispatchBoard() {
         isOpen={isRouteModalOpen}
         onClose={() => setIsRouteModalOpen(false)}
         routeModalType={routeModalType}
-        activeRoute={activeRoute}
+        activeRoute={activeRouteContext}
         drivers={drivers}
         transferDriverId={transferDriverId}
         onTransferDriverChange={setTransferDriverId}
         vehicles={vehicles}
         selectedVehicleId={selectedVehicleId}
         onVehicleChange={setSelectedVehicleId}
-        products={products}
-        preloadQuantities={preloadQuantities}
+        productScope={productScope}
+        productNames={vehicleCustodyReady ? routeLoadNames : {}}
+        preloadQuantities={vehicleCustodyReady ? preloadQuantities : {}}
+        custodyProductIds={vehicleCustodyReady ? Object.keys(routeLoadCurrent) : []}
+        custodyReady={vehicleCustodyReady}
         onPreloadQuantitiesChange={setPreloadQuantities}
         onClearInventory={() => setConfirmDialog({
           isOpen: true,
@@ -1995,7 +1835,7 @@ export default function DispatchBoard() {
         principalId={sourceAccess.data?.principal_id}
         isOpen={isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
-        route={inventoryRoute}
+        route={pendingRoutes.find((route) => route.id === inventoryRoute?.id) ?? inventoryRoute}
         onSuccess={() => { fetchInitialData(); }}
       />
 

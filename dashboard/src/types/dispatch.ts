@@ -23,6 +23,7 @@ export interface PendingRoute {
   driverId: string;
   driverName: string;
   vehicleId: string;
+  sourceWarehouseId?: string;
   shopsRemaining: number;
   status: RouteStatus;
   sessionEnded: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++

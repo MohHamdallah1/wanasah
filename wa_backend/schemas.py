@@ -1011,7 +1011,6 @@ class DispatchInitResponse(BaseModel):
     drivers: List[DispatchDriverResponse]
     vehicles: List[DispatchVehicleResponse]
     warehouses: List[DispatchWarehouseResponse]
-    products: List[DispatchProductResponse]
 
 class DispatchRouteRequest(RequestModel):
     zone_id: PositiveDbInt
@@ -1238,6 +1237,7 @@ class ActiveRouteResponse(BaseModel):
     driverId: Optional[str] = ""
     driverName: Optional[str] = ""
     vehicleId: Optional[str] = ""
+    sourceWarehouseId: str = ""
     shopsRemaining: int
     status: str
     sessionEnded: bool

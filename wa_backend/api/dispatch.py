@@ -151,7 +151,13 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
+from api.dispatch_products import router as product_discovery_router
+from api.dispatch_product_schemas import DispatchProductPageResponse
+from domains.dispatch_product_discovery import dispatch_product_page
+from domains.dispatch_product_cursor import DispatchProductCursorError
+
 router = APIRouter(tags=["Admin & Dispatch Operations"])
+router.include_router(product_discovery_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
@@ -1199,13 +1205,6 @@ async def dispatch_init(
         InventoryLocation.is_active.is_(True),
         access.location_filter('dispatch.execute'),
     ))).all())
-    products = (await db.execute(
-        select(ProductVariant.id, ProductVariant.name).where(
-            ProductVariant.company_id == company_id,
-            product_capability_predicate(ProductVariant, ROUTE_LOAD_NEW),
-        ).order_by(ProductVariant.id.asc())
-    )).all()
-
     shop_counts = (await db.execute(
         select(Shop.zone_id, func.count(Shop.id)).filter(
             Shop.company_id == company_id,
@@ -1246,7 +1245,6 @@ async def dispatch_init(
                       "can_execute": v.id in executable_vehicles} for v in vehicles],
         "warehouses": [{"id": str(w.id), "label": f"{w.name} ({w.code})",
                         "can_execute": w.id in executable_warehouses} for w in warehouses],
-        "products": [{"id": str(product_id), "name": product_name} for product_id, product_name in products],
     }
 
 
@@ -2090,12 +2088,13 @@ async def get_dispatch_route_load_uom(
         }) from exc
 
 
-@router.get("/dispatch/route/{route_id}/live_inventory", response_model=List[RouteLiveInventoryItemResponse], status_code=200)
+@router.get("/dispatch/route/{route_id}/live_inventory", response_model=List[RouteLiveInventoryItemResponse] | DispatchProductPageResponse, status_code=200)
 async def get_route_live_inventory(
     route_id: int,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
     search: Annotated[str | None, Query(max_length=100)] = None,
+    cursor: Annotated[str | None, Query(max_length=2048)] = None,
     product_ids: Annotated[List[int] | None, Query(max_length=80)] = None,
     limit: Annotated[int, Query(ge=1, le=80)] = 80,
 ):
@@ -2120,10 +2119,17 @@ async def get_route_live_inventory(
     )
 
     try:
+        if search is not None or cursor is not None:
+            return await dispatch_product_page(db, company_id=company_id, purpose="LOAD", search=search,
+                cursor=cursor, limit=limit, route_id=route.id, warehouse_id=route.source_location_id,
+                vehicle_id=route.vehicle_id, vehicle_location_id=vehicle_location_id,
+                work_session_id=route.work_session_id, driver_id=route.driver_id)
         return await read_adjust_load_inventory(
             db, company_id=company_id, route=route, vehicle_location_id=vehicle_location_id,
-            search=search, product_ids=product_ids, limit=limit,
+            product_ids=product_ids,
         )
+    except DispatchProductCursorError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message, "context": {}}) from exc
     except UomAuthorityError as exc:
         raise HTTPException(status_code=409, detail={
             "code": exc.code, "message": exc.message, "context": exc.context,
@@ -3728,6 +3734,7 @@ async def get_active_routes(
             "driverId": str(r.driver_id) if r.driver_id else "",
             "driverName": drivers_map.get(r.driver_id, "بدون مندوب") if r.driver_id else "بدون مندوب",
             "vehicleId": str(r.vehicle_id) if r.vehicle_id else "",
+            "sourceWarehouseId": str(r.source_location_id) if r.source_location_id else "",
             "shopsRemaining": shops_remaining,
             "status": r.status,
             "sessionEnded": session_ended,

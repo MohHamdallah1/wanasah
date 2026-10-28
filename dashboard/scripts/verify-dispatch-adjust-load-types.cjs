@@ -27,6 +27,9 @@ const focus = [
   'src/features/dispatch/adjustLoad.ts', 'src/features/dispatch/routeTransfers.ts',
   'src/features/dispatch/useAdjustLoadCommand.ts', 'src/i18n/dispatchAdjustLoad.ts',
   'src/test/dispatch-adjust-load.test.tsx', 'src/test/setup.ts',
+  'src/components/dispatch/RouteLoadProductTable.tsx', 'src/components/dispatch/RouteManagementModal.tsx',
+  'src/components/dispatch/ShortageModal.tsx', 'src/components/dispatch/ShortageProductPicker.tsx',
+  'src/test/dispatch-product-discovery.test.tsx',
 ].map(file => path.join(dashboard, file));
 function diagnostics(baseline, scoped = false) {
   const host = ts.createCompilerHost(parsed.options);

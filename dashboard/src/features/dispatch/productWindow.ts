@@ -3,40 +3,6 @@ export type DispatchProductOption = {
   name: string;
 };
 
-export const DISPATCH_PRODUCT_WINDOW_LIMIT = 80;
-
-const searchTokens = (search: string): string[] =>
-  search
-    .trim()
-    .toLocaleLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
-
-export function boundedDispatchProductSearch(
-  products: DispatchProductOption[],
-  search: string,
-  limit = DISPATCH_PRODUCT_WINDOW_LIMIT,
-): DispatchProductOption[] {
-  if (limit <= 0) return [];
-
-  const tokens = searchTokens(search);
-  const result: DispatchProductOption[] = [];
-
-  for (const product of products) {
-    if (tokens.length) {
-      const name = product.name.toLocaleLowerCase();
-      if (!tokens.every((token) => name.includes(token))) {
-        continue;
-      }
-    }
-
-    result.push(product);
-    if (result.length >= limit) break;
-  }
-
-  return result;
-}
-
 export function selectedDispatchProducts(
   productsById: Map<string, DispatchProductOption>,
   quantities: Record<string, number>,
@@ -66,12 +32,12 @@ export function positiveDispatchInventory(
   return result;
 }
 
-export function mergeDispatchProductWindow(
-  selected: DispatchProductOption[],
-  searched: DispatchProductOption[],
-): DispatchProductOption[] {
+export function mergeDispatchProductWindow<T extends DispatchProductOption>(
+  selected: T[],
+  searched: T[],
+): T[] {
   const seen = new Set<string>();
-  const result: DispatchProductOption[] = [];
+  const result: T[] = [];
 
   for (const product of [...selected, ...searched]) {
     if (seen.has(product.id)) continue;

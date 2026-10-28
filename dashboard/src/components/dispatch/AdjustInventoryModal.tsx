@@ -9,8 +9,10 @@ import { currentLocale } from "@/i18n";
 import type { PendingRoute } from "@/types/dispatch";
 import { adjustmentReview, buildAdjustmentPayload, parseAdjustmentDraft, type AdjustLoadItem } from "@/features/dispatch/adjustLoad";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
+import { ProductSearchControls } from "./ProductSearchControls";
+import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
-import { ADJUST_LOAD_SEARCH_LIMIT, hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
+import { hasAdjustmentDraft, useAdjustLoadProducts } from "@/features/dispatch/useAdjustLoadProducts";
 
 // DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
 interface AdjustInventoryModalProps {
@@ -27,35 +29,41 @@ export function AdjustInventoryModal({
 }: AdjustInventoryModalProps) {
   const { t, i18n } = useTranslation();
   const command = useAdjustLoadCommand(isOpen ? route?.id : undefined, companyId, principalId);
-  const [deltas, setDeltas] = useState<Record<string, string>>({});
+  const [draftDeltas, setDeltas] = useState<Record<string, string>>({});
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [draftError, setDraftError] = useState(false);
-  const [search, setSearch] = useState("");
+  const loadContext = JSON.stringify([route?.id, route?.vehicleId, route?.sourceWarehouseId]);
+  const contextScope = command.scope ? `${command.scope}:${loadContext}` : null;
+  const deltas = draftScope === contextScope ? draftDeltas : {};
+  const [search, setSearch] = useLoadProductSearchText(JSON.stringify([isOpen, contextScope]));
   const [step, setStep] = useState<"edit" | "review">("edit");
-  const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope);
+  const products = useAdjustLoadProducts(isOpen ? route?.id : undefined, step === "edit" ? search : "", deltas, command.scope, loadContext, step === "edit");
   const { items: inventory, loading } = products;
 
   useEffect(() => {
-    setStep("edit"); setSearch("");
-  }, [isOpen, route?.id]);
+    setStep("edit");
+  }, [isOpen, loadContext]);
 
   useEffect(() => {
     setDraftScope(null); setDraftError(false);
     if (!isOpen || !command.scope) return;
     try {
-      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(localStorage.getItem(`${command.scope}:draft`)))
+      const storedContext = localStorage.getItem(`${command.scope}:draft-context`);
+      const rawDraft = storedContext && storedContext !== loadContext ? null : localStorage.getItem(`${command.scope}:draft`);
+      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(rawDraft))
         .filter(([, value]) => hasAdjustmentDraft(value))));
-      setDraftScope(command.scope);
+      setDraftScope(contextScope);
     } catch { setDraftError(true); }
-  }, [isOpen, command.scope]);
+  }, [isOpen, command.scope, contextScope, loadContext]);
   useEffect(() => {
-    if (isOpen && command.scope && draftScope === command.scope && !draftError) {
-      localStorage.setItem(`${command.scope}:draft`, JSON.stringify(deltas));
+    if (isOpen && command.scope && draftScope === contextScope && !draftError) {
+      localStorage.setItem(`${command.scope}:draft`, JSON.stringify(draftDeltas));
+      localStorage.setItem(`${command.scope}:draft-context`, loadContext);
     }
-  }, [command.scope, deltas, draftError, draftScope, isOpen]);
+  }, [command.scope, contextScope, loadContext, draftDeltas, draftError, draftScope, isOpen]);
 
   const blocked = !command.scope || !command.ready || loading || command.busy ||
-    !!command.pending || !!command.recoveryError || draftError || !!products.error;
+    command.recoveryRequired || !!command.recoveryError || draftError || !!products.error;
   const update = (id: string, value: string) => {
     if (blocked) return;
     setDeltas((current) => {
@@ -134,7 +142,8 @@ export function AdjustInventoryModal({
       <div dir={i18n.dir()} className="space-y-4">
         {!command.online && <p role="status">{t("dispatchAdjustLoad.offline")}</p>}
         {(command.recoveryError || draftError) && <p role="alert">{t("dispatchAdjustLoad.unknown")}</p>}
-        {command.pending ? <div role="alert" className="space-y-3">
+        {command.busy && !command.recoveryRequired && <p role="status">{t("dispatchAdjustLoad.saving")}</p>}
+        {command.recoveryRequired ? <div role="alert" className="space-y-3">
           <p>{t("dispatchAdjustLoad.unknown")}</p>
           <button type="button" onClick={() => void save(true)}
             disabled={command.busy || !command.online || !!command.recoveryError}>{t("common.retry")}</button>
@@ -143,23 +152,11 @@ export function AdjustInventoryModal({
           if (blocked) return;
           if (step === "edit") review(); else void save();
         }} className="space-y-4">
-          {step === "edit" && <input aria-label={t("dispatchAdjustLoad.search")} placeholder={t("dispatchAdjustLoad.search")}
-            value={search} maxLength={100} onChange={(event) => setSearch(event.target.value)} className="w-full rounded border p-2" />}
+          {step === "edit" && <ProductSearchControls search={search} onChange={setSearch} page={products.page} />}
           {loading && <p role="status">{t("common.loading")}</p>}
-          {products.error ? <div role="alert">
-            <p>{t("dispatchAdjustLoad.loadError")}</p>
-            <p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
-            <button type="button" onClick={products.retry}>{t("common.retry")}</button>
-          </div> : step === "edit" && <>
-            {products.searching && <p role="status">{t("dispatchAdjustLoad.searching")}</p>}
-            {!!products.searchError && <div role="alert"><p>{t("dispatchAdjustLoad.searchError")}</p><p>{apiErrorMessage(products.searchError, t("dispatchAdjustLoad.searchError"))}</p>
-              <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
-            {!loading && !products.searching && !products.searchError && <p role="status">{t(search.trim().length >= 2
-              ? products.resultCount ? "dispatchAdjustLoad.searchLimit" : "dispatchAdjustLoad.searchEmpty"
-              : inventory.length ? "dispatchAdjustLoad.searchHint" : "dispatchAdjustLoad.loadedEmpty", {
-                limit: formatLocaleDecimal(String(ADJUST_LOAD_SEARCH_LIMIT), currentLocale()),
-              })}</p>}
-          </>}
+          {!!products.error && <div role="alert"><p>{apiErrorMessage(products.error, t("dispatchAdjustLoad.loadError"))}</p>
+            <button type="button" onClick={products.retry}>{t("common.retry")}</button></div>}
+          {!loading && !products.error && !inventory.length && <p role="status">{t("dispatchAdjustLoad.loadedEmpty")}</p>}
           <div className="max-h-[50vh] space-y-3 overflow-auto">{rows.map(renderRow)}</div>
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">

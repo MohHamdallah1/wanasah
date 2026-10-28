@@ -15,15 +15,16 @@ export function useAdjustLoadCommand(routeId: string | undefined, companyId?: nu
   const [recoveryError, setRecoveryError] = useState<unknown>(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [recoveryRequired, setRecoveryRequired] = useState(false);
   const active = useRef(new Set<string>());
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   useEffect(() => {
     let live = true;
-    setReady(false); setPending(null); setRecoveryError(null); setBusy(false);
+    setReady(false); setPending(null); setRecoveryError(null); setBusy(false); setRecoveryRequired(false);
     if (!scope) return;
     void readDurableCommand<AdjustLoadPayload>(scope).then((command) => {
-      if (live) { setPending(command); setReady(true); }
+      if (live) { setPending(command); setRecoveryRequired(!!command); setReady(true); }
     }).catch((error) => { if (live) setRecoveryError(error); });
     return () => { live = false; };
   }, [scope]);
@@ -46,12 +47,15 @@ export function useAdjustLoadCommand(routeId: string | undefined, companyId?: nu
       completeDurableOperation(scope, command.requestId);
       if (scopeRef.current !== scope) return null;
       setPending(null);
+      setRecoveryRequired(false);
       return result.mode;
     } catch (error) {
       const status = apiErrorStatus(error);
       if (command && status >= 400 && status < 500 && !isAmbiguousRequestError(error)) {
         completeDurableOperation(scope, command.requestId);
-        if (scopeRef.current === scope) setPending(null);
+        if (scopeRef.current === scope) { setPending(null); setRecoveryRequired(false); }
+      } else if (command && scopeRef.current === scope) {
+        setPending(command); setRecoveryRequired(true);
       }
       throw error;
     } finally {
@@ -59,5 +63,5 @@ export function useAdjustLoadCommand(routeId: string | undefined, companyId?: nu
       if (scopeRef.current === scope) setBusy(false);
     }
   };
-  return { scope, pending, ready, busy, recoveryError, online, execute };
+  return { scope, pending, ready, busy, recoveryRequired, recoveryError, online, execute };
 }

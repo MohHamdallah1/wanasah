@@ -284,12 +284,31 @@ Before V1 is done:
 
 V1 does **not** require production-like proof of 1,000 simultaneous real HTTP/TLS clients, large multi-company scale, horizontal autoscaling, or every long-term Modulith boundary to be fully migrated.
 
-### Owner-approved large-catalog scale deferral — 2026-10-26
+### Owner-approved Dispatch discovery closure — 2026-10-28
+
+The owner explicitly revoked the Dispatch full-catalog transport deferral.
+V1 requires `/dispatch/init` to contain no Product catalog and every Dispatch
+product picker (Route Launch, Adjust Load, Route Management and Shortages) to
+use lazy backend search with cursor continuation. A page size such as 80 must
+never make matching products beyond that page unreachable. Warehouse load flows
+reuse authoritative source-stock eligibility; Shortages retain their distinct
+domain eligibility. Current custody and selected/drafted products remain pinned,
+with bounded visible search windows. Adjust Load must distinguish normal in-flight
+commands from genuine durable recovery without weakening idempotency.
+
+Owner final UX rule for PR #583: once Vehicle and source Warehouse context exists,
+Route Launch, active Adjust Load and the Route Management load editor immediately
+show the first eligible positive-usable-stock page, with blank search valid and
+cursor continuation. Current Vehicle custody and explicit selections/drafts stay
+pinned even with zero source stock; ordinary zero-source-stock products stay out.
+Vehicle/source changes reset search, pages and stale rows and reload custody.
+Search filters the same stock authority. Shortage discovery remains domain-specific.
+
+### Remaining large-catalog scale deferral — 2026-10-26, narrowed 2026-10-28
 
 For the first-company V1 launch, the following are explicitly **not V1 blockers** and are tracked in `VERSION_2_FUTURE_FEATURES.md`:
 
 - proving Vehicle Load query/search performance in the extreme case where about 50,000 products all have eligible stock in one warehouse, beyond the already bounded server-side page/search design;
-- replacing Dispatch `/dispatch/init` full product-catalog transport with a bounded warehouse/stock-aware server-side product picker.
 
 This deferral applies only to large-catalog scale/transport optimization. It does **not** defer any demonstrated correctness bug in UOM meaning, existing Vehicle-load prefill, route target/delta calculation, Warehouse ↔ Vehicle movement, authorization, lifecycle safety, or inventory truth.
 

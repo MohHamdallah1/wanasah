@@ -1,3 +1,9 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useDispatchProductSearch, type DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchProductSearch";
+import { mergeDispatchProductWindow } from "@/features/dispatch/productWindow";
+import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
+import { ProductSearchControls } from "./ProductSearchControls";
 import { Package, Eraser, Lock } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
@@ -16,8 +22,11 @@ interface RouteManagementModalProps {
   vehicles: { id: string; label: string }[];
   selectedVehicleId: string;
   onVehicleChange: (id: string) => void;
-  products: { id: string; name: string }[];
+  productScope: string | null;
+  productNames: Record<string, string>;
   preloadQuantities: Record<string, number>;
+  custodyProductIds?: string[];
+  custodyReady?: boolean;
   onPreloadQuantitiesChange: (quantities: Record<string, number>) => void;
   onClearInventory: () => void;
   onConfirmAction: () => void;
@@ -34,16 +43,28 @@ export function RouteManagementModal({
   vehicles,
   selectedVehicleId,
   onVehicleChange,
-  products,
+  productScope,
+  productNames,
   preloadQuantities,
+  custodyProductIds = [],
+  custodyReady = true,
   onPreloadQuantitiesChange,
   onClearInventory,
   onConfirmAction,
 }: RouteManagementModalProps) {
+  const { t, i18n } = useTranslation();
+  const context = JSON.stringify([productScope, isOpen, activeRoute?.id, activeRoute?.sourceWarehouseId, selectedVehicleId]);
+  const [search, setSearch] = useLoadProductSearchText(context);
+  const [selectedNames, setSelectedNames] = useState<Record<string, string>>({});
+  const page = useDispatchProductSearch(isOpen && activeRoute && selectedVehicleId
+    ? `/dispatch/products?purpose=LOAD&route_id=${encodeURIComponent(activeRoute.id)}&vehicle_id=${encodeURIComponent(selectedVehicleId)}` : null, search, productScope ? context : null);
+  const pinned: DispatchDiscoveryProduct[] = [...new Set([...custodyProductIds, ...Object.keys(preloadQuantities)])].map((id) => ({ id,
+    name: productNames[id] || selectedNames[id] || t("dispatchProductSearch.unavailable"), load: null }));
+  const products = mergeDispatchProductWindow(pinned, page.items);
   const identityLocked = Boolean(activeRoute?.sessionBound);
   const sessionEnded = Boolean(activeRoute?.sessionEnded);
   const transferBlocked = routeModalType === "transfer" && identityLocked;
-  const actionBlocked = !activeRoute || sessionEnded || transferBlocked;
+  const actionBlocked = !activeRoute || sessionEnded || transferBlocked || !custodyReady;
 
   return (
     <Modal
@@ -60,7 +81,7 @@ export function RouteManagementModal({
         </button>
       }
     >
-      <div className="space-y-6">
+      <div dir={i18n.dir()} className="space-y-6">
         {identityLocked && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800 flex items-center gap-2">
             <Lock className="w-4 h-4 shrink-0" />
@@ -106,23 +127,24 @@ export function RouteManagementModal({
           <div className="px-4 py-3 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
             <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
               <Package className="w-4 h-4 text-[#1e87bb]" />
-              الحمولة المستهدفة للسيارة
+              {t("dispatchProductSearch.managementTitle")}
             </h4>
             <button
               onClick={onClearInventory}
-              disabled={sessionEnded}
+              disabled={sessionEnded || !custodyReady}
               className="text-xs font-bold text-red-500 hover:text-red-600 flex items-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Eraser className="w-3.5 h-3.5" />
-              تصفير جميع الكميات
+              {t("dispatchProductSearch.clear")}
             </button>
           </div>
 
-          <table className="w-full text-sm">
+          <ProductSearchControls search={search} onChange={setSearch} page={page} />
+          <fieldset disabled={!custodyReady || sessionEnded}><div className="max-h-[400px] overflow-auto"><table className="w-full text-sm">
             <thead>
               <tr className="bg-white border-b border-slate-100">
-                <th className="text-start p-2 text-slate-500 font-bold text-[11px]">المنتج</th>
-                <th className="text-center p-2 font-bold text-slate-500 text-[11px]">الكمية المستهدفة (كرتونة)</th>
+                <th className="text-start p-2 text-slate-500 font-bold text-[11px]">{t("dispatchProductSearch.product")}</th>
+                <th className="text-center p-2 font-bold text-slate-500 text-[11px]">{t("dispatchProductSearch.cartons")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -133,19 +155,17 @@ export function RouteManagementModal({
                     <div className="flex justify-center">
                       <QuantityInput
                         value={preloadQuantities[product.id] ?? 0}
-                        onChange={(quantity) =>
-                          onPreloadQuantitiesChange({
-                            ...preloadQuantities,
-                            [product.id]: quantity,
-                          })
-                        }
+                        onChange={(quantity) => {
+                          setSelectedNames((names) => ({ ...names, [product.id]: product.name }));
+                          onPreloadQuantitiesChange({ ...preloadQuantities, [product.id]: quantity });
+                        }}
                       />
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div></fieldset>
         </div>
       </div>
     </Modal>

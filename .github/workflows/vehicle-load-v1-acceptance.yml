@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "wa_backend/api/dispatch.py"
+      - "wa_backend/api/dispatch_product*.py"
+      - "wa_backend/domains/dispatch_product*.py"
       - "wa_backend/api/driver.py"
       - "wa_backend/schemas.py"
       - "wa_backend/domains/dispatch_load_plan.py"
@@ -14,7 +16,10 @@ on:
       - "wa_backend/domains/inventory_source_stock.py"
       - "wa_backend/tests/test_dispatch_adjust_load_search.py"
       - "wa_backend/tests/test_dispatch_adjust_load_uom.py"
-      - "dashboard/src/components/dispatch/AdjustInventoryModal.tsx"
+      - "dashboard/src/components/dispatch/**"
+      - "dashboard/src/i18n/dispatchProductSearch.ts"
+      - "dashboard/src/test/dispatch-product-discovery.test.tsx"
+      - "dashboard/src/test/dispatch-load-context.test.tsx"
       - "dashboard/src/components/dispatch/TransfersRadarModal.tsx"
       - "dashboard/src/features/dispatch/**"
       - "dashboard/src/types/dispatch.ts"
@@ -68,6 +73,10 @@ jobs:
           wa_backend/domains/inventory_vehicle_load
           wa_backend/domains/inventory_source_stock.py
           wa_backend/domains/dispatch_adjust_load_read.py
+          wa_backend/domains/dispatch_product_cursor.py
+          wa_backend/domains/dispatch_product_discovery.py
+          wa_backend/api/dispatch_products.py
+          wa_backend/api/dispatch_product_schemas.py
           wa_backend/api/vehicles/load.py
           wa_backend/api/vehicles/load_schemas.py
           wa_backend/tests/test_vehicle_load_v1_contract.py
@@ -168,7 +177,7 @@ jobs:
                   "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO vehicle_load_app"
               )
           PY
-      - name: Vehicle Load PostgreSQL acceptance
+      - name: Vehicle Load and Dispatch discovery PostgreSQL acceptance (fresh 50k init isolation, 200 cursor results)
         working-directory: wa_backend
         run: >-
           python -m unittest -v
@@ -206,6 +215,8 @@ jobs:
           src/test/dispatch-adjust-load.test.tsx
           src/test/dispatch-route-load-uom.test.ts
           src/test/dispatch-scale-containment.test.ts
+          src/test/dispatch-product-discovery.test.tsx
+          src/test/dispatch-load-context.test.tsx
           src/test/archive-owner-navigation.test.tsx
       - name: Adjust Load TypeScript and full-app diagnostic regression guard
         working-directory: dashboard
@@ -224,6 +235,18 @@ jobs:
           src/test/vehicle-load-v1-contract.test.ts
           src/i18n/representativesVehicles.ts
           src/components/dispatch/AdjustInventoryModal.tsx
+          src/components/dispatch/ProductSearchControls.tsx
+          src/components/dispatch/RouteLoadProductTable.tsx
+          src/components/dispatch/RouteManagementModal.tsx
+          src/components/dispatch/ShortageModal.tsx
+          src/components/dispatch/ShortageProductPicker.tsx
+          src/features/dispatch/useDispatchProductSearch.ts
+          src/features/dispatch/useLoadProductSearchText.ts
+          src/features/dispatch/useAdjustLoadProducts.ts
+          src/features/dispatch/productWindow.ts
+          src/i18n/dispatchProductSearch.ts
+          src/test/dispatch-product-discovery.test.tsx
+          src/test/dispatch-load-context.test.tsx
           src/components/dispatch/TransfersRadarModal.tsx
           src/features/dispatch/adjustLoad.ts
           src/features/dispatch/routeTransfers.ts
