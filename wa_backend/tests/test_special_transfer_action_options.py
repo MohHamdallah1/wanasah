@@ -1,6 +1,7 @@
 import ast
 import pytest
 from pathlib import Path
+from typing import Optional
 
 from product_lifecycle import RETURN_DISPOSAL, evaluate_product_capability
 
@@ -109,6 +110,7 @@ def destination_reader(*, published, normalized=None, raises=False):
 
     namespace = {
         "AsyncSession": object,
+        "Optional": Optional,
         "get_transfer_destination_policy_state": get_state,
         "validate_transfer_destination_policy_payload": validate,
         "InventoryRuleError": FakeInventoryRuleError,
@@ -147,10 +149,16 @@ async def test_read_destination_snapshot_is_lock_free_and_server_derived():
 
 
 @pytest.mark.asyncio
-async def test_read_destination_snapshot_fails_closed_on_missing_or_stale_policy():
+async def test_read_destination_snapshot_uses_in_place_default_and_fails_closed_on_stale_policy():
     from types import SimpleNamespace
 
-    assert await destination_reader(published=None)(object(), company_id=7) == {}
+    # V1's existing no-policy default stages in the current warehouse.
+    assert await destination_reader(published=None)(object(), company_id=7) == {
+        "RETURN_TO_VENDOR": None,
+        "QUARANTINE": None,
+        "RECALL_RETURN": None,
+        "DISPOSAL": None,
+    }
     stale = SimpleNamespace(schema_version=2, validated_payload={})
     assert await destination_reader(published=stale)(object(), company_id=7) == {}
     invalid = SimpleNamespace(schema_version=1, validated_payload={})

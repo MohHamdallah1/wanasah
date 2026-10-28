@@ -15,7 +15,7 @@ import pytest_asyncio
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
 from fastapi import HTTPException
-from sqlalchemy import event, func, select, text
+from sqlalchemy import event, func, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -324,7 +324,8 @@ async def send(pg, payload=None, actor=None):
 
 
 async def source_page(db, access, location_id, *, cursor=None, limit=50, search=None):
-    return await transfers.get_unified_transfer_source_inventory(location_id, cursor, limit, search, db, access)
+    return await transfers.get_unified_transfer_source_inventory(location_id, cursor, limit, search, db, access,
+        destination_location_id=None, transfer_purpose="WAREHOUSE_BALANCING")
 
 
 async def list_page(db, access, location_id, *, cursor=None, limit=50, search=None):
@@ -1000,7 +1001,7 @@ async def test_vehicle_special_transfer_and_generic_direction_contract(pg):
         with pytest.raises(HTTPException) as direction:
             await transfers.unified_transfer_dispatch(dispatch_payload(pg.a, destination_location_id=pg.a.vehicle_location_id),
                 db, actor.access(db), actor.operational_driver)
-        assert direction.value.detail["code"] == "TRANSFER_DIRECTION_BLOCKED"
+        assert direction.value.status_code == 403  # Existing structural Warehouse-only rejection precedes dispatch.
         # The existing dedicated vehicle -> warehouse quality path remains supported.
         command = SpecialTransferDispatchRequest(request_id=uuid4(), source_location_id=pg.a.vehicle_location_id,
             transfer_purpose="QUARANTINE", notes="CP8 vehicle collection", items=[dict(product_variant_id=pg.a.variant_id,
@@ -1041,3 +1042,99 @@ async def test_competing_receive_and_cancel_have_one_terminal_effect(pg):
     async with pg.session(pg.a) as db:
         assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
             InventoryMovement.company_id == pg.a.company_id, InventoryMovement.transfer_header_id == sent["header_id"])) == 2
+
+
+async def test_generic_fefo_rejects_stocked_vehicle_even_with_both_capabilities(pg):
+    async with AsyncSession(pg.admin_engine) as seed:
+        await _grant_location(seed, pg.a, pg.a.vehicle_location_id, "transfer.send", "inventory.fefo_override")
+        await seed.commit()
+    async with pg.session(pg.a) as db:
+        access = pg.a.ordinary.access(db)
+        await access.require("transfer.send", pg.a.vehicle_location_id)
+        await access.require("inventory.fefo_override", pg.a.vehicle_location_id)
+        assert await db.scalar(select(func.sum(InventoryBalance.on_hand_quantity)).where(
+            InventoryBalance.company_id == pg.a.company_id, InventoryBalance.location_id == pg.a.vehicle_location_id)) > 0
+        with pytest.raises(HTTPException) as denied:
+            await transfers.get_unified_transfer_override_options(pg.a.vehicle_location_id, pg.a.variant_id, db, access)
+        assert denied.value.status_code == 404
+
+
+@pytest.mark.parametrize("purpose", ["REPLENISHMENT", "WAREHOUSE_BALANCING"])
+@pytest.mark.parametrize("bad_side", ["source", "destination"])
+@pytest.mark.parametrize("action", ["receive", "reject", "cancel"])
+async def test_historical_generic_vehicle_endpoint_cannot_finish_transit(pg, purpose, bad_side, action):
+    sent = await send(pg, dispatch_payload(pg.a, transfer_purpose=purpose))
+    # Synthetic historical corruption only, in the disposable fixture DB.
+    async with AsyncSession(pg.admin_engine) as seed:
+        await seed.execute(update(InventoryTransferHeader).where(InventoryTransferHeader.company_id == pg.a.company_id,
+            InventoryTransferHeader.id == sent["header_id"]).values(**{bad_side + "_location_id": pg.a.vehicle_location_id}))
+        await seed.commit()
+    async def evidence(db):
+        balances = (await db.execute(select(InventoryBalance.location_id, InventoryBalance.batch_id, InventoryBalance.stock_status,
+            InventoryBalance.on_hand_quantity, InventoryBalance.reserved_quantity).where(InventoryBalance.company_id == pg.a.company_id)
+            .order_by(InventoryBalance.id))).all()
+        movements = await db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.company_id == pg.a.company_id))
+        return balances, movements
+    async with pg.session(pg.a) as db:
+        before = await evidence(db)
+    request_id = uuid4()
+    actor = pg.a.owner  # Not the dispatcher; full capability cannot bypass structure.
+    async with pg.session(pg.a) as db:
+        with patch.object(transfers, "_move_transfer_lines_from_transit", wraps=transfers._move_transfer_lines_from_transit) as terminal:
+            with pytest.raises(HTTPException) as denied:
+                if action == "receive":
+                    await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=request_id, transfer_header_id=sent["header_id"],
+                        destination_location_id=pg.a.vehicle_location_id if bad_side == "destination" else pg.a.locations[1]), db, actor.access(db), actor.operational_driver)
+                else:
+                    endpoint = transfers.unified_transfer_reject if action == "reject" else transfers.unified_transfer_cancel
+                    await endpoint(sent["header_id"], UnifiedTransferDecisionRequest(request_id=request_id, decision_reason="invalid historical direction"),
+                        db, actor.access(db), actor.operational_driver)
+            assert denied.value.status_code == 403
+            terminal.assert_awaited_once()
+    async with pg.session(pg.a) as db:
+        assert await evidence(db) == before
+        header = await db.get(InventoryTransferHeader, sent["header_id"])
+        assert header.status == "IN_TRANSIT" and header.accepted_at is None and header.cancelled_at is None and header.rejected_at is None
+        assert await db.scalar(text("SELECT count(*) FROM operation_idempotency WHERE company_id=:company AND request_id=:request"),
+            {"company": pg.a.company_id, "request": str(request_id)}) == 0
+
+
+@pytest.mark.parametrize("action", ["list", "receive", "reject", "cancel"])
+async def test_cross_company_generic_list_and_terminal_are_opaque_and_side_effect_free(pg, action):
+    sent = await send(pg)
+    actor = pg.b.owner
+    request_id = uuid4()
+    async with pg.session(pg.b) as db:
+        before_b = await db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.company_id == pg.b.company_id))
+        balances_b = (await db.execute(select(InventoryBalance.location_id, InventoryBalance.on_hand_quantity,
+            InventoryBalance.reserved_quantity).where(InventoryBalance.company_id == pg.b.company_id).order_by(InventoryBalance.id))).all()
+    async with pg.session(pg.b) as db:
+        if action == "list":
+            rows = await list_page(db, actor.access(db), pg.b.locations[0])
+            assert sent["header_id"] not in {row["id"] for row in rows["items"]}
+            try:
+                rows = await list_page(db, actor.access(db), pg.a.locations[0])
+                assert rows["items"] == []
+            except HTTPException as denied:
+                assert denied.status_code in {403, 404}
+        else:
+            with pytest.raises(HTTPException) as denied:
+                if action == "receive":
+                    await transfers.unified_transfer_receive(UnifiedReceiveRequest(request_id=request_id, transfer_header_id=sent["header_id"],
+                        destination_location_id=pg.a.locations[1]), db, actor.access(db), actor.operational_driver)
+                else:
+                    endpoint = transfers.unified_transfer_reject if action == "reject" else transfers.unified_transfer_cancel
+                    await endpoint(sent["header_id"], UnifiedTransferDecisionRequest(request_id=request_id, decision_reason="foreign attempt"),
+                        db, actor.access(db), actor.operational_driver)
+            assert denied.value.status_code in {403, 404}
+    async with pg.session(pg.a) as db:
+        header = await db.get(InventoryTransferHeader, sent["header_id"])
+        assert header.status == "IN_TRANSIT" and header.received_by is None and header.cancelled_by is None
+        assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
+            InventoryMovement.company_id == pg.a.company_id, InventoryMovement.transfer_header_id == sent["header_id"])) == 1
+    async with pg.session(pg.b) as db:
+        assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.company_id == pg.b.company_id)) == before_b
+        assert (await db.execute(select(InventoryBalance.location_id, InventoryBalance.on_hand_quantity,
+            InventoryBalance.reserved_quantity).where(InventoryBalance.company_id == pg.b.company_id).order_by(InventoryBalance.id))).all() == balances_b
+        assert await db.scalar(text("SELECT count(*) FROM operation_idempotency WHERE company_id=:company AND request_id=:request"),
+            {"company": pg.b.company_id, "request": str(request_id)}) == 0

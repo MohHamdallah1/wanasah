@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import type { FefoMode, TransferDraftItem, TransferOverrideOptions } from "./types";
-import { compareQuantity, type Quantity } from "../quantity";
+import { addQuantity, compareQuantity, type Quantity } from "../quantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { totalDraftQuantity } from "./utils";
 type DispatchItem = {
@@ -14,6 +14,12 @@ type DispatchItem = {
 
 
 export function buildDispatchItems(draftItems: TransferDraftItem[], overrideOptionsByProduct: Record<number, TransferOverrideOptions>, sourceLocationId: number, t: TFunction): DispatchItem[] {
+  const totals = new Map<number, Quantity>();
+  for (const item of draftItems) {
+    const total = addQuantity(totals.get(item.product_variant_id) ?? "0", totalDraftQuantity(item));
+    if (compareQuantity(total, item.available_quantity) > 0) throw new Error(t("inventoryTransfers.quantityExceeds", { name: item.name }));
+    totals.set(item.product_variant_id, total);
+  }
   const modesByProduct = new Map<number, Set<FefoMode>>();
   for (const item of draftItems) {
     const modes =

@@ -80,21 +80,9 @@ it("persists ambiguous command through remount, rejects changed input, and retri
   await act(async () => { await second.result.current.execute(wire); });
   expect(JSON.parse(mocks.fetch.mock.calls[2][1].body).request_id).not.toBe(id);
 });
-it("sends the required purpose and restores the unsubmitted draft", async () => {
-  mocks.fetch.mockImplementation((url: string) => Promise.resolve(url.includes("/locations?") ? [{ id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE", vehicle_id: null }] :
-    url.includes("source-inventory") ? { items: [], next_cursor: null, has_more: false, total: 0 } : { message: "ok", header_id: 1 }));
-  const args = { locationId: 11, onInventoryChanged: vi.fn(), onCompleted: vi.fn() };
-  const { result } = renderHook(() => useTransferCreate(args));
-  act(() => result.current.openCreate());
-  await waitFor(() => expect(result.current.transferLocations).toHaveLength(1));
-  act(() => { result.current.updateCounterpartLocation("12"); result.current.addDraftProduct({ id: 100, name: "Product", sku: "SKU", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each", quantity_scale: 0, quantity_step: "1", available_quantity: "10" }); });
-  await waitFor(() => expect(result.current.draftItems).toHaveLength(1));
-  act(() => result.current.updateDraftQuantity(result.current.draftItems[0].draft_key, "4"));
-  await act(async () => { await result.current.handleDispatchTransfer(); });
-  const call = mocks.fetch.mock.calls.find(([url]) => url === "/warehouse/unified/transfer/dispatch");
-  expect(call).toBeTruthy(); expect(JSON.parse(call![1].body).transfer_purpose).toBe("WAREHOUSE_BALANCING");
+it("keeps valid versioned drafts actor-partitioned and discards legacy replenishment drafts", () => {
   const scope = transferCommandScope("TRANSFER_DRAFT", 11);
-  writeTransferDraft(scope, { direction: "outgoing", counterpart: 12, notes: "Keep", purpose: "REPLENISHMENT", items: [], locations: [] });
+  writeTransferDraft(scope, { schema_version: 2, source: null, destination: null, notes: "Keep", items: [] });
   expect(readTransferDraft(scope)?.notes).toBe("Keep");
   localStorage.setItem("company_id", "2");
   expect(readTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11))).toBeNull();
@@ -166,11 +154,11 @@ it("reloads backend FEFO options when a persisted override draft is reopened", a
     base_uom_code: "EACH", base_uom_name: "Each", quantity_scale: 0, quantity_step: "1", available_quantity: "10",
     quantity: "2", fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
   const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };
-  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11), { direction: "outgoing", counterpart: 12, notes: "saved", purpose: "WAREHOUSE_BALANCING", items: [product], locations: [location] });
+  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11), { schema_version: 2, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
   mocks.fetch.mockImplementation(async (url: string) => url.includes("override-options") ? { location_id: 11, product_variant_id: 100, fefo_batch_id: 8,
     batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "10", is_fefo_head: true }],
-    reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? [location] :
-    { items: [], has_more: false, next_cursor: null, total: 0 });
+    reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? new URL(url, "http://test").searchParams.get("purpose") === "source" ? [{ ...location, id: 11, code: "A1" }] : [location] :
+    { items: [product], has_more: false, next_cursor: null, total: 1 });
   const { result } = renderHook(() => useTransferCreate({ locationId: 11, onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
   act(() => result.current.openCreate());
   await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));

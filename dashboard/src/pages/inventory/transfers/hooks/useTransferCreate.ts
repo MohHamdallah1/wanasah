@@ -1,342 +1,156 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useTransferTranslation as useTranslation } from "../i18n";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { apiErrorCode } from "@/lib/apiErrors";
+import { useTransferTranslation } from "../i18n";
 import { useTransferFefo } from "./useTransferFefo";
 import { buildDispatchItems } from "../buildDispatchItems";
 import { useTransferCommand, transferCommandScope } from "./useTransferCommand";
-import { readTransferDraft, writeTransferDraft, clearTransferDraft } from "../draftStorage";
-import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { toast } from "sonner";
+import { readTransferDraft, writeTransferDraft, clearTransferDraft, type TransferWarehouse } from "../draftStorage";
 import { useTransferQueries } from "./useTransferQueries";
-import type {
-  TransferCreateDirection,
-  TransferDraftItem,
-  TransferSourceInventoryItem,
-} from "../types";
-import {
-  getErrorMessage,
-  getMutationMessage,
-} from "../utils";
-import { apiErrorCode } from "@/lib/apiErrors";
+import { restoreDraftItems } from "../restoreDraftItems";
+import type { TransferDraftItem, TransferSourceInventoryItem } from "../types";
+import { transferCreateError } from "../createErrors";
+import { getErrorMessage, getMutationMessage } from "../utils";
+import { compareQuantity, validateVariantQuantity } from "../../quantity";
 
-interface UseTransferCreateArgs {
-  locationId: number;
-  onInventoryChanged: () => void | Promise<void>;
-  onCompleted: () => void;
-}
-
-export function useTransferCreate({
-  locationId,
-  onInventoryChanged,
-  onCompleted,
-}: UseTransferCreateArgs) {
-  const { t } = useTranslation();
+interface UseTransferCreateArgs { locationId: number; onInventoryChanged: () => void | Promise<void>; onCompleted: () => void }
+export function useTransferCreate({ locationId, onInventoryChanged, onCompleted }: UseTransferCreateArgs) {
+  const { t } = useTransferTranslation();
+  // The page location partitions legacy durable storage only, never command source/destination.
+  // A pending wire is recovered separately and cannot attach to another explicitly chosen pair.
   const command = useTransferCommand("TRANSFER_DISPATCH", locationId);
-  const currentLocation = useRef(locationId);
-  currentLocation.current = locationId;
-  const [policyBlocked, setPolicyBlocked] = useState(false);
-  const restoringDraft = useRef(false);
-  const draftScope = useRef<string | null>(null);
-  const transferPurpose = "WAREHOUSE_BALANCING" as const;
-
-  const [createOpen, setCreateOpen] = useState(false);
-  const [createDirection, setCreateDirection] =
-    useState<TransferCreateDirection>("outgoing");
-  const [counterpartLocationId, setCounterpartLocationId] =
-    useState<number | null>(null);
+  const scope = (() => { try { return transferCommandScope("TRANSFER_DRAFT", locationId); } catch { return null; } })();
+  const currentScope = useRef(scope); currentScope.current = scope;
+  const [openedScope, setOpenedScope] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const createOpen = open && scope === openedScope;
+  const [source, setSource] = useState<TransferWarehouse | null>(null);
+  const [destination, setDestination] = useState<TransferWarehouse | null>(null);
   const [createNotes, setCreateNotes] = useState("");
-  const [createSubmitting, setCreateSubmitting] = useState(false);
-
   const [draftItems, setDraftItems] = useState<TransferDraftItem[]>([]);
-
-
-  const sourceLocationId =
-    createDirection === "outgoing"
-      ? locationId
-      : counterpartLocationId;
-  const destinationLocationId =
-    createDirection === "outgoing"
-      ? counterpartLocationId
-      : locationId;
-
-  const { transferLocations, setTransferLocations, transferLocationsLoading, transferLocationSearchInput, setTransferLocationSearchInput,
-    sourceProducts, sourceProductsLoading, sourceProductsLoadingMore, sourceProductsNextCursor, productSearchInput, setProductSearchInput,
-    resetQueries, invalidateQueries, loadMoreSourceProducts } = useTransferQueries(
-      createOpen,
-      createDirection,
-      locationId,
-      counterpartLocationId,
-      sourceLocationId,
-      destinationLocationId,
-    );
-
-  const selectedAccess = useInventoryAccess(locationId);
-  const sourceAccess = useInventoryAccess(sourceLocationId);
-  const destinationAccess = useInventoryAccess(destinationLocationId);
-  const canOutgoing = selectedAccess.can('transfer.send');
-  const canIncoming = selectedAccess.can('transfer.destination') && selectedAccess.canAny('transfer.send');
-  const canSubmit = sourceLocationId !== null && destinationLocationId !== null &&
-    sourceAccess.can('transfer.send') && destinationAccess.can('transfer.destination');
-  const canOverride = sourceLocationId !== null && sourceAccess.can('inventory.fefo_override');
-
-
-  const { overrideOptionsByProduct, overrideLoadingProductIds, resetFefo, setDraftFefoMode,
-    setOverrideBatch, setOverrideReason, addOverrideBatchLine } =
-    useTransferFefo(sourceLocationId, canOverride, draftItems, setDraftItems);
-
+  const [restored, setRestored] = useState<TransferDraftItem[] | null>(null);
+  const [restoreError, setRestoreError] = useState<unknown>(null);
+  const [restoreRevision, setRestoreRevision] = useState(0);
+  const [policyBlocked, setPolicyBlocked] = useState(false);
+  const pair = JSON.stringify([source?.id, destination?.id]);
+  const pairRef = useRef(pair); pairRef.current = pair;
+  const queries = useTransferQueries(createOpen && !command.pending, source, destination);
+  const access = useInventoryAccess();
+  const sourceAccess = useInventoryAccess(queries.sources.valid ? source?.id ?? null : null);
+  const destinationAccess = useInventoryAccess(queries.destinations.valid ? destination?.id ?? null : null);
+  const canOpen = access.canAny("transfer.send") && access.canAny("transfer.destination");
+  const canOverride = queries.sources.valid && sourceAccess.can("inventory.fefo_override");
+  const fefo = useTransferFefo(queries.sources.valid ? source?.id ?? null : null, canOverride, draftItems, setDraftItems);
+  const { resetFefo } = fefo;
+  const { resetProductSearch, readSourcePage, ready } = queries;
+  const { setSearch: setSourceSearch } = queries.sources;
+  const { setSearch: setDestinationSearch } = queries.destinations;
   const resetCreateForm = useCallback(() => {
-    resetQueries();
-    resetFefo();
-    setCreateDirection("outgoing");
-    setCounterpartLocationId(null);
-    setCreateNotes("");
-    setPolicyBlocked(false);
-    setDraftItems([]);
-  }, [resetFefo, resetQueries]);
-
+    setSource(null); setDestination(null); setCreateNotes(""); setDraftItems([]); setRestored(null);
+    setRestoreError(null); setPolicyBlocked(false); resetFefo();
+    resetProductSearch(); setSourceSearch(""); setDestinationSearch("");
+  }, [resetFefo, resetProductSearch, setSourceSearch, setDestinationSearch]);
+  useEffect(() => { setOpen(false); resetCreateForm(); }, [scope, resetCreateForm]);
   const openCreate = () => {
-    if (!canOutgoing && !canIncoming) return;
+    if (!scope || !canOpen) return;
     resetCreateForm();
     try {
-      const scope = transferCommandScope("TRANSFER_DRAFT", locationId);
-      draftScope.current = scope;
       const draft = readTransferDraft(scope);
-      if (draft) {
-        restoringDraft.current = true;
-        setCreateDirection(draft.direction);
-        setCounterpartLocationId(draft.counterpart);
-        setCreateNotes(draft.notes);
-        setDraftItems(draft.items);
-        setTransferLocations(draft.locations);
-      } else setCreateDirection(canOutgoing ? "outgoing" : "incoming");
-      setCreateOpen(true);
+      if (draft) { setSource(draft.source); setDestination(draft.destination); setCreateNotes(draft.notes); setRestored(draft.items); }
+      setOpenedScope(scope); setOpen(true);
     } catch (error) { toast.error(getErrorMessage(error)); }
   };
-
+  const closeCreate = () => { if (!command.busy) { setOpen(false); resetCreateForm(); } };
   useEffect(() => {
-    setCreateOpen(false);
-    setCreateSubmitting(false);
-    resetCreateForm();
-    return () => { invalidateQueries(); resetFefo(); };
-  }, [locationId, resetCreateForm, resetFefo, invalidateQueries]);
-
-  const closeCreate = () => {
-    if (createSubmitting) return;
-    setCreateOpen(false);
-    resetCreateForm();
+    if (!createOpen || !ready || restored === null || command.pending) return;
+    const controller = new AbortController();
+    void restoreDraftItems(restored, (search, cursor) => readSourcePage(search, cursor, controller.signal), controller.signal)
+      .then((items) => { if (!controller.signal.aborted) { setDraftItems(items); setRestored(null); setRestoreError(null); } })
+      .catch((error) => { if (!controller.signal.aborted) setRestoreError(error); });
+    return () => controller.abort();
+  }, [createOpen, ready, readSourcePage, restored, restoreRevision, command.pending]);
+  useEffect(() => {
+    if (!createOpen || !scope || restored !== null || command.pending) return;
+    try { writeTransferDraft(scope, { schema_version: 2, source, destination, notes: createNotes,
+      items: draftItems.filter((item) => { try { return compareQuantity(validateVariantQuantity(item.quantity, item.quantity_scale, item.quantity_step), item.available_quantity) <= 0; } catch { return false; } }) }); }
+    catch (error) { toast.error(getErrorMessage(error)); }
+  }, [createOpen, scope, source, destination, createNotes, draftItems, restored, command.pending]);
+  // Refresh known rows from authoritative discovery; search misses are not stock evidence.
+  useEffect(() => {
+    setDraftItems((items) => items.map((item) => {
+      const fresh = queries.sourceProducts.find((product) => product.id === item.product_variant_id);
+      return fresh ? { ...item, ...fresh } : item;
+    }));
+  }, [queries.sourceProducts]);
+  const changeWarehouse = (value: string, purpose: "source" | "destination") => {
+    if (command.pending || command.busy) return;
+    const options = purpose === "source" ? queries.sources.items : queries.destinations.items;
+    const next = options.find((item) => item.id === Number(value)) ?? null;
+    if (next?.id === (purpose === "source" ? destination?.id : source?.id)) return;
+    if ((purpose === "source" ? source?.id : destination?.id) === next?.id) return;
+    setDraftItems([]); setRestored(null); setRestoreError(null); fefo.resetFefo(); resetProductSearch();
+    if (purpose === "source") setSource(next); else setDestination(next);
   };
-
-  useEffect(() => {
-    if (restoringDraft.current) restoringDraft.current = false;
-    else setDraftItems([]);
-  }, [createOpen, sourceLocationId]);
-
-
-  useEffect(() => {
-    if (!createOpen || !draftScope.current) return;
+  const updateDraftQuantity = (draftKey: string, value: string) => {
+    if (command.pending || command.busy) return;
+    setDraftItems((items) => {
+      let zero = !value.trim();
+      try { zero ||= compareQuantity(value, "0") === 0; } catch { /* Retain invalid text visibly; submission fails closed. */ }
+      return zero ? items.filter((item) => item.draft_key !== draftKey) : items.map((item) => item.draft_key === draftKey ? { ...item, quantity: value } : item);
+    });
+  };
+  const updateProductQuantity = (product: TransferSourceInventoryItem, value: string) => {
+    if (!queries.ready || command.pending || command.busy || restored !== null) return;
+    const existing = draftItems.find((item) => item.id === product.id);
+    if (existing) return updateDraftQuantity(existing.draft_key, value);
+    let zero = !value.trim();
+    try { zero ||= compareQuantity(value, "0") === 0; } catch { /* Validation is shared with submission. */ }
+    if (zero) return;
+    setDraftItems((items) => [...items, { ...product, draft_key: crypto.randomUUID(), product_variant_id: product.id, quantity: value,
+      fefo_mode: "auto", override_batch_id: null, override_reason_id: null, override_batch_available: null }]);
+  };
+  const built = useMemo(() => {
     try {
-      writeTransferDraft(draftScope.current, { direction: createDirection, counterpart: counterpartLocationId,
-        notes: createNotes, purpose: "WAREHOUSE_BALANCING", items: draftItems, locations: transferLocations });
-    } catch (error) { toast.error(getErrorMessage(error)); }
-  }, [createOpen, createDirection, counterpartLocationId, createNotes, draftItems, transferLocations]);
-
-  const addDraftProduct = (product: TransferSourceInventoryItem) => {
-    if (
-      draftItems.some(
-        (item) => item.product_variant_id === product.id
-      )
-    ) {
-      toast.info(t("inventoryTransfers.duplicateProduct"));
-      return;
+      if (!source || !draftItems.length || (draftItems.some((item) => item.fefo_mode === "override") && !canOverride)) return null;
+      return buildDispatchItems(draftItems.filter((item) => item.quantity && compareQuantity(item.quantity, "0") !== 0), fefo.overrideOptionsByProduct, source.id, t);
+    } catch { return null; }
+  }, [source, draftItems, canOverride, fefo.overrideOptionsByProduct, t]);
+  const canSubmit = !!built?.length && queries.ready && sourceAccess.can("transfer.send") && destinationAccess.can("transfer.destination") &&
+    restored === null && !restoreError && !queries.sourceProductsLoading && !queries.sourceProductsError && !command.recoveryError && !command.pending && !command.busy && createNotes.trim().length <= 4000;
+  const complete = async (raw: unknown, requestPair: { source_location_id?: unknown; destination_location_id?: unknown }) => {
+    if (scope) {
+      const saved = readTransferDraft(scope);
+      if (saved?.source?.id === requestPair.source_location_id && saved?.destination?.id === requestPair.destination_location_id) clearTransferDraft(scope);
     }
-
-    setDraftItems((prev) => [
-      ...prev,
-      {
-        ...product,
-        draft_key: crypto.randomUUID(),
-        product_variant_id: product.id,
-        quantity: "0",
-        fefo_mode: "auto",
-        override_batch_id: null,
-        override_reason_id: null,
-        override_batch_available: null,
-      },
-    ]);
+    if (currentScope.current !== scope) return;
+    toast.success(getMutationMessage(raw)); setOpen(false); resetCreateForm(); onCompleted(); await onInventoryChanged();
   };
-
-  const removeDraftLine = (draftKey: string) => {
-    setDraftItems((prev) =>
-      prev.filter((item) => item.draft_key !== draftKey)
-    );
-  };
-
-  const updateDraftQuantity = (
-    draftKey: string,
-    value: string
-  ) => {
-    setDraftItems((prev) =>
-      prev.map((item) => {
-        if (item.draft_key !== draftKey) return item;
-
-        return { ...item, quantity: value.replace(/[^0-9.]/g, "") };
-      })
-    );
-  };
-
-  const updateCreateDirection = (value: string) => {
-    if ((value === "outgoing" && canOutgoing) || (value === "incoming" && canIncoming)) {
-      setTransferLocations([]);
-      invalidateQueries();
-      setCreateDirection(value);
-      setCounterpartLocationId(null);
-      }
-  };
-
-  const updateCounterpartLocation = (value: string) => {
-    const nextId = Number(value);
-    if (
-      Number.isInteger(nextId) &&
-      transferLocations.some(
-        (item) => item.id === nextId && item.id !== locationId
-      )
-    ) {
-      setCounterpartLocationId(nextId);
-      } else {
-      setCounterpartLocationId(null);
-    }
-  };
-
-  const updateCreateNotes = (value: string) => {
-    setCreateNotes(value);
-  };
-
   const handleDispatchTransfer = async () => {
-    if (!canSubmit || (draftItems.some(item => item.fefo_mode === 'override') && !canOverride)) {
-      toast.error(t("inventoryTransfers.permissions"));
-      return;
-    }
-    if (
-      sourceLocationId === null ||
-      destinationLocationId === null
-    ) {
-      toast.error(t("inventoryTransfers.chooseCounterpart"));
-      return;
-    }
-
-    if (sourceLocationId === destinationLocationId) {
-      toast.error(t("inventoryTransfers.differentLocations"));
-      return;
-    }
-
-    if (
-      counterpartLocationId === null ||
-      !transferLocations.some(
-        (item) => item.id === counterpartLocationId
-      )
-    ) {
-      toast.error(
-        t("inventoryTransfers.invalidCounterpart")
-      );
-      return;
-    }
-
-    if (draftItems.length === 0) {
-      toast.error(t("inventoryTransfers.atLeastOne"));
-      return;
-    }
-
-    let items: ReturnType<typeof buildDispatchItems>;
+    if (!canSubmit || !source || !destination || !built) return;
+    const body = { source_location_id: source.id, destination_location_id: destination.id,
+      transfer_purpose: "WAREHOUSE_BALANCING", items: built, notes: createNotes.trim() };
     try {
-      items = buildDispatchItems(draftItems, overrideOptionsByProduct, sourceLocationId, t);
+      const raw = await command.execute({ path: "/warehouse/unified/transfer/dispatch", method: "POST", body }, getMutationMessage);
+      if (raw !== undefined) await complete(raw, body);
     } catch (error) {
-      toast.error(getErrorMessage(error));
-      return;
-    }
-
-    if (createNotes.trim().length > 4000) {
-      toast.error(t("inventoryTransfers.notesLength"));
-      return;
-    }
-
-    setCreateSubmitting(true);
-
-    try {
-      const raw = await command.execute({
-        path: "/warehouse/unified/transfer/dispatch", method: "POST",
-        body: { source_location_id: sourceLocationId, destination_location_id: destinationLocationId,
-          transfer_purpose: transferPurpose, items, notes: createNotes.trim() },
-      }, getMutationMessage);
-      if (raw === undefined) return;
-      clearTransferDraft(transferCommandScope("TRANSFER_DRAFT", locationId));
-      if (currentLocation.current !== locationId) return;
-
-      toast.success(getMutationMessage(raw));
-      if (draftScope.current) clearTransferDraft(draftScope.current);
-      setCreateOpen(false);
-      resetCreateForm();
-      onCompleted();
-      await onInventoryChanged();
-    } catch (error: unknown) {
-      if (currentLocation.current !== locationId) return;
+      if (currentScope.current !== scope || pairRef.current !== pair) return;
       setPolicyBlocked((apiErrorCode(error) ?? "").startsWith("TRANSFER_POLICY_") || apiErrorCode(error) === "RETIRING_WAREHOUSE_BALANCING_POLICY_REQUIRED");
-      toast.error(getErrorMessage(error));
-    } finally {
-      if (currentLocation.current === locationId) setCreateSubmitting(false);
+      toast.error(transferCreateError(error));
     }
   };
-
   const retryPendingDispatch = async () => {
-    try {
-      const raw = await command.execute(undefined, getMutationMessage);
-      if (raw === undefined) return;
-      clearTransferDraft(transferCommandScope("TRANSFER_DRAFT", locationId));
-      if (currentLocation.current !== locationId) return;
-      toast.success(getMutationMessage(raw));
-      if (draftScope.current) clearTransferDraft(draftScope.current);
-      setCreateOpen(false);
-      resetCreateForm();
-      onCompleted();
-      await onInventoryChanged();
-    } catch (error) { toast.error(getErrorMessage(error)); }
+    const body = command.pending?.payload.body ?? {};
+    try { const raw = await command.execute(undefined, getMutationMessage); if (raw !== undefined) await complete(raw, body); }
+    catch (error) { toast.error(transferCreateError(error)); }
   };
-
-  return {
-    command, retryPendingDispatch, policyBlocked,
-    canOutgoing, canIncoming, canSubmit, canOverride,
-    createOpen,
-    createDirection,
-    transferLocations,
-    transferLocationsLoading,
-    transferLocationSearchInput,
-    counterpartLocationId,
-    createNotes,
-    createSubmitting,
-    productSearchInput,
-    sourceProducts,
-    sourceProductsLoading,
-    sourceProductsLoadingMore,
-    sourceProductsNextCursor,
-    sourceLocationId,
-    draftItems,
-    overrideOptionsByProduct,
-    overrideLoadingProductIds,
-    openCreate,
-    closeCreate,
-    setTransferLocationSearchInput,
-    setProductSearchInput,
-    updateCreateDirection,
-    updateCounterpartLocation,
-    updateCreateNotes,
-    loadMoreSourceProducts,
-    addDraftProduct,
-    removeDraftLine,
-    updateDraftQuantity,
-    setDraftFefoMode,
-    setOverrideBatch,
-    setOverrideReason,
-    addOverrideBatchLine,
-    handleDispatchTransfer,
-  };
+  const products = [...new Map([...draftItems, ...queries.sourceProducts].filter((item) => compareQuantity(item.available_quantity, "0") > 0).map((item) => [item.id, item])).values()];
+  return { ...queries, ...fefo, command, canOpen, canSubmit, canOverride, createOpen, createNotes, createSubmitting: command.busy,
+    source, destination, sourceLocationId: source?.id ?? null, destinationLocationId: destination?.id ?? null, draftItems, products,
+    restoring: restored !== null, restoreError, retryRestore: () => setRestoreRevision((n) => n + 1), policyBlocked,
+    openCreate, closeCreate, updateSource: (value: string) => changeWarehouse(value, "source"), updateDestination: (value: string) => changeWarehouse(value, "destination"),
+    updateCreateNotes: setCreateNotes, updateProductQuantity, updateDraftQuantity,
+    removeDraftLine: (draftKey: string) => setDraftItems((items) => items.filter((item) => item.draft_key !== draftKey)),
+    handleDispatchTransfer, retryPendingDispatch };
 }
-
 export type TransferCreateController = ReturnType<typeof useTransferCreate>;
