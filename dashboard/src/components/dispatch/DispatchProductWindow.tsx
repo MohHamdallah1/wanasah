@@ -1,26 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import type { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
-
-type ReturnTypeOfDispatchWindow = ReturnType<typeof useDispatchProductWindow>;
-
-function useBoundary(active: boolean, onIntersect: () => void) {
-  const [node, setNode] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!active || !node || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) onIntersect();
-    }, { root: null, rootMargin: "1200px 0px", threshold: 0 });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [active, node, onIntersect]);
-  return useCallback((element: HTMLElement | null) => setNode(element), []);
-}
-
-export function useDispatchWindowSentinels(page: ReturnTypeOfDispatchWindow) {
-  const topRef = useBoundary(page.hasPrevious && !page.loadingWindow && !page.error, page.loadPrevious);
-  const bottomRef = useBoundary(page.hasMore && !page.loadingWindow && !page.error, page.loadMore);
-  return { topRef, bottomRef };
-}
+import { useCallback, useLayoutEffect, useState, type ReactNode } from "react";
 
 function useMeasuredNode(index: number, onMeasure: (index: number, height: number) => void) {
   const [node, setNode] = useState<HTMLElement | null>(null);
