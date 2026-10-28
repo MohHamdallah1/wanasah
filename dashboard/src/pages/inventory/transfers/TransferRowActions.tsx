@@ -1,19 +1,20 @@
 import { Ban, CheckCircle2, Eye, XCircle } from "lucide-react";
+import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useTransferTranslation } from "./i18n";
 import type { TransferAction, WarehouseTransferListItem } from "./types";
 
-export function TransferRowActions({ transfer, locationId, can, onOpenDetail, onOpenAction }: {
+export function TransferRowActions({ transfer, onOpenDetail, onOpenAction }: {
   transfer: WarehouseTransferListItem;
-  locationId: number;
-  can: (code: string) => boolean;
   onOpenDetail: (transfer: WarehouseTransferListItem) => void | Promise<void>;
   onOpenAction: (transfer: WarehouseTransferListItem, action: TransferAction) => void;
 }) {
   const { t } = useTransferTranslation();
+  const sourceAccess = useInventoryAccess(transfer.source_location_id);
+  const destinationAccess = useInventoryAccess(transfer.destination_location_id);
   const actions = [
     {
       action: "receive" as const,
-      side: transfer.destination_location_id,
+      allowed: destinationAccess.can("transfer.receive"),
       code: "transfer.receive",
       Icon: CheckCircle2,
       className: "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700 focus-visible:ring-emerald-300",
@@ -21,7 +22,7 @@ export function TransferRowActions({ transfer, locationId, can, onOpenDetail, on
     },
     {
       action: "reject" as const,
-      side: transfer.destination_location_id,
+      allowed: destinationAccess.can("transfer.reject"),
       code: "transfer.reject",
       Icon: XCircle,
       className: "border-red-200 bg-white text-red-700 hover:bg-red-50 focus-visible:ring-red-300",
@@ -29,7 +30,7 @@ export function TransferRowActions({ transfer, locationId, can, onOpenDetail, on
     },
     {
       action: "cancel" as const,
-      side: transfer.source_location_id,
+      allowed: sourceAccess.can("transfer.cancel"),
       code: "transfer.cancel",
       Icon: Ban,
       className: "border-amber-200 bg-white text-amber-800 hover:bg-amber-50 focus-visible:ring-amber-300",
@@ -52,27 +53,22 @@ export function TransferRowActions({ transfer, locationId, can, onOpenDetail, on
       </button>
 
       {transfer.status === "IN_TRANSIT"
-        ? actions
-            .filter((item) => item.side === locationId)
-            .map(({ action, code, Icon, className, priority }) => {
-              const allowed = can(code);
-              return (
-                <button
-                  key={action}
-                  type="button"
-                  disabled={!allowed}
-                  aria-label={t(`inventoryTransfers.${action}`)}
-                  title={t(allowed ? `inventoryTransfers.${action}` : "inventoryTransfers.permissions")}
-                  onClick={() => onOpenAction(transfer, action)}
-                  className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-black outline-none disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 ${className}`}
-                  data-cp13-action-priority={priority}
-                  data-cp13-transfer-decision={action}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-                  <span>{t(`inventoryTransfers.${action}`)}</span>
-                </button>
-              );
-            })
+        ? actions.map(({ action, allowed, Icon, className, priority }) => (
+            <button
+              key={action}
+              type="button"
+              disabled={!allowed}
+              aria-label={t(`inventoryTransfers.${action}`)}
+              title={t(allowed ? `inventoryTransfers.${action}` : "inventoryTransfers.permissions")}
+              onClick={() => onOpenAction(transfer, action)}
+              className={`inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[10px] font-black outline-none disabled:cursor-not-allowed disabled:opacity-40 focus-visible:ring-2 ${className}`}
+              data-cp13-action-priority={priority}
+              data-cp13-transfer-decision={action}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>{t(`inventoryTransfers.${action}`)}</span>
+            </button>
+          ))
         : null}
     </div>
   );
