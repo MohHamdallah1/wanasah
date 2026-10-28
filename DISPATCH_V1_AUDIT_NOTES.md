@@ -1,6 +1,6 @@
 # Dispatch V1 — Current Audit Notes / Scale Risks
 
-> Status: **working audit note with focused automated discovery evidence below; whole-page/live acceptance remains open.**
+> Status: **Dispatch V1 scale/UOM repair closure accepted; broader whole-page visual polish remains a later Dispatch pass.**
 >
 > Purpose: preserve the issues discovered while Inventory V1 is still the active workstream.
 > Dispatch / Zones / Shops remains a required V1 surface and will receive a deeper end-to-end audit after Inventory closure.
@@ -331,8 +331,7 @@ No final `[x]` should be placed on Dispatch performance until that behavior is p
 The owner revoked the V2 Dispatch transport deferral. This section supersedes the
 catalog transport/client search descriptions in sections 2–4; those sections
 remain as historical defect evidence. `V1_SCOPE_FREEZE.md` and
-`VERSION_2_FUTURE_FEATURES.md` now agree. `V1_FINAL_REPAIR_PLAN.md` item 6 is still
-OPEN for lead review and owner live acceptance; this is not whole-page acceptance.
+`VERSION_2_FUTURE_FEATURES.md` now agree. the former final-repair item 6 is CLOSED after lead review, focused automated gates, owner live `-5/+5` acceptance, and live database verification that Vehicle/Warehouse/load-plan quantities returned exactly to the expected canonical-base state. This does not claim whole-page visual polish acceptance.
 
 Implemented boundary:
 
