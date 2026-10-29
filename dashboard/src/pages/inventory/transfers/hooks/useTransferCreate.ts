@@ -4,6 +4,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { apiErrorCode } from "@/lib/apiErrors";
 import { useTransferTranslation } from "../i18n";
 import { useTransferFefo } from "./useTransferFefo";
+import { useTransferBatchSelection } from "./useTransferBatchSelection";
 import { buildDispatchItems } from "../buildDispatchItems";
 import { useTransferCommand, transferCommandScope } from "./useTransferCommand";
 import { readTransferDraft, writeTransferDraft, clearTransferDraft, type TransferWarehouse } from "../draftStorage";
@@ -52,8 +53,15 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
   const destinationAccess = useInventoryAccess(queries.destinations.valid ? destination?.id ?? null : null);
   const canOpen = access.canAny("transfer.send") && access.canAny("transfer.destination");
   const canOverride = queries.sources.valid && sourceAccess.can("inventory.fefo_override");
-  const fefo = useTransferFefo(queries.sources.valid ? source?.id ?? null : null, canOverride, draftItems, setDraftItems);
+  const sourceLocationId = queries.sources.valid ? source?.id ?? null : null;
+  const fefo = useTransferFefo(sourceLocationId, canOverride, draftItems, setDraftItems);
+  const batchSelection = useTransferBatchSelection(
+    sourceLocationId,
+    draftItems,
+    setDraftItems,
+  );
   const { resetFefo } = fefo;
+  const { resetBatchSelection } = batchSelection;
   const { resetProductSearch, readSourcePage, ready } = queries;
   const { setSearch: setSourceSearch } = queries.sources;
   const { setSearch: setDestinationSearch } = queries.destinations;
@@ -67,10 +75,11 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     setRestoreError(null);
     setPolicyBlocked(false);
     resetFefo();
+    resetBatchSelection();
     resetProductSearch();
     setSourceSearch("");
     setDestinationSearch("");
-  }, [resetFefo, resetProductSearch, setDestinationSearch, setSourceSearch]);
+  }, [resetBatchSelection, resetFefo, resetProductSearch, setDestinationSearch, setSourceSearch]);
 
   useEffect(() => {
     setOpen(false);
@@ -151,7 +160,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     if (!createOpen || !scope || restored !== null || command.pending) return;
     try {
       writeTransferDraft(scope, {
-        schema_version: 2,
+        schema_version: 3,
         source,
         destination,
         notes: createNotes,
@@ -188,6 +197,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     setRestored(null);
     setRestoreError(null);
     fefo.resetFefo();
+    batchSelection.resetBatchSelection();
     resetProductSearch();
     if (purpose === "source") setSource(next);
     else setDestination(next);
@@ -229,6 +239,9 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
         draft_key: crypto.randomUUID(),
         product_variant_id: product.id,
         quantity: value,
+        batch_mode: "auto",
+        batch_id: null,
+        batch_available: null,
         fefo_mode: "auto",
         override_batch_id: null,
         override_reason_id: null,
@@ -242,6 +255,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
       if (!source || !draftItems.length || (draftItems.some((item) => item.fefo_mode === "override") && !canOverride)) return null;
       return buildDispatchItems(
         draftItems.filter((item) => item.quantity && compareQuantity(item.quantity, "0") !== 0),
+        batchSelection.batchOptionsByProduct,
         fefo.overrideOptionsByProduct,
         source.id,
         t,
@@ -249,7 +263,14 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     } catch {
       return null;
     }
-  }, [canOverride, draftItems, fefo.overrideOptionsByProduct, source, t]);
+  }, [
+    batchSelection.batchOptionsByProduct,
+    canOverride,
+    draftItems,
+    fefo.overrideOptionsByProduct,
+    source,
+    t,
+  ]);
 
   const canSubmit = !!built?.length &&
     queries.ready &&
@@ -324,6 +345,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
   return {
     ...queries,
     ...fefo,
+    ...batchSelection,
     command,
     canOpen,
     canSubmit,
@@ -352,6 +374,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
       if (command.pending || command.busy) return;
       setDraftItems([]);
       fefo.resetFefo();
+      batchSelection.resetBatchSelection();
     },
     removeDraftLine: (draftKey: string) => setDraftItems((items) => items.filter((item) => item.draft_key !== draftKey)),
     handleDispatchTransfer,
