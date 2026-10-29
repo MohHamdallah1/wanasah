@@ -87,7 +87,7 @@ V1 includes the stock workflows needed for real distribution operations:
 - product-location availability/assignment semantics;
 - Live Stock as operational stock visibility;
 - supplier inbound / goods receipt;
-- lot/batch and expiry behavior required by configured products;
+- Lot/تشغيلة and expiry behavior required by configured products; supplier receipt/invoice identity remains separate from physical Lot identity;
 - Batches & Expiry visibility required to understand sellability and expiry state;
 - warehouse transfers;
 - stocktake / stock corrections through authoritative inventory movements;
