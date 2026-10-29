@@ -39,6 +39,31 @@ The user-facing authority for supplier inbound is **one receipt/invoice operatio
 - Keyboard-first inbound UX should optimize the common path around **quantity → purchase UOM → actual purchase cost → next product**, inserting Lot/expiry controls only for rows that genuinely require them and supporting safe bulk-fill/repeat shortcuts for repeated real-world values.
 - This design must let a simple trading company operate with near-zero tracking friction while retaining the same backend/data model needed by food, pharmaceutical, or other regulated customers. **Simplicity comes from backend-owned complexity, not from deleting traceability capability.**
 
+### Canonical inventory terminology and receipt/lot separation — Owner decision (2026-10-29)
+
+Wanasah adopts the **separated receipt + physical lot + stock balance + financial cost-layer model**. A supplier receipt/invoice is a business/financial event. A Lot/production run is optional physical tracking evidence. They are different authorities and must never be collapsed into one identifier.
+
+Canonical user-facing terms:
+
+- **توريد / Supplier Receipt**: one inbound business event into Wanasah. It preserves supplier, warehouse, receipt time, actor, items, quantities, purchase UOMs, actual costs, and the supplier invoice/reference.
+- **مرجع/فاتورة التوريد / Supplier Invoice or Reference**: the external/business document reference for that receipt. It identifies the receipt document; it is **not** a Lot/production identity.
+- **تشغيلة / Lot**: a physical tracking identity for one product when the product uses lot tracking. The same genuine Lot may be received in multiple supplier receipts at different times and costs.
+- **رصيد مخزني / Stock Balance**: the current physical quantity by company/location/product/status and, when physically meaningful, Lot identity.
+- **طبقة تكلفة / Cost Layer**: financial acquisition provenance created from receipt/cost events. Cost layers remain separate from physical Lot identity.
+- **هوية مخزنية داخلية / Internal batch identity**: backend-only identity used when the inventory engine needs stable provenance even though the product has no genuine human-readable Lot. It must never be presented to an operator as if it were a real Lot.
+
+Mandatory invariants:
+
+1. Never use the supplier invoice/reference as `ProductBatch`/Lot identity.
+2. Never require the operator to distinguish two physically indistinguishable cartons solely because they came through different receipts.
+3. A repeated genuine Lot across multiple receipts remains one physical Lot identity while each receipt retains its own immutable receipt/cost evidence.
+4. `lot_control_mode = NONE` means no user-facing Lot. Backend internal identity stays hidden.
+5. `lot_control_mode = OPTIONAL` may preserve a genuine Lot when supplied, but no-Lot stock must remain operational without exposing synthetic/internal identities.
+6. `lot_control_mode = REQUIRED` requires a genuine human-readable Lot identity and must fail closed if it is missing.
+7. User-facing Arabic must prefer **توريد** for the inbound event and **تشغيلة** for Lot. Avoid the unqualified word **دفعة** where it could mean either a receipt or a Lot.
+8. Warehouse transfers default to backend-selected FEFO where physical Lot tracking applies. A manual action must be presented as **تغيير التشغيلة** only when the operator can distinguish the real Lot using genuine evidence such as Lot code and relevant dates.
+9. Internal no-Lot identities must not appear as multiple indistinguishable options such as repeated "بدون رقم دفعة". The backend may allocate them internally, but the operator must not be asked to guess which internal identity represents the physical goods.
+10. Transfer, recall, quarantine, stocktake, returns, and expiry logic must preserve the physical Lot identity where one genuinely exists; financial costing remains governed independently by the selected costing authority.
 ## Codex / AI-assisted development safety workflow — Owner directive (2026-10-08)
 
 The following rules are binding whenever Codex Desktop, Codex CLI, another local coding agent, or any AI tool is allowed to inspect or modify the Wanasah repository. They exist to preserve the project, the host machine, and the GitHub source of truth after the 2026-10-08 local data-loss incident. The incident's exact destructive mechanism is not asserted here; the policy is intentionally fail-safe.
