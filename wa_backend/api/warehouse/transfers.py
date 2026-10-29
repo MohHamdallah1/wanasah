@@ -2874,6 +2874,22 @@ async def unified_transfer_dispatch(
                     ),
                 )
 
+            await db.execute(
+                select(ProductBatch.id)
+                .filter(
+                    ProductBatch.company_id == company_id,
+                    tuple_(
+                        ProductBatch.product_variant_id,
+                        ProductBatch.id,
+                    ).in_(sorted(selected_batch_pairs)),
+                )
+                .order_by(
+                    ProductBatch.product_variant_id.asc(),
+                    ProductBatch.id.asc(),
+                )
+                .with_for_update(read=True)
+            )
+
             selected_available_expression = func.sum(
                 InventoryBalance.on_hand_quantity
                 - InventoryBalance.reserved_quantity
@@ -2947,10 +2963,6 @@ async def unified_transfer_dispatch(
                     .order_by(
                         ProductBatch.product_variant_id.asc(),
                         ProductBatch.id.asc(),
-                    )
-                    .with_for_update(
-                        read=True,
-                        of=ProductBatch,
                     )
                 )
             ).all()
