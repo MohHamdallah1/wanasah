@@ -50,6 +50,7 @@ from schemas import (
     InventoryStatusChangeRequest,
     InventoryStatusChangeResponse,
     UnifiedTransferLocationItem,
+    UnifiedTransferBatchOptionsResponse,
     UnifiedTransferOverrideOptionsResponse,
     UnifiedTransferSourceInventoryCursorPage,
     WarehouseTransferCursorPage,
@@ -1006,26 +1007,15 @@ async def get_unified_transfer_source_inventory(
 
 
 # ====================================================
-# 10.9 جلب خيارات تجاوز FEFO والأسباب المسموحة للحوالة
+# 10.9 قراءة الدفعات الفعلية المتاحة للحوالة من مستودع المصدر
 # ====================================================
-@router.get(
-    "/warehouse/unified/transfer/override-options",
-    response_model=UnifiedTransferOverrideOptionsResponse,
-    status_code=200,
-)
-async def get_unified_transfer_override_options(
-    location_id: int = Query(..., ge=1),
-    product_variant_id: int = Query(..., ge=1),
-    db: AsyncSession = Depends(get_db),
-    access: BackofficeCapabilityAccess = Depends(
-        get_current_backoffice_capability_access
-    ),
-):
-    await _require_transfer_capability(access, 'transfer.send', location_id)
-    await _require_transfer_capability(access, 'inventory.fefo_override', location_id)
-
-    company_id = access.company_id
-
+async def _read_unified_transfer_batch_options(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    product_variant_id: int,
+) -> dict:
     location_exists = (
         await db.execute(
             select(InventoryLocation.id).filter(
@@ -1141,8 +1131,7 @@ async def get_unified_transfer_override_options(
             )
             .filter(
                 ProductBatch.company_id == company_id,
-                ProductBatch.product_variant_id
-                == product_variant_id,
+                ProductBatch.product_variant_id == product_variant_id,
                 batch_sellability_predicate(
                     as_of_date,
                     expiry_control_mode=ProductVariant.expiry_control_mode,
@@ -1152,8 +1141,7 @@ async def get_unified_transfer_override_options(
                 ),
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id
-                == product_variant_id,
+                InventoryBalance.product_variant_id == product_variant_id,
                 InventoryBalance.stock_status == 'AVAILABLE',
                 ~active_lock_exists,
             )
@@ -1171,6 +1159,82 @@ async def get_unified_transfer_override_options(
         )
     ).all()
 
+    recommended_batch_id = int(batch_rows[0].id) if batch_rows else None
+    return {
+        "location_id": int(location_id),
+        "product_variant_id": int(product_variant_id),
+        "recommended_batch_id": recommended_batch_id,
+        "batches": [
+            {
+                "id": int(row.id),
+                "batch_number": public_batch_number(row.batch_number),
+                "production_date": row.production_date,
+                "expiry_date": row.expiry_date,
+                "available_quantity": canonical_quantity(
+                    row.available_quantity or 0
+                ),
+                "is_fefo_head": (
+                    recommended_batch_id is not None
+                    and int(row.id) == recommended_batch_id
+                ),
+            }
+            for row in batch_rows
+        ],
+    }
+
+
+@router.get(
+    "/warehouse/unified/transfer/batch-options",
+    response_model=UnifiedTransferBatchOptionsResponse,
+    status_code=200,
+)
+async def get_unified_transfer_batch_options(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_transfer_capability(access, 'transfer.send', location_id)
+    return await _read_unified_transfer_batch_options(
+        db,
+        company_id=access.company_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
+
+# ====================================================
+# 10.9b جلب خيارات تجاوز FEFO الرقابي والأسباب المعتمدة
+# ====================================================
+@router.get(
+    "/warehouse/unified/transfer/override-options",
+    response_model=UnifiedTransferOverrideOptionsResponse,
+    status_code=200,
+)
+async def get_unified_transfer_override_options(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_transfer_capability(access, 'transfer.send', location_id)
+    await _require_transfer_capability(
+        access,
+        'inventory.fefo_override',
+        location_id,
+    )
+
+    options = await _read_unified_transfer_batch_options(
+        db,
+        company_id=access.company_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
     reason_rows = (
         await db.execute(
             select(
@@ -1179,7 +1243,7 @@ async def get_unified_transfer_override_options(
                 OverrideReason.description,
             )
             .filter(
-                OverrideReason.company_id == company_id,
+                OverrideReason.company_id == access.company_id,
                 OverrideReason.is_active.is_(True),
             )
             .order_by(
@@ -1189,26 +1253,11 @@ async def get_unified_transfer_override_options(
         )
     ).all()
 
-    fefo_batch_id = int(batch_rows[0].id) if batch_rows else None
-
     return {
-        "location_id": int(location_id),
-        "product_variant_id": int(product_variant_id),
-        "fefo_batch_id": fefo_batch_id,
-        "batches": [
-            {
-                "id": int(row.id),
-                "batch_number": public_batch_number(row.batch_number),
-                "production_date": row.production_date,
-                "expiry_date": row.expiry_date,
-                "available_quantity": canonical_quantity(row.available_quantity or 0),
-                "is_fefo_head": (
-                    fefo_batch_id is not None
-                    and int(row.id) == fefo_batch_id
-                ),
-            }
-            for row in batch_rows
-        ],
+        "location_id": options["location_id"],
+        "product_variant_id": options["product_variant_id"],
+        "fefo_batch_id": options["recommended_batch_id"],
+        "batches": options["batches"],
         "reasons": [
             {
                 "id": int(row.id),
@@ -1218,7 +1267,6 @@ async def get_unified_transfer_override_options(
             for row in reason_rows
         ],
     }
-
 
 
 # ====================================================
