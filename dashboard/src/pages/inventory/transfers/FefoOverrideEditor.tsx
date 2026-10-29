@@ -48,7 +48,7 @@ export function FefoOverrideEditor({
   if (!canOverride || item.fefo_mode !== "override") return null;
 
   return (
-    <div className="mt-2 space-y-2 rounded-xl border border-amber-200 bg-amber-50/35 p-3" data-cp13-fefo-override="exceptional">
+    <div className="mt-2 space-y-2 rounded-xl border border-amber-200 bg-amber-50/35 p-3" data-cp13-fefo-mode={item.fefo_mode} data-cp13-fefo-override="exceptional">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex min-w-0 flex-1 items-start gap-2 text-[11px] font-bold text-amber-900">
           <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
