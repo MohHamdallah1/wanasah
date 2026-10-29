@@ -49,7 +49,7 @@ export function readTransferDraft(scope: string): TransferDraft | null {
         ) > 0
       ) throw new Error();
     }
-    return { schema_version: 2, source, destination, notes: draft.notes, items: draft.items };
+    return { schema_version: 3, source, destination, notes: draft.notes, items: draft.items };
   } catch {
     // Old/incompatible form drafts are disposable, never durable in-flight commands.
     localStorage.removeItem(key(scope));
