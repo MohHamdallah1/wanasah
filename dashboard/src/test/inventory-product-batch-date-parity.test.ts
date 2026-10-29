@@ -162,20 +162,20 @@ describe("public ProductBatch date parity", () => {
   });
 
   it("Transfer detail accepts null expiry and retains batch-id action identity", () => {
-    const parsed = parseTransferDetail(transferDetail(transferLine(null, null)), 5);
+    const parsed = parseTransferDetail(transferDetail(transferLine(null, null)));
     expect(parsed.lines[0]).toMatchObject({ batch_id: 99, batch_number: null, expiry_date: null });
   });
 
   it("Transfer detail preserves a real ISO expiry", () => {
-    expect(parseTransferDetail(transferDetail(transferLine("2030-01-31")), 5).lines[0])
+    expect(parseTransferDetail(transferDetail(transferLine("2030-01-31"))).lines[0])
       .toMatchObject({ batch_id: 99, batch_number: "LOT-99", expiry_date: "2030-01-31" });
   });
 
   it("Transfer detail rejects empty and missing expiry_date", () => {
-    expect(() => parseTransferDetail(transferDetail(transferLine("")), 5)).toThrow();
+    expect(() => parseTransferDetail(transferDetail(transferLine("")))).toThrow();
     const missing = transferLine("2030-01-31") as Record<string, unknown>;
     delete missing.expiry_date;
-    expect(() => parseTransferDetail(transferDetail(missing), 5)).toThrow();
+    expect(() => parseTransferDetail(transferDetail(missing))).toThrow();
   });
 
   it("FEFO override accepts null expiry/production dates without losing batch identity", () => {
