@@ -16,23 +16,23 @@ Make the existing Design-1 architecture obvious and safe in user-facing workflow
   - Cost evidence/layers remain receipt-based and separate from physical Lot identity.
   - Arabic UI terminology: `توريد` for receipt, `تشغيلة` for Lot; avoid ambiguous unqualified `دفعة`.
 
-- [ ] **2. Transfer UX cleanup**
+- [x] **2. Transfer UX cleanup**
   - Keep automatic FEFO as the default when a real Lot exists.
   - Rename manual physical choice to `تغيير التشغيلة`.
   - Show manual Lot choice only when the operator can distinguish a genuine human-readable Lot.
   - Never show backend synthetic/no-Lot identities as repeated `بدون رقم دفعة` options.
   - Keep internal allocation authoritative for products with no user-facing Lot.
 
-- [ ] **3. Inbound terminology and evidence audit**
+- [x] **3. Inbound terminology and evidence audit**
   - Verify receipt/invoice fields remain separate from `batch_number`/Lot fields.
   - Verify `NONE / OPTIONAL / REQUIRED` lot policy behavior matches `ARCHITECTURE.md`.
   - Verify repeated genuine Lot across separate receipts remains supported without merging receipt/cost evidence.
 
-- [ ] **4. Cross-workflow terminology audit**
+- [x] **4. Cross-workflow terminology audit**
   - Inventory details, recall, quarantine, stocktake, returns, transfers and reports must use `تشغيلة` only for physical Lot identity.
   - Remove or relabel ambiguous user-facing `دفعة` wording where it means receipt or internal identity.
 
-- [ ] **5. Acceptance tests**
+- [x] **5. Acceptance tests**
   - Same genuine Lot received in two separate invoices remains one physical Lot identity with two independent receipt/cost histories.
   - No-Lot products never expose synthetic identities to the operator.
   - REQUIRED Lot products fail closed when genuine Lot evidence is missing.
@@ -44,6 +44,15 @@ Make the existing Design-1 architecture obvious and safe in user-facing workflow
   - Merge only after focused backend + Dashboard gates pass.
   - Delete the task branch after merge and sync local `main` once.
 
+## Closure evidence
+
+- Existing inbound architecture already separates supplier `reference_id` from `ProductBatch.batch_number`; no migration or engine rewrite is required.
+- Existing costing ADR already proves that repeated genuine Lots may span separate receipts while receipt/cost evidence remains independent.
+- Transfer source inventory now exposes tracking mode plus whether a genuine operator-visible Lot exists.
+- Transfer manual Lot options filter backend synthetic `__WANASAH_NOLOT__` identities; products with no genuine visible Lot do not expose a manual Lot-change control.
+- V1 Arabic inventory/operator terminology uses **توريد** for receipt and **تشغيلة** for physical Lot across transfer, Live Stock, Lot/expiry, ledger, stocktake, quality and custody surfaces.
+- Internal code/database names such as `ProductBatch`, `batch_id`, and historical migration identifiers remain unchanged intentionally; renaming internals is unnecessary V1 churn.
+- No accounting-costing authority, inventory balance authority, authorization model, or historical inventory data is changed by this closure.
 ## Explicit non-goals
 
 - No conversion of supplier invoice/reference into ProductBatch/Lot identity.
