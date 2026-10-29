@@ -72,7 +72,7 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={titleId}
           >
-            <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "py-1.5 sm:py-2" : "py-3 sm:py-4"}`}>
+            <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "pt-1.5 pb-0.5 sm:pt-1.5 sm:pb-1" : "py-3 sm:py-4"}`}>
               <div className="min-w-0">
                 {titleAside ? (
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -90,7 +90,7 @@ export function Modal({
               </div>
               <button
                 onClick={onClose}
-                className={`shrink-0 rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 ${compactHeader ? "p-1.5" : "p-2"}`}
+                className={`shrink-0 rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 ${compactHeader ? "p-1" : "p-2"}`}
                 aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" strokeWidth={2} />
