@@ -66,7 +66,10 @@ from schemas import (
     UnifiedTransferDecisionRequest,
 )
 from quantity import canonical_quantity
-from domains.product_tracking import public_batch_number
+from domains.product_tracking import (
+    INTERNAL_NO_LOT_PREFIX,
+    public_batch_number,
+)
 from product_lifecycle import (
     DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
@@ -793,6 +796,20 @@ async def get_unified_transfer_source_inventory(
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
             ProductVariant.lot_control_mode,
+            func.max(
+                case(
+                    (
+                        and_(
+                            ProductBatch.batch_number.is_not(None),
+                            ~ProductBatch.batch_number.startswith(
+                                INTERNAL_NO_LOT_PREFIX
+                            ),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("has_user_visible_lot"),
             available_expression.label("available_quantity"),
             display_uom_one.c.candidate_count,
             display_uom_one.c.display_uom_id_raw,
@@ -995,6 +1012,9 @@ async def get_unified_transfer_source_inventory(
                     else int(row.quantity_scale)
                 ),
                 "lot_control_mode": str(row.lot_control_mode),
+                "has_user_visible_lot": bool(
+                    row.has_user_visible_lot
+                ),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": canonical_quantity(row.quantity_step),
                 "available_quantity": canonical_quantity(
