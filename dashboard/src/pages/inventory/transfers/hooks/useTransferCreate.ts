@@ -348,6 +348,11 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     updateCreateNotes: setCreateNotes,
     updateProductQuantity,
     updateDraftQuantity,
+    clearDraftItems: () => {
+      if (command.pending || command.busy) return;
+      setDraftItems([]);
+      fefo.resetFefo();
+    },
     removeDraftLine: (draftKey: string) => setDraftItems((items) => items.filter((item) => item.draft_key !== draftKey)),
     handleDispatchTransfer,
     retryPendingDispatch,
