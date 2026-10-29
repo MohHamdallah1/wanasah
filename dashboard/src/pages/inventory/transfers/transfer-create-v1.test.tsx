@@ -329,6 +329,51 @@ it("records an exact physical batch without FEFO-override capability or a reason
   ]);
 });
 
+it("keeps internal no-lot products on automatic allocation and hides manual lot choice", async () => {
+  const noLotProduct = {
+    ...product,
+    id: 400,
+    name: "No lot product",
+    sku: "NOLOT-400",
+    lot_control_mode: "NONE" as const,
+  };
+  mock.fetch.mockImplementation(async (url: string) =>
+    url.includes("source-inventory")
+      ? page([noLotProduct])
+      : fetchDefault(url)
+  );
+  open();
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.sourceWarehouse"),
+    "Warehouse 11",
+  );
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.destinationWarehouse"),
+    "Warehouse 12",
+  );
+  await screen.findByText(noLotProduct.name);
+
+  fireEvent.change(
+    screen.getByRole("textbox", {
+      name: i18n.t("inventoryTransfers.productQuantity", {
+        name: noLotProduct.name,
+      }),
+    }),
+    { target: { value: "0.1" } },
+  );
+
+  expect(
+    screen.queryByRole("button", {
+      name: i18n.t("inventoryTransfers.selectExactBatch"),
+    }),
+  ).toBeNull();
+  expect(
+    mock.fetch.mock.calls.some(([url]) =>
+      String(url).includes("batch-options"),
+    ),
+  ).toBe(false);
+});
+
 it("shows neutral warehouse unavailability and never exposes raw tenant wording", async () => {
   mock.fetch.mockImplementation(async (url: string) => {
     if (url.includes("source-inventory")) throw { status: 404, message: "NOT YOUR TENANT", request_id: "trace-warehouse" };
