@@ -481,6 +481,41 @@ async def test_fefo_order_override_exact_capability_and_audit(pg):
         await send(pg, payload)
     assert denied.value.status_code == 403
 
+    # Ordinary warehouse transfers may record the exact physical source batch
+    # without FEFO-override permission or an override reason.
+    exact_payload = dispatch_payload(
+        pg.a,
+        items=[dict(
+            product_variant_id=pg.a.variant_id,
+            quantity="3",
+            uom_id=pg.a.uom_id,
+            batch_id=pg.a.later_batch_id,
+        )],
+    )
+    exact_sent = await send(pg, exact_payload)
+    async with pg.session(pg.a) as db:
+        exact_line = await db.scalar(
+            select(InventoryTransferLine).where(
+                InventoryTransferLine.company_id == pg.a.company_id,
+                InventoryTransferLine.transfer_header_id
+                == exact_sent["header_id"],
+            )
+        )
+        assert exact_line.batch_id == pg.a.later_batch_id
+        assert exact_line.fefo_override_reason_id is None
+        assert exact_line.fefo_overridden_by is None
+
+        batch_options = await transfers.get_unified_transfer_batch_options(
+            pg.a.locations[0],
+            pg.a.variant_id,
+            db,
+            pg.a.ordinary.access(db),
+        )
+        assert batch_options["recommended_batch_id"] == pg.a.batch_id
+        assert {
+            row["id"] for row in batch_options["batches"]
+        } == {pg.a.batch_id, pg.a.later_batch_id}
+
 
 async def test_concurrent_duplicates_mismatch_and_transaction_rollback(pg):
     payload = dispatch_payload(pg.a)

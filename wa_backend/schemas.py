@@ -2430,6 +2430,7 @@ class UnifiedTransferItem(RequestModel):
     product_variant_id: PositiveDbInt
     quantity: PositiveQuantity
     uom_id: PositiveDbInt
+    batch_id: OptionalPositiveDbInt = None
     is_fefo_override: bool = False
     override_batch_id: OptionalPositiveDbInt = None
     override_reason_id: OptionalPositiveDbInt = None
@@ -2437,6 +2438,10 @@ class UnifiedTransferItem(RequestModel):
     @model_validator(mode="after")
     def validate_override_contract(self) -> "UnifiedTransferItem":
         if self.is_fefo_override:
+            if self.batch_id is not None:
+                raise ValueError(
+                    "batch_id لا يجتمع مع تجاوز FEFO؛ استخدم override_batch_id فقط."
+                )
             if self.override_batch_id is None or self.override_reason_id is None:
                 raise ValueError(
                     "تجاوز FEFO يتطلب override_batch_id و override_reason_id."
@@ -2467,21 +2472,31 @@ class UnifiedDispatchRequest(RequestModel):
             raise ValueError("المصدر والوجهة يجب أن يكونا مختلفين.")
 
         seen = set()
-        modes_by_product: Dict[int, set[bool]] = {}
+        modes_by_product: Dict[int, set[str]] = {}
         for item in self.items:
-            key = (item.product_variant_id, item.override_batch_id)
+            mode = (
+                "override"
+                if item.is_fefo_override
+                else "exact"
+                if item.batch_id is not None
+                else "auto"
+            )
+            batch_identity = (
+                item.override_batch_id
+                if item.is_fefo_override
+                else item.batch_id
+            )
+            key = (item.product_variant_id, mode, batch_identity)
             if key in seen:
                 raise ValueError(
                     "لا يجوز تكرار نفس الصنف/الدفعة في طلب الحوالة؛ اجمع الكمية في سطر واحد."
                 )
             seen.add(key)
-            modes_by_product.setdefault(item.product_variant_id, set()).add(
-                item.is_fefo_override
-            )
+            modes_by_product.setdefault(item.product_variant_id, set()).add(mode)
 
         if any(len(modes) > 1 for modes in modes_by_product.values()):
             raise ValueError(
-                "لا يجوز خلط FEFO التلقائي وتجاوز FEFO لنفس المنتج في حوالة واحدة."
+                "لا يجوز خلط الاختيار التلقائي وتحديد دفعات فعلية وتجاوز FEFO لنفس المنتج في حوالة واحدة."
             )
         return self
 
@@ -2537,6 +2552,13 @@ class UnifiedTransferSourceBatchItem(BaseModel):
     expiry_date: Optional[date] = None
     available_quantity: NonNegativeQuantity
     is_fefo_head: bool
+
+
+class UnifiedTransferBatchOptionsResponse(BaseModel):
+    location_id: int
+    product_variant_id: int
+    recommended_batch_id: Optional[int] = None
+    batches: List[UnifiedTransferSourceBatchItem]
 
 
 class UnifiedTransferOverrideOptionsResponse(BaseModel):

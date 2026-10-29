@@ -3,6 +3,7 @@ import { parseQuantity } from "../quantity";
 import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parsePublicBatchDate } from "../publicBatchDate";
 import type {
+  TransferBatchOptions,
   TransferLocationOption,
   TransferOverrideBatch,
   TransferOverrideOptions,
@@ -312,6 +313,56 @@ const parseOverrideBatch = (raw: unknown): TransferOverrideBatch => {
     is_fefo_head: row.is_fefo_head,
   };
 };
+
+export const parseBatchOptions = (
+  raw: unknown,
+  expectedLocationId: number,
+  expectedProductId: number
+): TransferBatchOptions => {
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !Array.isArray((raw as { batches?: unknown }).batches)
+  ) {
+    throw invalid();
+  }
+
+  const row = raw as Record<string, unknown>;
+  const locationId = positiveInt(row.location_id, "location_id");
+  const productId = positiveInt(
+    row.product_variant_id,
+    "product_variant_id"
+  );
+
+  if (
+    locationId !== expectedLocationId ||
+    productId !== expectedProductId
+  ) {
+    throw new Error(
+      "مرفوض: خيارات الدفعات لا تطابق مصدر الحوالة أو الصنف المحدد."
+    );
+  }
+
+  const batches = (row.batches as unknown[]).map(parseOverrideBatch);
+  const recommendedBatchId = optionalPositiveInt(
+    row.recommended_batch_id
+  );
+
+  if (
+    recommendedBatchId !== null &&
+    !batches.some((batch) => batch.id === recommendedBatchId)
+  ) {
+    throw invalid();
+  }
+
+  return {
+    location_id: locationId,
+    product_variant_id: productId,
+    recommended_batch_id: recommendedBatchId,
+    batches,
+  };
+};
+
 
 export const parseOverrideOptions = (
   raw: unknown,

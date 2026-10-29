@@ -50,6 +50,7 @@ from schemas import (
     InventoryStatusChangeRequest,
     InventoryStatusChangeResponse,
     UnifiedTransferLocationItem,
+    UnifiedTransferBatchOptionsResponse,
     UnifiedTransferOverrideOptionsResponse,
     UnifiedTransferSourceInventoryCursorPage,
     WarehouseTransferCursorPage,
@@ -1006,26 +1007,15 @@ async def get_unified_transfer_source_inventory(
 
 
 # ====================================================
-# 10.9 جلب خيارات تجاوز FEFO والأسباب المسموحة للحوالة
+# 10.9 قراءة الدفعات الفعلية المتاحة للحوالة من مستودع المصدر
 # ====================================================
-@router.get(
-    "/warehouse/unified/transfer/override-options",
-    response_model=UnifiedTransferOverrideOptionsResponse,
-    status_code=200,
-)
-async def get_unified_transfer_override_options(
-    location_id: int = Query(..., ge=1),
-    product_variant_id: int = Query(..., ge=1),
-    db: AsyncSession = Depends(get_db),
-    access: BackofficeCapabilityAccess = Depends(
-        get_current_backoffice_capability_access
-    ),
-):
-    await _require_transfer_capability(access, 'transfer.send', location_id)
-    await _require_transfer_capability(access, 'inventory.fefo_override', location_id)
-
-    company_id = access.company_id
-
+async def _read_unified_transfer_batch_options(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    location_id: int,
+    product_variant_id: int,
+) -> dict:
     location_exists = (
         await db.execute(
             select(InventoryLocation.id).filter(
@@ -1141,8 +1131,7 @@ async def get_unified_transfer_override_options(
             )
             .filter(
                 ProductBatch.company_id == company_id,
-                ProductBatch.product_variant_id
-                == product_variant_id,
+                ProductBatch.product_variant_id == product_variant_id,
                 batch_sellability_predicate(
                     as_of_date,
                     expiry_control_mode=ProductVariant.expiry_control_mode,
@@ -1152,8 +1141,7 @@ async def get_unified_transfer_override_options(
                 ),
                 InventoryBalance.company_id == company_id,
                 InventoryBalance.location_id == location_id,
-                InventoryBalance.product_variant_id
-                == product_variant_id,
+                InventoryBalance.product_variant_id == product_variant_id,
                 InventoryBalance.stock_status == 'AVAILABLE',
                 ~active_lock_exists,
             )
@@ -1171,6 +1159,82 @@ async def get_unified_transfer_override_options(
         )
     ).all()
 
+    recommended_batch_id = int(batch_rows[0].id) if batch_rows else None
+    return {
+        "location_id": int(location_id),
+        "product_variant_id": int(product_variant_id),
+        "recommended_batch_id": recommended_batch_id,
+        "batches": [
+            {
+                "id": int(row.id),
+                "batch_number": public_batch_number(row.batch_number),
+                "production_date": row.production_date,
+                "expiry_date": row.expiry_date,
+                "available_quantity": canonical_quantity(
+                    row.available_quantity or 0
+                ),
+                "is_fefo_head": (
+                    recommended_batch_id is not None
+                    and int(row.id) == recommended_batch_id
+                ),
+            }
+            for row in batch_rows
+        ],
+    }
+
+
+@router.get(
+    "/warehouse/unified/transfer/batch-options",
+    response_model=UnifiedTransferBatchOptionsResponse,
+    status_code=200,
+)
+async def get_unified_transfer_batch_options(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_transfer_capability(access, 'transfer.send', location_id)
+    return await _read_unified_transfer_batch_options(
+        db,
+        company_id=access.company_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
+
+# ====================================================
+# 10.9b جلب خيارات تجاوز FEFO الرقابي والأسباب المعتمدة
+# ====================================================
+@router.get(
+    "/warehouse/unified/transfer/override-options",
+    response_model=UnifiedTransferOverrideOptionsResponse,
+    status_code=200,
+)
+async def get_unified_transfer_override_options(
+    location_id: int = Query(..., ge=1),
+    product_variant_id: int = Query(..., ge=1),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    await _require_transfer_capability(access, 'transfer.send', location_id)
+    await _require_transfer_capability(
+        access,
+        'inventory.fefo_override',
+        location_id,
+    )
+
+    options = await _read_unified_transfer_batch_options(
+        db,
+        company_id=access.company_id,
+        location_id=location_id,
+        product_variant_id=product_variant_id,
+    )
+
     reason_rows = (
         await db.execute(
             select(
@@ -1179,7 +1243,7 @@ async def get_unified_transfer_override_options(
                 OverrideReason.description,
             )
             .filter(
-                OverrideReason.company_id == company_id,
+                OverrideReason.company_id == access.company_id,
                 OverrideReason.is_active.is_(True),
             )
             .order_by(
@@ -1189,26 +1253,11 @@ async def get_unified_transfer_override_options(
         )
     ).all()
 
-    fefo_batch_id = int(batch_rows[0].id) if batch_rows else None
-
     return {
-        "location_id": int(location_id),
-        "product_variant_id": int(product_variant_id),
-        "fefo_batch_id": fefo_batch_id,
-        "batches": [
-            {
-                "id": int(row.id),
-                "batch_number": public_batch_number(row.batch_number),
-                "production_date": row.production_date,
-                "expiry_date": row.expiry_date,
-                "available_quantity": canonical_quantity(row.available_quantity or 0),
-                "is_fefo_head": (
-                    fefo_batch_id is not None
-                    and int(row.id) == fefo_batch_id
-                ),
-            }
-            for row in batch_rows
-        ],
+        "location_id": options["location_id"],
+        "product_variant_id": options["product_variant_id"],
+        "fefo_batch_id": options["recommended_batch_id"],
+        "batches": options["batches"],
         "reasons": [
             {
                 "id": int(row.id),
@@ -1218,7 +1267,6 @@ async def get_unified_transfer_override_options(
             for row in reason_rows
         ],
     }
-
 
 
 # ====================================================
@@ -2688,23 +2736,47 @@ async def unified_transfer_dispatch(
 
         ordered_items = sorted(
             payload.items,
-            key=lambda item: (int(item.product_variant_id), int(item.override_batch_id or 0))
+            key=lambda item: (
+                int(item.product_variant_id),
+                int(
+                    item.override_batch_id
+                    or item.batch_id
+                    or 0
+                ),
+            ),
         )
 
-        override_items = [item for item in ordered_items if item.is_fefo_override]
-        normal_items = [item for item in ordered_items if not item.is_fefo_override]
+        override_items = [
+            item for item in ordered_items
+            if item.is_fefo_override
+        ]
+        exact_batch_items = [
+            item for item in ordered_items
+            if not item.is_fefo_override
+            and item.batch_id is not None
+        ]
+        normal_items = [
+            item for item in ordered_items
+            if not item.is_fefo_override
+            and item.batch_id is None
+        ]
 
         as_of_date = await get_company_local_date(db, company_id)
 
         reason_map = {}
-        override_batch_pairs = set()
         if override_items:
-            reason_ids = {int(item.override_reason_id) for item in override_items}
+            reason_ids = {
+                int(item.override_reason_id)
+                for item in override_items
+            }
             reason_map = {
                 row.id: row.description
                 for row in (
                     await db.execute(
-                        select(OverrideReason.id, OverrideReason.description).filter(
+                        select(
+                            OverrideReason.id,
+                            OverrideReason.description,
+                        ).filter(
                             OverrideReason.company_id == company_id,
                             OverrideReason.id.in_(reason_ids),
                             OverrideReason.is_active.is_(True),
@@ -2713,91 +2785,235 @@ async def unified_transfer_dispatch(
                 ).all()
             }
             if set(reason_map) != reason_ids:
-                raise HTTPException(status_code=400, detail="أحد أسباب تجاوز FEFO غير موجود أو غير فعال في شركتك.")
-
-            override_batch_pairs = {
-                (int(item.product_variant_id), int(item.override_batch_id))
-                for item in override_items
-            }
-            valid_override_pairs = set(
-                (
-                    await db.execute(
-                        select(
-                            ProductBatch.product_variant_id,
-                            ProductBatch.id,
-                        )
-                        .join(
-                            ProductVariant,
-                            and_(
-                                ProductVariant.company_id
-                                == ProductBatch.company_id,
-                                ProductVariant.id
-                                == ProductBatch.product_variant_id,
-                            ),
-                        )
-                        .join(
-                            InventoryBalance,
-                            and_(
-                                InventoryBalance.company_id
-                                == ProductBatch.company_id,
-                                InventoryBalance.product_variant_id
-                                == ProductBatch.product_variant_id,
-                                InventoryBalance.batch_id == ProductBatch.id,
-                            ),
-                        )
-                        .outerjoin(
-                            InventoryStockPolicy,
-                            and_(
-                                InventoryStockPolicy.company_id
-                                == ProductBatch.company_id,
-                                InventoryStockPolicy.location_id
-                                == payload.source_location_id,
-                                InventoryStockPolicy.product_variant_id
-                                == ProductBatch.product_variant_id,
-                                InventoryStockPolicy.is_active.is_(True),
-                            ),
-                        )
-                        .filter(
-                            ProductBatch.company_id == company_id,
-                            tuple_(
-                                ProductBatch.product_variant_id,
-                                ProductBatch.id,
-                            ).in_(sorted(override_batch_pairs)),
-                            batch_sellability_predicate(
-                                as_of_date,
-                                expiry_control_mode=(
-                                    ProductVariant.expiry_control_mode
-                                ),
-                                minimum_remaining_shelf_life_days=(
-                                    InventoryStockPolicy.minimum_remaining_shelf_life_days
-                                ),
-                            ),
-                            InventoryBalance.company_id == company_id,
-                            InventoryBalance.location_id
-                            == payload.source_location_id,
-                            InventoryBalance.stock_status == "AVAILABLE",
-                            InventoryBalance.on_hand_quantity
-                            > InventoryBalance.reserved_quantity,
-                        )
-                        .order_by(
-                            ProductBatch.product_variant_id.asc(),
-                            ProductBatch.id.asc(),
-                        )
-                        .with_for_update(
-                            read=True,
-                            of=ProductBatch,
-                        )
-                    )
-                ).all()
-            )
-            if valid_override_pairs != override_batch_pairs:
                 raise HTTPException(
                     status_code=400,
                     detail=(
-                        "إحدى دفعات تجاوز FEFO غير مؤهلة للبيع/التحميل "
-                        "بسبب disposition/expiry/shelf-life أو لا تتبع الصنف/الشركة."
+                        "أحد أسباب تجاوز FEFO غير موجود "
+                        "أو غير فعال في شركتك."
+                    ),
+                )
+
+        selected_batch_items = [
+            *exact_batch_items,
+            *override_items,
+        ]
+        selected_batch_pairs = {
+            (
+                int(item.product_variant_id),
+                int(
+                    item.override_batch_id
+                    if item.is_fefo_override
+                    else item.batch_id
+                ),
+            )
+            for item in selected_batch_items
+        }
+        selected_batch_available = {}
+        if selected_batch_pairs:
+            selected_lock_rows = (
+                await db.execute(
+                    select(
+                        InventoryLock.product_variant_id,
+                        InventoryLock.batch_id,
+                    ).filter(
+                        InventoryLock.company_id == company_id,
+                        InventoryLock.location_id
+                        == payload.source_location_id,
+                        InventoryLock.released_at.is_(None),
+                        or_(
+                            InventoryLock.product_variant_id.is_(None),
+                            InventoryLock.product_variant_id.in_(
+                                sorted({
+                                    variant_id
+                                    for variant_id, _ in selected_batch_pairs
+                                })
+                            ),
+                        ),
                     )
                 )
+            ).all()
+            if any(
+                product_variant_id is None
+                for product_variant_id, _ in selected_lock_rows
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="مستودع المصدر مقفل بجرد نشط.",
+                )
+            locked_products = {
+                int(product_variant_id)
+                for product_variant_id, batch_id
+                in selected_lock_rows
+                if product_variant_id is not None
+                and batch_id is None
+            }
+            locked_pairs = {
+                (
+                    int(product_variant_id),
+                    int(batch_id),
+                )
+                for product_variant_id, batch_id
+                in selected_lock_rows
+                if product_variant_id is not None
+                and batch_id is not None
+            }
+            if (
+                locked_products
+                & {
+                    variant_id
+                    for variant_id, _ in selected_batch_pairs
+                }
+            ) or (
+                locked_pairs
+                & selected_batch_pairs
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "إحدى الدفعات المحددة مقفلة بجرد نشط."
+                    ),
+                )
+
+            await db.execute(
+                select(ProductBatch.id)
+                .filter(
+                    ProductBatch.company_id == company_id,
+                    tuple_(
+                        ProductBatch.product_variant_id,
+                        ProductBatch.id,
+                    ).in_(sorted(selected_batch_pairs)),
+                )
+                .order_by(
+                    ProductBatch.product_variant_id.asc(),
+                    ProductBatch.id.asc(),
+                )
+                .with_for_update(read=True)
+            )
+
+            selected_available_expression = func.sum(
+                InventoryBalance.on_hand_quantity
+                - InventoryBalance.reserved_quantity
+            )
+            selected_batch_rows = (
+                await db.execute(
+                    select(
+                        ProductBatch.product_variant_id,
+                        ProductBatch.id,
+                        selected_available_expression.label(
+                            "available_quantity"
+                        ),
+                    )
+                    .join(
+                        ProductVariant,
+                        and_(
+                            ProductVariant.company_id
+                            == ProductBatch.company_id,
+                            ProductVariant.id
+                            == ProductBatch.product_variant_id,
+                        ),
+                    )
+                    .join(
+                        InventoryBalance,
+                        and_(
+                            InventoryBalance.company_id
+                            == ProductBatch.company_id,
+                            InventoryBalance.product_variant_id
+                            == ProductBatch.product_variant_id,
+                            InventoryBalance.batch_id
+                            == ProductBatch.id,
+                        ),
+                    )
+                    .outerjoin(
+                        InventoryStockPolicy,
+                        and_(
+                            InventoryStockPolicy.company_id
+                            == ProductBatch.company_id,
+                            InventoryStockPolicy.location_id
+                            == payload.source_location_id,
+                            InventoryStockPolicy.product_variant_id
+                            == ProductBatch.product_variant_id,
+                            InventoryStockPolicy.is_active.is_(True),
+                        ),
+                    )
+                    .filter(
+                        ProductBatch.company_id == company_id,
+                        tuple_(
+                            ProductBatch.product_variant_id,
+                            ProductBatch.id,
+                        ).in_(sorted(selected_batch_pairs)),
+                        batch_sellability_predicate(
+                            as_of_date,
+                            expiry_control_mode=(
+                                ProductVariant.expiry_control_mode
+                            ),
+                            minimum_remaining_shelf_life_days=(
+                                InventoryStockPolicy.minimum_remaining_shelf_life_days
+                            ),
+                        ),
+                        InventoryBalance.company_id == company_id,
+                        InventoryBalance.location_id
+                        == payload.source_location_id,
+                        InventoryBalance.stock_status == "AVAILABLE",
+                    )
+                    .group_by(
+                        ProductBatch.product_variant_id,
+                        ProductBatch.id,
+                    )
+                    .having(selected_available_expression > 0)
+                    .order_by(
+                        ProductBatch.product_variant_id.asc(),
+                        ProductBatch.id.asc(),
+                    )
+                )
+            ).all()
+
+            valid_selected_pairs = {
+                (
+                    int(row.product_variant_id),
+                    int(row.id),
+                )
+                for row in selected_batch_rows
+            }
+            if valid_selected_pairs != selected_batch_pairs:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "إحدى الدفعات المحددة غير مؤهلة للحوالة "
+                        "أو لا تتبع الصنف/الشركة/مستودع المصدر."
+                    ),
+                )
+
+            selected_batch_available = {
+                (
+                    int(row.product_variant_id),
+                    int(row.id),
+                ): Decimal(row.available_quantity or 0)
+                for row in selected_batch_rows
+            }
+            for item in selected_batch_items:
+                batch_id = int(
+                    item.override_batch_id
+                    if item.is_fefo_override
+                    else item.batch_id
+                )
+                available = selected_batch_available[
+                    (int(item.product_variant_id), batch_id)
+                ]
+                if Decimal(item.quantity) > available:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=inventory_business_error(
+                            "TRANSFER_BATCH_QUANTITY_EXCEEDS",
+                            "الكمية المطلوبة تتجاوز المتاح في الدفعة المحددة.",
+                            context={
+                                "product_variant_id":
+                                    int(item.product_variant_id),
+                                "batch_id": batch_id,
+                                "available_quantity":
+                                    canonical_quantity(available),
+                            },
+                        ),
+                    )
 
         normal_allocations = {}
         if normal_items:
@@ -2903,12 +3119,26 @@ async def unified_transfer_dispatch(
         movement_specs = []
         for item in ordered_items:
             if item.is_fefo_override:
-                allocations = [(int(item.override_batch_id), item.quantity)]
-                expected_rows = override_expected.get(int(item.product_variant_id), [])
-                expected_batch_id = expected_rows[0][0] if expected_rows else None
+                allocations = [
+                    (
+                        int(item.override_batch_id),
+                        item.quantity,
+                    )
+                ]
+                expected_rows = override_expected.get(
+                    int(item.product_variant_id),
+                    [],
+                )
+                expected_batch_id = (
+                    expected_rows[0][0]
+                    if expected_rows
+                    else None
+                )
                 override_reason_id = int(item.override_reason_id)
                 override_actor_id = legacy_actor.id
-                override_note = str(reason_map[override_reason_id] or "")[:255]
+                override_note = str(
+                    reason_map[override_reason_id] or ""
+                )[:255]
                 db.add(SystemAuditLog(
                     company_id=company_id,
                     admin_id=legacy_actor.id,
@@ -2919,10 +3149,26 @@ async def unified_transfer_dispatch(
                         if expected_batch_id is not None
                         else "Expected FEFO Batch: unavailable"
                     ),
-                    new_value=f"Chosen Batch: {item.override_batch_id}, Reason ID: {item.override_reason_id}"
+                    new_value=(
+                        f"Chosen Batch: {item.override_batch_id}, "
+                        f"Reason ID: {item.override_reason_id}"
+                    ),
                 ))
+            elif item.batch_id is not None:
+                allocations = [
+                    (
+                        int(item.batch_id),
+                        item.quantity,
+                    )
+                ]
+                override_reason_id = None
+                override_actor_id = None
+                override_note = None
             else:
-                allocations = normal_allocations.get(int(item.product_variant_id), [])
+                allocations = normal_allocations.get(
+                    int(item.product_variant_id),
+                    [],
+                )
                 override_reason_id = None
                 override_actor_id = None
                 override_note = None

@@ -159,6 +159,18 @@
     },
     {
       "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/unified/transfer/source-inventory"
+      },
+      "method": "GET",
+      "path": "/warehouse/unified/transfer/batch-options",
+      "function": "get_unified_transfer_batch_options",
+      "status_code": "200",
+      "response_model": "UnifiedTransferBatchOptionsResponse",
+      "expected_module": "transfers"
+    },
+    {
+      "insert_after": {
         "method": "POST",
         "path": "/warehouse/unified/transfer/special/dispatch"
       },

@@ -15,6 +15,7 @@ interface ModalProps {
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
+  panelClassName?: string;
   bodyClassName?: string;
   bodyOverflow?: "auto" | "hidden";
   compactHeader?: boolean;
@@ -32,6 +33,7 @@ export function Modal({
   children,
   footer,
   maxWidth = "max-w-2xl",
+  panelClassName = "",
   bodyClassName = "p-4 sm:p-6",
   bodyOverflow = "auto",
   compactHeader = false,
@@ -67,7 +69,7 @@ export function Modal({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className={`app-modal-panel relative flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-3xl ${maxWidth}`}
+            className={`app-modal-panel relative flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-3xl ${maxWidth} ${panelClassName}`}
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
