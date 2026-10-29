@@ -246,6 +246,12 @@ const parseSourceInventoryItem = (
     display_uom_name: requiredString(row.display_uom_name, "display_uom_name"),
     display_factor_to_base: parseQuantity(row.display_factor_to_base, "display_factor_to_base"),
     display_quantity_scale: nonNegativeInt(row.display_quantity_scale, "display_quantity_scale"),
+    lot_control_mode:
+      row.lot_control_mode === "NONE" ||
+      row.lot_control_mode === "OPTIONAL" ||
+      row.lot_control_mode === "REQUIRED"
+        ? row.lot_control_mode
+        : (() => { throw invalid(); })(),
     quantity_scale: nonNegativeInt(row.quantity_scale, "quantity_scale"),
     quantity_step: parseQuantity(row.quantity_step, "quantity_step"),
     available_quantity: parseQuantity(row.available_quantity, "available_quantity", { allowZero: true }),
