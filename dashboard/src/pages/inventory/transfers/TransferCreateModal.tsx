@@ -340,8 +340,9 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
 
               <div className="flex shrink-0 justify-end pt-1">
                 <button
-                  type="submit"
+                  type="button"
                   disabled={!c.canSubmit}
+                  onClick={() => setConfirmOpen(true)}
                   className="h-9 rounded-lg bg-blue-700 px-3.5 text-xs font-black text-white disabled:opacity-40"
                   data-cp13-action-priority="primary"
                 >
