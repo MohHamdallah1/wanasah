@@ -25,7 +25,7 @@ describe("Product Import tracking fallback preflight", () => {
     const file = csvFile([
       [
         "اسم المنتج",
-        "تتبع الدفعة",
+        "تتبع التشغيلة",
         "تتبع الصلاحية",
       ].join(","),
       [
@@ -133,7 +133,7 @@ describe("Product Import tracking fallback preflight", () => {
       [
         [
           "اسم المنتج",
-          "تتبع الدفعة",
+          "تتبع التشغيلة",
           "تتبع الصلاحية",
         ].join(","),
         [
