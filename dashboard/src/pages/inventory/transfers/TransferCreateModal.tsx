@@ -123,143 +123,303 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
   };
 
   const renderProductRow = (product: TransferSourceInventoryItem) => {
-    const lines = c.draftItems.filter((item) => item.id === product.id);
-    const autoLine = lines.length === 1 && lines[0].fefo_mode === "auto"
-      ? lines[0]
-      : null;
+    const lines = c.draftItems.filter(
+      (item) => item.id === product.id,
+    );
+    const autoLine =
+      lines.length === 1 &&
+      lines[0].batch_mode === "auto" &&
+      lines[0].fefo_mode === "auto"
+        ? lines[0]
+        : null;
     const mixedQuantity = supportsMixedTransferQuantity(product);
-    const parts = mixedQuantity
-      ? splitTransferQuantity(product, autoLine?.quantity ?? "0")
-      : null;
-    const baseName = uomName(product.base_uom_code, product.base_uom_name);
-    const displayName = uomName(product.display_uom_code, product.display_uom_name);
-    const manualOptions = c.overrideOptionsByProduct[product.id];
-    const manualUnavailable = Boolean(manualOptions && manualOptions.reasons.length === 0);
+    const baseName = uomName(
+      product.base_uom_code,
+      product.base_uom_name,
+    );
+    const displayName = uomName(
+      product.display_uom_code,
+      product.display_uom_name,
+    );
     const invalid = lines.some((item) => {
       try {
-        return compareQuantity(totalDraftQuantity(item), product.available_quantity) > 0;
+        return compareQuantity(
+          totalDraftQuantity(item),
+          product.available_quantity,
+        ) > 0;
       } catch {
         return item.quantity !== "0";
       }
     });
 
-    const updateMixedQuantity = (displayValue: string, baseValue: string) => {
-      try {
-        c.updateProductQuantity(
-          product,
-          composeTransferQuantity(product, displayValue, baseValue),
+    const renderQuantityInputs = (
+      value: string,
+      onChange: (quantity: string) => void,
+      ariaName: string,
+    ) => {
+      const normalized = value.trim() || "0";
+      const parts = mixedQuantity
+        ? splitTransferQuantity(
+            product,
+            normalized as Quantity,
+          )
+        : null;
+
+      const updateMixedQuantity = (
+        displayValue: string,
+        baseValue: string,
+      ) => {
+        try {
+          onChange(
+            composeTransferQuantity(
+              product,
+              displayValue,
+              baseValue,
+            ),
+          );
+        } catch {
+          // Keep the last valid canonical quantity visible.
+        }
+      };
+
+      if (mixedQuantity && parts) {
+        return (
+          <>
+            <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                data-transfer-quantity-input="true"
+                aria-label={t(
+                  "inventoryTransfers.productDisplayQuantity",
+                  {
+                    name: ariaName,
+                    unit: displayName,
+                  },
+                )}
+                value={
+                  parts.displayQuantity === "0"
+                    ? ""
+                    : parts.displayQuantity
+                }
+                disabled={!c.ready || c.restoring}
+                onKeyDown={handleQuantityArrowNavigation}
+                onChange={(event) =>
+                  updateMixedQuantity(
+                    event.target.value,
+                    parts.baseRemainder,
+                  )
+                }
+                className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
+              />
+              <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
+                {displayName}
+              </span>
+            </label>
+            <span className="text-xs font-black text-slate-300">
+              +
+            </span>
+            <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                data-transfer-quantity-input="true"
+                aria-label={t(
+                  "inventoryTransfers.productBaseRemainder",
+                  {
+                    name: ariaName,
+                    unit: baseName,
+                  },
+                )}
+                value={
+                  parts.baseRemainder === "0"
+                    ? ""
+                    : parts.baseRemainder
+                }
+                disabled={!c.ready || c.restoring}
+                onKeyDown={handleQuantityArrowNavigation}
+                onChange={(event) =>
+                  updateMixedQuantity(
+                    parts.displayQuantity,
+                    event.target.value,
+                  )
+                }
+                className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
+              />
+              <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
+                {baseName}
+              </span>
+            </label>
+          </>
         );
-      } catch {
-        // Keep the last valid canonical quantity until the user enters a valid value.
       }
+
+      return (
+        <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
+          <input
+            type="text"
+            inputMode="decimal"
+            data-transfer-quantity-input="true"
+            aria-label={t(
+              "inventoryTransfers.productQuantity",
+              { name: ariaName },
+            )}
+            aria-invalid={invalid}
+            value={value}
+            disabled={!c.ready || c.restoring}
+            onKeyDown={handleQuantityArrowNavigation}
+            onChange={(event) =>
+              onChange(event.target.value)
+            }
+            className="h-8 w-20 bg-transparent text-center text-xs font-black outline-none"
+          />
+          <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
+            {baseName}
+          </span>
+        </label>
+      );
     };
 
     return (
-      <tr key={product.id} data-product-id={product.id} className="border-t border-slate-100 align-middle hover:bg-slate-50/60">
+      <tr
+        key={product.id}
+        data-product-id={product.id}
+        className="border-t border-slate-100 align-middle hover:bg-slate-50/60"
+      >
         <td className="px-2.5 py-2">
-          <strong className="block truncate text-xs text-slate-900">{product.name}</strong>
+          <strong className="block truncate text-xs text-slate-900">
+            {product.name}
+          </strong>
         </td>
         <td className="px-2.5 py-2 text-center text-xs font-black text-slate-800">
-          {formatProductQuantity(product, product.available_quantity)}
+          {formatProductQuantity(
+            product,
+            product.available_quantity,
+          )}
         </td>
         <td className="px-2.5 py-2 text-center text-xs font-bold text-slate-600">
-          {mixedQuantity ? `${displayName} + ${baseName}` : baseName}
+          {mixedQuantity
+            ? `${displayName} + ${baseName}`
+            : baseName}
         </td>
         <td className="px-2 py-1.5">
-          {(!lines.length || lines.every((line) => line.fefo_mode === "auto")) ? (
+          {(
+            !lines.length ||
+            lines.every(
+              (line) =>
+                line.batch_mode === "auto" &&
+                line.fefo_mode === "auto",
+            )
+          ) ? (
             <div className="flex flex-nowrap items-center justify-center gap-1.5 whitespace-nowrap">
-              {mixedQuantity && parts ? (
-                <>
-                  <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-                    <input
-                      type="number"
-                      min="0"
-                      step={product.display_quantity_scale === 0 ? "1" : `0.${"0".repeat(product.display_quantity_scale - 1)}1`}
-                      aria-label={t("inventoryTransfers.productDisplayQuantity", { name: product.name, unit: displayName })}
-                      value={parts.displayQuantity === "0" ? "" : parts.displayQuantity}
-                      disabled={!c.ready || c.restoring}
-                      onChange={(event) => updateMixedQuantity(event.target.value, parts.baseRemainder)}
-                      className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
-                    />
-                    <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">{displayName}</span>
-                  </label>
-                  <span className="text-xs font-black text-slate-300">+</span>
-                  <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-                    <input
-                      type="number"
-                      min="0"
-                      step={product.quantity_step}
-                      aria-label={t("inventoryTransfers.productBaseRemainder", { name: product.name, unit: baseName })}
-                      value={parts.baseRemainder === "0" ? "" : parts.baseRemainder}
-                      disabled={!c.ready || c.restoring}
-                      onChange={(event) => updateMixedQuantity(parts.displayQuantity, event.target.value)}
-                      className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
-                    />
-                    <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">{baseName}</span>
-                  </label>
-                </>
-              ) : (
-                <input
-                  aria-label={t("inventoryTransfers.productQuantity", { name: product.name })}
-                  aria-invalid={invalid}
-                  inputMode="decimal"
-                  value={autoLine?.quantity ?? ""}
-                  disabled={!c.ready || c.restoring}
-                  onChange={(event) => c.updateProductQuantity(product, event.target.value)}
-                  className="h-8 w-24 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs font-black outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-                />
+              {renderQuantityInputs(
+                autoLine?.quantity ?? "",
+                (quantity) =>
+                  c.updateProductQuantity(
+                    product,
+                    quantity,
+                  ),
+                product.name,
               )}
               <button
                 type="button"
                 disabled={!c.ready || c.restoring}
-                onClick={() => c.updateProductQuantity(product, product.available_quantity)}
-                title={t("inventoryTransfers.allTooltip")}
+                onClick={() =>
+                  c.updateProductQuantity(
+                    product,
+                    product.available_quantity,
+                  )
+                }
+                title={t(
+                  "inventoryTransfers.allTooltip",
+                )}
                 className="h-8 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
               >
                 {t("inventoryTransfers.all")}
               </button>
-              {c.canOverride && lines.length > 0 && lines.every((line) => line.fefo_mode === "auto") ? (
+              {lines.length > 0 ? (
                 <button
                   type="button"
-                  disabled={c.overrideLoadingProductIds.includes(product.id) || manualUnavailable}
-                  title={manualUnavailable ? t("inventoryTransfers.noReasons") : t("inventoryTransfers.specificBatchButtonHint")}
-                  onClick={() => void c.setDraftFefoMode(lines[0].draft_key, "override")}
-                  className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={c.batchLoadingProductIds.includes(
+                    product.id,
+                  )}
+                  title={t(
+                    "inventoryTransfers.exactBatchButtonHint",
+                  )}
+                  onClick={() =>
+                    void c.setDraftBatchMode(
+                      lines[0].draft_key,
+                      "exact",
+                    )
+                  }
+                  className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-black text-slate-600 hover:bg-slate-50 disabled:opacity-50"
                 >
-                  {t("inventoryTransfers.chooseBatchCompact")}
+                  {t(
+                    "inventoryTransfers.selectExactBatch",
+                  )}
                 </button>
               ) : null}
             </div>
           ) : null}
-          {invalid ? <p role="alert" className="mt-1 text-center text-[10px] font-bold text-red-600">{t("inventoryTransfers.quantityExceeds", { name: product.name })}</p> : null}
-          {c.canOverride && lines.some((line) => line.fefo_mode === "override") ? (
-            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
-              {lines.map((item) => (
-                <div key={item.draft_key} className="mt-2 first:mt-0">
-                  <FefoOverrideEditor
-                    canOverride={c.canOverride}
+
+          {invalid ? (
+            <p
+              role="alert"
+              className="mt-1 text-center text-[10px] font-bold text-red-600"
+            >
+              {t(
+                "inventoryTransfers.quantityExceeds",
+                { name: product.name },
+              )}
+            </p>
+          ) : null}
+
+          {lines.some(
+            (line) => line.batch_mode === "exact",
+          ) ? (
+            <div className="mt-1.5 space-y-2">
+              {lines.map((item, index) => (
+                <div
+                  key={item.draft_key}
+                  className="rounded-lg border border-slate-100 bg-slate-50/50 p-2"
+                >
+                  <TransferBatchSelectionEditor
                     item={item}
                     draftItems={c.draftItems}
-                    options={c.overrideOptionsByProduct[item.id]}
-                    loading={c.overrideLoadingProductIds.includes(item.id)}
-                    onModeChange={c.setDraftFefoMode}
-                    onBatchChange={c.setOverrideBatch}
-                    onReasonChange={c.setOverrideReason}
-                    onAddBatchLine={c.addOverrideBatchLine}
+                    options={
+                      c.batchOptionsByProduct[item.id]
+                    }
+                    loading={c.batchLoadingProductIds.includes(
+                      item.id,
+                    )}
+                    onModeChange={c.setDraftBatchMode}
+                    onBatchChange={c.setSelectedBatch}
+                    onAddBatchLine={
+                      c.addSelectedBatchLine
+                    }
                   />
-                  <label className="mt-2 block text-[10px] font-bold">
-                    {t("inventoryTransfers.quantity")}
-                    <input
-                      aria-label={t("inventoryTransfers.productQuantity", { name: product.name })}
-                      value={item.quantity}
-                      inputMode="decimal"
-                      onChange={(event) => c.updateDraftQuantity(item.draft_key, event.target.value)}
-                      className="ms-2 h-8 w-24 rounded border border-slate-200 px-2 text-center"
-                    />
-                  </label>
-                  <button type="button" onClick={() => c.removeDraftLine(item.draft_key)} className="mt-2 text-[10px] font-black text-red-600">
-                    {t("inventoryTransfers.remove")}
-                  </button>
+                  <div className="mt-2 flex flex-nowrap items-center justify-end gap-1.5">
+                    {renderQuantityInputs(
+                      item.quantity,
+                      (quantity) =>
+                        c.updateDraftQuantity(
+                          item.draft_key,
+                          quantity,
+                        ),
+                      `${product.name} ${index + 1}`,
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        c.removeDraftLine(
+                          item.draft_key,
+                        )
+                      }
+                      className="h-8 rounded-lg border border-red-100 bg-white px-2 text-[10px] font-black text-red-600"
+                    >
+                      {t("inventoryTransfers.remove")}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
