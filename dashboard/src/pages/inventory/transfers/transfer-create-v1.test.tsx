@@ -182,7 +182,7 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
 
   const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsAfter[1]).toContain(cartonProduct.name);
-  expect(screen.getByText(`258 ${cartonUnit}`)).toBeInTheDocument();
+  expect(screen.getAllByText(`258 ${cartonUnit}`)).toHaveLength(2);
 
   await waitFor(() => expect(send()).not.toBeDisabled());
   fireEvent.click(send());
