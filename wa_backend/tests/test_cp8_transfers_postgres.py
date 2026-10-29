@@ -541,6 +541,109 @@ async def test_fefo_order_override_exact_capability_and_audit(pg):
         )
 
 
+async def test_same_actor_can_dispatch_split_exact_batches_and_receive(pg):
+    async with AsyncSession(pg.admin_engine) as seed:
+        await _grant_location(
+            seed,
+            pg.a,
+            pg.a.locations[1],
+            "transfer.destination",
+            "transfer.read",
+            "transfer.receive",
+            "transfer.reject",
+        )
+        await seed.commit()
+
+    actor = pg.a.ordinary
+    payload = dispatch_payload(
+        pg.a,
+        items=[
+            dict(
+                product_variant_id=pg.a.variant_id,
+                quantity="2",
+                uom_id=pg.a.uom_id,
+                batch_id=pg.a.batch_id,
+            ),
+            dict(
+                product_variant_id=pg.a.variant_id,
+                quantity="3",
+                uom_id=pg.a.uom_id,
+                batch_id=pg.a.later_batch_id,
+            ),
+        ],
+    )
+    sent = await send(pg, payload, actor)
+
+    async with pg.session(pg.a) as db:
+        found = await list_page(
+            db,
+            actor.access(db),
+            pg.a.locations[0],
+            search=str(sent["header_id"]),
+        )
+        assert [row["id"] for row in found["items"]] == [sent["header_id"]]
+
+        result = await transfers.unified_transfer_receive(
+            UnifiedReceiveRequest(
+                request_id=uuid4(),
+                transfer_header_id=sent["header_id"],
+                destination_location_id=pg.a.locations[1],
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert result["status"] == "POSTED"
+        header = await db.get(InventoryTransferHeader, sent["header_id"])
+        assert header.dispatched_by == actor.driver_id
+        assert header.received_by == actor.driver_id
+        assert await db.scalar(
+            select(func.count()).select_from(InventoryTransferLine).where(
+                InventoryTransferLine.company_id == pg.a.company_id,
+                InventoryTransferLine.transfer_header_id == sent["header_id"],
+            )
+        ) == 2
+        assert await db.scalar(
+            select(func.count()).select_from(InventoryMovement).where(
+                InventoryMovement.company_id == pg.a.company_id,
+                InventoryMovement.transfer_header_id == sent["header_id"],
+            )
+        ) == 4
+
+
+async def test_same_actor_can_reject_own_generic_transfer(pg):
+    async with AsyncSession(pg.admin_engine) as seed:
+        await _grant_location(
+            seed,
+            pg.a,
+            pg.a.locations[1],
+            "transfer.destination",
+            "transfer.read",
+            "transfer.receive",
+            "transfer.reject",
+        )
+        await seed.commit()
+
+    actor = pg.a.ordinary
+    sent = await send(pg, actor=actor)
+    async with pg.session(pg.a) as db:
+        result = await transfers.unified_transfer_reject(
+            sent["header_id"],
+            UnifiedTransferDecisionRequest(
+                request_id=uuid4(),
+                decision_reason="same authorized operator",
+            ),
+            db,
+            actor.access(db),
+            actor.operational_driver,
+        )
+        assert result["status"] == "REJECTED"
+        header = await db.get(InventoryTransferHeader, sent["header_id"])
+        assert header.dispatched_by == actor.driver_id
+        assert header.received_by == actor.driver_id
+        assert header.decision_reason == "same authorized operator"
+
+
 async def test_concurrent_duplicates_mismatch_and_transaction_rollback(pg):
     payload = dispatch_payload(pg.a)
     one, two = await asyncio.gather(send(pg, payload), send(pg, payload))
