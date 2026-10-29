@@ -132,6 +132,21 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
   }
   render() {
     if (this.state.hasError) {
+      const failure = this.state.error as (Error & {
+        code?: string;
+        context?: { field?: unknown };
+      }) | null;
+      const field =
+        typeof failure?.context?.field === "string"
+          ? failure.context.field
+          : null;
+      const diagnostic =
+        failure?.message?.trim() ||
+        (failure?.code === "TRANSFER_RESPONSE_INVALID"
+          ? `تعذر التحقق من بيانات الحوالة${field ? ` (${field})` : ""}.`
+          : failure?.code
+            ? `رمز الخطأ: ${failure.code}`
+            : "تعذر تحديد تفاصيل الخطأ.");
       return (
         <div className="min-h-screen flex items-center justify-center bg-slate-900" dir="rtl">
           <div className="text-center p-8 max-w-md">
@@ -152,8 +167,8 @@ class DashboardErrorBoundary extends Component<{ children: React.ReactNode }, Er
                 العودة للرئيسية
               </button>
             </div>
-            <p className="text-slate-600 text-xs mt-4 font-mono" dir="ltr">
-              {this.state.error?.message || 'Unknown error'}
+            <p className="text-slate-500 text-xs mt-4" dir="rtl">
+              {diagnostic}
             </p>
           </div>
         </div>
