@@ -2810,6 +2810,70 @@ async def unified_transfer_dispatch(
         }
         selected_batch_available = {}
         if selected_batch_pairs:
+            selected_lock_rows = (
+                await db.execute(
+                    select(
+                        InventoryLock.product_variant_id,
+                        InventoryLock.batch_id,
+                    ).filter(
+                        InventoryLock.company_id == company_id,
+                        InventoryLock.location_id
+                        == payload.source_location_id,
+                        InventoryLock.released_at.is_(None),
+                        or_(
+                            InventoryLock.product_variant_id.is_(None),
+                            InventoryLock.product_variant_id.in_(
+                                sorted({
+                                    variant_id
+                                    for variant_id, _ in selected_batch_pairs
+                                })
+                            ),
+                        ),
+                    )
+                )
+            ).all()
+            if any(
+                product_variant_id is None
+                for product_variant_id, _ in selected_lock_rows
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail="مستودع المصدر مقفل بجرد نشط.",
+                )
+            locked_products = {
+                int(product_variant_id)
+                for product_variant_id, batch_id
+                in selected_lock_rows
+                if product_variant_id is not None
+                and batch_id is None
+            }
+            locked_pairs = {
+                (
+                    int(product_variant_id),
+                    int(batch_id),
+                )
+                for product_variant_id, batch_id
+                in selected_lock_rows
+                if product_variant_id is not None
+                and batch_id is not None
+            }
+            if (
+                locked_products
+                & {
+                    variant_id
+                    for variant_id, _ in selected_batch_pairs
+                }
+            ) or (
+                locked_pairs
+                & selected_batch_pairs
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "إحدى الدفعات المحددة مقفلة بجرد نشط."
+                    ),
+                )
+
             selected_available_expression = func.sum(
                 InventoryBalance.on_hand_quantity
                 - InventoryBalance.reserved_quantity
