@@ -2507,6 +2507,11 @@ class UnifiedTransferSourceInventoryItem(BaseModel):
     base_uom_id: PositiveDbInt
     base_uom_code: str
     base_uom_name: str
+    display_uom_id: PositiveDbInt
+    display_uom_code: str
+    display_uom_name: str
+    display_factor_to_base: PositiveQuantity
+    display_quantity_scale: int = Field(..., ge=0, le=6)
     quantity_scale: int = Field(..., ge=0, le=6)
     quantity_step: PositiveQuantity
     available_quantity: NonNegativeQuantity
