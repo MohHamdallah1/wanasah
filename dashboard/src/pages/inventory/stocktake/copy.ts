@@ -10,7 +10,7 @@ const ar = {
     recountFailed: "فشل تفويض إعادة العد.",
     cancelFailed: "فشل إلغاء جلسة الجرد.",
     cycleProductsFailed: "فشل جلب أصناف الجرد الدوري.",
-    cycleBatchesFailed: "فشل جلب دفعات الصنف.",
+    cycleBatchesFailed: "فشل جلب تشغيلات الصنف.",
     cycleStartFailed: "فشل بدء الجرد الدوري.",
     vehicleCandidatesFailed: "فشل جلب جلسات تسوية السيارات.",
     vehicleStartFailed: "فشل بدء أو فتح تسوية السيارة.",
@@ -49,8 +49,8 @@ const ar = {
   cycle: {
     selectProduct: "اختر الصنف الذي تريد جرده.",
     notesTooLong: "ملاحظات الجرد لا يجوز أن تتجاوز 4000 حرف.",
-    startedBatch: (product: string, batch: string) => `تم بدء جرد دوري للصنف ${product} — الدفعة ${batch}.`,
-    startedAll: (product: string) => `تم بدء جرد دوري للصنف ${product} بكل دفعاته.`,
+    startedBatch: (product: string, batch: string) => `تم بدء جرد دوري للصنف ${product} — التشغيلة ${batch}.`,
+    startedAll: (product: string) => `تم بدء جرد دوري للصنف ${product} بكل تشغيلاته.`,
   },
   vehicle: {
     conflict: (status: string) => `يوجد VEHICLE_RECON سابق بحالة (${status}). لا يجوز فتح نسخة جديدة قبل معالجة الحالة الحالية.`,
