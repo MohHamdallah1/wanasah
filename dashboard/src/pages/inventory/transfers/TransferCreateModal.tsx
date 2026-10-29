@@ -649,7 +649,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
             onSubmit={(event) => {
               event.preventDefault();
               requestConfirmation();
-            }
+            }}
           >
             {c.policyBlocked ? <Link to="/inventory" state={createInventoryTabNavigationState("warehouses")}>{t("inventoryTransfers.policySetup")}</Link> : null}
 
