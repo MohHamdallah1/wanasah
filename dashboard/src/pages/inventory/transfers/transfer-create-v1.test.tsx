@@ -8,6 +8,7 @@ import { TransferCreateModal } from "./TransferCreateModal";
 import { useTransferCreate } from "./hooks/useTransferCreate";
 import { transferCommandScope } from "./hooks/useTransferCommand";
 import { readTransferDraft, writeTransferDraft, type TransferDraft } from "./draftStorage";
+import type { TransferSourceInventoryItem } from "./types";
 
 const mock = vi.hoisted(() => ({ fetch: vi.fn(), override: true, send: true, destination: true }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mock.fetch }));
@@ -28,7 +29,10 @@ const cartonProduct = { id: 300, name: "Carton product", sku: "SKU-300", base_uo
   lot_control_mode: "REQUIRED" as const,
   has_user_visible_lot: true,
   quantity_scale: 0, quantity_step: "1", available_quantity: "12900" };
-const page = (items = [product], next_cursor: string | null = null) => ({ items, next_cursor, has_more: next_cursor !== null, total: items.length });
+const page = (
+  items: TransferSourceInventoryItem[] = [product],
+  next_cursor: string | null = null,
+) => ({ items, next_cursor, has_more: next_cursor !== null, total: items.length });
 const vehicle = { id: 91, name: "Vehicle must never appear", code: "V91", location_type: "VEHICLE", vehicle_id: 1 };
 
 const fetchDefault = async (url: string) => {
