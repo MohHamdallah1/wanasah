@@ -101,11 +101,12 @@ it.each(["ar", "en"])("provides translated form submission, locale direction, Es
   fireEvent.keyDown(document, { key: "Escape" }); expect(close).toHaveBeenCalled();
   cleanup(); await waitFor(() => expect(document.activeElement).toBe(opener)); opener.remove();
 });
-it("disables FEFO override without its exact capability and rejects malformed purpose contracts", () => {
+it("hides manual batch selection without its exact capability and rejects malformed purpose contracts", () => {
   const item = { id: 1, product_variant_id: 1, draft_key: "K", name: "Product", sku: null, base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
-    quantity_scale: 0, quantity_step: "1", available_quantity: "10", quantity: "1", fefo_mode: "auto" as const, override_batch_id: null, override_reason_id: null, override_batch_available: null };
+    quantity_scale: 0, quantity_step: "1", available_quantity: "10", quantity: "1", fefo_mode: "override" as const, override_batch_id: null, override_reason_id: null, override_batch_available: null };
   render(<FefoOverrideEditor canOverride={false} item={item} draftItems={[item]} options={undefined} loading={false} onModeChange={vi.fn()} onBatchChange={vi.fn()} onReasonChange={vi.fn()} onAddBatchLine={vi.fn()} />);
-  expect(screen.getByRole("option", { name: "Audited FEFO override" })).toBeDisabled();
+  expect(screen.queryByText(i18n.t("inventoryTransfers.specificBatchHint"))).toBeNull();
+  expect(screen.queryByRole("combobox", { name: i18n.t("inventoryTransfers.selectedBatch") })).toBeNull();
   expect(() => parseTransferPage(page([{ ...transfer(), transfer_purpose: undefined } as never]))).toThrow();
 });
 

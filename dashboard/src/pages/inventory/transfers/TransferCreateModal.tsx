@@ -74,7 +74,6 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       <tr key={product.id} data-product-id={product.id} className="border-t border-slate-100 align-top hover:bg-slate-50/60">
         <td className="p-2.5">
           <strong className="block text-xs text-slate-900">{product.name}</strong>
-          {product.sku ? <p className="mt-0.5 text-[10px] font-semibold text-slate-400">{product.sku}</p> : null}
         </td>
         <td className="p-2.5 text-center text-xs font-black text-slate-800">{formatTransferNumber(product.available_quantity)}</td>
         <td className="p-2.5 text-center text-xs font-bold text-slate-600">
@@ -82,7 +81,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
         </td>
         <td className="p-2.5">
           {(!lines.length || lines.every((line) => line.fefo_mode === "auto")) ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center gap-2">
               <input
                 aria-label={t("inventoryTransfers.productQuantity", { name: product.name })}
                 aria-invalid={invalid}
@@ -96,6 +95,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                 type="button"
                 disabled={!c.ready || c.restoring}
                 onClick={() => c.updateProductQuantity(product, product.available_quantity)}
+                title={t("inventoryTransfers.allTooltip")}
                 className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-3 text-[11px] font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
               >
                 {t("inventoryTransfers.all")}
@@ -103,11 +103,20 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
             </div>
           ) : null}
           {invalid ? <p role="alert" className="mt-1 text-[10px] font-bold text-red-600">{t("inventoryTransfers.quantityExceeds", { name: product.name })}</p> : null}
-          {c.canOverride && lines.length > 0 ? (
-            <details className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
-              <summary className="cursor-pointer text-[10px] font-black text-slate-600">{t("inventoryTransfers.advancedFefo")}</summary>
+          {c.canOverride && lines.length > 0 && lines.every((line) => line.fefo_mode === "auto") ? (
+            <button
+              type="button"
+              disabled={c.overrideLoadingProductIds.includes(product.id)}
+              onClick={() => void c.setDraftFefoMode(lines[0].draft_key, "override")}
+              className="mt-1.5 text-[10px] font-black text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 disabled:opacity-50"
+            >
+              {t("inventoryTransfers.chooseSpecificBatch")}
+            </button>
+          ) : null}
+          {c.canOverride && lines.some((line) => line.fefo_mode === "override") ? (
+            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
               {lines.map((item) => (
-                <div key={item.draft_key} className="mt-2 rounded-lg border border-slate-200 bg-white p-2">
+                <div key={item.draft_key} className="mt-2 first:mt-0">
                   <FefoOverrideEditor
                     canOverride={c.canOverride}
                     item={item}
@@ -119,24 +128,22 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                     onReasonChange={c.setOverrideReason}
                     onAddBatchLine={c.addOverrideBatchLine}
                   />
-                  {item.fefo_mode === "override" ? (
-                    <label className="mt-2 block text-[10px] font-bold">
-                      {t("inventoryTransfers.quantity")}
-                      <input
-                        aria-label={t("inventoryTransfers.productQuantity", { name: product.name })}
-                        value={item.quantity}
-                        inputMode="decimal"
-                        onChange={(event) => c.updateDraftQuantity(item.draft_key, event.target.value)}
-                        className="ms-2 h-8 w-24 rounded border border-slate-200 px-2 text-center"
-                      />
-                    </label>
-                  ) : null}
+                  <label className="mt-2 block text-[10px] font-bold">
+                    {t("inventoryTransfers.quantity")}
+                    <input
+                      aria-label={t("inventoryTransfers.productQuantity", { name: product.name })}
+                      value={item.quantity}
+                      inputMode="decimal"
+                      onChange={(event) => c.updateDraftQuantity(item.draft_key, event.target.value)}
+                      className="ms-2 h-8 w-24 rounded border border-slate-200 px-2 text-center"
+                    />
+                  </label>
                   <button type="button" onClick={() => c.removeDraftLine(item.draft_key)} className="mt-2 text-[10px] font-black text-red-600">
                     {t("inventoryTransfers.remove")}
                   </button>
                 </div>
               ))}
-            </details>
+            </div>
           ) : null}
         </td>
       </tr>
@@ -155,6 +162,8 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       isOpen={c.createOpen}
       onClose={c.closeCreate}
       title={t(confirmOpen ? "inventoryTransfers.confirmTitle" : "inventoryTransfers.createTitle")}
+      titleAside={confirmOpen ? undefined : t("inventoryTransfers.sourceHint")}
+      compactHeader={!confirmOpen}
       maxWidth={confirmOpen ? "max-w-xl" : "max-w-6xl"}
     >
       <div dir={i18n.dir()}>
@@ -264,30 +273,6 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
               ) : null}
 
               <section className="flex min-h-[320px] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-                <div className="shrink-0 border-b border-slate-100 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-sm font-black text-slate-900">{t("inventoryTransfers.products")}</h3>
-                      <p className="mt-0.5 text-[10px] font-semibold text-slate-500">{t("inventoryTransfers.sourceHint")}</p>
-                    </div>
-                    {selectedProducts.length ? (
-                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700">
-                        {t("inventoryTransfers.selectedItemsCount", { count: selectedProducts.length })}
-                      </span>
-                    ) : null}
-                  </div>
-                  <input
-                    type="search"
-                    aria-label={t("inventoryTransfers.productSearch")}
-                    value={c.productSearchInput}
-                    onChange={(event) => c.setProductSearchInput(event.target.value)}
-                    maxLength={100}
-                    disabled={!c.ready}
-                    placeholder={c.ready ? t("inventoryTransfers.productSearch") : t("inventoryTransfers.chooseWarehousesFirst")}
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                </div>
-
                 {!c.ready ? (
                   <div className="flex min-h-56 flex-1 items-center justify-center px-4 text-center text-sm font-bold text-slate-400">
                     {t("inventoryTransfers.chooseWarehousesFirst")}
@@ -302,10 +287,20 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                     <table className="w-full min-w-[720px] text-sm" aria-busy={c.sourceProductsLoading || c.sourceProductsLoadingMore || c.restoring}>
                       <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
                         <tr>
-                          <th className="p-2.5 text-start text-[11px] font-black text-slate-500">{t("inventoryTransfers.products")}</th>
-                          <th className="p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.availableTransfer")}</th>
-                          <th className="p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.baseUom")}</th>
-                          <th className="p-2.5 text-start text-[11px] font-black text-slate-500">{t("inventoryTransfers.quantity")}</th>
+                          <th className="w-[42%] p-2 text-start">
+                            <input
+                              type="search"
+                              aria-label={t("inventoryTransfers.productSearch")}
+                              value={c.productSearchInput}
+                              onChange={(event) => c.setProductSearchInput(event.target.value)}
+                              maxLength={100}
+                              placeholder={t("inventoryTransfers.productSearch")}
+                              className="h-8 w-full max-w-sm rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-bold text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            />
+                          </th>
+                          <th className="w-[18%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.availableTransfer")}</th>
+                          <th className="w-[16%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.baseUom")}</th>
+                          <th className="w-[24%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.quantity")}</th>
                         </tr>
                       </thead>
 

@@ -150,9 +150,6 @@ export function TransferWarehouseCombobox({
             value={open ? search : selectedLabel}
             placeholder={placeholder}
             maxLength={100}
-            onFocus={() => {
-              if (!disabled) setOpen(true);
-            }}
             onClick={() => {
               if (!disabled) setOpen(true);
             }}
@@ -164,6 +161,11 @@ export function TransferWarehouseCombobox({
               if (event.key === "Escape") {
                 setOpen(false);
                 onSearchChange("");
+                return;
+              }
+              if (!open && !disabled && (event.key === "ArrowDown" || event.key === "Enter")) {
+                event.preventDefault();
+                setOpen(true);
               }
             }}
             className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pe-16 text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60"
