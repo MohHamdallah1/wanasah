@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Plus, RefreshCcw, Search, Truck } from "lucide-react";
 import { useTransferTranslation as useTranslation, formatTransferNumber } from "./transfers/i18n";
 import { TRANSFER_STATUSES, isTransferStatus, STATUS_META } from "./transfers/constants";
@@ -11,7 +11,41 @@ import { useTransferList } from "./transfers/hooks/useTransferList";
 import { useTransferActions } from "./transfers/hooks/useTransferActions";
 import { useTransferCreate } from "./transfers/hooks/useTransferCreate";
 
-export function TabTransfers({
+class TransferWorkspaceErrorBoundary extends Component<
+  { children: ReactNode; retryLabel: string; message: string },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    if (this.state.failed) {
+      return (
+        <section
+          role="alert"
+          className="inventory-surface flex min-h-48 flex-1 flex-col items-center justify-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-6 text-center"
+        >
+          <p className="max-w-xl text-sm font-bold text-red-800">
+            {this.props.message}
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ failed: false })}
+            className="rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700"
+          >
+            {this.props.retryLabel}
+          </button>
+        </section>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function TabTransfersWorkspace({
   focus = null,
   onFocusConsumed,
   onInventoryChanged,
@@ -216,5 +250,17 @@ export function TabTransfers({
         onSubmit={handleAction}
       />
     </div>
+  );
+}
+
+export function TabTransfers(props: Props) {
+  const { t } = useTranslation();
+  return (
+    <TransferWorkspaceErrorBoundary
+      retryLabel={t("inventoryTransfers.retry")}
+      message={t("inventoryTransfers.workspaceCrash")}
+    >
+      <TabTransfersWorkspace {...props} />
+    </TransferWorkspaceErrorBoundary>
   );
 }
