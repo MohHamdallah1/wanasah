@@ -1,6 +1,6 @@
 # INVENTORY_RECEIPT_LOT_TERMINOLOGY_CLOSURE_PLAN
 
-**Status:** V1 focused cleanup — no inventory-engine rewrite.
+**Status:** V1 closure COMPLETE — no inventory-engine rewrite.
 **Decision authority:** `ARCHITECTURE.md` canonical receipt/lot separation decision dated 2026-10-29.
 
 ## Goal
@@ -39,7 +39,7 @@ Make the existing Design-1 architecture obvious and safe in user-facing workflow
   - Transfer/recall/stocktake preserve genuine Lot provenance.
   - Costing behavior remains unchanged.
 
-- [ ] **6. Closeout**
+- [x] **6. Closeout**
   - Mark completed items `[x]`.
   - Merge only after focused backend + Dashboard gates pass.
   - Delete the task branch after merge and sync local `main` once.
@@ -53,6 +53,7 @@ Make the existing Design-1 architecture obvious and safe in user-facing workflow
 - V1 Arabic inventory/operator terminology uses **توريد** for receipt and **تشغيلة** for physical Lot across transfer, Live Stock, Lot/expiry, ledger, stocktake, quality and custody surfaces.
 - Internal code/database names such as `ProductBatch`, `batch_id`, and historical migration identifiers remain unchanged intentionally; renaming internals is unnecessary V1 churn.
 - No accounting-costing authority, inventory balance authority, authorization model, or historical inventory data is changed by this closure.
+- Implementation merged in PR #595 at `df2c1588cf79a5de7f275ebc1245619662ce8807`. Focused Transfers V1, PostgreSQL, CP1, Product UI and product-import acceptance passed; unrelated historical/scope-only gates remained independently classified.
 ## Explicit non-goals
 
 - No conversion of supplier invoice/reference into ProductBatch/Lot identity.
