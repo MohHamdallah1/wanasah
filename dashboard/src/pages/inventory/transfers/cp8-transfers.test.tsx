@@ -85,7 +85,7 @@ it("persists ambiguous command through remount, rejects changed input, and retri
 });
 it("keeps valid versioned drafts actor-partitioned and discards legacy replenishment drafts", () => {
   const scope = transferCommandScope("TRANSFER_DRAFT", 11);
-  writeTransferDraft(scope, { schema_version: 2, source: null, destination: null, notes: "Keep", items: [] });
+  writeTransferDraft(scope, { schema_version: 3, source: null, destination: null, notes: "Keep", items: [] });
   expect(readTransferDraft(scope)?.notes).toBe("Keep");
   localStorage.setItem("company_id", "2");
   expect(readTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11))).toBeNull();
@@ -104,7 +104,9 @@ it.each(["ar", "en"])("provides translated form submission, locale direction, Es
 it("hides manual batch selection without its exact capability and rejects malformed purpose contracts", () => {
   const item = { id: 1, product_variant_id: 1, draft_key: "K", name: "Product", sku: null, base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
     display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each", display_factor_to_base: "1", display_quantity_scale: 0,
-    quantity_scale: 0, quantity_step: "1", available_quantity: "10", quantity: "1", fefo_mode: "override" as const, override_batch_id: null, override_reason_id: null, override_batch_available: null };
+    quantity_scale: 0, quantity_step: "1", available_quantity: "10", quantity: "1",
+    batch_mode: "auto" as const, batch_id: null, batch_available: null,
+    fefo_mode: "override" as const, override_batch_id: null, override_reason_id: null, override_batch_available: null };
   render(<FefoOverrideEditor canOverride={false} item={item} draftItems={[item]} options={undefined} loading={false} onModeChange={vi.fn()} onBatchChange={vi.fn()} onReasonChange={vi.fn()} onAddBatchLine={vi.fn()} />);
   expect(screen.queryByText(i18n.t("inventoryTransfers.specificBatchHint"))).toBeNull();
   expect(screen.queryByRole("combobox", { name: i18n.t("inventoryTransfers.selectedBatch") })).toBeNull();
@@ -159,9 +161,10 @@ it("reloads backend FEFO options when a persisted override draft is reopened", a
   const product = { id: 100, product_variant_id: 100, draft_key: "saved-line", name: "Product", sku: null, base_uom_id: 1,
     base_uom_code: "EACH", base_uom_name: "Each", display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each",
     display_factor_to_base: "1", display_quantity_scale: 0, quantity_scale: 0, quantity_step: "1", available_quantity: "10",
-    quantity: "2", fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
+    quantity: "2", batch_mode: "auto" as const, batch_id: null, batch_available: null,
+    fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
   const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };
-  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", "workspace"), { schema_version: 2, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
+  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", "workspace"), { schema_version: 3, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
   mocks.fetch.mockImplementation(async (url: string) => url.includes("override-options") ? { location_id: 11, product_variant_id: 100, fefo_batch_id: 8,
     batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "10", is_fefo_head: true }],
     reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? new URL(url, "http://test").searchParams.get("purpose") === "source" ? [{ ...location, id: 11, code: "A1" }] : [location] :
