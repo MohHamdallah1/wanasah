@@ -1,5 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
+import { useLocationCapabilities } from "@/hooks/useInventoryAccess";
 import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
 import { TransferRowActions } from "./TransferRowActions";
 import { STATUS_META } from "./constants";
@@ -26,6 +27,8 @@ export function TransferTable({
   onOpenAction,
 }: TransferTableProps) {
   const { t } = useTranslation();
+  const locationIds = useMemo(() => [...new Set(items.flatMap((transfer) => [transfer.source_location_id, transfer.destination_location_id]))], [items]);
+  const canAt = useLocationCapabilities(locationIds);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -94,7 +97,7 @@ export function TransferTable({
                 <td className="px-3 py-2 text-xs font-semibold text-slate-600">{transfer.dispatched_by_name}</td>
                 <td className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-500" dir="ltr">{formatDate(transfer.created_at)}</td>
                 <td className="px-3 py-2">
-                  <TransferRowActions transfer={transfer} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
+                  <TransferRowActions transfer={transfer} canAt={canAt} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
                 </td>
               </tr>
             ))}
@@ -128,7 +131,7 @@ export function TransferTable({
                 <div><dt className="font-bold text-slate-400">{t("inventoryTransfers.products")}</dt><dd className="mt-0.5 font-black tabular-nums text-slate-700">{formatTransferNumber(transfer.line_count)}</dd></div>
                 <div><dt className="font-bold text-slate-400">{t("inventoryTransfers.totalQuantity")}</dt><dd className="mt-0.5 font-black tabular-nums text-slate-700" dir="ltr">{formatTransferNumber(transfer.total_quantity)}</dd></div>
               </dl>
-              <TransferRowActions transfer={transfer} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
+              <TransferRowActions transfer={transfer} canAt={canAt} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
             </article>
           ))}
           {loading && items.length === 0 ? <p role="status" className="p-6 text-center text-sm font-bold text-slate-400">{t("inventoryTransfers.loading")}</p> : null}
