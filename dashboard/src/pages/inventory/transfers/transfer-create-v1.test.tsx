@@ -161,7 +161,8 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
     ? page([first, cartonProduct])
     : fetchDefault(url));
   open();
-  await selectPair();
+  await chooseWarehouse(i18n.t("inventoryTransfers.sourceWarehouse"), "Warehouse 11");
+  await chooseWarehouse(i18n.t("inventoryTransfers.destinationWarehouse"), "Warehouse 12");
   await screen.findByText(cartonProduct.name);
 
   const table = screen.getByRole("table");
