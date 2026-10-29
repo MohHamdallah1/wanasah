@@ -113,6 +113,8 @@ it("uses one searchable control per warehouse and never exposes vehicles", async
   const source = screen.getByRole("combobox", { name: "Source Warehouse" });
   expect(screen.queryByRole("searchbox", { name: "Search source warehouses" })).not.toBeInTheDocument();
   fireEvent.focus(source);
+  expect(screen.queryByRole("option", { name: /Warehouse 11/ })).not.toBeInTheDocument();
+  fireEvent.click(source);
   expect(await screen.findByRole("option", { name: /Warehouse 11/ })).toBeVisible();
   expect(screen.queryByRole("option", { name: /Vehicle must never appear/ })).not.toBeInTheDocument();
   fireEvent.change(source, { target: { value: "Warehouse 14" } });
@@ -126,7 +128,11 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
   expect(screen.getAllByRole("table")).toHaveLength(1);
   expect(screen.getByRole("columnheader", { name: i18n.t("inventoryTransfers.availableTransfer") })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: i18n.t("inventoryTransfers.notes") })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.all") }));
+  const allButton = screen.getByRole("button", { name: i18n.t("inventoryTransfers.all") });
+  expect(allButton).toHaveAttribute("title", i18n.t("inventoryTransfers.allTooltip"));
+  expect(screen.queryByText(product.sku)).not.toBeInTheDocument();
+  expect(screen.getByRole("searchbox", { name: i18n.t("inventoryTransfers.productSearch") }).closest("th")).not.toBeNull();
+  fireEvent.click(allButton);
   expect(quantity()).toHaveValue("0.300001");
   await waitFor(() => expect(send()).not.toBeDisabled());
   fireEvent.click(send());
@@ -186,14 +192,13 @@ it.each([false, true])("FEFO override is visible and loadable only with the exac
   open();
   await selectPair();
   fireEvent.change(quantity(), { target: { value: "0.1" } });
-  const advanced = screen.queryByText("Advanced batch allocation");
+  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseSpecificBatch") });
   if (!allowed) {
-    expect(advanced).toBeNull();
+    expect(chooseBatch).toBeNull();
     expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(false);
     return;
   }
-  fireEvent.click(advanced!);
-  fireEvent.change(screen.getByRole("combobox", { name: i18n.t("inventoryTransfers.batchPolicy") }), { target: { value: "override" } });
+  fireEvent.click(chooseBatch!);
   await waitFor(() => expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(true));
   fireEvent.change(await screen.findByRole("combobox", { name: i18n.t("inventoryTransfers.selectedBatch") }), { target: { value: "8" } });
   fireEvent.change(screen.getByRole("combobox", { name: i18n.t("inventoryTransfers.overrideReason") }), { target: { value: "9" } });
