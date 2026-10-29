@@ -255,6 +255,56 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
   );
 });
 
+it("removes the redundant entry header, enlarges the table and clears quantity inputs independently", async () => {
+  mock.fetch.mockImplementation(async (url: string) => url.includes("source-inventory")
+    ? page([product, cartonProduct])
+    : fetchDefault(url));
+  open();
+
+  const dialog = screen.getByRole("dialog");
+  expect(dialog.querySelector(".app-modal-header")).toBeNull();
+  expect(dialog).toHaveClass("sm:h-[90vh]");
+  expect(screen.getByRole("heading", { name: i18n.t("inventoryTransfers.createTitle") })).toHaveClass("sr-only");
+  expect(screen.queryByText(i18n.t("inventoryTransfers.sourceHint"))).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: i18n.t("common.close") })).toBeInTheDocument();
+
+  await selectPair();
+  const direct = quantity();
+  fireEvent.change(direct, { target: { value: "0.1" } });
+  fireEvent.click(screen.getByRole("button", {
+    name: `${i18n.t("inventoryTransfers.clearQuantity")}: ${i18n.t("inventoryTransfers.productQuantity", { name: product.name })}`,
+  }));
+  expect(direct).toHaveValue("");
+  expect(send()).toBeDisabled();
+
+  const cartonUnit = i18n.t("uom.CARTON");
+  const baseUnit = i18n.t("uom.EACH");
+  const cartonLabel = i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: cartonUnit });
+  const remainderLabel = i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit });
+  const cartons = screen.getByRole("textbox", { name: cartonLabel });
+  const pieces = screen.getByRole("textbox", { name: remainderLabel });
+  fireEvent.change(cartons, { target: { value: "5" } });
+  fireEvent.change(pieces, { target: { value: "10" } });
+
+  fireEvent.click(screen.getByRole("button", {
+    name: `${i18n.t("inventoryTransfers.clearQuantity")}: ${remainderLabel}`,
+  }));
+  expect(cartons).toHaveValue("5");
+  expect(pieces).toHaveValue("");
+  expect(send()).not.toBeDisabled();
+
+  fireEvent.change(pieces, { target: { value: "10" } });
+  fireEvent.click(screen.getByRole("button", {
+    name: `${i18n.t("inventoryTransfers.clearQuantity")}: ${cartonLabel}`,
+  }));
+  expect(cartons).toHaveValue("");
+  expect(pieces).toHaveValue("10");
+
+  fireEvent.click(send());
+  expect(screen.getByRole("heading", { name: i18n.t("inventoryTransfers.confirmTitle") })).toBeInTheDocument();
+  expect(dialog.querySelector(".app-modal-header")).not.toBeNull();
+});
+
 it("keeps a selected row in place, accepts carton plus base remainder, clears quantities, and dispatches canonical base quantity", async () => {
   const first = { ...cartonProduct, id: 299, name: "First product", sku: "SKU-299" };
   const cartonUnit = i18n.t("uom.CARTON");

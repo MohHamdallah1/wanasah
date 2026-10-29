@@ -17,6 +17,7 @@ import {
 } from "./transferQuantity";
 import { TransferBatchSelectionEditor } from "./TransferBatchSelectionEditor";
 import { TransferWarehouseCombobox } from "./TransferWarehouseCombobox";
+import { TransferQuantityField } from "./TransferQuantityField";
 
 interface TransferCreateModalProps {
   controller: TransferCreateController;
@@ -248,24 +249,12 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
     ) => {
       const normalized = value.trim() || "0";
       const parts = mixedQuantity
-        ? splitTransferQuantity(
-            product,
-            normalized as Quantity,
-          )
+        ? splitTransferQuantity(product, normalized as Quantity)
         : null;
 
-      const updateMixedQuantity = (
-        displayValue: string,
-        baseValue: string,
-      ) => {
+      const updateMixedQuantity = (displayValue: string, baseValue: string) => {
         try {
-          onChange(
-            composeTransferQuantity(
-              product,
-              displayValue,
-              baseValue,
-            ),
-          );
+          onChange(composeTransferQuantity(product, displayValue, baseValue));
         } catch {
           // Keep the last valid canonical quantity visible.
         }
@@ -274,98 +263,42 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       if (mixedQuantity && parts) {
         return (
           <>
-            <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-              <input
-                type="text"
-                inputMode="decimal"
-                data-transfer-quantity-input="true"
-                aria-label={t(
-                  "inventoryTransfers.productDisplayQuantity",
-                  {
-                    name: ariaName,
-                    unit: displayName,
-                  },
-                )}
-                value={
-                  parts.displayQuantity === "0"
-                    ? ""
-                    : parts.displayQuantity
-                }
-                disabled={!c.ready || c.restoring}
-                onKeyDown={handleQuantityArrowNavigation}
-                onChange={(event) =>
-                  updateMixedQuantity(
-                    event.target.value,
-                    parts.baseRemainder,
-                  )
-                }
-                className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
-              />
-              <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
-                {displayName}
-              </span>
-            </label>
-            <span className="text-xs font-black text-slate-300">
-              +
-            </span>
-            <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-              <input
-                type="text"
-                inputMode="decimal"
-                data-transfer-quantity-input="true"
-                aria-label={t(
-                  "inventoryTransfers.productBaseRemainder",
-                  {
-                    name: ariaName,
-                    unit: baseName,
-                  },
-                )}
-                value={
-                  parts.baseRemainder === "0"
-                    ? ""
-                    : parts.baseRemainder
-                }
-                disabled={!c.ready || c.restoring}
-                onKeyDown={handleQuantityArrowNavigation}
-                onChange={(event) =>
-                  updateMixedQuantity(
-                    parts.displayQuantity,
-                    event.target.value,
-                  )
-                }
-                className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
-              />
-              <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
-                {baseName}
-              </span>
-            </label>
+            <TransferQuantityField
+              value={parts.displayQuantity === "0" ? "" : parts.displayQuantity}
+              onChange={(displayValue) => updateMixedQuantity(displayValue, parts.baseRemainder)}
+              ariaLabel={t("inventoryTransfers.productDisplayQuantity", { name: ariaName, unit: displayName })}
+              clearLabel={t("inventoryTransfers.clearQuantity")}
+              unit={displayName}
+              inputWidth="w-14"
+              disabled={!c.ready || c.restoring}
+              onKeyDown={handleQuantityArrowNavigation}
+            />
+            <span className="text-xs font-black text-slate-300">+</span>
+            <TransferQuantityField
+              value={parts.baseRemainder === "0" ? "" : parts.baseRemainder}
+              onChange={(baseValue) => updateMixedQuantity(parts.displayQuantity, baseValue)}
+              ariaLabel={t("inventoryTransfers.productBaseRemainder", { name: ariaName, unit: baseName })}
+              clearLabel={t("inventoryTransfers.clearQuantity")}
+              unit={baseName}
+              inputWidth="w-14"
+              disabled={!c.ready || c.restoring}
+              onKeyDown={handleQuantityArrowNavigation}
+            />
           </>
         );
       }
 
       return (
-        <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
-          <input
-            type="text"
-            inputMode="decimal"
-            data-transfer-quantity-input="true"
-            aria-label={t(
-              "inventoryTransfers.productQuantity",
-              { name: ariaName },
-            )}
-            aria-invalid={invalid}
-            value={value}
-            disabled={!c.ready || c.restoring}
-            onKeyDown={handleQuantityArrowNavigation}
-            onChange={(event) =>
-              onChange(event.target.value)
-            }
-            className="h-8 w-20 bg-transparent text-center text-xs font-black outline-none"
-          />
-          <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">
-            {baseName}
-          </span>
-        </label>
+        <TransferQuantityField
+          value={value}
+          onChange={onChange}
+          ariaLabel={t("inventoryTransfers.productQuantity", { name: ariaName })}
+          clearLabel={t("inventoryTransfers.clearQuantity")}
+          unit={baseName}
+          disabled={!c.ready || c.restoring}
+          onKeyDown={handleQuantityArrowNavigation}
+          invalid={invalid}
+        />
       );
     };
 
@@ -546,12 +479,12 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       isOpen={c.createOpen}
       onClose={c.closeCreate}
       title={t(confirmOpen ? "inventoryTransfers.confirmTitle" : "inventoryTransfers.createTitle")}
-      titleAside={confirmOpen ? undefined : t("inventoryTransfers.sourceHint")}
+      hideHeader={!confirmOpen}
       compactHeader={!confirmOpen}
       bodyOverflow={confirmOpen ? "auto" : "hidden"}
-      bodyClassName={confirmOpen ? "p-4 sm:p-5" : "flex min-h-0 p-2.5 sm:p-3"}
-      maxWidth={confirmOpen ? "max-w-xl" : "max-w-6xl"}
-      panelClassName={confirmOpen ? undefined : "h-[calc(100dvh-1rem)] sm:h-[82vh]"}
+      bodyClassName={confirmOpen ? "p-4 sm:p-5" : "flex min-h-0 p-2.5 pt-8 sm:p-3 sm:pt-8"}
+      maxWidth={confirmOpen ? "max-w-xl" : "max-w-7xl"}
+      panelClassName={confirmOpen ? undefined : "h-[calc(100dvh-1rem)] sm:h-[90vh]"}
       footer={!confirmOpen && !createBlockedByPending ? (
         <div dir={i18n.dir()} className="flex w-full flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
