@@ -10,13 +10,27 @@ import { transferCommandScope } from "./hooks/useTransferCommand";
 import { readTransferDraft, writeTransferDraft, type TransferDraft } from "./draftStorage";
 import type { TransferSourceInventoryItem } from "./types";
 
-const mock = vi.hoisted(() => ({ fetch: vi.fn(), override: true, send: true, destination: true }));
+const mock = vi.hoisted(() => ({
+  fetch: vi.fn(),
+  override: true,
+  send: true,
+  destination: true,
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastInfo: vi.fn(),
+}));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mock.fetch }));
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
   can: (code: string) => code === "inventory.fefo_override" ? mock.override : code === "transfer.send" ? mock.send : mock.destination,
   canAny: (code: string) => code === "transfer.send" ? mock.send : mock.destination,
 }) }));
-vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock("sonner", () => ({
+  toast: {
+    error: mock.toastError,
+    success: mock.toastSuccess,
+    info: mock.toastInfo,
+  },
+}));
 
 const warehouse = (id: number) => ({ id, name: `Warehouse ${id}`, code: `WH-${id}`, location_type: "WAREHOUSE" as const, vehicle_id: null });
 const product = { id: 100, name: "Precise product", sku: "SKU-100", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
@@ -93,6 +107,9 @@ beforeEach(async () => {
   mock.send = true;
   mock.destination = true;
   mock.fetch.mockReset().mockImplementation(fetchDefault);
+  mock.toastError.mockReset();
+  mock.toastSuccess.mockReset();
+  mock.toastInfo.mockReset();
   await i18n.changeLanguage("en");
 });
 
@@ -167,6 +184,13 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
     items: [{ product_variant_id: 100, quantity: "0.300001", uom_id: 1, is_fefo_override: false }],
   });
   expect(body.request_id).toMatch(/^[a-f0-9-]{36}$/);
+  await waitFor(() =>
+    expect(
+      mock.toastError,
+    ).not.toHaveBeenCalledWith(
+      i18n.t("inventoryTransfers.chooseSource"),
+    ),
+  );
 });
 
 it("keeps a selected row in place, accepts carton plus base remainder, clears quantities, and dispatches canonical base quantity", async () => {
@@ -245,9 +269,11 @@ it("hides zero stock, blocks excess/invalid precision, and removes zero/empty fr
   await selectPair();
   expect(screen.queryByText("Zero product")).not.toBeInTheDocument();
   fireEvent.change(quantity(), { target: { value: "0.300002" } });
-  expect(send()).toBeDisabled();
+  expect(send()).not.toBeDisabled();
+  expect(send()).toHaveAttribute("aria-disabled", "true");
   fireEvent.change(quantity(), { target: { value: "0.3000001" } });
-  expect(send()).toBeDisabled();
+  expect(send()).not.toBeDisabled();
+  expect(send()).toHaveAttribute("aria-disabled", "true");
   fireEvent.change(quantity(), { target: { value: "0.1" } });
   await waitFor(() => expect(send()).not.toBeDisabled());
   for (const value of ["0", ""]) {
@@ -333,6 +359,94 @@ it("records an exact physical batch without FEFO-override capability or a reason
       is_fefo_override: false,
     },
   ]);
+});
+
+it("explains split-batch total overflow, keeps Send actionable, and focuses the invalid quantity", async () => {
+  mock.fetch.mockImplementation(async (url: string) => {
+    if (url.includes("source-inventory")) return page([product]);
+    if (url.includes("batch-options")) return {
+      location_id: 11,
+      product_variant_id: product.id,
+      recommended_batch_id: 8,
+      batches: [
+        {
+          id: 8,
+          batch_number: "LOT-A",
+          production_date: "2026-10-01",
+          expiry_date: "2027-01-01",
+          available_quantity: "0.300001",
+          is_fefo_head: true,
+        },
+        {
+          id: 9,
+          batch_number: "LOT-B",
+          production_date: "2026-10-02",
+          expiry_date: "2027-02-01",
+          available_quantity: "0.300001",
+          is_fefo_head: false,
+        },
+      ],
+    };
+    return fetchDefault(url);
+  });
+
+  open();
+  await selectPair();
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: i18n.t("inventoryTransfers.all"),
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: i18n.t("inventoryTransfers.selectExactBatch"),
+    }),
+  );
+
+  const firstBatch = await screen.findByRole("combobox", {
+    name: i18n.t("inventoryTransfers.selectedBatch"),
+  });
+  fireEvent.change(firstBatch, { target: { value: "8" } });
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: i18n.t("inventoryTransfers.splitBatch"),
+    }),
+  );
+
+  const batchSelectors = await screen.findAllByRole("combobox", {
+    name: i18n.t("inventoryTransfers.selectedBatch"),
+  });
+  expect(batchSelectors).toHaveLength(2);
+  fireEvent.change(batchSelectors[1], { target: { value: "9" } });
+
+  const secondQuantity = screen.getByRole("textbox", {
+    name: i18n.t("inventoryTransfers.productQuantity", {
+      name: `${product.name} 2`,
+    }),
+  });
+  fireEvent.change(secondQuantity, { target: { value: "0.1" } });
+
+  const message = i18n.t("inventoryTransfers.splitTotalExceeds", {
+    name: product.name,
+  });
+  await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(message));
+  expect(send()).not.toBeDisabled();
+  expect(send()).toHaveAttribute("aria-disabled", "true");
+  expect(send()).toHaveAttribute("title", message);
+
+  fireEvent.click(send());
+  expect(mock.toastError).toHaveBeenCalledWith(message);
+  expect(mock.fetch.mock.calls.some(([url]) => url.endsWith("/dispatch"))).toBe(false);
+
+  const firstQuantity = screen.getByRole("textbox", {
+    name: i18n.t("inventoryTransfers.productQuantity", {
+      name: `${product.name} 1`,
+    }),
+  });
+  await waitFor(() => expect(document.activeElement).toBe(firstQuantity));
+  expect(
+    document.querySelector('[data-product-id="100"]'),
+  ).toHaveClass("ring-red-300");
 });
 
 it("auto-selects a single real lot, hides impossible split, and shows commercial lot quantity", async () => {
@@ -487,6 +601,8 @@ it.each(["send", "destination"] as const)("blocks confirmation when exact %s cap
   await selectPair();
   mock[side] = false;
   fireEvent.change(quantity(), { target: { value: "0.1" } });
-  expect(send()).toBeDisabled();
+  expect(send()).not.toBeDisabled();
+  expect(send()).toHaveAttribute("aria-disabled", "true");
+  fireEvent.click(send());
   expect(mock.fetch.mock.calls.some(([url]) => url.endsWith("/dispatch"))).toBe(false);
 });
