@@ -252,6 +252,10 @@ const parseSourceInventoryItem = (
       row.lot_control_mode === "REQUIRED"
         ? row.lot_control_mode
         : (() => { throw invalid(); })(),
+    has_user_visible_lot:
+      typeof row.has_user_visible_lot === "boolean"
+        ? row.has_user_visible_lot
+        : (() => { throw invalid(); })(),
     quantity_scale: nonNegativeInt(row.quantity_scale, "quantity_scale"),
     quantity_step: parseQuantity(row.quantity_step, "quantity_step"),
     available_quantity: parseQuantity(row.available_quantity, "available_quantity", { allowZero: true }),
