@@ -100,6 +100,7 @@ export interface TransferSourceInventoryItem {
   display_uom_name: string;
   display_factor_to_base: Quantity;
   display_quantity_scale: number;
+  lot_control_mode: "NONE" | "OPTIONAL" | "REQUIRED";
   quantity_scale: number;
   quantity_step: Quantity;
   available_quantity: Quantity;
