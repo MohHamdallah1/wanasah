@@ -75,7 +75,7 @@ describe("CP13.5 operations presentation consistency", () => {
     expect(sources.transferActions).toContain('code: "transfer.receive"');
     expect(sources.transferActions).toContain('code: "transfer.reject"');
     expect(sources.transferActions).toContain('code: "transfer.cancel"');
-    expect(sources.transferActions).toContain('can(code)');
+    expect(sources.transferActions).toContain('canAt(locationId, code)');
     expect(sources.transferActions).toContain('data-cp13-transfer-decision={action}');
     expect(sources.transferDecision).toContain('data-cp13-transfer-decision={action ?? undefined}');
     expect(sources.transferDecision).toContain('aria-required="true"');
