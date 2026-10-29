@@ -191,7 +191,7 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
   const quantityControls = batchButton.parentElement;
   expect(quantityControls).not.toBeNull();
   expect(quantityControls!.querySelectorAll('input[type="number"]')).toHaveLength(2);
-  expect(quantityControls).toContainElement(screen.getByRole("button", { name: i18n.t("inventoryTransfers.all") }));
+  expect(Array.from(quantityControls!.querySelectorAll("button")).some((button) => button.textContent === i18n.t("inventoryTransfers.all"))).toBe(true);
 
   const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsAfter[1]).toContain(cartonProduct.name);
@@ -260,7 +260,7 @@ it.each([false, true])("FEFO override is visible and loadable only with the exac
   open();
   await selectPair();
   fireEvent.change(quantity(), { target: { value: "0.1" } });
-  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseSpecificBatch") });
+  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseBatchCompact") });
   if (!allowed) {
     expect(chooseBatch).toBeNull();
     expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(false);
