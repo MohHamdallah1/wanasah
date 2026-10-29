@@ -566,7 +566,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
           </div>
           <button
             type="button"
-            disabled={c.createSubmitting}
+            disabled={!selectedProducts.length || c.createSubmitting}
             aria-disabled={!c.canSubmit}
             title={!c.canSubmit ? c.submitBlocker?.message : undefined}
             onClick={requestConfirmation}
