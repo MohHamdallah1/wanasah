@@ -21,10 +21,12 @@ const warehouse = (id: number) => ({ id, name: `Warehouse ${id}`, code: `WH-${id
 const product = { id: 100, name: "Precise product", sku: "SKU-100", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
   display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each", display_factor_to_base: "1", display_quantity_scale: 6,
   lot_control_mode: "REQUIRED" as const,
+  has_user_visible_lot: true,
   quantity_scale: 6, quantity_step: "0.000001", available_quantity: "0.300001" };
 const cartonProduct = { id: 300, name: "Carton product", sku: "SKU-300", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
   display_uom_id: 2, display_uom_code: "CARTON", display_uom_name: "Carton", display_factor_to_base: "50", display_quantity_scale: 0,
   lot_control_mode: "REQUIRED" as const,
+  has_user_visible_lot: true,
   quantity_scale: 0, quantity_step: "1", available_quantity: "12900" };
 const page = (items = [product], next_cursor: string | null = null) => ({ items, next_cursor, has_more: next_cursor !== null, total: items.length });
 const vehicle = { id: 91, name: "Vehicle must never appear", code: "V91", location_type: "VEHICLE", vehicle_id: 1 };
@@ -336,6 +338,7 @@ it("keeps internal no-lot products on automatic allocation and hides manual lot 
     name: "No lot product",
     sku: "NOLOT-400",
     lot_control_mode: "NONE" as const,
+    has_user_visible_lot: false,
   };
   mock.fetch.mockImplementation(async (url: string) =>
     url.includes("source-inventory")
