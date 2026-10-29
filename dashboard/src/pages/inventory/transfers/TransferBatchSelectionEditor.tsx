@@ -35,6 +35,9 @@ export function TransferBatchSelectionEditor({
   onAddBatchLine,
 }: TransferBatchSelectionEditorProps) {
   const { t } = useTranslation();
+  const baseUomName = t(`uom.${item.base_uom_code}`, {
+    defaultValue: item.base_uom_name,
+  });
   const selectedBatch =
     item.batch_id !== null
       ? options?.batches.find(
@@ -138,7 +141,7 @@ export function TransferBatchSelectionEditor({
               {formatTransferNumber(
                 selectedBatch.available_quantity,
               )}{" "}
-              {item.base_uom_name}
+              {baseUomName}
             </span>
           ) : null}
 
