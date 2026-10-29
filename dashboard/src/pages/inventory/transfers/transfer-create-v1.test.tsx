@@ -157,6 +157,8 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
 
 it("keeps a selected row in place, accepts carton plus base remainder, clears quantities, and dispatches canonical base quantity", async () => {
   const first = { ...cartonProduct, id: 299, name: "First product", sku: "SKU-299" };
+  const cartonUnit = i18n.t("uom.CARTON");
+  const baseUnit = i18n.t("uom.EACH");
   mock.fetch.mockImplementation(async (url: string) => url.includes("source-inventory")
     ? page([first, cartonProduct])
     : fetchDefault(url));
@@ -170,31 +172,31 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
   expect(rowTextsBefore[1]).toContain(cartonProduct.name);
 
   const cartons = screen.getByRole("spinbutton", {
-    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: "Carton" }),
+    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: cartonUnit }),
   });
   fireEvent.change(cartons, { target: { value: "5" } });
   const pieces = screen.getByRole("spinbutton", {
-    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: "Each" }),
+    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit }),
   });
   fireEvent.change(pieces, { target: { value: "10" } });
 
   const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsAfter[1]).toContain(cartonProduct.name);
-  expect(screen.getByText("258 Carton")).toBeInTheDocument();
+  expect(screen.getByText(`258 ${cartonUnit}`)).toBeInTheDocument();
 
   await waitFor(() => expect(send()).not.toBeDisabled());
   fireEvent.click(send());
-  expect(await screen.findByText("5 Carton + 10 Each")).toBeInTheDocument();
+  expect(await screen.findByText(`5 ${cartonUnit} + 10 ${baseUnit}`)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.back") }));
 
   fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.clearQuantities") }));
   expect(send()).toBeDisabled();
 
   fireEvent.change(screen.getByRole("spinbutton", {
-    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: "Carton" }),
+    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: cartonUnit }),
   }), { target: { value: "5" } });
   fireEvent.change(screen.getByRole("spinbutton", {
-    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: "Each" }),
+    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit }),
   }), { target: { value: "10" } });
   await waitFor(() => expect(send()).not.toBeDisabled());
   fireEvent.click(send());
