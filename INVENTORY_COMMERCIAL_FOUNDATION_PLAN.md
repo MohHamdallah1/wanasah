@@ -832,6 +832,8 @@ RECALL أعلى أولوية من Lifecycle policy. لا يحذف المنتج �
 
 - transfer_purpose
 - source/destination location types and capabilities
+
+**قرار V1 للحوالات المستودعية:** لا يوجد شرط إلزامي لاختلاف الشخص بين الإرسال والاستلام/الرفض. الصلاحيات على المصدر والوجهة هي السلطة، ويُسجل `dispatched_by` و`received_by`/سبب الرفض للتدقيق؛ لذلك يمكن للمستخدم نفسه إكمال الحوالة إذا كان مخولاً على الجهتين.
 - product lifecycle
 - operational hold
 - batch disposition/expiry
