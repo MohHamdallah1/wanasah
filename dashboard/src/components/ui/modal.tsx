@@ -16,6 +16,7 @@ interface ModalProps {
   footer?: React.ReactNode;
   maxWidth?: string;
   bodyClassName?: string;
+  bodyOverflow?: "auto" | "hidden";
   compactHeader?: boolean;
   initialFocusRef?: {
     readonly current: HTMLElement | null;
@@ -32,6 +33,7 @@ export function Modal({
   footer,
   maxWidth = "max-w-2xl",
   bodyClassName = "p-4 sm:p-6",
+  bodyOverflow = "auto",
   compactHeader = false,
   initialFocusRef,
 }: ModalProps) {
@@ -70,7 +72,7 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={titleId}
           >
-            <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "py-2 sm:py-2.5" : "py-3 sm:py-4"}`}>
+            <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "py-1.5 sm:py-2" : "py-3 sm:py-4"}`}>
               <div className="min-w-0">
                 {titleAside ? (
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -88,7 +90,7 @@ export function Modal({
               </div>
               <button
                 onClick={onClose}
-                className="shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                className={`shrink-0 rounded-xl text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 ${compactHeader ? "p-1.5" : "p-2"}`}
                 aria-label={t("common.close")}
               >
                 <X className="w-5 h-5" strokeWidth={2} />
@@ -96,7 +98,7 @@ export function Modal({
             </div>
             <div
               tabIndex={-1}
-              className={`app-modal-body min-h-0 flex-1 overflow-y-auto ${bodyClassName}`}
+              className={`app-modal-body min-h-0 flex-1 ${bodyOverflow === "hidden" ? "overflow-hidden" : "overflow-y-auto"} ${bodyClassName}`}
             >
               {children}
             </div>
