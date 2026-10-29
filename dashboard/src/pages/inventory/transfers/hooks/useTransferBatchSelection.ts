@@ -160,6 +160,7 @@ export function useTransferBatchSelection(
       return;
     }
 
+    let singleBatch: TransferBatchOptions["batches"][number] | null = null;
     if (mode === "exact") {
       const options = await loadBatchOptions(
         current.product_variant_id,
@@ -169,6 +170,8 @@ export function useTransferBatchSelection(
         toast.error(t("inventoryTransfers.noBatches"));
         return;
       }
+      singleBatch =
+        options.batches.length === 1 ? options.batches[0] : null;
     }
 
     setDraftItems((prev) =>
@@ -177,8 +180,12 @@ export function useTransferBatchSelection(
           ? {
               ...item,
               batch_mode: mode,
-              batch_id: null,
-              batch_available: null,
+              batch_id:
+                mode === "exact" ? singleBatch?.id ?? null : null,
+              batch_available:
+                mode === "exact"
+                  ? singleBatch?.available_quantity ?? null
+                  : null,
               fefo_mode: "auto",
               override_batch_id: null,
               override_reason_id: null,
@@ -270,6 +277,10 @@ export function useTransferBatchSelection(
 
     const options = await loadBatchOptions(productId);
     if (!options) return;
+    if (existingLines.some((item) => item.batch_id === null)) {
+      toast.info(t("inventoryTransfers.selectBatchBeforeSplit"));
+      return;
+    }
 
     const selectedIds = new Set(
       existingLines
