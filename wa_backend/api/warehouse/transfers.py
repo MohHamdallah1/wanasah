@@ -3351,6 +3351,42 @@ def _validate_transfer_decision_reason(
     return reason
 
 
+_LEGACY_TRANSFER_SOD_CONSTRAINT = (
+    "ck_inventory_transfer_headers_chk_transfer_header_separation_of_duties"
+)
+
+
+def _transfer_integrity_conflict_detail(
+    error: IntegrityError,
+    *,
+    action_label: str,
+    header_id: int,
+) -> dict:
+    raw = str(error)
+    if _LEGACY_TRANSFER_SOD_CONSTRAINT in raw:
+        return inventory_business_error(
+            "TRANSFER_SCHEMA_UPDATE_REQUIRED",
+            (
+                "قاعدة بيانات النظام لم تُحدَّث بعد لتطبيق قواعد الحوالات الحالية. "
+                "لم يتم حفظ العملية؛ يجب تحديث قاعدة البيانات ثم إعادة المحاولة."
+            ),
+            context={
+                "transfer_header_id": int(header_id),
+                "required_revision": "c3e7a5d9b214",
+            },
+        )
+
+    return inventory_business_error(
+        "TRANSFER_INTEGRITY_CONFLICT",
+        (
+            f"تعذر {action_label} الحوالة بسبب تعارض في بياناتها. "
+            "لم يتم حفظ العملية؛ حدّث الصفحة وأعد المحاولة. "
+            "إذا استمر الخطأ فراجع سجل العملية."
+        ),
+        context={"transfer_header_id": int(header_id)},
+    )
+
+
 # ====================================================
 # 10.17 نقل أسطر الحوالة من IN_TRANSIT إلى الوجهة النهائية الآمنة
 # ====================================================
@@ -3647,26 +3683,17 @@ async def unified_transfer_receive(
         raise HTTPException(status_code=403, detail=str(e))
     except IntegrityError as e:
         await db.rollback()
-        sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
-        constraint = getattr(
-            getattr(getattr(e, "orig", None), "diag", None),
-            "constraint_name",
-            None,
-        )
         logger.warning(
-            "Transfer receive integrity conflict sqlstate=%s constraint=%s",
-            sqlstate,
-            constraint,
+            "Transfer receive integrity conflict header_id=%s",
+            payload.transfer_header_id,
             exc_info=True,
         )
         raise HTTPException(
             status_code=409,
-            detail=inventory_business_error(
-                "TRANSFER_RECEIVE_INTEGRITY_CONFLICT",
-                "تعذر إتمام الاستلام بسبب تعارض في سلامة بيانات المخزون. لم يتم حفظ عملية جزئية؛ أعد المحاولة، وإذا تكرر الخطأ راجع سجل العملية.",
-                context={
-                    "transfer_header_id": int(payload.transfer_header_id),
-                },
+            detail=_transfer_integrity_conflict_detail(
+                e,
+                action_label="استلام",
+                header_id=payload.transfer_header_id,
             ),
         ) from e
     except Exception as e:
@@ -3783,12 +3810,21 @@ async def unified_transfer_cancel(
     except ValueError as e:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
-    except IntegrityError:
+    except IntegrityError as e:
         await db.rollback()
+        logger.warning(
+            "Transfer cancel integrity conflict header_id=%s",
+            header_id,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=409,
-            detail="حدث تعارض متزامن أثناء إلغاء الحوالة. لم يتم حفظ عملية جزئية."
-        )
+            detail=_transfer_integrity_conflict_detail(
+                e,
+                action_label="إلغاء",
+                header_id=header_id,
+            ),
+        ) from e
     except Exception as e:
         await db.rollback()
         logger.error(
@@ -3910,12 +3946,21 @@ async def unified_transfer_reject(
     except ValueError as e:
         await db.rollback()
         raise HTTPException(status_code=403, detail=str(e))
-    except IntegrityError:
+    except IntegrityError as e:
         await db.rollback()
+        logger.warning(
+            "Transfer reject integrity conflict header_id=%s",
+            header_id,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=409,
-            detail="حدث تعارض متزامن أثناء رفض الحوالة. لم يتم حفظ عملية جزئية."
-        )
+            detail=_transfer_integrity_conflict_detail(
+                e,
+                action_label="رفض",
+                header_id=header_id,
+            ),
+        ) from e
     except Exception as e:
         await db.rollback()
         logger.error(
