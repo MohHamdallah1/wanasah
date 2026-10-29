@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Modal } from "@/components/ui/modal";
 import { createInventoryTabNavigationState } from "@/features/inventory/navigation";
@@ -13,7 +13,7 @@ import {
   splitTransferQuantity,
   supportsMixedTransferQuantity,
 } from "./transferQuantity";
-import { FefoOverrideEditor } from "./FefoOverrideEditor";
+import { TransferBatchSelectionEditor } from "./TransferBatchSelectionEditor";
 import { TransferWarehouseCombobox } from "./TransferWarehouseCombobox";
 
 interface TransferCreateModalProps {
@@ -58,6 +58,33 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
   useEffect(() => {
     if (!c.createOpen) setConfirmOpen(false);
   }, [c.createOpen]);
+
+  const handleQuantityArrowNavigation = (
+    event: KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (
+      event.key !== "ArrowUp" &&
+      event.key !== "ArrowDown"
+    ) {
+      return;
+    }
+    const inputs = Array.from(
+      productScrollRef.current?.querySelectorAll<HTMLInputElement>(
+        '[data-transfer-quantity-input="true"]:not(:disabled)',
+      ) ?? [],
+    );
+    const currentIndex = inputs.indexOf(event.currentTarget);
+    if (currentIndex < 0) return;
+    const nextIndex =
+      event.key === "ArrowDown"
+        ? currentIndex + 1
+        : currentIndex - 1;
+    const next = inputs[nextIndex];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+    next.select();
+  };
 
   const selectedProducts = useMemo(
     () => [...new Map(c.draftItems.map((item) => [item.id, item])).values()],
