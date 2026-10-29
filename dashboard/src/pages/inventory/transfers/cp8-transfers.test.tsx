@@ -179,11 +179,13 @@ it("reloads backend FEFO options when a persisted override draft is reopened", a
     batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "10", is_fefo_head: true }],
     reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? new URL(url, "http://test").searchParams.get("purpose") === "source" ? [{ ...location, id: 11, code: "A1" }] : [location] :
     { items: [product], has_more: false, next_cursor: null, total: 1 });
-  const { result } = renderHook(() => useTransferCreate({ onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
-  act(() => result.current.openCreate());
-  await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
-  act(() => result.current.closeCreate());
-  act(() => result.current.openCreate());
-  await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
-  expect(result.current.draftItems[0].override_batch_id).toBe(8);
+  const first = renderHook(() => useTransferCreate({ onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
+  act(() => first.result.current.openCreate());
+  await waitFor(() => expect(first.result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
+  first.unmount();
+
+  const second = renderHook(() => useTransferCreate({ onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
+  act(() => second.result.current.openCreate());
+  await waitFor(() => expect(second.result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
+  expect(second.result.current.draftItems[0].override_batch_id).toBe(8);
 });
