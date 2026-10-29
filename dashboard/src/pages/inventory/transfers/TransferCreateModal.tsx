@@ -62,13 +62,16 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
     [c.draftItems],
   );
 
-  const selectedSummary = useMemo(() => selectedProducts.map((product) => {
-    let quantity: Quantity = "0";
-    for (const line of c.draftItems.filter((item) => item.id === product.id)) {
-      quantity = addQuantity(quantity, totalDraftQuantity(line));
-    }
-    return { product, quantity };
-  }), [c.draftItems, selectedProducts]);
+  const selectedSummary = useMemo(() => {
+    if (!confirmOpen) return [];
+    return selectedProducts.map((product) => {
+      let quantity: Quantity = "0";
+      for (const line of c.draftItems.filter((item) => item.id === product.id)) {
+        quantity = addQuantity(quantity, totalDraftQuantity(line));
+      }
+      return { product, quantity };
+    });
+  }, [c.draftItems, confirmOpen, selectedProducts]);
 
   const uomName = (code: string, fallback: string) =>
     t(`uom.${code}`, { defaultValue: fallback });
