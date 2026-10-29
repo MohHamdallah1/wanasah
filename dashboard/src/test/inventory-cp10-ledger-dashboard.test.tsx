@@ -127,7 +127,7 @@ describe("CP10 Ledger Dashboard", () => {
     mocks.language = "ar";
     mocks.authFetch.mockResolvedValue(page([entry(13, { batch_number: null })]));
     const { container } = renderLedger();
-    expect(await screen.findAllByText("بدون رقم دفعة")).not.toHaveLength(0);
+    expect(await screen.findAllByText("بدون تشغيلة")).not.toHaveLength(0);
     expect(container.querySelector('[dir="rtl"]')).not.toBeNull();
     expect(screen.getAllByText("#13").length).toBeGreaterThan(0);
   });

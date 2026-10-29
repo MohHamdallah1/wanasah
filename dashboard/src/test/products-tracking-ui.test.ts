@@ -305,13 +305,13 @@ describe("products tracking UI contracts", () => {
       );
 
     expect(translations).toContain(
-      'lotLabel: "رقم الدفعة"',
+      'lotLabel: "رقم التشغيلة"',
     );
     expect(translations).toContain(
       'expiryLabel: "تاريخ الصلاحية"',
     );
     expect(translations).toContain(
-      'action: "إعدادات الدفعة والصلاحية"',
+      'action: "إعدادات التشغيلة والصلاحية"',
     );
     expect(translations).toContain(
       'title: "الإعدادات الافتراضية للمنتجات الجديدة"',
@@ -326,7 +326,7 @@ describe("products tracking UI contracts", () => {
       "إضافة المنتج والاستيراد يرثان هذا الإعداد تلقائياً",
     );
     expect(translations).toContain(
-      "إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم الدفعة",
+      "إذا اخترت «إلزامي» فلن يكتمل التوريد بدون رقم التشغيلة",
     );
     expect(translations).toContain(
       "تسجيل تاريخ انتهاء الصلاحية",

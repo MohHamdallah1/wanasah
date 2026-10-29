@@ -103,7 +103,7 @@ it.each(["ar", "en"])("provides translated form submission, locale direction, Es
 });
 it("hides manual batch selection without its exact capability and rejects malformed purpose contracts", () => {
   const item = { id: 1, product_variant_id: 1, draft_key: "K", name: "Product", sku: null, base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
-    display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each", display_factor_to_base: "1", display_quantity_scale: 0,
+    display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each", display_factor_to_base: "1", display_quantity_scale: 0, lot_control_mode: "REQUIRED" as const, has_user_visible_lot: true,
     quantity_scale: 0, quantity_step: "1", available_quantity: "10", quantity: "1",
     batch_mode: "auto" as const, batch_id: null, batch_available: null,
     fefo_mode: "override" as const, override_batch_id: null, override_reason_id: null, override_batch_available: null };
@@ -160,7 +160,8 @@ it("keeps Tab and Shift+Tab within the decision dialog until it closes", async (
 it("reloads backend FEFO options when a persisted override draft is reopened", async () => {
   const product = { id: 100, product_variant_id: 100, draft_key: "saved-line", name: "Product", sku: null, base_uom_id: 1,
     base_uom_code: "EACH", base_uom_name: "Each", display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each",
-    display_factor_to_base: "1", display_quantity_scale: 0, quantity_scale: 0, quantity_step: "1", available_quantity: "10",
+    display_factor_to_base: "1", display_quantity_scale: 0, lot_control_mode: "REQUIRED" as const, has_user_visible_lot: true,
+    quantity_scale: 0, quantity_step: "1", available_quantity: "10",
     quantity: "2", batch_mode: "auto" as const, batch_id: null, batch_available: null,
     fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
   const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };

@@ -158,7 +158,7 @@ describe("CP3 batch core actions", () => {
     const copy = read("batches/batchActionsI18n.ts");
     const dialog = read("batches/StockStatusChangeDialog.tsx");
     const manager = read("batches/BatchDispositionManager.tsx");
-    expect(copy).toContain('noLot: "بدون رقم دفعة"');
+    expect(copy).toContain('noLot: "بدون تشغيلة"');
     expect(copy).toContain('noLot: "No lot supplied"');
     expect(copy).toContain('stockStatusTitle: "حالة كمية المخزون"');
     expect(copy).toContain('stockStatusTitle: "Warehouse stock status"');

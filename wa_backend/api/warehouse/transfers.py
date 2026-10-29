@@ -66,7 +66,10 @@ from schemas import (
     UnifiedTransferDecisionRequest,
 )
 from quantity import canonical_quantity
-from domains.product_tracking import public_batch_number
+from domains.product_tracking import (
+    INTERNAL_NO_LOT_PREFIX,
+    public_batch_number,
+)
 from product_lifecycle import (
     DEFAULT_PRODUCT_LOCATION_FLAGS,
     INBOUND_NEW,
@@ -792,6 +795,21 @@ async def get_unified_transfer_source_inventory(
             UOM.name.label("base_uom_name"),
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
+            ProductVariant.lot_control_mode,
+            func.max(
+                case(
+                    (
+                        and_(
+                            ProductBatch.batch_number.is_not(None),
+                            ~ProductBatch.batch_number.startswith(
+                                INTERNAL_NO_LOT_PREFIX
+                            ),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ).label("has_user_visible_lot"),
             available_expression.label("available_quantity"),
             display_uom_one.c.candidate_count,
             display_uom_one.c.display_uom_id_raw,
@@ -876,6 +894,7 @@ async def get_unified_transfer_source_inventory(
             UOM.name,
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
+            ProductVariant.lot_control_mode,
             display_uom_one.c.candidate_count,
             display_uom_one.c.display_uom_id_raw,
             display_uom_one.c.display_uom_code_raw,
@@ -991,6 +1010,10 @@ async def get_unified_transfer_source_inventory(
                     int(row.display_quantity_scale_raw)
                     if int(row.candidate_count or 0) == 1
                     else int(row.quantity_scale)
+                ),
+                "lot_control_mode": str(row.lot_control_mode),
+                "has_user_visible_lot": bool(
+                    row.has_user_visible_lot
                 ),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": canonical_quantity(row.quantity_step),
@@ -1159,7 +1182,16 @@ async def _read_unified_transfer_batch_options(
         )
     ).all()
 
-    recommended_batch_id = int(batch_rows[0].id) if batch_rows else None
+    visible_batch_rows = [
+        row
+        for row in batch_rows
+        if public_batch_number(row.batch_number) is not None
+    ]
+    recommended_batch_id = (
+        int(visible_batch_rows[0].id)
+        if visible_batch_rows
+        else None
+    )
     return {
         "location_id": int(location_id),
         "product_variant_id": int(product_variant_id),
@@ -1178,7 +1210,7 @@ async def _read_unified_transfer_batch_options(
                     and int(row.id) == recommended_batch_id
                 ),
             }
-            for row in batch_rows
+            for row in visible_batch_rows
         ],
     }
 

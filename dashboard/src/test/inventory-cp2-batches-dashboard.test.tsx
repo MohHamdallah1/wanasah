@@ -225,7 +225,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
     mocks.language = "ar";
     const arabic = renderPage();
-    expect(await screen.findAllByText("بدون رقم دفعة")).not.toHaveLength(0);
+    expect(await screen.findAllByText("بدون تشغيلة")).not.toHaveLength(0);
     expect(arabic.container.querySelector(".inventory-batches-view")).toHaveAttribute("dir", "rtl");
 
     expect(() =>

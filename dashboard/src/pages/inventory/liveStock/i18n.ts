@@ -27,21 +27,21 @@ export type LiveStockCp7Copy = {
 };
 
 const ar: LiveStockCp7Copy = {
-  batchDetails: "تفاصيل دفعات الرصيد",
-  openBatchDetails: "عرض تفاصيل الدفعات",
-  loadingBatches: "جاري تحميل تفاصيل الدفعات...",
-  noBatches: "لا توجد دفعات لها رصيد في هذا المستودع.",
+  batchDetails: "تفاصيل تشغيلات الرصيد",
+  openBatchDetails: "عرض تفاصيل التشغيلات",
+  loadingBatches: "جاري تحميل تفاصيل التشغيلات...",
+  noBatches: "لا توجد تشغيلات لها رصيد في هذا المستودع.",
   sourceEvidence: "مصدر الرصيد والحجوزات",
   sourceLoading: "جاري تحميل دليل المصدر...",
   sourceUnavailable: "تعذر تحميل دليل المصدر لهذا المستودع.",
   sourceWarehouse: "المستودع",
   loadMore: "تحميل المزيد",
-  continuationFailed: "تعذر تحميل بقية الدفعات. البيانات المحملة ما زالت ظاهرة.",
+  continuationFailed: "تعذر تحميل بقية التشغيلات. البيانات المحملة ما زالت ظاهرة.",
   retry: "إعادة المحاولة",
-  noLot: "بدون رقم دفعة",
+  noLot: "بدون رقم تشغيلة",
   production: "الإنتاج",
   expiry: "الصلاحية",
-  disposition: "حالة الدفعة",
+  disposition: "حالة التشغيلة",
   dispositionLabels: {
     RELEASED: "متاحة",
     QUARANTINED: "حجر",

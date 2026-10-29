@@ -191,7 +191,7 @@ for (const locale of ["en", "ar"] as const) {
       .getByRole("button", {
         name:
           locale === "ar"
-            ? "فتح الدفعات المتأثرة"
+            ? "فتح التشغيلات المتأثرة"
             : "Open affected batches",
       })
       .click();
@@ -199,7 +199,7 @@ for (const locale of ["en", "ar"] as const) {
     await expect(page).toHaveURL(/\/inventory$/);
     await expect(
       page.getByRole("heading", {
-        name: locale === "ar" ? "دفعات المنتج" : "Product batches",
+        name: locale === "ar" ? "تشغيلات المنتج" : "Product batches",
       }),
     ).toBeVisible();
     const workspace = page.locator(
@@ -215,13 +215,13 @@ for (const locale of ["en", "ar"] as const) {
 
     await workspace
       .getByRole("button", {
-        name: locale === "ar" ? "إدارة هذه الدفعة" : "Manage this batch",
+        name: locale === "ar" ? "إدارة هذه التشغيلة" : "Manage this batch",
       })
       .click();
     await expect(page.getByText("Saved inspection reason", { exact: false })).toBeVisible();
     await expect(
       page.getByRole("heading", {
-        name: locale === "ar" ? "دفعات المنتج" : "Product batches",
+        name: locale === "ar" ? "تشغيلات المنتج" : "Product batches",
       }),
     ).toBeVisible();
 

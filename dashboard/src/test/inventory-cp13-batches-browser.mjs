@@ -110,7 +110,7 @@ try {
     await view.getByRole("alert").waitFor();
     failList = false;
     await view.getByRole("button", { name: language === "ar" ? "إعادة المحاولة" : "Retry", exact: true }).click();
-    const action = view.getByRole("button", { name: language === "ar" ? "عرض تفاصيل الدفعة" : "View batch details", exact: true });
+    const action = view.getByRole("button", { name: language === "ar" ? "عرض تفاصيل التشغيلة" : "View batch details", exact: true });
     await action.waitFor();
     assert.equal(await view.getAttribute("dir"), language === "ar" ? "rtl" : "ltr");
     assert.equal(await view.locator("dl dt").count(), 8);
@@ -137,7 +137,7 @@ try {
     await page.keyboard.press("Tab");
     await page.keyboard.press("Escape");
     await dialog.waitFor({ state: "detached" });
-    await page.waitForFunction(() => document.activeElement?.textContent?.includes(localStorage.getItem("wanasah.language") === "ar" ? "عرض تفاصيل الدفعة" : "View batch details"));
+    await page.waitForFunction(() => document.activeElement?.textContent?.includes(localStorage.getItem("wanasah.language") === "ar" ? "عرض تفاصيل التشغيلة" : "View batch details"));
     await page.screenshot({ path: `cp13-${language}-${width}.png`, fullPage: true });
     await page.goto("http://127.0.0.1:4193/cp13.html?focus=41");
     await page.getByRole("dialog").waitFor();

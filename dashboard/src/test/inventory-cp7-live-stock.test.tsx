@@ -144,7 +144,7 @@ const source = (...parts: string[]) =>
 
 describe("CP7 Live Stock Dashboard closure", () => {
   it("has exact Arabic anonymous-lot presentation", () => {
-    expect(getLiveStockCp7Copy("ar").noLot).toBe("بدون رقم دفعة");
+    expect(getLiveStockCp7Copy("ar").noLot).toBe("بدون تشغيلة");
   });
 
   it("has exact English anonymous-lot presentation", () => {
@@ -247,7 +247,7 @@ describe("CP7 Live Stock Dashboard closure", () => {
         onLoadSource={vi.fn()}
       />,
     );
-    expect(screen.getByText("بدون رقم دفعة")).toBeInTheDocument();
+    expect(screen.getByText("بدون تشغيلة")).toBeInTheDocument();
     expect(screen.getByRole("dialog").closest(".app-modal")).toHaveAttribute("dir", "rtl");
   });
 

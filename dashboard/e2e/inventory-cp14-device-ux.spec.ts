@@ -19,7 +19,7 @@ const VARIANT_ID = 118;
 const tabLabels = {
   ar: {
     live: "الرصيد الحي",
-    batches: "الدفعات والصلاحية",
+    batches: "التشغيلات والصلاحية",
     inbound: "توريد بضاعة",
     transfers: "الحوالات",
     ledger: "سجل الحركات",
@@ -530,7 +530,7 @@ test("Batch focus is direct, accessible, modal focus-safe, Escape-closeable and 
   await expect(page.getByText("Untrusted browser label")).toHaveCount(0);
   expect(await page.evaluate(() => history.state.usr)).toBeNull();
 
-  const changeDisposition = workspace.getByRole("button", { name: "مراجعة قرار الدفعة", exact: true });
+  const changeDisposition = workspace.getByRole("button", { name: "مراجعة قرار التشغيلة", exact: true });
   await expect(changeDisposition).toBeVisible();
   await changeDisposition.focus();
   await changeDisposition.click();

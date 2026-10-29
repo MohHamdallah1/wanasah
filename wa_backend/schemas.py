@@ -2527,6 +2527,8 @@ class UnifiedTransferSourceInventoryItem(BaseModel):
     display_uom_name: str
     display_factor_to_base: PositiveQuantity
     display_quantity_scale: int = Field(..., ge=0, le=6)
+    lot_control_mode: Literal["NONE", "OPTIONAL", "REQUIRED"]
+    has_user_visible_lot: bool
     quantity_scale: int = Field(..., ge=0, le=6)
     quantity_step: PositiveQuantity
     available_quantity: NonNegativeQuantity

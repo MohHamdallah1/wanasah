@@ -337,7 +337,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
               >
                 {t("inventoryTransfers.all")}
               </button>
-              {lines.length > 0 ? (
+              {lines.length > 0 && product.has_user_visible_lot ? (
                 <button
                   type="button"
                   disabled={c.batchLoadingProductIds.includes(

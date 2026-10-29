@@ -365,6 +365,8 @@ async def test_company_source_destination_vehicle_discovery_and_forged_ids(pg):
         assert page["items"][0]["display_uom_code"] == "CARTON"
         assert Decimal(page["items"][0]["display_factor_to_base"]) == 50
         assert page["items"][0]["display_quantity_scale"] == 0
+        assert page["items"][0]["lot_control_mode"] == "REQUIRED"
+        assert page["items"][0]["has_user_visible_lot"] is True
         for forbidden in [pg.a.locations[1], pg.a.vehicle_location_id, pg.b.locations[0], pg.b.vehicle_location_id]:
             with pytest.raises(HTTPException) as denied:
                 await source_page(db, access, forbidden)
@@ -505,6 +507,24 @@ async def test_fefo_order_override_exact_capability_and_audit(pg):
         assert exact_line.fefo_override_reason_id is None
         assert exact_line.fefo_overridden_by is None
 
+        internal_no_lot = ProductBatch(
+            company_id=pg.a.company_id,
+            product_variant_id=pg.a.variant_id,
+            batch_number="__WANASAH_NOLOT__:CP8-HIDDEN",
+        )
+        db.add(internal_no_lot)
+        await db.flush()
+        await _seed_movement(
+            db,
+            pg.a,
+            location_id=pg.a.locations[0],
+            reference_type="INBOUND_SUPPLIER",
+            reference="INV-HIDDEN-NOLOT",
+            quantity="2",
+            batch_id=internal_no_lot.id,
+        )
+        await db.flush()
+
         batch_options = await transfers.get_unified_transfer_batch_options(
             pg.a.locations[0],
             pg.a.variant_id,
@@ -515,6 +535,10 @@ async def test_fefo_order_override_exact_capability_and_audit(pg):
         assert {
             row["id"] for row in batch_options["batches"]
         } == {pg.a.batch_id, pg.a.later_batch_id}
+        assert all(
+            row["batch_number"] is not None
+            for row in batch_options["batches"]
+        )
 
 
 async def test_concurrent_duplicates_mismatch_and_transaction_rollback(pg):

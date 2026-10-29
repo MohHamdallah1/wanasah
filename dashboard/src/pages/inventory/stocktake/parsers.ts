@@ -168,15 +168,15 @@ export const parseCycleBatchPage = (
   expectedProductId: number
 ): CycleBatchCursorPage => {
   if (!isRecord(raw) || !Array.isArray(raw.items) || typeof raw.has_more !== "boolean") {
-    throw new Error("استجابة دفعات الجرد الدوري غير صالحة.");
+    throw new Error("استجابة تشغيلات الجرد الدوري غير صالحة.");
   }
   const items: CycleBatchOption[] = raw.items.map((item, index) => {
     if (!isRecord(item)) {
-      throw new Error(`دفعة الجرد الدوري #${index + 1} غير صالحة.`);
+      throw new Error(`تشغيلة الجرد الدوري #${index + 1} غير صالحة.`);
     }
     const productVariantId = positiveInt(item.product_variant_id, "batch.product_variant_id");
     if (productVariantId !== expectedProductId) {
-      throw new Error("مرفوض: السيرفر أعاد دفعة لا تتبع الصنف المختار.");
+      throw new Error("مرفوض: السيرفر أعاد تشغيلة لا تتبع الصنف المختار.");
     }
     return {
       id: positiveInt(item.id, "batch.id"),
