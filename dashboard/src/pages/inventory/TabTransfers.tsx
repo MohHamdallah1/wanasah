@@ -95,8 +95,8 @@ export function TabTransfers({
       data-cp13-surface="transfers"
     >
       <section className="inventory-surface inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 sm:px-4">
-          <div className="min-w-0">
+        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 sm:px-4" data-cp13-controls="transfer-list">
+          <div className="min-w-0 shrink-0">
             <h2 className="flex items-center gap-2 text-sm font-black text-slate-900">
               <Truck className="h-4 w-4 text-blue-700" aria-hidden="true" />
               {t("inventoryTransfers.title")}
@@ -109,32 +109,7 @@ export function TabTransfers({
             </p>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={!transferCreate.canOpen}
-              onClick={transferCreate.openCreate}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-black text-white outline-none hover:bg-blue-800 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-300"
-              data-cp13-action-priority="primary"
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              {t("inventoryTransfers.newTransfer")}
-            </button>
-            <button
-              type="button"
-              onClick={refreshTransfers}
-              disabled={loading}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 outline-none hover:bg-slate-50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-300"
-              title={t("inventoryTransfers.refresh")}
-              aria-label={t("inventoryTransfers.refresh")}
-            >
-              <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-            </button>
-          </div>
-        </header>
-
-        <div className="grid grid-cols-1 gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:grid-cols-[minmax(240px,1fr)_190px] sm:px-3" data-cp13-controls="transfer-list">
-          <div className="relative min-w-0">
+          <div className="relative w-full min-w-44 sm:w-56">
             <Search className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
               type="search"
@@ -146,6 +121,7 @@ export function TabTransfers({
               className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-xs font-bold text-slate-800 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
             />
           </div>
+
           <select
             aria-label={t("inventoryTransfers.status")}
             value={status}
@@ -153,14 +129,36 @@ export function TabTransfers({
               const value = event.target.value;
               setStatus(value && isTransferStatus(value) ? value : "");
             }}
-            className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100 sm:w-40"
           >
             <option value="">{t("inventoryTransfers.allStatuses")}</option>
             {TRANSFER_STATUSES.map((value) => (
               <option key={value} value={value}>{t(STATUS_META[value].label)}</option>
             ))}
           </select>
-        </div>
+
+          <button
+            type="button"
+            disabled={!transferCreate.canOpen}
+            onClick={transferCreate.openCreate}
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-black text-white outline-none hover:bg-blue-800 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-300"
+            data-cp13-action-priority="primary"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            {t("inventoryTransfers.newTransfer")}
+          </button>
+
+          <button
+            type="button"
+            onClick={refreshTransfers}
+            disabled={loading}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 outline-none hover:bg-slate-50 disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-blue-300"
+            title={t("inventoryTransfers.refresh")}
+            aria-label={t("inventoryTransfers.refresh")}
+          >
+            <RefreshCcw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+          </button>
+        </header>
 
         {transferList.failure ? (
           <div role="alert" data-cp13-state={transferList.failure.phase === "first" ? "error" : "stale"} className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${transferList.failure.phase === "first" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>

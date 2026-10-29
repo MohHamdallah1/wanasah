@@ -95,6 +95,11 @@ export interface TransferSourceInventoryItem {
   base_uom_id: number;
   base_uom_code: string;
   base_uom_name: string;
+  display_uom_id: number;
+  display_uom_code: string;
+  display_uom_name: string;
+  display_factor_to_base: Quantity;
+  display_quantity_scale: number;
   quantity_scale: number;
   quantity_step: Quantity;
   available_quantity: Quantity;

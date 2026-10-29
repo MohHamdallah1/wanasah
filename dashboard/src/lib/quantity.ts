@@ -80,6 +80,36 @@ export function convertBaseQuantityToUom(
 export const addQuantity = (left: Quantity, right: Quantity): Quantity =>
   canonicalFromScaled(scaled(left) + scaled(right));
 
+export function multiplyQuantity(
+  left: Quantity,
+  right: Quantity,
+): Quantity {
+  const product = scaled(left) * scaled(right);
+  if (product % 1_000_000n !== 0n) {
+    throw new Error("نتيجة ضرب الكمية تتجاوز الدقة المدعومة.");
+  }
+  return canonicalFromScaled(product / 1_000_000n);
+}
+
+export function splitBaseQuantityByUom(
+  value: Quantity,
+  factorToBase: Quantity,
+): { displayQuantity: Quantity; baseRemainder: Quantity } | null {
+  const valueScaled = scaled(value);
+  const factorScaled = scaled(factorToBase);
+  if (
+    valueScaled < 0n ||
+    factorScaled <= 1_000_000n ||
+    factorScaled % 1_000_000n !== 0n
+  ) {
+    return null;
+  }
+  return {
+    displayQuantity: (valueScaled / factorScaled).toString(),
+    baseRemainder: canonicalFromScaled(valueScaled % factorScaled),
+  };
+}
+
 export const subtractQuantity = (left: Quantity, right: Quantity): Quantity =>
   canonicalFromScaled(scaled(left) - scaled(right));
 

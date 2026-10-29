@@ -31,6 +31,7 @@ from models import (
     Permission,
     Product,
     ProductBatch,
+    ProductUomConversion,
     ProductVariant,
     ProductLocation,
     InventoryTransferHeader,
@@ -188,6 +189,11 @@ async def pg():
                 uom = UOM(code="EACH", name="Each")
                 seed.add(uom)
                 await seed.flush()
+            carton_uom = await seed.scalar(select(UOM).where(UOM.code == "CARTON"))
+            if carton_uom is None:
+                carton_uom = UOM(code="CARTON", name="Carton")
+                seed.add(carton_uom)
+                await seed.flush()
 
             companies = [
                 Company(name="CP8 Company A", company_code="CP8A-" + uuid4().hex, timezone="Asia/Amman", currency_code="JOD"),
@@ -228,6 +234,19 @@ async def pg():
                 ]
                 seed.add_all(locations)
                 await seed.flush()
+                if index == 0:
+                    seed.add(
+                        ProductUomConversion(
+                            company_id=company.id,
+                            product_variant_id=variant.id,
+                            from_uom_id=carton_uom.id,
+                            to_uom_id=uom.id,
+                            numerator=Decimal("50"),
+                            denominator=Decimal("1"),
+                            quantity_scale=0,
+                        )
+                    )
+                    await seed.flush()
                 vehicle = Vehicle(id=locations[0].id, company_id=company.id, plate_number="OVERLAP", is_active=True, maintenance_status="Active")
                 seed.add(vehicle)
                 await seed.flush()
@@ -343,6 +362,9 @@ async def test_company_source_destination_vehicle_discovery_and_forged_ids(pg):
         page = await source_page(db, access, pg.a.locations[0], search="Overlap")
         assert page["total"] == 1 and [r["id"] for r in page["items"]] == [pg.a.variant_id]
         assert Decimal(page["items"][0]["available_quantity"]) == 40
+        assert page["items"][0]["display_uom_code"] == "CARTON"
+        assert Decimal(page["items"][0]["display_factor_to_base"]) == 50
+        assert page["items"][0]["display_quantity_scale"] == 0
         for forbidden in [pg.a.locations[1], pg.a.vehicle_location_id, pg.b.locations[0], pg.b.vehicle_location_id]:
             with pytest.raises(HTTPException) as denied:
                 await source_page(db, access, forbidden)

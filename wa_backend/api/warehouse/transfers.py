@@ -8,7 +8,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy import and_, case, func, or_, select, true, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -107,6 +107,7 @@ from services import (
 
 from domains.transfers.replay import require_special_destination, require_transfer_replay
 from domains.inventory_terminal_quality import confirm_final_disposal
+from domains.inventory_uom_reads import display_uom_one_subquery
 from domains.inventory_terminal_vendor import confirm_vendor_handover
 from domains.inventory_quality_handling import stage_quality_handling_direct
 
@@ -775,6 +776,10 @@ async def get_unified_transfer_source_inventory(
         - InventoryBalance.reserved_quantity
     )
     destination_assignment = aliased(ProductLocation)
+    display_uom_one = display_uom_one_subquery(
+        company_id=company_id,
+        alias_prefix="transfer_display_uom",
+    )
 
     stmt = (
         select(
@@ -787,6 +792,12 @@ async def get_unified_transfer_source_inventory(
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
             available_expression.label("available_quantity"),
+            display_uom_one.c.candidate_count,
+            display_uom_one.c.display_uom_id_raw,
+            display_uom_one.c.display_uom_code_raw,
+            display_uom_one.c.display_uom_name_raw,
+            display_uom_one.c.display_factor_to_base_raw,
+            display_uom_one.c.display_quantity_scale_raw,
         )
         .join(
             InventoryBalance,
@@ -810,6 +821,7 @@ async def get_unified_transfer_source_inventory(
                 ProductLocation.location_id == location_id,
             ),
         )
+        .outerjoin(display_uom_one, true())
         .outerjoin(
             InventoryStockPolicy,
             and_(
@@ -863,6 +875,12 @@ async def get_unified_transfer_source_inventory(
             UOM.name,
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
+            display_uom_one.c.candidate_count,
+            display_uom_one.c.display_uom_id_raw,
+            display_uom_one.c.display_uom_code_raw,
+            display_uom_one.c.display_uom_name_raw,
+            display_uom_one.c.display_factor_to_base_raw,
+            display_uom_one.c.display_quantity_scale_raw,
         )
         .having(available_expression > 0)
     )
@@ -948,6 +966,31 @@ async def get_unified_transfer_source_inventory(
                 "base_uom_id": int(row.base_uom_id),
                 "base_uom_code": str(row.base_uom_code),
                 "base_uom_name": str(row.base_uom_name),
+                "display_uom_id": (
+                    int(row.display_uom_id_raw)
+                    if int(row.candidate_count or 0) == 1
+                    else int(row.base_uom_id)
+                ),
+                "display_uom_code": (
+                    str(row.display_uom_code_raw)
+                    if int(row.candidate_count or 0) == 1
+                    else str(row.base_uom_code)
+                ),
+                "display_uom_name": (
+                    str(row.display_uom_name_raw)
+                    if int(row.candidate_count or 0) == 1
+                    else str(row.base_uom_name)
+                ),
+                "display_factor_to_base": canonical_quantity(
+                    row.display_factor_to_base_raw
+                    if int(row.candidate_count or 0) == 1
+                    else Decimal("1")
+                ),
+                "display_quantity_scale": (
+                    int(row.display_quantity_scale_raw)
+                    if int(row.candidate_count or 0) == 1
+                    else int(row.quantity_scale)
+                ),
                 "quantity_scale": int(row.quantity_scale),
                 "quantity_step": canonical_quantity(row.quantity_step),
                 "available_quantity": canonical_quantity(
