@@ -27,6 +27,7 @@ export function useTransferList() {
   const [state, setState] = useState<ListState | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
   const [failure, setFailure] = useState<{ scope: string; phase: Attempt["phase"]; message: string } | null>(null);
   const scope = JSON.stringify([status, search]);
   const scopeRef = useRef(scope);
@@ -48,14 +49,16 @@ export function useTransferList() {
   }, [searchInput]);
 
   const fetchPage = useCallback(async (attempt: Attempt) => {
-    if (attempt.append && loadingMore) return;
+    if (attempt.append && loadingMoreRef.current) return;
     const seq = ++requestSeq.current;
     if (!attempt.append) abort.current?.abort();
     const controller = new AbortController();
     if (!attempt.append) abort.current = controller;
     lastAttempt.current = attempt;
-    if (attempt.append) setLoadingMore(true);
-    else setLoading(true);
+    if (attempt.append) {
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+    } else setLoading(true);
     setFailure(null);
     try {
       const params = new URLSearchParams({ limit: "50" });
@@ -87,11 +90,13 @@ export function useTransferList() {
       setFailure({ scope, phase: attempt.phase, message: getErrorMessage(error, t(`inventoryTransfers.${key}`)) });
     } finally {
       if (seq === requestSeq.current && scopeRef.current === scope) {
-        if (attempt.append) setLoadingMore(false);
-        else setLoading(false);
+        if (attempt.append) {
+          loadingMoreRef.current = false;
+          setLoadingMore(false);
+        } else setLoading(false);
       }
     }
-  }, [authenticatedFetch, loadingMore, scope, search, status, t]);
+  }, [authenticatedFetch, scope, search, status, t]);
 
   const invalidateList = useCallback(() => {
     ++requestSeq.current;
