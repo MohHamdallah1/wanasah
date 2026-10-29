@@ -19,7 +19,11 @@ vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.f
 
 const warehouse = (id: number) => ({ id, name: `Warehouse ${id}`, code: `WH-${id}`, location_type: "WAREHOUSE" as const, vehicle_id: null });
 const product = { id: 100, name: "Precise product", sku: "SKU-100", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
+  display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each", display_factor_to_base: "1", display_quantity_scale: 6,
   quantity_scale: 6, quantity_step: "0.000001", available_quantity: "0.300001" };
+const cartonProduct = { id: 300, name: "Carton product", sku: "SKU-300", base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
+  display_uom_id: 2, display_uom_code: "CARTON", display_uom_name: "Carton", display_factor_to_base: "50", display_quantity_scale: 0,
+  quantity_scale: 0, quantity_step: "1", available_quantity: "12900" };
 const page = (items = [product], next_cursor: string | null = null) => ({ items, next_cursor, has_more: next_cursor !== null, total: items.length });
 const vehicle = { id: 91, name: "Vehicle must never appear", code: "V91", location_type: "VEHICLE", vehicle_id: 1 };
 
@@ -149,6 +153,54 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
     items: [{ product_variant_id: 100, quantity: "0.300001", uom_id: 1, is_fefo_override: false }],
   });
   expect(body.request_id).toMatch(/^[a-f0-9-]{36}$/);
+});
+
+it("keeps a selected row in place, accepts carton plus base remainder, clears quantities, and dispatches canonical base quantity", async () => {
+  const first = { ...cartonProduct, id: 299, name: "First product", sku: "SKU-299" };
+  mock.fetch.mockImplementation(async (url: string) => url.includes("source-inventory")
+    ? page([first, cartonProduct])
+    : fetchDefault(url));
+  open();
+  await selectPair();
+  await screen.findByText(cartonProduct.name);
+
+  const table = screen.getByRole("table");
+  const rowTextsBefore = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
+  expect(rowTextsBefore[1]).toContain(cartonProduct.name);
+
+  const cartons = screen.getByRole("spinbutton", {
+    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: "Carton" }),
+  });
+  fireEvent.change(cartons, { target: { value: "5" } });
+  const pieces = screen.getByRole("spinbutton", {
+    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: "Each" }),
+  });
+  fireEvent.change(pieces, { target: { value: "10" } });
+
+  const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
+  expect(rowTextsAfter[1]).toContain(cartonProduct.name);
+  expect(screen.getByText("258 Carton")).toBeInTheDocument();
+
+  await waitFor(() => expect(send()).not.toBeDisabled());
+  fireEvent.click(send());
+  expect(await screen.findByText("5 Carton + 10 Each")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.back") }));
+
+  fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.clearQuantities") }));
+  expect(send()).toBeDisabled();
+
+  fireEvent.change(screen.getByRole("spinbutton", {
+    name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: "Carton" }),
+  }), { target: { value: "5" } });
+  fireEvent.change(screen.getByRole("spinbutton", {
+    name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: "Each" }),
+  }), { target: { value: "10" } });
+  await waitFor(() => expect(send()).not.toBeDisabled());
+  fireEvent.click(send());
+  fireEvent.click(await screen.findByRole("button", { name: i18n.t("inventoryTransfers.confirmSend") }));
+  await waitFor(() => expect(mock.fetch.mock.calls.some(([url]) => url.endsWith("/dispatch"))).toBe(true));
+  const body = JSON.parse(mock.fetch.mock.calls.find(([url]) => url.endsWith("/dispatch"))![1].body);
+  expect(body.items).toEqual([{ product_variant_id: 300, quantity: "260", uom_id: 1, is_fefo_override: false }]);
 });
 
 it("hides zero stock, blocks excess/invalid precision, and removes zero/empty from draft", async () => {
