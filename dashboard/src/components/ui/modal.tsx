@@ -11,10 +11,12 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   subtitle?: React.ReactNode;
+  titleAside?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
   bodyClassName?: string;
+  compactHeader?: boolean;
   initialFocusRef?: {
     readonly current: HTMLElement | null;
   };
@@ -25,10 +27,12 @@ export function Modal({
   onClose,
   title,
   subtitle,
+  titleAside,
   children,
   footer,
   maxWidth = "max-w-2xl",
   bodyClassName = "p-4 sm:p-6",
+  compactHeader = false,
   initialFocusRef,
 }: ModalProps) {
   const { t, i18n } = useTranslation();
@@ -66,9 +70,16 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={titleId}
           >
-            <div className="app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:px-6 sm:py-4">
+            <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "py-2 sm:py-2.5" : "py-3 sm:py-4"}`}>
               <div className="min-w-0">
-                <h3 id={titleId} className="break-words text-base font-bold text-slate-800 sm:text-lg">{title}</h3>
+                {titleAside ? (
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <h3 id={titleId} className="break-words text-base font-bold text-slate-800 sm:text-lg">{title}</h3>
+                    <div className="text-[10px] font-semibold text-slate-500 sm:text-[11px]">{titleAside}</div>
+                  </div>
+                ) : (
+                  <h3 id={titleId} className="break-words text-base font-bold text-slate-800 sm:text-lg">{title}</h3>
+                )}
                 {subtitle ? (
                   <div className="mt-1 max-w-3xl text-[11px] font-semibold leading-5 text-slate-500 sm:text-xs">
                     {subtitle}
