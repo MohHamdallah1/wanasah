@@ -10,7 +10,7 @@
 | تصنيف تسويقي | Catalog Category | `Product.category` (currently optional text) | Optional classification, separate from Product master/family. No first-class category table is assumed. |
 | وحدة القياس | Unit of Measure (UOM) | `UOM.id` and variant-specific conversion | EACH, CARTON, PACK, etc. Conversion is attached to a variant. |
 | العبوة الخارجية | Outer Package | Variant UOM conversion and optional package barcode | A 24-piece carton of one SKU normally refers to the **same variant**, not 24 new SKUs or a new sellable variant. |
-| دفعة / صلاحية | Batch / Expiry | `ProductBatch` tied to company + variant | Batch belongs to one SKU; an inventory balance cannot combine another variant's batch. |
+| تشغيلة / صلاحية | Lot / Expiry | `ProductBatch` tied to company + variant | A Lot belongs to one SKU; an inventory balance cannot combine another variant's Lot. |
 
 ## Concrete example
 
