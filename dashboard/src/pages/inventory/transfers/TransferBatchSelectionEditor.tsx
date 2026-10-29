@@ -1,4 +1,4 @@
-import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
+import { useTransferTranslation as useTranslation } from "./i18n";
 import { formatTransferDateOnly } from "./utils";
 import { formatTransferCommercialQuantity } from "./transferQuantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
