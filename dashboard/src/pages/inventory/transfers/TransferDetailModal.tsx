@@ -36,7 +36,11 @@ export function TransferDetailModal({
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
               <div className="text-[10px] font-bold text-slate-400">{t("inventoryTransfers.reference")}</div>
-              <div className="mt-0.5 truncate text-xs font-black text-slate-800">{detail.transfer.reference_number}</div>
+              <div className="mt-0.5 truncate text-xs font-black text-slate-800">
+                {t("inventoryTransfers.transferNumber", {
+                  id: formatTransferNumber(detail.transfer.id),
+                })}
+              </div>
             </div>
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
               <div className="text-[10px] font-bold text-slate-400">{t("inventoryTransfers.source")}</div>
