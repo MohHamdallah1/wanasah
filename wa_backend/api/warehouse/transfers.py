@@ -633,7 +633,7 @@ async def get_unified_transfer_source_inventory(
     location_id: int = Query(..., ge=1),
     cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=50, ge=1, le=200),
-    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
+    search: Optional[str] = Query(default=None, min_length=1, max_length=100),
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(
         get_current_backoffice_capability_access
@@ -1550,12 +1550,18 @@ async def list_unified_transfers(
 
     if normalized_search:
         pattern = f"%{_escape_like(normalized_search)}%"
-        stmt = stmt.filter(
+        search_filters = [
             func.lower(InventoryTransferHeader.reference_number).like(
                 pattern,
                 escape="\\",
             )
-        )
+        ]
+        visible_id = normalized_search.removeprefix("#")
+        if visible_id.isdigit() and int(visible_id) > 0:
+            search_filters.append(
+                InventoryTransferHeader.id == int(visible_id)
+            )
+        stmt = stmt.filter(or_(*search_filters))
 
     total = None
     if cursor is None:
@@ -3589,18 +3595,6 @@ async def unified_transfer_receive(
                 detail="الوجهة المرسلة لا تطابق الوجهة الأصلية للحوالة."
             )
 
-        if (
-            special_permission is not None
-            and header.dispatched_by == legacy_actor.id
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "مرفوض رقابياً: مسار التحويل الخاص يتطلب "
-                    "مستقبلاً مختلفاً عن المرسل."
-                ),
-            )
-
         await _move_transfer_lines_from_transit(
             db,
             company_id=company_id,
@@ -3653,14 +3647,28 @@ async def unified_transfer_receive(
         raise HTTPException(status_code=403, detail=str(e))
     except IntegrityError as e:
         await db.rollback()
+        sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
+        constraint = getattr(
+            getattr(getattr(e, "orig", None), "diag", None),
+            "constraint_name",
+            None,
+        )
         logger.warning(
-            f"تعارض متزامن أثناء استلام الحوالة: {str(e)}",
-            exc_info=True
+            "Transfer receive integrity conflict sqlstate=%s constraint=%s",
+            sqlstate,
+            constraint,
+            exc_info=True,
         )
         raise HTTPException(
             status_code=409,
-            detail="حدث تعارض متزامن أثناء الاستلام. لم يتم حفظ عملية جزئية."
-        )
+            detail=inventory_business_error(
+                "TRANSFER_RECEIVE_INTEGRITY_CONFLICT",
+                "تعذر إتمام الاستلام بسبب تعارض في سلامة بيانات المخزون. لم يتم حفظ عملية جزئية؛ أعد المحاولة، وإذا تكرر الخطأ راجع سجل العملية.",
+                context={
+                    "transfer_header_id": int(payload.transfer_header_id),
+                },
+            ),
+        ) from e
     except Exception as e:
         await db.rollback()
         logger.error(
@@ -3844,12 +3852,6 @@ async def unified_transfer_reject(
         )
         if special_permission is not None:
             await _require_transfer_capability(access, special_permission)
-
-        if header.dispatched_by == legacy_actor.id:
-            raise HTTPException(
-                status_code=403,
-                detail="مرفوض رقابياً: لا يمكن للمُرسل رفض نفس الحوالة بصفته مستلماً."
-            )
 
         await _verify_location_ownership(
             db,

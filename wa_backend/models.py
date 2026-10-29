@@ -3322,11 +3322,6 @@ class InventoryTransferHeader(Base):
             name='chk_transfer_header_received_by_scope'
         ),
         CheckConstraint(
-            "workflow_type <> 'TRANSIT' OR status NOT IN ('POSTED', 'REJECTED') "
-            "OR received_by <> dispatched_by",
-            name='chk_transfer_header_separation_of_duties'
-        ),
-        CheckConstraint(
             "status NOT IN ('REJECTED', 'CANCELLED') OR "
             "(decision_reason IS NOT NULL AND length(trim(decision_reason)) > 0)",
             name='chk_transfer_header_terminal_reason'

@@ -64,8 +64,11 @@ export function TransferTable({
             {items.map((transfer) => (
               <tr key={transfer.id} className="align-middle hover:bg-slate-50/70" data-cp13-transfer-row="compact">
                 <td className="px-3 py-2">
-                  <div className="font-black text-slate-900">{transfer.reference_number}</div>
-                  <div className="mt-0.5 text-[10px] font-semibold tabular-nums text-slate-400">#{formatTransferNumber(transfer.id)}</div>
+                  <div className="font-black text-slate-900">
+                    {t("inventoryTransfers.transferNumber", {
+                      id: formatTransferNumber(transfer.id),
+                    })}
+                  </div>
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-1.5">
@@ -115,7 +118,11 @@ export function TransferTable({
             <article key={transfer.id} className="space-y-2 p-2.5" data-cp13-transfer-card="compact">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <strong className="block truncate text-sm text-slate-900">{transfer.reference_number}</strong>
+                  <strong className="block truncate text-sm text-slate-900">
+                    {t("inventoryTransfers.transferNumber", {
+                      id: formatTransferNumber(transfer.id),
+                    })}
+                  </strong>
                   <span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">
                     {t(`inventoryTransfers.${transfer.transfer_purpose}`, { defaultValue: transfer.transfer_purpose })}
                   </span>

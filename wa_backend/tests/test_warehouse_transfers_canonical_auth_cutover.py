@@ -274,7 +274,6 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
             "override_actor_id = legacy_actor.id",
             "header.received_by = legacy_actor.id",
             "header.cancelled_by = legacy_actor.id",
-            "header.dispatched_by == legacy_actor.id",
         )
         for token in required_provenance:
             self.assertIn(token, TRANSFERS_SOURCE)
@@ -343,7 +342,7 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
 
         for state in ("IN_TRANSIT", "POSTED", "CANCELLED", "REJECTED"):
             self.assertIn(state, TRANSFERS_SOURCE)
-        self.assertIn(
+        self.assertNotIn(
             "header.dispatched_by == legacy_actor.id",
             TRANSFERS_SOURCE,
         )
@@ -422,7 +421,7 @@ class WarehouseTransfersCanonicalAuthCutoverTests(unittest.TestCase):
             "special_permission is not None",
             receive_segment,
         )
-        self.assertIn(
+        self.assertNotIn(
             "header.dispatched_by == legacy_actor.id",
             receive_segment,
         )

@@ -1,5 +1,5 @@
 import { Ban, CheckCircle2, XCircle } from "lucide-react";
-import { useTransferTranslation as useTranslation } from "./i18n";
+import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
 import { Modal } from "@/components/ui/modal";
 import type {
   TransferAction,
@@ -95,7 +95,13 @@ export function TransferDecisionModal({
                 <span className="font-black">{transfer?.destination_location_name}</span>
               </div>
             </div>
-            <div className="mt-1 text-[10px] font-semibold opacity-80">{transfer?.reference_number}</div>
+            <div className="mt-1 text-[10px] font-semibold opacity-80">
+              {transfer
+                ? t("inventoryTransfers.transferNumber", {
+                    id: formatTransferNumber(transfer.id),
+                  })
+                : "—"}
+            </div>
           </div>
         </div>
 

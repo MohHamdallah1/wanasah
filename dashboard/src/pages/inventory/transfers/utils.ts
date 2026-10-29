@@ -16,7 +16,18 @@ export const getMutationMessage = (raw: unknown): string => {
   }
   return transferText("success");
 };
-export const formatDate = (value: string | null): string =>
-  value ? new Date(value).toLocaleString(currentLocale(), { numberingSystem: "latn" }) : "—";
+export const formatDate = (value: string | null): string => {
+  if (!value) return "—";
+  const formatted = new Intl.DateTimeFormat("en-GB", {
+    numberingSystem: "latn",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(value));
+  return formatted.replace(", ", " · ");
+};
 export const formatTransferDateOnly = (value: string | null): string =>
   value ? new Intl.DateTimeFormat(currentLocale(), { numberingSystem: "latn" }).format(new Date(value + "T00:00:00")) : "—";

@@ -1,5 +1,6 @@
-import { useTransferTranslation as useTranslation, formatTransferNumber } from "./i18n";
+import { useTransferTranslation as useTranslation } from "./i18n";
 import { formatTransferDateOnly } from "./utils";
+import { formatTransferCommercialQuantity } from "./transferQuantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import type {
   TransferBatchMode,
@@ -38,6 +39,9 @@ export function TransferBatchSelectionEditor({
   const baseUomName = t(`uom.${item.base_uom_code}`, {
     defaultValue: item.base_uom_name,
   });
+  const displayUomName = t(`uom.${item.display_uom_code}`, {
+    defaultValue: item.display_uom_name,
+  });
   const selectedBatch =
     item.batch_id !== null
       ? options?.batches.find(
@@ -45,11 +49,33 @@ export function TransferBatchSelectionEditor({
         ) ?? null
       : null;
 
-  const firstProductLineKey = draftItems.find(
+  const productLines = draftItems.filter(
     (candidate) =>
-      candidate.product_variant_id
-      === item.product_variant_id,
-  )?.draft_key;
+      candidate.product_variant_id === item.product_variant_id,
+  );
+  const firstProductLineKey = productLines[0]?.draft_key;
+  const selectedBatchIds = new Set(
+    productLines
+      .map((candidate) => candidate.batch_id)
+      .filter((id): id is number => id !== null),
+  );
+  const allProductLinesSelected = productLines.every(
+    (candidate) =>
+      candidate.batch_mode === "exact" &&
+      candidate.batch_id !== null,
+  );
+  const hasAnotherBatch = Boolean(
+    options?.batches.some(
+      (batch) => !selectedBatchIds.has(batch.id),
+    ),
+  );
+  const formatBatchQuantity = (quantity: string) =>
+    formatTransferCommercialQuantity(
+      item,
+      quantity,
+      displayUomName,
+      baseUomName,
+    ).primary;
 
   if (item.batch_mode !== "exact") return null;
 
@@ -65,6 +91,7 @@ export function TransferBatchSelectionEditor({
             onClick={() =>
               void onModeChange(item.draft_key, "auto")
             }
+            title={t("inventoryTransfers.exactBatchButtonHint")}
             className="text-[10px] font-black text-blue-700 underline underline-offset-2"
           >
             {t("inventoryTransfers.useAutomaticBatch")}
@@ -126,7 +153,7 @@ export function TransferBatchSelectionEditor({
                     {formatTransferDateOnly(batch.expiry_date)}
                     {" — "}
                     {t("inventoryTransfers.available")}{" "}
-                    {formatTransferNumber(batch.available_quantity)}
+                    {formatBatchQuantity(batch.available_quantity)}
                     {batch.id === options.recommended_batch_id
                       ? t("inventoryTransfers.recommendedBatch")
                       : ""}
@@ -138,14 +165,15 @@ export function TransferBatchSelectionEditor({
           {selectedBatch ? (
             <span className="text-[10px] font-bold text-slate-600">
               {t("inventoryTransfers.batchAvailable")}{" "}
-              {formatTransferNumber(
+              {formatBatchQuantity(
                 selectedBatch.available_quantity,
-              )}{" "}
-              {baseUomName}
+              )}
             </span>
           ) : null}
 
-          {item.draft_key === firstProductLineKey ? (
+          {item.draft_key === firstProductLineKey &&
+          allProductLinesSelected &&
+          hasAnotherBatch ? (
             <button
               type="button"
               onClick={() =>

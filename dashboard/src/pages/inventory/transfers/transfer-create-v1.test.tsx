@@ -335,6 +335,70 @@ it("records an exact physical batch without FEFO-override capability or a reason
   ]);
 });
 
+it("auto-selects a single real lot, hides impossible split, and shows commercial lot quantity", async () => {
+  mock.fetch.mockImplementation(async (url: string) => {
+    if (url.includes("source-inventory")) return page([cartonProduct]);
+    if (url.includes("batch-options")) return {
+      location_id: 11,
+      product_variant_id: cartonProduct.id,
+      recommended_batch_id: 81,
+      batches: [{
+        id: 81,
+        batch_number: "LOT-CARTON",
+        production_date: "2026-10-01",
+        expiry_date: "2027-01-01",
+        available_quantity: "260",
+        is_fefo_head: true,
+      }],
+    };
+    return fetchDefault(url);
+  });
+
+  open();
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.sourceWarehouse"),
+    "Warehouse 11",
+  );
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.destinationWarehouse"),
+    "Warehouse 12",
+  );
+  await screen.findByText(cartonProduct.name);
+  fireEvent.change(
+    screen.getByRole("textbox", {
+      name: i18n.t("inventoryTransfers.productDisplayQuantity", {
+        name: cartonProduct.name,
+        unit: i18n.t("uom.CARTON", { defaultValue: "Carton" }),
+      }),
+    }),
+    { target: { value: "1" } },
+  );
+
+  const chooseBatch = screen.getByRole("button", {
+    name: i18n.t("inventoryTransfers.selectExactBatch"),
+  });
+  expect(chooseBatch).toHaveAttribute(
+    "title",
+    i18n.t("inventoryTransfers.exactBatchButtonHint"),
+  );
+  fireEvent.click(chooseBatch);
+
+  const select = await screen.findByRole("combobox", {
+    name: i18n.t("inventoryTransfers.selectedBatch"),
+  });
+  await waitFor(() => expect(select).toHaveValue("81"));
+  expect(
+    screen.queryByRole("button", {
+      name: i18n.t("inventoryTransfers.splitBatch"),
+    }),
+  ).toBeNull();
+  const selectedOption = Array.from(
+    (select as HTMLSelectElement).options,
+  ).find((option) => option.value === "81");
+  expect(selectedOption?.textContent).toContain("5");
+  expect(selectedOption?.textContent).toContain("10");
+});
+
 it("keeps internal no-lot products on automatic allocation and hides manual lot choice", async () => {
   const noLotProduct = {
     ...product,
