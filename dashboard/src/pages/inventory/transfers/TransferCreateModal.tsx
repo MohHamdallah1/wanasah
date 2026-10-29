@@ -118,9 +118,14 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
         behavior: "smooth",
         block: "center",
       });
-      const focusable = target?.querySelector<HTMLElement>(
-        'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)',
-      );
+      const focusable =
+        blocker.productId && !blocker.draftKey
+          ? target?.querySelector<HTMLElement>(
+              '[data-transfer-quantity-input="true"]:not(:disabled)',
+            )
+          : target?.querySelector<HTMLElement>(
+              'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)',
+            );
       focusable?.focus();
     });
   };
