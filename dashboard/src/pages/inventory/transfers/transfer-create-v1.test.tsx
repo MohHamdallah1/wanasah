@@ -32,6 +32,12 @@ const fetchDefault = async (url: string) => {
     ? [warehouse(11), warehouse(14), vehicle]
     : [warehouse(11), warehouse(12), warehouse(15), vehicle];
   if (url.includes("source-inventory")) return page();
+  if (url.includes("batch-options")) return {
+    location_id: 11,
+    product_variant_id: 100,
+    recommended_batch_id: 8,
+    batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "0.300001", is_fefo_head: true }],
+  };
   if (url.includes("override-options")) return {
     location_id: 11,
     product_variant_id: 100,
@@ -103,7 +109,7 @@ it.each([
 
 it("does not fake source loading before both warehouses are selected and ignores empty partial drafts", async () => {
   const scope = transferCommandScope("TRANSFER_DRAFT", "workspace");
-  const draft: TransferDraft = { schema_version: 2, source: warehouse(11), destination: null, notes: "", items: [] };
+  const draft: TransferDraft = { schema_version: 3, source: warehouse(11), destination: null, notes: "", items: [] };
   writeTransferDraft(scope, draft);
   open();
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Source Warehouse" })).toHaveValue("Warehouse 11 (WH-11)"));
@@ -178,20 +184,24 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
   const rowTextsBefore = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsBefore[1]).toContain(cartonProduct.name);
 
-  const cartons = screen.getByRole("spinbutton", {
+  const cartons = screen.getByRole("textbox", {
     name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: cartonUnit }),
   });
   fireEvent.change(cartons, { target: { value: "5" } });
-  const pieces = screen.getByRole("spinbutton", {
+  const pieces = screen.getByRole("textbox", {
     name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit }),
   });
   fireEvent.change(pieces, { target: { value: "10" } });
 
-  const batchButton = screen.getByRole("button", { name: i18n.t("inventoryTransfers.chooseBatchCompact") });
+  const batchButton = screen.getByRole("button", { name: i18n.t("inventoryTransfers.selectExactBatch") });
   const quantityControls = batchButton.parentElement;
   expect(quantityControls).not.toBeNull();
-  expect(quantityControls!.querySelectorAll('input[type="number"]')).toHaveLength(2);
+  expect(quantityControls!.querySelectorAll('input[type="number"]')).toHaveLength(0);
+  expect(quantityControls!.querySelectorAll('[data-transfer-quantity-input="true"]')).toHaveLength(2);
   expect(Array.from(quantityControls!.querySelectorAll("button")).some((button) => button.textContent === i18n.t("inventoryTransfers.all"))).toBe(true);
+  cartons.focus();
+  fireEvent.keyDown(cartons, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(pieces);
 
   const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsAfter[1]).toContain(cartonProduct.name);
@@ -205,10 +215,10 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
   fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.clearQuantities") }));
   expect(send()).toBeDisabled();
 
-  fireEvent.change(screen.getByRole("spinbutton", {
+  fireEvent.change(screen.getByRole("textbox", {
     name: i18n.t("inventoryTransfers.productDisplayQuantity", { name: cartonProduct.name, unit: cartonUnit }),
   }), { target: { value: "5" } });
-  fireEvent.change(screen.getByRole("spinbutton", {
+  fireEvent.change(screen.getByRole("textbox", {
     name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit }),
   }), { target: { value: "10" } });
   await waitFor(() => expect(send()).not.toBeDisabled());
@@ -255,27 +265,66 @@ it.each(["source", "destination"] as const)("%s change clears selected rows and 
   expect(send()).toBeDisabled();
 });
 
-it.each([false, true])("FEFO override is visible and loadable only with the exact capability (%s)", async (allowed) => {
-  mock.override = allowed;
+it("records an exact physical batch without FEFO-override capability or a reason", async () => {
+  mock.override = false;
   open();
   await selectPair();
   fireEvent.change(quantity(), { target: { value: "0.1" } });
-  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseBatchCompact") });
-  if (!allowed) {
-    expect(chooseBatch).toBeNull();
-    expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(false);
-    return;
-  }
-  fireEvent.click(chooseBatch!);
-  await waitFor(() => expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(true));
-  fireEvent.change(await screen.findByRole("combobox", { name: i18n.t("inventoryTransfers.selectedBatch") }), { target: { value: "8" } });
-  fireEvent.change(screen.getByRole("combobox", { name: i18n.t("inventoryTransfers.overrideReason") }), { target: { value: "9" } });
+  const chooseBatch = screen.getByRole("button", {
+    name: i18n.t("inventoryTransfers.selectExactBatch"),
+  });
+  fireEvent.click(chooseBatch);
+  await waitFor(() =>
+    expect(
+      mock.fetch.mock.calls.some(
+        ([url]) => url.includes("batch-options"),
+      ),
+    ).toBe(true),
+  );
+  expect(
+    mock.fetch.mock.calls.some(
+      ([url]) => url.includes("override-options"),
+    ),
+  ).toBe(false);
+  fireEvent.change(
+    await screen.findByRole("combobox", {
+      name: i18n.t("inventoryTransfers.selectedBatch"),
+    }),
+    { target: { value: "8" } },
+  );
+  expect(
+    screen.queryByRole("combobox", {
+      name: i18n.t("inventoryTransfers.overrideReason"),
+    }),
+  ).toBeNull();
   await waitFor(() => expect(send()).not.toBeDisabled());
   fireEvent.click(send());
-  fireEvent.click(await screen.findByRole("button", { name: i18n.t("inventoryTransfers.confirmSend") }));
-  await waitFor(() => expect(mock.fetch.mock.calls.some(([url]) => url.endsWith("/dispatch"))).toBe(true));
-  const body = JSON.parse(mock.fetch.mock.calls.find(([url]) => url.endsWith("/dispatch"))![1].body);
-  expect(body.items).toEqual([{ product_variant_id: 100, quantity: "0.1", uom_id: 1, is_fefo_override: true, override_batch_id: 8, override_reason_id: 9 }]);
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: i18n.t("inventoryTransfers.confirmSend"),
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      mock.fetch.mock.calls.some(
+        ([url]) => url.endsWith("/dispatch"),
+      ),
+    ).toBe(true),
+  );
+  const body = JSON.parse(
+    mock.fetch.mock.calls.find(
+      ([url]) => url.endsWith("/dispatch"),
+    )![1].body,
+  );
+  expect(body.items).toEqual([
+    {
+      product_variant_id: 100,
+      quantity: "0.1",
+      uom_id: 1,
+      batch_id: 8,
+      is_fefo_override: false,
+    },
+  ]);
 });
 
 it("shows neutral warehouse unavailability and never exposes raw tenant wording", async () => {
@@ -303,7 +352,7 @@ it("replays the original pending pair/request without attaching a different draf
     },
   };
   const pending = await getOrCreateDurableCommand(transferCommandScope("TRANSFER_DISPATCH", "workspace"), wire);
-  const other: TransferDraft = { schema_version: 2, source: warehouse(14), destination: warehouse(15), notes: "different draft", items: [] };
+  const other: TransferDraft = { schema_version: 3, source: warehouse(14), destination: warehouse(15), notes: "different draft", items: [] };
   writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", "workspace"), other);
   open();
   await screen.findByText(i18n.t("inventoryTransfers.pending"));
