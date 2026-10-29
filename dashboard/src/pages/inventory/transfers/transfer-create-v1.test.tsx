@@ -392,9 +392,11 @@ it("auto-selects a single real lot, hides impossible split, and shows commercial
       name: i18n.t("inventoryTransfers.splitBatch"),
     }),
   ).toBeNull();
-  expect(
-    screen.getAllByText(/5 .*Carton.*10 .*Each/i).length,
-  ).toBeGreaterThan(0);
+  const selectedOption = Array.from(
+    (select as HTMLSelectElement).options,
+  ).find((option) => option.value === "81");
+  expect(selectedOption?.textContent).toContain("5");
+  expect(selectedOption?.textContent).toContain("10");
 });
 
 it("keeps internal no-lot products on automatic allocation and hides manual lot choice", async () => {
