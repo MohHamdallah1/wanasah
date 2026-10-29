@@ -187,6 +187,10 @@ export function findTransferDraftSubmitBlocker(
           ? t("inventoryTransfers.splitTotalExceeds", { name: first.name })
           : t("inventoryTransfers.quantityExceeds", { name: first.name }),
         productId: first.product_variant_id,
+        draftKey:
+          lines.length > 1
+            ? lines[lines.length - 1].draft_key
+            : undefined,
       };
     }
   }
