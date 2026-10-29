@@ -87,7 +87,7 @@ const qualityPage = (batch_number: unknown) => ({
 
 describe("public ProductBatch number parity", () => {
   it("provides one explicit AR/EN no-lot presentation label", () => {
-    expect(resources.ar.translation.inventoryLive.noLotSupplied).toBe("\u0628\u062f\u0648\u0646 \u0631\u0642\u0645 \u062f\u0641\u0639\u0629");
+    expect(resources.ar.translation.inventoryLive.noLotSupplied).toBe("بدون رقم تشغيلة");
     expect(resources.en.translation.inventoryLive.noLotSupplied).toBe("No lot supplied");
   });
 
