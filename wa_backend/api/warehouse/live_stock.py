@@ -20,6 +20,7 @@ from domains.dispatch_reservations import (
     reservation_owner_projection,
     variant_reservation_owner_projection,
 )
+from domains.inventory_uom_reads import display_uom_one_subquery
 from domains.inventory_terminal_provenance import (
     read_terminal_origin_availability,
     read_terminal_origin_availability_for_batches,
@@ -301,54 +302,6 @@ def _live_stock_ordering(*, sort: str):
     return (
         ProductVariant.name.asc(),
         ProductVariant.id.asc(),
-    )
-
-
-# اختيار وحدة العرض التجارية للمنتج بدون تكرار منطق التحويل بين المسارات.
-def _display_uom_one_subquery(
-    *,
-    company_id: int,
-    alias_prefix: str,
-):
-    display_uom = aliased(
-        UOM,
-        name=f"{alias_prefix}_uom",
-    )
-    display_factor_expression = (
-        ProductUomConversion.numerator
-        / ProductUomConversion.denominator
-    )
-    return (
-        select(
-            func.count(ProductUomConversion.id).label(
-                "candidate_count"
-            ),
-            func.min(display_uom.id).label("display_uom_id_raw"),
-            func.min(display_uom.code).label(
-                "display_uom_code_raw"
-            ),
-            func.min(display_uom.name).label(
-                "display_uom_name_raw"
-            ),
-            func.min(display_factor_expression).label(
-                "display_factor_to_base_raw"
-            ),
-        )
-        .select_from(ProductUomConversion)
-        .join(
-            display_uom,
-            display_uom.id == ProductUomConversion.from_uom_id,
-        )
-        .where(
-            ProductUomConversion.company_id == company_id,
-            ProductUomConversion.product_variant_id
-            == ProductVariant.id,
-            ProductUomConversion.to_uom_id
-            == ProductVariant.base_uom_id,
-            ProductUomConversion.numerator
-            > ProductUomConversion.denominator,
-        )
-        .lateral(f"{alias_prefix}_one")
     )
 
 
@@ -1080,7 +1033,7 @@ async def get_warehouse_inventory_batch_products(
             "has_more": False,
         }
 
-    display_uom_one = _display_uom_one_subquery(
+    display_uom_one = display_uom_one_subquery(
         company_id=company_id,
         alias_prefix="inventory_batch_product_display_uom",
     )
@@ -1474,7 +1427,7 @@ async def get_warehouse_inventory(
             .lateral("inventory_latest_purchase_one")
         )
 
-        display_uom_one = _display_uom_one_subquery(
+        display_uom_one = display_uom_one_subquery(
             company_id=company_id,
             alias_prefix="inventory_display_uom",
         )
