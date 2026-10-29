@@ -133,7 +133,7 @@ export function TabTransfers({
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:grid-cols-[minmax(240px,1fr)_190px] sm:px-3">
+        <div className="grid grid-cols-1 gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:grid-cols-[minmax(240px,1fr)_190px] sm:px-3" data-cp13-controls="transfer-list">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
@@ -163,7 +163,7 @@ export function TabTransfers({
         </div>
 
         {transferList.failure ? (
-          <div role="alert" className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${transferList.failure.phase === "first" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div role="alert" data-cp13-state={transferList.failure.phase === "first" ? "error" : "stale"} className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${transferList.failure.phase === "first" ? "border-red-200 bg-red-50 text-red-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             <div className="min-w-0">
               <p>{t(`inventoryTransfers.${transferList.failure.phase === "first" ? "firstFailure" : transferList.failure.phase === "refresh" ? "refreshFailure" : "continuationFailure"}`)}</p>
               <p className="mt-0.5 break-words text-[11px] font-semibold opacity-80">{transferList.failure.message}</p>
