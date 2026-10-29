@@ -444,15 +444,10 @@ it("explains split-batch total overflow, keeps Send actionable, and focuses the 
   expect(mock.toastError).toHaveBeenCalledWith(message);
   expect(mock.fetch.mock.calls.some(([url]) => url.endsWith("/dispatch"))).toBe(false);
 
-  const firstQuantity = screen.getByRole("textbox", {
-    name: i18n.t("inventoryTransfers.productQuantity", {
-      name: `${product.name} 1`,
-    }),
-  });
-  await waitFor(() => expect(document.activeElement).toBe(firstQuantity));
-  expect(
-    document.querySelector('[data-product-id="100"]'),
-  ).toHaveClass("ring-red-300");
+  await waitFor(() => expect(document.activeElement).toBe(secondQuantity));
+  expect(secondQuantity.closest("[data-draft-key]")).toHaveClass(
+    "ring-red-200",
+  );
 });
 
 it("auto-selects a single real lot, hides impossible split, and shows commercial lot quantity", async () => {
