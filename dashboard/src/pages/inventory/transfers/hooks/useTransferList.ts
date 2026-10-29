@@ -43,7 +43,7 @@ export function useTransferList() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const clean = searchInput.trim();
-      setSearch(clean.length >= 2 ? clean : "");
+      setSearch(clean.length >= 1 ? clean : "");
     }, 300);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
