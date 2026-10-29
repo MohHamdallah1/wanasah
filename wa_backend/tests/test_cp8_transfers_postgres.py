@@ -366,6 +366,7 @@ async def test_company_source_destination_vehicle_discovery_and_forged_ids(pg):
         assert Decimal(page["items"][0]["display_factor_to_base"]) == 50
         assert page["items"][0]["display_quantity_scale"] == 0
         assert page["items"][0]["lot_control_mode"] == "REQUIRED"
+        assert page["items"][0]["has_user_visible_lot"] is True
         for forbidden in [pg.a.locations[1], pg.a.vehicle_location_id, pg.b.locations[0], pg.b.vehicle_location_id]:
             with pytest.raises(HTTPException) as denied:
                 await source_page(db, access, forbidden)
