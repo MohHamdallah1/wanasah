@@ -355,7 +355,15 @@ it("auto-selects a single real lot, hides impossible split, and shows commercial
   });
 
   open();
-  await selectPair();
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.sourceWarehouse"),
+    "Warehouse 11",
+  );
+  await chooseWarehouse(
+    i18n.t("inventoryTransfers.destinationWarehouse"),
+    "Warehouse 12",
+  );
+  await screen.findByText(cartonProduct.name);
   fireEvent.change(
     screen.getByRole("textbox", {
       name: i18n.t("inventoryTransfers.productDisplayQuantity", {
