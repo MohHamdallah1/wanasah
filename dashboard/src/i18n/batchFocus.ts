@@ -1,13 +1,13 @@
 export const batchFocus = {
   ar: {
-    title: "الدفعة ومواقع كمياتها",
+    title: "التشغيلة ومواقع كمياتها",
     back: "العودة إلى المخزون",
     singleSource: "مصدر الكمية المتاح: {{source}}",
     multipleSources: "الكميات موزعة على {{count}} مواقع متاحة لك. اختر الإجراء من المصدر المطلوب؛ لم يُحدد مستودع تلقائياً.",
-    noReadableStock: "لا توجد كميات متاحة للعرض لهذه الدفعة حالياً.",
-    scopeMismatch: "الدفعة لا تطابق المنتج المحدد. لم يُنفذ أي إجراء.",
+    noReadableStock: "لا توجد كميات متاحة للعرض لهذه التشغيلة حالياً.",
+    scopeMismatch: "التشغيلة لا تطابق المنتج المحدد. لم يُنفذ أي إجراء.",
     noExpiry: "لا يوجد تاريخ انتهاء",
-    changeDisposition: "مراجعة قرار الدفعة",
+    changeDisposition: "مراجعة قرار التشغيلة",
   },
   en: {
     title: "Batch and stock sources",
