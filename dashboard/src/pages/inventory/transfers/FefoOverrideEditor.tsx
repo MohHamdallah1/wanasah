@@ -45,7 +45,7 @@ export function FefoOverrideEditor({
       candidate.product_variant_id === item.product_variant_id
   )?.draft_key;
 
-  if (item.fefo_mode !== "override") return null;
+  if (!canOverride || item.fefo_mode !== "override") return null;
 
   return (
     <div className="mt-2 space-y-2 rounded-xl border border-amber-200 bg-amber-50/35 p-3" data-cp13-fefo-override="exceptional">
