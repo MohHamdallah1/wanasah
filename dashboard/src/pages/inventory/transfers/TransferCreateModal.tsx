@@ -446,6 +446,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       bodyOverflow={confirmOpen ? "auto" : "hidden"}
       bodyClassName={confirmOpen ? "p-4 sm:p-5" : "flex min-h-0 p-2.5 sm:p-3"}
       maxWidth={confirmOpen ? "max-w-xl" : "max-w-6xl"}
+      panelClassName={confirmOpen ? undefined : "h-[calc(100dvh-1rem)] sm:h-[82vh]"}
       footer={!confirmOpen && !createBlockedByPending ? (
         <div dir={i18n.dir()} className="flex w-full flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
