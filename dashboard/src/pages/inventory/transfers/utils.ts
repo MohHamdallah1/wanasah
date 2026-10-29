@@ -16,9 +16,19 @@ export const getMutationMessage = (raw: unknown): string => {
   }
   return transferText("success");
 };
-export const formatDate = (value: string | null): string => {
+const parseServerUtcTimestamp = (value: string): Date => {
+  const explicitZone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+  return new Date(explicitZone ? value : `${value}Z`);
+};
+
+export const formatDate = (
+  value: string | null,
+  timeZone?: string,
+): string => {
   if (!value) return "—";
-  const formatted = new Intl.DateTimeFormat("en-GB", {
+  const date = parseServerUtcTimestamp(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  const options: Intl.DateTimeFormatOptions = {
     numberingSystem: "latn",
     year: "numeric",
     month: "2-digit",
@@ -26,8 +36,20 @@ export const formatDate = (value: string | null): string => {
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date(value));
-  return formatted.replace(", ", " · ");
+    ...(timeZone ? { timeZone } : {}),
+  };
+  try {
+    return new Intl.DateTimeFormat("en-GB", options)
+      .format(date)
+      .replace(", ", " · ");
+  } catch {
+    return new Intl.DateTimeFormat("en-GB", {
+      ...options,
+      timeZone: undefined,
+    })
+      .format(date)
+      .replace(", ", " · ");
+  }
 };
 export const formatTransferDateOnly = (value: string | null): string =>
   value ? new Intl.DateTimeFormat(currentLocale(), { numberingSystem: "latn" }).format(new Date(value + "T00:00:00")) : "—";
