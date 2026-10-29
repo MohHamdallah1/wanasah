@@ -19,6 +19,7 @@ interface ModalProps {
   bodyClassName?: string;
   bodyOverflow?: "auto" | "hidden";
   compactHeader?: boolean;
+  hideHeader?: boolean;
   initialFocusRef?: {
     readonly current: HTMLElement | null;
   };
@@ -37,6 +38,7 @@ export function Modal({
   bodyClassName = "p-4 sm:p-6",
   bodyOverflow = "auto",
   compactHeader = false,
+  hideHeader = false,
   initialFocusRef,
 }: ModalProps) {
   const { t, i18n } = useTranslation();
@@ -74,6 +76,7 @@ export function Modal({
             aria-modal="true"
             aria-labelledby={titleId}
           >
+            {!hideHeader ? (
             <div className={`app-modal-header sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-4 sm:px-6 ${compactHeader ? "pt-1.5 pb-0.5 sm:pt-1.5 sm:pb-1" : "py-3 sm:py-4"}`}>
               <div className="min-w-0">
                 {titleAside ? (
@@ -98,6 +101,19 @@ export function Modal({
                 <X className="w-5 h-5" strokeWidth={2} />
               </button>
             </div>
+            ) : (
+              <>
+                <h3 id={titleId} className="sr-only">{title}</h3>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="absolute end-2 top-1.5 z-20 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm ring-1 ring-slate-200 transition hover:bg-slate-100 hover:text-slate-700"
+                  aria-label={t("common.close")}
+                >
+                  <X className="h-4 w-4" strokeWidth={2} />
+                </button>
+              </>
+            )}
             <div
               tabIndex={-1}
               className={`app-modal-body min-h-0 flex-1 ${bodyOverflow === "hidden" ? "overflow-hidden" : "overflow-y-auto"} ${bodyClassName}`}
