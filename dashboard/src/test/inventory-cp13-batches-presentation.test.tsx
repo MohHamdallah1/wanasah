@@ -266,7 +266,7 @@ describe("CP13 final Batches presentation", () => {
     mocks.language = language;
     serve([item(1, { days_to_expiry: 5, batch_number: null })]);
     const { container } = renderPage();
-    await screen.findAllByText(language === "ar" ? "بدون رقم دفعة" : "No lot supplied");
+    await screen.findAllByText(language === "ar" ? "بدون تشغيلة" : "No lot supplied");
     expect(container.querySelector(".inventory-batches-view")).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
     expect(container.textContent).not.toMatch(/[\u0660-\u0669\u06f0-\u06f9]/);
     expect(container.textContent).toMatch(/5/);
