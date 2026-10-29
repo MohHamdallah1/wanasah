@@ -36,7 +36,6 @@ from models import (
     InventoryStockPolicy,
     Product,
     ProductBatch,
-    ProductUomConversion,
     ProductVariant,
     UOM,
 )
