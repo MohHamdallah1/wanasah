@@ -114,12 +114,17 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
           ) ?? null;
       }
 
-      target?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      if (
+        target &&
+        typeof target.scrollIntoView === "function"
+      ) {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
       const focusable =
-        blocker.productId && !blocker.draftKey
+        blocker.productId || blocker.draftKey
           ? target?.querySelector<HTMLElement>(
               '[data-transfer-quantity-input="true"]:not(:disabled)',
             )
