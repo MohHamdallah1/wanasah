@@ -156,7 +156,8 @@ it("keeps Tab and Shift+Tab within the decision dialog until it closes", async (
 
 it("reloads backend FEFO options when a persisted override draft is reopened", async () => {
   const product = { id: 100, product_variant_id: 100, draft_key: "saved-line", name: "Product", sku: null, base_uom_id: 1,
-    base_uom_code: "EACH", base_uom_name: "Each", quantity_scale: 0, quantity_step: "1", available_quantity: "10",
+    base_uom_code: "EACH", base_uom_name: "Each", display_uom_id: 1, display_uom_code: "EACH", display_uom_name: "Each",
+    display_factor_to_base: "1", display_quantity_scale: 0, quantity_scale: 0, quantity_step: "1", available_quantity: "10",
     quantity: "2", fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
   const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };
   writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", "workspace"), { schema_version: 2, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
