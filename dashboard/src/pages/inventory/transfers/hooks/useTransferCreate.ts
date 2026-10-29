@@ -107,6 +107,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
 
   const closeCreate = () => {
     if (command.busy) return;
+    if (scope) clearTransferDraft(scope);
     setOpen(false);
     resetCreateForm();
   };
@@ -188,20 +189,52 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     }));
   }, [queries.sourceProducts]);
 
-  const changeWarehouse = (value: string, purpose: "source" | "destination") => {
-    if (command.pending || command.busy) return;
-    const options = purpose === "source" ? queries.sources.items : queries.destinations.items;
-    const next = options.find((item) => item.id === Number(value)) ?? null;
-    if (next?.id === (purpose === "source" ? destination?.id : source?.id)) return;
-    if ((purpose === "source" ? source?.id : destination?.id) === next?.id) return;
+  const resetWarehouseDependentState = () => {
     setDraftItems([]);
     setRestored(null);
     setRestoreError(null);
     fefo.resetFefo();
     batchSelection.resetBatchSelection();
     resetProductSearch();
+  };
+
+  const changeWarehouse = (value: string, purpose: "source" | "destination") => {
+    if (command.pending || command.busy) return;
+    const options = purpose === "source" ? queries.sources.items : queries.destinations.items;
+    const next = options.find((item) => item.id === Number(value)) ?? null;
+    if (!next) return;
+    if (next.id === (purpose === "source" ? destination?.id : source?.id)) return;
+    if ((purpose === "source" ? source?.id : destination?.id) === next.id) return;
+    resetWarehouseDependentState();
     if (purpose === "source") setSource(next);
     else setDestination(next);
+  };
+
+  const clearWarehouse = (purpose: "source" | "destination") => {
+    if (command.pending || command.busy) return;
+    const current = purpose === "source" ? source : destination;
+    if (!current) return;
+    resetWarehouseDependentState();
+    if (purpose === "source") setSource(null);
+    else setDestination(null);
+  };
+
+  const canSwapWarehouses = Boolean(
+    source &&
+    destination &&
+    queries.sources.items.some((item) => item.id === destination.id) &&
+    queries.destinations.items.some((item) => item.id === source.id) &&
+    !command.pending &&
+    !command.busy,
+  );
+
+  const swapWarehouses = () => {
+    if (!canSwapWarehouses || !source || !destination) return;
+    resetWarehouseDependentState();
+    setSourceSearch("");
+    setDestinationSearch("");
+    setSource(destination);
+    setDestination(source);
   };
 
   const updateDraftQuantity = (draftKey: string, value: string) => {
@@ -452,6 +485,10 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     closeCreate,
     updateSource: (value: string) => changeWarehouse(value, "source"),
     updateDestination: (value: string) => changeWarehouse(value, "destination"),
+    clearSource: () => clearWarehouse("source"),
+    clearDestination: () => clearWarehouse("destination"),
+    canSwapWarehouses,
+    swapWarehouses,
     updateCreateNotes: setCreateNotes,
     updateProductQuantity,
     updateDraftQuantity,

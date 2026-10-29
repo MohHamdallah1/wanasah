@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { createInventoryTabNavigationState } from "@/features/inventory/navigation";
@@ -659,48 +660,62 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
             {c.policyBlocked ? <Link to="/inventory" state={createInventoryTabNavigationState("warehouses")}>{t("inventoryTransfers.policySetup")}</Link> : null}
 
             <fieldset disabled={c.createSubmitting} className="contents">
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className="grid items-end gap-2 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
                 <div
                   ref={sourceFieldRef}
                   className={flashTarget === "source" ? "rounded-xl ring-2 ring-red-300" : ""}
                 >
-                <TransferWarehouseCombobox
-                  label={t("inventoryTransfers.sourceWarehouse")}
-                  selected={c.source}
-                  options={c.sources.items.filter((item) => item.id !== c.destination?.id)}
-                  search={c.sources.search}
-                  loading={c.sources.loading}
-                  error={c.sources.error}
-                  placeholder={t("inventoryTransfers.chooseSourceWarehouse")}
-                  emptyLabel={t("inventoryTransfers.noWarehouses")}
-                  loadingLabel={t("inventoryTransfers.loading")}
-                  retryLabel={t("inventoryTransfers.retry")}
-                  clearLabel={t("inventoryTransfers.clearSelection")}
-                  onSearchChange={c.sources.setSearch}
-                  onSelect={c.updateSource}
-                  onRetry={c.sources.retry}
-                />
+                  <TransferWarehouseCombobox
+                    label={t("inventoryTransfers.sourceWarehouse")}
+                    selected={c.source}
+                    options={c.sources.items.filter((item) => item.id !== c.destination?.id)}
+                    search={c.sources.search}
+                    loading={c.sources.loading}
+                    error={c.sources.error}
+                    placeholder={t("inventoryTransfers.chooseSourceWarehouse")}
+                    emptyLabel={t("inventoryTransfers.noWarehouses")}
+                    loadingLabel={t("inventoryTransfers.loading")}
+                    retryLabel={t("inventoryTransfers.retry")}
+                    clearLabel={t("inventoryTransfers.clearSource")}
+                    onSearchChange={c.sources.setSearch}
+                    onSelect={c.updateSource}
+                    onClear={c.clearSource}
+                    onRetry={c.sources.retry}
+                  />
                 </div>
+
+                <button
+                  type="button"
+                  disabled={!c.canSwapWarehouses}
+                  onClick={c.swapWarehouses}
+                  title={t("inventoryTransfers.swapWarehouses")}
+                  aria-label={t("inventoryTransfers.swapWarehouses")}
+                  className="mx-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35 md:mb-0.5"
+                >
+                  <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
+                </button>
+
                 <div
                   ref={destinationFieldRef}
                   className={flashTarget === "destination" ? "rounded-xl ring-2 ring-red-300" : ""}
                 >
-                <TransferWarehouseCombobox
-                  label={t("inventoryTransfers.destinationWarehouse")}
-                  selected={c.destination}
-                  options={c.destinations.items.filter((item) => item.id !== c.source?.id)}
-                  search={c.destinations.search}
-                  loading={c.destinations.loading}
-                  error={c.destinations.error}
-                  placeholder={t("inventoryTransfers.chooseDestinationWarehouse")}
-                  emptyLabel={t("inventoryTransfers.noWarehouses")}
-                  loadingLabel={t("inventoryTransfers.loading")}
-                  retryLabel={t("inventoryTransfers.retry")}
-                  clearLabel={t("inventoryTransfers.clearSelection")}
-                  onSearchChange={c.destinations.setSearch}
-                  onSelect={c.updateDestination}
-                  onRetry={c.destinations.retry}
-                />
+                  <TransferWarehouseCombobox
+                    label={t("inventoryTransfers.destinationWarehouse")}
+                    selected={c.destination}
+                    options={c.destinations.items.filter((item) => item.id !== c.source?.id)}
+                    search={c.destinations.search}
+                    loading={c.destinations.loading}
+                    error={c.destinations.error}
+                    placeholder={t("inventoryTransfers.chooseDestinationWarehouse")}
+                    emptyLabel={t("inventoryTransfers.noWarehouses")}
+                    loadingLabel={t("inventoryTransfers.loading")}
+                    retryLabel={t("inventoryTransfers.retry")}
+                    clearLabel={t("inventoryTransfers.clearDestination")}
+                    onSearchChange={c.destinations.setSearch}
+                    onSelect={c.updateDestination}
+                    onClear={c.clearDestination}
+                    onRetry={c.destinations.retry}
+                  />
                 </div>
               </div>
 

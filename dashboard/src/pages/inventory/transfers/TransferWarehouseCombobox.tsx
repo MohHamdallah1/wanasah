@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronsUpDown, X } from "lucide-react";
+import { X } from "lucide-react";
 import type { TransferWarehouse } from "./draftStorage";
 
 type Props = {
@@ -18,6 +18,7 @@ type Props = {
   clearLabel: string;
   onSearchChange: (value: string) => void;
   onSelect: (value: string) => void;
+  onClear: () => void;
   onRetry: () => void;
 };
 
@@ -36,6 +37,7 @@ export function TransferWarehouseCombobox({
   clearLabel,
   onSearchChange,
   onSelect,
+  onClear,
   onRetry,
 }: Props) {
   const id = useId();
@@ -168,21 +170,20 @@ export function TransferWarehouseCombobox({
                 setOpen(true);
               }
             }}
-            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pe-16 text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60"
+            className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pe-12 text-sm font-bold text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-60"
           />
-          <ChevronsUpDown className="pointer-events-none absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           {selected ? (
             <button
               type="button"
               aria-label={clearLabel}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => {
-                onSelect("");
+                onClear();
                 onSearchChange("");
-                setOpen(true);
+                setOpen(false);
                 queueMicrotask(() => inputRef.current?.focus());
               }}
-              className="absolute end-9 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              className="absolute end-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

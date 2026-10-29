@@ -156,6 +156,68 @@ it("uses one searchable control per warehouse and never exposes vehicles", async
   await waitFor(() => expect(mock.fetch.mock.calls.some(([url]) => url.includes("purpose=source") && url.includes("search=Warehouse+14"))).toBe(true));
 });
 
+it("clears warehouse selections predictably, swaps eligible warehouses, and discards the draft on explicit close", async () => {
+  mock.fetch.mockImplementation(async (url: string) => {
+    if (url.includes("/locations?")) {
+      return [warehouse(11), warehouse(12), warehouse(14)];
+    }
+    if (url.includes("source-inventory")) return page();
+    return fetchDefault(url);
+  });
+
+  open();
+  await selectPair();
+
+  const sourceLabel = i18n.t("inventoryTransfers.sourceWarehouse");
+  const destinationLabel = i18n.t("inventoryTransfers.destinationWarehouse");
+  const sourceInput = screen.getByRole("combobox", { name: sourceLabel });
+  const destinationInput = screen.getByRole("combobox", { name: destinationLabel });
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: i18n.t("inventoryTransfers.clearDestination"),
+    }),
+  );
+  await waitFor(() => expect(destinationInput).toHaveValue(""));
+  expect(sourceInput).toHaveValue("Warehouse 11 (WH-11)");
+
+  await chooseWarehouse(destinationLabel, "Warehouse 12");
+  const swap = screen.getByRole("button", {
+    name: i18n.t("inventoryTransfers.swapWarehouses"),
+  });
+  await waitFor(() => expect(swap).not.toBeDisabled());
+  fireEvent.click(swap);
+  await waitFor(() => {
+    expect(sourceInput).toHaveValue("Warehouse 12 (WH-12)");
+    expect(destinationInput).toHaveValue("Warehouse 11 (WH-11)");
+  });
+
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: i18n.t("inventoryTransfers.clearSource"),
+    }),
+  );
+  await waitFor(() => expect(sourceInput).toHaveValue(""));
+  expect(destinationInput).toHaveValue("Warehouse 11 (WH-11)");
+
+  const scope = transferCommandScope("TRANSFER_DRAFT", "workspace");
+  await waitFor(() => expect(readTransferDraft(scope)?.destination?.id).toBe(11));
+  fireEvent.click(
+    screen.getByRole("button", {
+      name: i18n.t("common.close"),
+    }),
+  );
+  expect(readTransferDraft(scope)).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "Open" }));
+  expect(
+    screen.getByRole("combobox", { name: sourceLabel }),
+  ).toHaveValue("");
+  expect(
+    screen.getByRole("combobox", { name: destinationLabel }),
+  ).toHaveValue("");
+});
+
 it.each(["ar", "en"])("one product table, exact All, confirmation notes, automatic FEFO and WAREHOUSE_BALANCING payload (%s)", async (language) => {
   await i18n.changeLanguage(language);
   open();
