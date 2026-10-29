@@ -48,7 +48,8 @@ export function useTransferBatchSelection(
     productId: number,
   ): Promise<TransferBatchOptions | null> => {
     if (sourceLocationId === null) {
-      toast.error(t("inventoryTransfers.chooseSource"));
+      // Form teardown can invalidate the source before draft effects finish.
+      // That is not a user-facing validation failure.
       return null;
     }
 
