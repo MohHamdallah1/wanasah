@@ -32,7 +32,8 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
   const loadOverrideOptions = useCallback(
     async (productId: number): Promise<TransferOverrideOptions | null> => {
       if (sourceLocationId === null) {
-        toast.error(t("inventoryTransfers.chooseSource"));
+        // Form teardown can invalidate the source before draft effects finish.
+        // That is not a user-facing validation failure.
         return null;
       }
 
