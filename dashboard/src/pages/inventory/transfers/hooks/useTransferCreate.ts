@@ -14,6 +14,7 @@ import type { TransferDraftItem, TransferSourceInventoryItem } from "../types";
 import { transferCreateError } from "../createErrors";
 import { getErrorMessage, getMutationMessage } from "../utils";
 import { compareQuantity, validateVariantQuantity } from "../../quantity";
+import { findTransferDraftSubmitBlocker, type TransferSubmitBlocker } from "../submitValidation";
 
 interface UseTransferCreateArgs {
   onInventoryChanged: () => void | Promise<void>;
@@ -250,9 +251,97 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     ]);
   };
 
+  const draftSubmitBlocker = useMemo<TransferSubmitBlocker | null>(() => {
+    if (!source) {
+      return {
+        message: t("inventoryTransfers.chooseSource"),
+        field: "source",
+      };
+    }
+    if (!destination) {
+      return {
+        message: t("inventoryTransfers.chooseDestination"),
+        field: "destination",
+      };
+    }
+    if (restored !== null) {
+      return { message: t("inventoryTransfers.restoringDraft") };
+    }
+    if (restoreError) {
+      return { message: getErrorMessage(restoreError) };
+    }
+    if (queries.sourceProductsLoading) {
+      return { message: t("inventoryTransfers.waitSourceLoading") };
+    }
+    if (queries.sourceProductsError) {
+      return {
+        message: getErrorMessage(
+          queries.sourceProductsError,
+          t("inventoryTransfers.sourceFailure"),
+        ),
+      };
+    }
+    if (!queries.ready) {
+      return { message: t("inventoryTransfers.chooseWarehousesFirst") };
+    }
+    if (!sourceAccess.can("transfer.send")) {
+      return {
+        message: t("inventoryTransfers.sourcePermissionMissing"),
+        field: "source",
+      };
+    }
+    if (!destinationAccess.can("transfer.destination")) {
+      return {
+        message: t("inventoryTransfers.destinationPermissionMissing"),
+        field: "destination",
+      };
+    }
+    if (draftItems.some((item) => item.fefo_mode === "override") && !canOverride) {
+      return { message: t("inventoryTransfers.overridePermissionMissing") };
+    }
+    if (createNotes.trim().length > 4000) {
+      return { message: t("inventoryTransfers.notesLength") };
+    }
+    if (command.recoveryError) {
+      return { message: getErrorMessage(command.recoveryError) };
+    }
+    if (command.pending) {
+      return { message: t("inventoryTransfers.pending") };
+    }
+    if (command.busy) {
+      return { message: t("inventoryTransfers.sending") };
+    }
+    return findTransferDraftSubmitBlocker(
+      draftItems,
+      batchSelection.batchOptionsByProduct,
+      fefo.overrideOptionsByProduct,
+      source.id,
+      t,
+    );
+  }, [
+    batchSelection.batchOptionsByProduct,
+    canOverride,
+    command.busy,
+    command.pending,
+    command.recoveryError,
+    createNotes,
+    destination,
+    destinationAccess,
+    draftItems,
+    fefo.overrideOptionsByProduct,
+    queries.ready,
+    queries.sourceProductsError,
+    queries.sourceProductsLoading,
+    restoreError,
+    restored,
+    source,
+    sourceAccess,
+    t,
+  ]);
+
   const built = useMemo(() => {
     try {
-      if (!source || !draftItems.length || (draftItems.some((item) => item.fefo_mode === "override") && !canOverride)) return null;
+      if (draftSubmitBlocker || !source || !draftItems.length) return null;
       return buildDispatchItems(
         draftItems.filter((item) => item.quantity && compareQuantity(item.quantity, "0") !== 0),
         batchSelection.batchOptionsByProduct,
@@ -265,25 +354,20 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     }
   }, [
     batchSelection.batchOptionsByProduct,
-    canOverride,
     draftItems,
+    draftSubmitBlocker,
     fefo.overrideOptionsByProduct,
     source,
     t,
   ]);
 
-  const canSubmit = !!built?.length &&
-    queries.ready &&
-    sourceAccess.can("transfer.send") &&
-    destinationAccess.can("transfer.destination") &&
-    restored === null &&
-    !restoreError &&
-    !queries.sourceProductsLoading &&
-    !queries.sourceProductsError &&
-    !command.recoveryError &&
-    !command.pending &&
-    !command.busy &&
-    createNotes.trim().length <= 4000;
+  const submitBlocker: TransferSubmitBlocker | null =
+    draftSubmitBlocker ??
+    (!built?.length
+      ? { message: t("inventoryTransfers.draftInvalid") }
+      : null);
+
+  const canSubmit = submitBlocker === null && !!built?.length;
 
   const complete = async (raw: unknown, requestPair: { source_location_id?: unknown; destination_location_id?: unknown }) => {
     if (scope) {
@@ -349,6 +433,7 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
     command,
     canOpen,
     canSubmit,
+    submitBlocker,
     canOverride,
     createOpen,
     createNotes,
