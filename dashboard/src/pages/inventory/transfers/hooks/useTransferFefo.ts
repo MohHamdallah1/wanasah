@@ -144,7 +144,7 @@ export function useTransferFefo(sourceLocationId: number | null, canOverride: bo
         return;
       }
       if (options.reasons.length === 0) {
-        toast.error(
+        toast.info(
           t("inventoryTransfers.noReasons")
         );
         return;
