@@ -4,7 +4,10 @@ import { webcrypto } from "node:crypto";
 import i18n from "@/i18n";
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), permissions: new Set<string>() }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mocks.fetch }));
-vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({ can: (code: string) => mocks.permissions.has(code), canAny: (code: string) => mocks.permissions.has(code) }) }));
+vi.mock("@/hooks/useInventoryAccess", () => ({
+  useInventoryAccess: () => ({ can: (code: string) => mocks.permissions.has(code), canAny: (code: string) => mocks.permissions.has(code) }),
+  useLocationCapabilities: () => (_locationId: number, code: string) => mocks.permissions.has(code),
+}));
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
 import { useTransferList } from "./hooks/useTransferList";
 import { useTransferCommand } from "./hooks/useTransferCommand";
