@@ -113,6 +113,7 @@ export interface TransferSourceInventoryPage {
 }
 
 export type FefoMode = "auto" | "override";
+export type TransferBatchMode = "auto" | "exact";
 
 export interface TransferOverrideReason {
   id: number;
@@ -129,6 +130,13 @@ export interface TransferOverrideBatch {
   is_fefo_head: boolean;
 }
 
+export interface TransferBatchOptions {
+  location_id: number;
+  product_variant_id: number;
+  recommended_batch_id: number | null;
+  batches: TransferOverrideBatch[];
+}
+
 export interface TransferOverrideOptions {
   location_id: number;
   product_variant_id: number;
@@ -141,6 +149,9 @@ export interface TransferDraftItem extends TransferSourceInventoryItem {
   draft_key: string;
   product_variant_id: number;
   quantity: string;
+  batch_mode: TransferBatchMode;
+  batch_id: number | null;
+  batch_available: Quantity | null;
   fefo_mode: FefoMode;
   override_batch_id: number | null;
   override_reason_id: number | null;
