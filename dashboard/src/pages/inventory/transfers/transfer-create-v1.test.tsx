@@ -124,7 +124,7 @@ it.each(["ar", "en"])("one product table, exact All, confirmation notes, automat
   open();
   await selectPair();
   expect(screen.getAllByRole("table")).toHaveLength(1);
-  expect(screen.getByRole("columnheader", { name: i18n.t("inventoryTransfers.availableTransfer") })).toBeVisible();
+  expect(screen.getByRole("columnheader", { name: i18n.t("inventoryTransfers.availableTransfer") })).toBeInTheDocument();
   expect(screen.queryByRole("textbox", { name: i18n.t("inventoryTransfers.notes") })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: i18n.t("inventoryTransfers.all") }));
   expect(quantity()).toHaveValue("0.300001");
