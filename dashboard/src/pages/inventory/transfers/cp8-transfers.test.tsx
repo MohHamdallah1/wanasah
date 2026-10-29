@@ -32,34 +32,34 @@ beforeEach(async () => {
 });
 afterEach(cleanup);
 
-it("retains committed rows and cursor after continuation/refresh failure, with explicit retry", async () => {
-  mocks.fetch.mockResolvedValueOnce(page([transfer()], "NEXT")).mockRejectedValueOnce(Object.assign(new Error(), { status: 503 })).mockResolvedValueOnce(page([transfer(2)]));
-  const { result } = renderHook(() => useTransferList(11));
+it("retains loaded rows when infinite-scroll continuation fails and retries the same cursor", async () => {
+  mocks.fetch
+    .mockResolvedValueOnce(page([transfer()], "NEXT"))
+    .mockRejectedValueOnce(Object.assign(new Error(), { status: 503 }))
+    .mockResolvedValueOnce(page([transfer(2)]))
+    .mockRejectedValueOnce(Object.assign(new Error(), { status: 503 }));
+  const { result } = renderHook(() => useTransferList());
   await waitFor(() => expect(result.current.items).toHaveLength(1));
-  act(() => result.current.handleNext());
+  act(() => result.current.loadMore());
   await waitFor(() => expect(result.current.failure?.phase).toBe("continuation"));
-  expect(result.current.items[0].id).toBe(1);
-  expect(result.current.cursorHistory).toEqual([]);
+  expect(result.current.items.map((row) => row.id)).toEqual([1]);
   act(() => result.current.retry());
-  await waitFor(() => expect(result.current.items[0].id).toBe(2));
-  expect(result.current.cursorHistory).toEqual([null]);
-  mocks.fetch.mockRejectedValueOnce(Object.assign(new Error(), { status: 503 }));
+  await waitFor(() => expect(result.current.items.map((row) => row.id)).toEqual([1, 2]));
+  const continuationUrls = mocks.fetch.mock.calls.map(([url]) => url).filter((url) => url.includes("cursor=NEXT"));
+  expect(continuationUrls).toHaveLength(2);
   act(() => result.current.refreshTransfers());
   await waitFor(() => expect(result.current.failure?.phase).toBe("refresh"));
-  expect(result.current.items[0].id).toBe(2);
+  expect(result.current.items.map((row) => row.id)).toEqual([1, 2]);
 });
-it("blocks stale list and detail responses after switching location", async () => {
-  let resolveList!: (value: unknown) => void;
-  let resolveDetail!: (value: unknown) => void;
-  mocks.fetch.mockImplementation((url: string) => url.includes("/transfers/1")
-    ? new Promise(resolve => { resolveDetail = resolve; })
-    : url.includes("location_id=11") ? new Promise(resolve => { resolveList = resolve; }) : Promise.resolve(page([transfer(2, 22)])));
-  const { result, rerender } = renderHook(({ location }) => useTransferList(location), { initialProps: { location: 11 } });
-  act(() => { void result.current.openDetailById(1); });
-  rerender({ location: 22 });
-  await waitFor(() => expect(result.current.items[0]?.id).toBe(2));
-  await act(async () => { resolveList(page()); resolveDetail({ transfer: transfer(), lines: [] }); });
-  expect(result.current.items[0].id).toBe(2); expect(result.current.detail).toBeNull();
+
+it("lists the authorized transfer workspace without hidden warehouse or direction parameters", async () => {
+  mocks.fetch.mockResolvedValueOnce(page([transfer()]));
+  const { result } = renderHook(() => useTransferList());
+  await waitFor(() => expect(result.current.items).toHaveLength(1));
+  const url = new URL(mocks.fetch.mock.calls[0][0], "http://test");
+  expect(url.searchParams.has("location_id")).toBe(false);
+  expect(url.searchParams.has("direction")).toBe(false);
+  expect(url.searchParams.get("limit")).toBe("50");
 });
 it("persists ambiguous command through remount, rejects changed input, and retries only explicitly", async () => {
   const wire = { path: "/warehouse/unified/transfer/dispatch", method: "POST" as const, body: { source_location_id: 11, notes: "draft" } };
@@ -129,12 +129,13 @@ it("clears busy state and pending state when the visible command scope changes d
   expect(result.current.pending).toBeNull(); expect(result.current.busy).toBe(false);
 });
 
-it("keeps table and phone presentation on the same exact-side capability actions", () => {
-  render(<TransferTable items={[transfer()]} locationId={12} loading={false} cursorHistoryLength={0} nextCursor={null}
-    onOpenDetail={vi.fn()} onOpenAction={vi.fn()} onPrevious={vi.fn()} onNext={vi.fn()} />);
+it("keeps table and phone presentation aligned without pagination controls", () => {
+  render(<TransferTable items={[transfer()]} loading={false} loadingMore={false} hasMore={true}
+    onLoadMore={vi.fn()} onOpenDetail={vi.fn()} onOpenAction={vi.fn()} />);
   expect(screen.getByRole("table").className).toContain("md:table");
-  expect(screen.getAllByRole("button", { name: "Receive" }).every(button => button.hasAttribute("disabled"))).toBe(true);
-  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Previous page" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
+  expect(document.querySelector("[data-transfer-scroll-sentinel='true']")).toBeTruthy();
 });
 it("keeps Tab and Shift+Tab within the decision dialog until it closes", async () => {
   render(<TransferDecisionModal action="cancel" transfer={transfer()} decisionReason="Reason" submitting={false} onClose={vi.fn()} onDecisionReasonChange={vi.fn()} onSubmit={vi.fn()} />);
@@ -154,12 +155,12 @@ it("reloads backend FEFO options when a persisted override draft is reopened", a
     base_uom_code: "EACH", base_uom_name: "Each", quantity_scale: 0, quantity_step: "1", available_quantity: "10",
     quantity: "2", fefo_mode: "override" as const, override_batch_id: 8, override_reason_id: 9, override_batch_available: "10" };
   const location = { id: 12, name: "A2", code: "A2", location_type: "WAREHOUSE" as const, vehicle_id: null };
-  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", 11), { schema_version: 2, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
+  writeTransferDraft(transferCommandScope("TRANSFER_DRAFT", "workspace"), { schema_version: 2, source: { ...location, id: 11, code: "A1" }, destination: location, notes: "saved", items: [product] });
   mocks.fetch.mockImplementation(async (url: string) => url.includes("override-options") ? { location_id: 11, product_variant_id: 100, fefo_batch_id: 8,
     batches: [{ id: 8, batch_number: "LOT", production_date: null, expiry_date: null, available_quantity: "10", is_fefo_head: true }],
     reasons: [{ id: 9, code: "APPROVED", description: "Approved" }] } : url.includes("/locations?") ? new URL(url, "http://test").searchParams.get("purpose") === "source" ? [{ ...location, id: 11, code: "A1" }] : [location] :
     { items: [product], has_more: false, next_cursor: null, total: 1 });
-  const { result } = renderHook(() => useTransferCreate({ locationId: 11, onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
+  const { result } = renderHook(() => useTransferCreate({ onCompleted: vi.fn(), onInventoryChanged: vi.fn() }));
   act(() => result.current.openCreate());
   await waitFor(() => expect(result.current.overrideOptionsByProduct[100]?.batches).toHaveLength(1));
   act(() => result.current.closeCreate());
