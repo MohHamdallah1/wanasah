@@ -10,6 +10,7 @@ import { TransferCreateModal } from "./transfers/TransferCreateModal";
 import { useTransferList } from "./transfers/hooks/useTransferList";
 import { useTransferActions } from "./transfers/hooks/useTransferActions";
 import { useTransferCreate } from "./transfers/hooks/useTransferCreate";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 
 class TransferWorkspaceErrorBoundary extends Component<
   { children: ReactNode; retryLabel: string; message: string },
@@ -51,6 +52,8 @@ function TabTransfersWorkspace({
   onInventoryChanged,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const tenantIdentity = useTenantIdentity();
+  const timeZone = tenantIdentity.data?.timezone;
   const focusIdRef = useRef<number | null>(null);
   const [focusedTransfer, setFocusedTransfer] = useState<WarehouseTransferListItem | null>(null);
   const transferList = useTransferList();
@@ -211,6 +214,7 @@ function TabTransfersWorkspace({
           loading={loading}
           loadingMore={loadingMore}
           hasMore={hasMore}
+          timeZone={timeZone}
           onLoadMore={loadMore}
           onOpenDetail={async (transfer) => { await openDetail(transfer); }}
           onOpenAction={openAction}
@@ -236,7 +240,12 @@ function TabTransfersWorkspace({
       ) : null}
 
       <TransferCreateModal controller={transferCreate} />
-      <TransferDetailModal detail={detail} loading={detailLoading} onClose={closeDetail} />
+      <TransferDetailModal
+        detail={detail}
+        loading={detailLoading}
+        timeZone={timeZone}
+        onClose={closeDetail}
+      />
       <TransferDecisionModal
         action={action}
         transfer={actionTransfer}

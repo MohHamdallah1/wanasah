@@ -120,6 +120,15 @@ it.each(["ar", "en"])("formats western digits without duplicating locale extensi
   expect(formatTransferNumber("2.5")).toMatch(/2/);
 });
 
+it("treats naive backend timestamps as UTC and renders them in the tenant timezone", () => {
+  expect(formatDate("2026-10-29T13:42:00", "Asia/Amman")).toBe(
+    "29/10/2026 · 16:42",
+  );
+  expect(formatDate("2026-10-29T13:42:00Z", "Asia/Amman")).toBe(
+    "29/10/2026 · 16:42",
+  );
+});
+
 it("preserves full decimal display precision", () => {
   expect(formatTransferNumber("999999999999.999999")).toBe("999,999,999,999.999999");
 });

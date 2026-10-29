@@ -351,6 +351,29 @@ async def list_page(db, access, location_id, *, cursor=None, limit=50, search=No
     return await transfers.list_unified_transfers(None, location_id, "all", search, cursor, limit, db, access)
 
 
+async def test_transfer_integrity_messages_distinguish_stale_schema_from_data_conflict():
+    stale = transfers._transfer_integrity_conflict_detail(
+        Exception(
+            "violates check constraint "
+            "ck_inventory_transfer_headers_chk_transfer_header_separation_of_duties"
+        ),
+        action_label="استلام",
+        header_id=44,
+    )
+    assert stale["code"] == "TRANSFER_SCHEMA_UPDATE_REQUIRED"
+    assert stale["context"]["required_revision"] == "c3e7a5d9b214"
+    assert "تحديث قاعدة البيانات" in stale["message"]
+
+    generic = transfers._transfer_integrity_conflict_detail(
+        Exception("synthetic integrity conflict"),
+        action_label="رفض",
+        header_id=45,
+    )
+    assert generic["code"] == "TRANSFER_INTEGRITY_CONFLICT"
+    assert generic["context"]["transfer_header_id"] == 45
+    assert "تعذر رفض الحوالة" in generic["message"]
+
+
 async def test_company_source_destination_vehicle_discovery_and_forged_ids(pg):
     async with pg.session(pg.a) as db:
         access = pg.a.ordinary.access(db)

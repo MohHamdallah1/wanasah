@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { createInventoryTabNavigationState } from "@/features/inventory/navigation";
 import { apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
@@ -46,7 +47,11 @@ function MeasuredProductBody({
 export function TransferCreateModal({ controller: c }: TransferCreateModalProps) {
   const { t, i18n } = useTransferTranslation();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [flashTarget, setFlashTarget] = useState<string | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
   const productScrollRef = useRef<HTMLDivElement>(null);
+  const sourceFieldRef = useRef<HTMLDivElement>(null);
+  const destinationFieldRef = useRef<HTMLDivElement>(null);
   const error = c.sources.error || c.destinations.error || c.sourceProductsError || c.restoreError;
   const unavailable = apiErrorStatus(error) === 403 || apiErrorStatus(error) === 404 ||
     (!!c.source && !c.sources.loading && !c.sources.valid) ||
@@ -58,6 +63,85 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
   useEffect(() => {
     if (!c.createOpen) setConfirmOpen(false);
   }, [c.createOpen]);
+
+  useEffect(() => () => {
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+  }, []);
+
+  const revealSubmitBlocker = () => {
+    const blocker = c.submitBlocker;
+    if (!blocker) return;
+
+    toast.error(blocker.message);
+
+    const key = blocker.draftKey
+      ? `draft:${blocker.draftKey}`
+      : blocker.productId
+        ? `product:${blocker.productId}`
+        : blocker.field ?? "general";
+
+    setFlashTarget(key);
+    if (flashTimerRef.current !== null) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+    flashTimerRef.current = window.setTimeout(
+      () => setFlashTarget(null),
+      1200,
+    );
+
+    window.requestAnimationFrame(() => {
+      let target: HTMLElement | null = null;
+      if (blocker.field === "source") {
+        target = sourceFieldRef.current;
+      } else if (blocker.field === "destination") {
+        target = destinationFieldRef.current;
+      } else if (blocker.draftKey) {
+        target =
+          Array.from(
+            productScrollRef.current?.querySelectorAll<HTMLElement>(
+              "[data-draft-key]",
+            ) ?? [],
+          ).find(
+            (node) =>
+              node.dataset.draftKey === blocker.draftKey,
+          ) ?? null;
+      } else if (blocker.productId) {
+        target =
+          productScrollRef.current?.querySelector<HTMLElement>(
+            `[data-product-id="${blocker.productId}"]`,
+          ) ?? null;
+      }
+
+      if (
+        target &&
+        typeof target.scrollIntoView === "function"
+      ) {
+        target.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }
+      const focusable =
+        blocker.productId || blocker.draftKey
+          ? target?.querySelector<HTMLElement>(
+              '[data-transfer-quantity-input="true"]:not(:disabled)',
+            )
+          : target?.querySelector<HTMLElement>(
+              'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)',
+            );
+      focusable?.focus();
+    });
+  };
+
+  const requestConfirmation = () => {
+    if (c.canSubmit) {
+      setConfirmOpen(true);
+      return;
+    }
+    revealSubmitBlocker();
+  };
 
   const handleQuantityArrowNavigation = (
     event: KeyboardEvent<HTMLInputElement>,
@@ -141,6 +225,10 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       product.display_uom_code,
       product.display_uom_name,
     );
+    const productBlocker =
+      c.submitBlocker?.productId === product.id
+        ? c.submitBlocker
+        : null;
     const invalid = lines.some((item) => {
       try {
         return compareQuantity(
@@ -284,7 +372,11 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       <tr
         key={product.id}
         data-product-id={product.id}
-        className="border-t border-slate-100 align-middle hover:bg-slate-50/60"
+        className={`border-t border-slate-100 align-middle transition hover:bg-slate-50/60 ${
+          flashTarget === `product:${product.id}`
+            ? "bg-red-50 ring-2 ring-inset ring-red-300"
+            : ""
+        }`}
       >
         <td className="px-2.5 py-2">
           <strong className="block truncate text-xs text-slate-900">
@@ -362,7 +454,14 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
             </div>
           ) : null}
 
-          {invalid ? (
+          {productBlocker ? (
+            <p
+              role="alert"
+              className="mt-1 text-center text-[10px] font-bold text-red-600"
+            >
+              {productBlocker.message}
+            </p>
+          ) : invalid ? (
             <p
               role="alert"
               className="mt-1 text-center text-[10px] font-bold text-red-600"
@@ -381,7 +480,12 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
               {lines.map((item, index) => (
                 <div
                   key={item.draft_key}
-                  className="rounded-lg border border-slate-100 bg-slate-50/50 p-2"
+                  data-draft-key={item.draft_key}
+                  className={`rounded-lg border bg-slate-50/50 p-2 transition ${
+                    flashTarget === `draft:${item.draft_key}`
+                      ? "border-red-300 bg-red-50 ring-2 ring-red-200"
+                      : "border-slate-100"
+                  }`}
                 >
                   <TransferBatchSelectionEditor
                     item={item}
@@ -467,9 +571,13 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
           </div>
           <button
             type="button"
-            disabled={!c.canSubmit}
-            onClick={() => setConfirmOpen(true)}
-            className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white disabled:opacity-40"
+            disabled={!selectedProducts.length || c.createSubmitting}
+            aria-disabled={!c.canSubmit}
+            title={!c.canSubmit ? c.submitBlocker?.message : undefined}
+            onClick={requestConfirmation}
+            className={`h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white transition disabled:opacity-40 ${
+              c.canSubmit ? "" : "cursor-help opacity-60"
+            }`}
             data-cp13-action-priority="primary"
           >
             {t("inventoryTransfers.send")}
@@ -529,7 +637,12 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
               <button type="button" disabled={c.createSubmitting} onClick={() => setConfirmOpen(false)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700">
                 {t("inventoryTransfers.back")}
               </button>
-              <button type="submit" disabled={!c.canSubmit} className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white disabled:opacity-40">
+              <button
+                type="submit"
+                disabled={!c.canSubmit || c.createSubmitting}
+                title={!c.canSubmit ? c.submitBlocker?.message : undefined}
+                className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white disabled:opacity-40"
+              >
                 {t(c.createSubmitting ? "inventoryTransfers.sending" : "inventoryTransfers.confirmSend")}
               </button>
             </div>
@@ -540,13 +653,17 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
             data-cp13-create-flow="transfer"
             onSubmit={(event) => {
               event.preventDefault();
-              if (c.canSubmit) setConfirmOpen(true);
+              requestConfirmation();
             }}
           >
             {c.policyBlocked ? <Link to="/inventory" state={createInventoryTabNavigationState("warehouses")}>{t("inventoryTransfers.policySetup")}</Link> : null}
 
             <fieldset disabled={c.createSubmitting} className="contents">
               <div className="grid gap-2 md:grid-cols-2">
+                <div
+                  ref={sourceFieldRef}
+                  className={flashTarget === "source" ? "rounded-xl ring-2 ring-red-300" : ""}
+                >
                 <TransferWarehouseCombobox
                   label={t("inventoryTransfers.sourceWarehouse")}
                   selected={c.source}
@@ -563,6 +680,11 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                   onSelect={c.updateSource}
                   onRetry={c.sources.retry}
                 />
+                </div>
+                <div
+                  ref={destinationFieldRef}
+                  className={flashTarget === "destination" ? "rounded-xl ring-2 ring-red-300" : ""}
+                >
                 <TransferWarehouseCombobox
                   label={t("inventoryTransfers.destinationWarehouse")}
                   selected={c.destination}
@@ -579,6 +701,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                   onSelect={c.updateDestination}
                   onRetry={c.destinations.retry}
                 />
+                </div>
               </div>
 
               {unavailable ? (

@@ -12,6 +12,7 @@ interface TransferTableProps {
   loading: boolean;
   loadingMore: boolean;
   hasMore: boolean;
+  timeZone?: string;
   onLoadMore: () => void;
   onOpenDetail: (transfer: WarehouseTransferListItem) => void | Promise<void>;
   onOpenAction: (transfer: WarehouseTransferListItem, action: TransferAction) => void;
@@ -22,6 +23,7 @@ export function TransferTable({
   loading,
   loadingMore,
   hasMore,
+  timeZone,
   onLoadMore,
   onOpenDetail,
   onOpenAction,
@@ -98,7 +100,7 @@ export function TransferTable({
                   </div>
                 </td>
                 <td className="px-3 py-2 text-xs font-semibold text-slate-600">{transfer.dispatched_by_name}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-500" dir="ltr">{formatDate(transfer.created_at)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-[10px] font-semibold text-slate-500" dir="ltr">{formatDate(transfer.created_at, timeZone)}</td>
                 <td className="px-3 py-2">
                   <TransferRowActions transfer={transfer} canAt={canAt} onOpenDetail={onOpenDetail} onOpenAction={onOpenAction} />
                 </td>

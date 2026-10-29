@@ -9,12 +9,14 @@ import { formatDate } from "./utils";
 interface TransferDetailModalProps {
   detail: WarehouseTransferDetail | null;
   loading: boolean;
+  timeZone?: string;
   onClose: () => void;
 }
 
 export function TransferDetailModal({
   detail,
   loading,
+  timeZone,
   onClose,
 }: TransferDetailModalProps) {
   const { t } = useTranslation();
@@ -125,10 +127,10 @@ export function TransferDetailModal({
               {t("inventoryTransfers.receiver")} <span className="font-black text-slate-700">{detail.transfer.received_by_name || "—"}</span>
             </div>
             <div dir="ltr">
-              {t("inventoryTransfers.created")} <span className="font-black text-slate-700">{formatDate(detail.transfer.created_at)}</span>
+              {t("inventoryTransfers.created")} <span className="font-black text-slate-700">{formatDate(detail.transfer.created_at, timeZone)}</span>
             </div>
             <div dir="ltr">
-              {t("inventoryTransfers.posted")} <span className="font-black text-slate-700">{formatDate(detail.transfer.posted_at)}</span>
+              {t("inventoryTransfers.posted")} <span className="font-black text-slate-700">{formatDate(detail.transfer.posted_at, timeZone)}</span>
             </div>
           </div>
         </div>
