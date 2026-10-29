@@ -117,7 +117,6 @@ export function ArchiveOwnerWorkspace({
         <>
           {intent.flow === "transfer" ? (
             <TabTransfers
-              locationId={intent.locationId}
               focus={
                 consumed
                   ? null

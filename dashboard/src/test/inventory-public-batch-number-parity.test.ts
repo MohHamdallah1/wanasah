@@ -104,19 +104,19 @@ describe("public ProductBatch number parity", () => {
     const parsed = parseTransferDetail({
       transfer: transferHeader,
       lines: [transferLine(null)],
-    }, 5);
+    });
     expect(parsed.lines[0]).toMatchObject({ batch_id: 99, batch_number: null });
 
     const real = parseTransferDetail({
       transfer: transferHeader,
       lines: [transferLine("REAL-LOT-9")],
-    }, 5);
+    });
     expect(real.lines[0].batch_number).toBe("REAL-LOT-9");
 
     expect(() => parseTransferDetail({
       transfer: transferHeader,
       lines: [transferLine("")],
-    }, 5)).toThrow();
+    })).toThrow();
   });
 
   it("accepts null in transfer FEFO override options without losing opaque batch id", () => {

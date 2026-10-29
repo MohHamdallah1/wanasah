@@ -368,6 +368,7 @@ export default function MainInventory() {
   const tabAllowed = useCallback((id: TabId) => {
     if (id === 'permissions') return isCompanyOwner;
     if (id === 'warehouses') return canAny('location.read') || can('branch.read');
+    if (id === 'transfers') return canAny('transfer.read');
     if (selectedLocationId === null) return canAny(TAB_PERMISSION[id]);
     if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
     return canAtLocation(TAB_PERMISSION[id]);
@@ -1258,7 +1259,7 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && activeTab !== "warehouses" && activeTab !== "inbound" && (
+      {activeTab !== "live" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {locations.length > 0 && (
@@ -1489,15 +1490,14 @@ export default function MainInventory() {
           />
         )}
 
-        {!locationAccess.isPending && activeTab === "transfers" && tabAllowed("transfers") && selectedLocationId !== null && (
+        {activeTab === "transfers" && tabAllowed("transfers") && (
           <TabTransfers
-            locationId={selectedLocationId}
             focus={transferFocus}
             onFocusConsumed={() => setTransferFocus(null)}
             onInventoryChanged={async () => {
               setStockRefreshKey((value) => value + 1);
               setLedgerRefreshKey((value) => value + 1);
-              await fetchStatus();
+              if (selectedLocationId !== null) await fetchStatus();
             }}
           />
         )}
