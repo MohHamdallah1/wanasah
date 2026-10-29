@@ -413,10 +413,16 @@ it("explains split-batch total overflow, keeps Send actionable, and focuses the 
     }),
   );
 
-  const batchSelectors = await screen.findAllByRole("combobox", {
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("combobox", {
+        name: i18n.t("inventoryTransfers.selectedBatch"),
+      }),
+    ).toHaveLength(2),
+  );
+  const batchSelectors = screen.getAllByRole("combobox", {
     name: i18n.t("inventoryTransfers.selectedBatch"),
   });
-  expect(batchSelectors).toHaveLength(2);
   fireEvent.change(batchSelectors[1], { target: { value: "9" } });
 
   const secondQuantity = screen.getByRole("textbox", {
