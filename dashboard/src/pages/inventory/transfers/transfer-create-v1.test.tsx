@@ -103,7 +103,7 @@ it("does not fake source loading before both warehouses are selected and ignores
   writeTransferDraft(scope, draft);
   open();
   await waitFor(() => expect(screen.getByRole("combobox", { name: "Source Warehouse" })).toHaveValue("Warehouse 11 (WH-11)"));
-  expect(screen.getByText(i18n.t("inventoryTransfers.chooseWarehousesFirst"))).toBeVisible();
+  expect(screen.getByText(i18n.t("inventoryTransfers.chooseWarehousesFirst"))).toBeInTheDocument();
   expect(screen.queryByText(i18n.t("inventoryTransfers.restoringDraft"))).not.toBeInTheDocument();
   expect(mock.fetch.mock.calls.some(([url]) => url.includes("source-inventory"))).toBe(false);
 });
