@@ -95,7 +95,7 @@ export function TabTransfers({
       data-cp13-surface="transfers"
     >
       <section className="inventory-surface inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 sm:px-4" data-cp13-controls="transfer-list">
+        <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2 sm:flex-nowrap sm:px-4" data-cp13-controls="transfer-list">
           <div className="min-w-0 shrink-0">
             <h2 className="flex items-center gap-2 text-sm font-black text-slate-900">
               <Truck className="h-4 w-4 text-blue-700" aria-hidden="true" />
@@ -109,7 +109,7 @@ export function TabTransfers({
             </p>
           </div>
 
-          <div className="relative w-full min-w-44 sm:w-56">
+          <div className="relative w-full min-w-56 flex-1 sm:w-auto">
             <Search className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
             <input
               type="search"
@@ -129,7 +129,7 @@ export function TabTransfers({
               const value = event.target.value;
               setStatus(value && isTransferStatus(value) ? value : "");
             }}
-            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100 sm:w-40"
+            className="h-9 w-full shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100 sm:w-44"
           >
             <option value="">{t("inventoryTransfers.allStatuses")}</option>
             {TRANSFER_STATUSES.map((value) => (
@@ -141,7 +141,7 @@ export function TabTransfers({
             type="button"
             disabled={!transferCreate.canOpen}
             onClick={transferCreate.openCreate}
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-black text-white outline-none hover:bg-blue-800 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-300"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-blue-700 px-3 text-xs font-black text-white outline-none hover:bg-blue-800 disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-300"
             data-cp13-action-priority="primary"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />

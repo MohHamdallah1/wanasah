@@ -52,6 +52,8 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
     (!!c.source && !c.sources.loading && !c.sources.valid) ||
     (!!c.destination && !c.destinations.loading && !c.destinations.valid);
   const requestId = apiErrorRequestId(error);
+  const createBlockedByPending =
+    (c.command.pending && !c.command.busy) || Boolean(c.command.recoveryError);
 
   useEffect(() => {
     if (!c.createOpen) setConfirmOpen(false);
@@ -126,22 +128,22 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
     };
 
     return (
-      <tr key={product.id} data-product-id={product.id} className="border-t border-slate-100 align-top hover:bg-slate-50/60">
-        <td className="p-2.5">
-          <strong className="block text-xs text-slate-900">{product.name}</strong>
+      <tr key={product.id} data-product-id={product.id} className="border-t border-slate-100 align-middle hover:bg-slate-50/60">
+        <td className="px-2.5 py-2">
+          <strong className="block truncate text-xs text-slate-900">{product.name}</strong>
         </td>
-        <td className="p-2.5 text-center text-xs font-black text-slate-800">
+        <td className="px-2.5 py-2 text-center text-xs font-black text-slate-800">
           {formatProductQuantity(product, product.available_quantity)}
         </td>
-        <td className="p-2.5 text-center text-xs font-bold text-slate-600">
+        <td className="px-2.5 py-2 text-center text-xs font-bold text-slate-600">
           {mixedQuantity ? `${displayName} + ${baseName}` : baseName}
         </td>
-        <td className="p-2.5">
+        <td className="px-2 py-1.5">
           {(!lines.length || lines.every((line) => line.fefo_mode === "auto")) ? (
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
+            <div className="flex flex-nowrap items-center justify-center gap-1.5 whitespace-nowrap">
               {mixedQuantity && parts ? (
                 <>
-                  <label className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2">
+                  <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
                     <input
                       type="number"
                       min="0"
@@ -150,12 +152,12 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                       value={parts.displayQuantity === "0" ? "" : parts.displayQuantity}
                       disabled={!c.ready || c.restoring}
                       onChange={(event) => updateMixedQuantity(event.target.value, parts.baseRemainder)}
-                      className="h-8 w-16 bg-transparent text-center text-xs font-black outline-none"
+                      className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
                     />
                     <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">{displayName}</span>
                   </label>
                   <span className="text-xs font-black text-slate-300">+</span>
-                  <label className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2">
+                  <label className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-1.5">
                     <input
                       type="number"
                       min="0"
@@ -164,7 +166,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                       value={parts.baseRemainder === "0" ? "" : parts.baseRemainder}
                       disabled={!c.ready || c.restoring}
                       onChange={(event) => updateMixedQuantity(parts.displayQuantity, event.target.value)}
-                      className="h-8 w-16 bg-transparent text-center text-xs font-black outline-none"
+                      className="h-8 w-14 bg-transparent text-center text-xs font-black outline-none"
                     />
                     <span className="whitespace-nowrap text-[10px] font-bold text-slate-500">{baseName}</span>
                   </label>
@@ -177,7 +179,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                   value={autoLine?.quantity ?? ""}
                   disabled={!c.ready || c.restoring}
                   onChange={(event) => c.updateProductQuantity(product, event.target.value)}
-                  className="h-9 w-28 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs font-black outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  className="h-8 w-24 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-xs font-black outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
                 />
               )}
               <button
@@ -185,24 +187,24 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                 disabled={!c.ready || c.restoring}
                 onClick={() => c.updateProductQuantity(product, product.available_quantity)}
                 title={t("inventoryTransfers.allTooltip")}
-                className="h-9 rounded-lg border border-blue-200 bg-blue-50 px-3 text-[11px] font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
+                className="h-8 shrink-0 rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-black text-blue-700 hover:bg-blue-100 disabled:opacity-40"
               >
                 {t("inventoryTransfers.all")}
               </button>
+              {c.canOverride && lines.length > 0 && lines.every((line) => line.fefo_mode === "auto") ? (
+                <button
+                  type="button"
+                  disabled={c.overrideLoadingProductIds.includes(product.id) || manualUnavailable}
+                  title={manualUnavailable ? t("inventoryTransfers.noReasons") : t("inventoryTransfers.specificBatchButtonHint")}
+                  onClick={() => void c.setDraftFefoMode(lines[0].draft_key, "override")}
+                  className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-[10px] font-black text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t("inventoryTransfers.chooseBatchCompact")}
+                </button>
+              ) : null}
             </div>
           ) : null}
           {invalid ? <p role="alert" className="mt-1 text-center text-[10px] font-bold text-red-600">{t("inventoryTransfers.quantityExceeds", { name: product.name })}</p> : null}
-          {c.canOverride && lines.length > 0 && lines.every((line) => line.fefo_mode === "auto") ? (
-            <button
-              type="button"
-              disabled={c.overrideLoadingProductIds.includes(product.id) || manualUnavailable}
-              title={manualUnavailable ? t("inventoryTransfers.noReasons") : t("inventoryTransfers.specificBatchButtonHint")}
-              onClick={() => void c.setDraftFefoMode(lines[0].draft_key, "override")}
-              className="mx-auto mt-1.5 block text-[10px] font-black text-slate-500 underline decoration-dotted underline-offset-2 hover:text-slate-700 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50"
-            >
-              {t("inventoryTransfers.chooseSpecificBatch")}
-            </button>
-          ) : null}
           {c.canOverride && lines.some((line) => line.fefo_mode === "override") ? (
             <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/60 p-2">
               {lines.map((item) => (
@@ -255,11 +257,40 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
       titleAside={confirmOpen ? undefined : t("inventoryTransfers.sourceHint")}
       compactHeader={!confirmOpen}
       bodyOverflow={confirmOpen ? "auto" : "hidden"}
-      bodyClassName={confirmOpen ? "p-4 sm:p-5" : "p-2.5 sm:p-3"}
+      bodyClassName={confirmOpen ? "p-4 sm:p-5" : "flex min-h-0 p-2.5 sm:p-3"}
       maxWidth={confirmOpen ? "max-w-xl" : "max-w-6xl"}
+      footer={!confirmOpen && !createBlockedByPending ? (
+        <div dir={i18n.dir()} className="flex w-full flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {selectedProducts.length ? (
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700">
+                {t("inventoryTransfers.selectedItemsCount", { count: selectedProducts.length })}
+              </span>
+            ) : null}
+            <button
+              type="button"
+              disabled={!selectedProducts.length || c.createSubmitting}
+              onClick={c.clearDraftItems}
+              title={t("inventoryTransfers.clearQuantitiesHint")}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              {t("inventoryTransfers.clearQuantities")}
+            </button>
+          </div>
+          <button
+            type="button"
+            disabled={!c.canSubmit}
+            onClick={() => setConfirmOpen(true)}
+            className="h-9 rounded-lg bg-blue-700 px-4 text-xs font-black text-white disabled:opacity-40"
+            data-cp13-action-priority="primary"
+          >
+            {t("inventoryTransfers.send")}
+          </button>
+        </div>
+      ) : undefined}
     >
-      <div dir={i18n.dir()} className={confirmOpen ? undefined : "h-full min-h-0"}>
-        {(c.command.pending && !c.command.busy) || c.command.recoveryError ? (
+      <div dir={i18n.dir()} className={confirmOpen ? undefined : "flex h-full min-h-0 flex-1 flex-col"}>
+        {createBlockedByPending ? (
           <div role="alert" className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
             <p>{t("inventoryTransfers.pending")}</p>
             <button type="button" disabled={c.command.busy || !!c.command.recoveryError} onClick={() => void c.retryPendingDispatch()}>
@@ -317,7 +348,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
           </form>
         ) : (
           <form
-            className="flex h-full min-h-0 flex-col gap-2"
+            className="flex min-h-0 flex-1 flex-col gap-2"
             data-cp13-create-flow="transfer"
             onSubmit={(event) => {
               event.preventDefault();
@@ -390,10 +421,10 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                     className="min-h-0 flex-1 overflow-auto"
                     data-transfer-product-scroll="true"
                   >
-                    <table className="w-full min-w-[720px] text-sm" aria-busy={c.sourceProductsLoading || c.sourceProductsLoadingMore || c.restoring}>
+                    <table className="w-full min-w-[900px] table-fixed text-sm" aria-busy={c.sourceProductsLoading || c.sourceProductsLoadingMore || c.restoring}>
                       <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 backdrop-blur">
                         <tr>
-                          <th className="w-[42%] p-2 text-start">
+                          <th className="w-[34%] p-2 text-start">
                             <input
                               type="search"
                               aria-label={t("inventoryTransfers.productSearch")}
@@ -405,8 +436,8 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                             />
                           </th>
                           <th className="w-[18%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.availableTransfer")}</th>
-                          <th className="w-[16%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.unit")}</th>
-                          <th className="w-[24%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.quantity")}</th>
+                          <th className="w-[14%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.unit")}</th>
+                          <th className="w-[34%] p-2.5 text-center text-[11px] font-black text-slate-500">{t("inventoryTransfers.quantity")}</th>
                         </tr>
                       </thead>
 
@@ -438,33 +469,7 @@ export function TransferCreateModal({ controller: c }: TransferCreateModalProps)
                 )}
               </section>
 
-              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-white pt-2">
-                <div className="flex items-center gap-2">
-                  {selectedProducts.length ? (
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700">
-                      {t("inventoryTransfers.selectedItemsCount", { count: selectedProducts.length })}
-                    </span>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={!selectedProducts.length || c.createSubmitting}
-                    onClick={c.clearDraftItems}
-                    title={t("inventoryTransfers.clearQuantitiesHint")}
-                    className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-black text-slate-600 hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    {t("inventoryTransfers.clearQuantities")}
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  disabled={!c.canSubmit}
-                  onClick={() => setConfirmOpen(true)}
-                  className="h-9 rounded-lg bg-blue-700 px-3.5 text-xs font-black text-white disabled:opacity-40"
-                  data-cp13-action-priority="primary"
-                >
-                  {t("inventoryTransfers.send")}
-                </button>
-              </div>
+
             </fieldset>
           </form>
         )}

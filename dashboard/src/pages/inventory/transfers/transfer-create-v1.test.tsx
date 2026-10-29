@@ -167,6 +167,13 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
   await chooseWarehouse(i18n.t("inventoryTransfers.destinationWarehouse"), "Warehouse 12");
   await screen.findByText(cartonProduct.name);
 
+  const dialog = screen.getByRole("dialog");
+  const footer = dialog.querySelector(".app-modal-footer");
+  expect(footer).not.toBeNull();
+  expect(footer).toContainElement(screen.getByRole("button", { name: i18n.t("inventoryTransfers.clearQuantities") }));
+  expect(footer).toContainElement(send());
+  expect(dialog.querySelector('[data-transfer-product-scroll="true"]')).toHaveClass("overflow-auto");
+
   const table = screen.getByRole("table");
   const rowTextsBefore = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsBefore[1]).toContain(cartonProduct.name);
@@ -179,6 +186,12 @@ it("keeps a selected row in place, accepts carton plus base remainder, clears qu
     name: i18n.t("inventoryTransfers.productBaseRemainder", { name: cartonProduct.name, unit: baseUnit }),
   });
   fireEvent.change(pieces, { target: { value: "10" } });
+
+  const batchButton = screen.getByRole("button", { name: i18n.t("inventoryTransfers.chooseBatchCompact") });
+  const quantityControls = batchButton.parentElement;
+  expect(quantityControls).not.toBeNull();
+  expect(quantityControls!.querySelectorAll('input[type="number"]')).toHaveLength(2);
+  expect(Array.from(quantityControls!.querySelectorAll("button")).some((button) => button.textContent === i18n.t("inventoryTransfers.all"))).toBe(true);
 
   const rowTextsAfter = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
   expect(rowTextsAfter[1]).toContain(cartonProduct.name);
@@ -247,7 +260,7 @@ it.each([false, true])("FEFO override is visible and loadable only with the exac
   open();
   await selectPair();
   fireEvent.change(quantity(), { target: { value: "0.1" } });
-  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseSpecificBatch") });
+  const chooseBatch = screen.queryByRole("button", { name: i18n.t("inventoryTransfers.chooseBatchCompact") });
   if (!allowed) {
     expect(chooseBatch).toBeNull();
     expect(mock.fetch.mock.calls.some(([url]) => url.includes("override-options"))).toBe(false);
