@@ -101,7 +101,8 @@ test("search, family filter and correct location-scoped response without row lea
   expect(state.requests.some((r) => r.path.includes("search=Stock+Item+0002") ||
     r.path.includes("search=Stock%20Item%200002"))).toBe(true);
   await search.fill("");
-  await expect(rows(page)).toHaveCount(36); // NEW-01 window, not all 50 loaded
+  await expect.poll(() => rows(page).count()).toBeGreaterThan(1);
+  expect(await rows(page).count()).toBeLessThanOrEqual(40); // viewport-dependent NEW-01 window
   await stock(page).locator(".live-stock-family-button").click();
   await expect(page.locator(".live-stock-family-option").filter({ hasText: "Snacks" })).toBeVisible();
   await page.locator(".live-stock-family-option").filter({ hasText: "Snacks" }).click();
@@ -192,8 +193,12 @@ test("loading, retry, failed source and refresh invalidate old reservation evide
   await expect(dialog.getByText("RES-9001")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Retry" }).click();
   await expect(dialog.getByText("RES-9001")).toBeVisible();
+  // A real modal blocks background pointer events; close it before refreshing.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
   await stock(page).locator(".live-stock-context-refresh").click();
-  await expect(dialog.getByText("RES-9001")).toHaveCount(0);
+  await openFirst(page);
+  await expect(page.getByRole("dialog").getByText("RES-9001")).toHaveCount(0);
   noUnexpected(state);
 });
 
@@ -205,7 +210,7 @@ test("capability revocation and same-tab session switch hide prior warehouse evi
   state.denyAccess = true;
   await page.evaluate(() => window.dispatchEvent(new Event("inventory-permission-denied")));
   await expect(rows(page)).toHaveCount(0);
-  await expect(page.locator('[data-live-authority]')).not.toHaveAttribute("data-live-authority", "fresh");
+  await expect(stock(page)).toHaveCount(0); // denied access unmounts the entire Live Stock surface
   // A principal/company change cannot reuse the prior session's warmed inventory.
   await page.evaluate(() => {
     localStorage.setItem("company_id", "2");
