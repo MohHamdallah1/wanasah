@@ -3491,8 +3491,19 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             spec.get("cost_reversal_of_movement_id"),
             "cost_reversal_of_movement_id",
         )
+        cost_source_movement_id = _optional_positive_int(
+            spec.get("cost_source_movement_id"),
+            "cost_source_movement_id",
+        )
     except ValueError as exc:
         raise InventoryMutationError(str(exc)) from exc
+    if cost_source_movement_id is not None and (
+        inventory_cost_input is not None
+        or cost_reversal_of_movement_id is not None
+    ):
+        raise InventoryMutationError(
+            "Linked return cost provenance cannot be combined with purchase or reversal cost metadata."
+        )
 
     source_stock_status = spec.get("source_stock_status")
     destination_stock_status = spec.get("destination_stock_status")
@@ -3593,6 +3604,23 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 "الحركة PHYSICAL لا يجوز أن تغيّر حالة المخزون؛ استخدم STATUS_CHANGE."
             )
 
+    if cost_source_movement_id is not None:
+        if not (
+            movement_kind == "PHYSICAL"
+            and reference_type == "VISIT_RETURN_IN"
+            and source_location_id is None
+            and destination_location_id is not None
+            and source_stock_status is None
+            and destination_stock_status == "DAMAGED"
+            and normalized["work_session_id"] is not None
+            and normalized["transfer_header_id"] is None
+            and stocktake_session_id is None
+            and stocktake_count_attempt_id is None
+        ):
+            raise InventoryMutationError(
+                "Linked return cost provenance is restricted to canonical damaged VISIT_RETURN_IN movements."
+            )
+
     if allow_legacy_fifo_state_bridge:
         if not (
             movement_kind == "PHYSICAL"
@@ -3604,6 +3632,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
             and destination_stock_status is None
             and inventory_cost_input is None
             and cost_reversal_of_movement_id is None
+            and cost_source_movement_id is None
         ):
             raise InventoryMutationError(
                 "Legacy FIFO bridge is restricted to terminal quality outbounds."
@@ -3620,6 +3649,7 @@ def _normalize_inventory_movement_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
         "financial_unit_price_snapshot": financial_unit_price_snapshot,
         "inventory_cost_input": inventory_cost_input,
         "cost_reversal_of_movement_id": cost_reversal_of_movement_id,
+        "cost_source_movement_id": cost_source_movement_id,
         "allow_legacy_fifo_state_bridge": allow_legacy_fifo_state_bridge,
         "notes": notes,
     })
