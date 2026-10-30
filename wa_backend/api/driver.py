@@ -974,15 +974,32 @@ async def update_visit(
         if (
             visit.status == "Completed"
             and visit.outcome == "Sale"
+            and visit.current_sales_revision_id is not None
             and payload.returns
         ):
+            current_revision_id = int(visit.current_sales_revision_id)
+            frozen_variant_counts: dict[int, int] = {}
+            for original_item in visit.items:
+                if (
+                    not original_item.is_cancelled
+                    and original_item.sales_revision_id == current_revision_id
+                    and original_item.financial_evidence_version == 4
+                    and original_item.financial_evidence_frozen_at is not None
+                ):
+                    variant_id = int(original_item.product_variant_id)
+                    frozen_variant_counts[variant_id] = (
+                        frozen_variant_counts.get(variant_id, 0) + 1
+                    )
+
             return_key_counts: dict[tuple[int, int], int] = {}
             for ret in payload.returns:
                 key = (int(ret.product_variant_id), int(ret.batch_id))
                 return_key_counts[key] = return_key_counts.get(key, 0) + 1
+
             unique_return_keys = [
-                key for key, count in return_key_counts.items()
-                if count == 1
+                key
+                for key, count in return_key_counts.items()
+                if count == 1 and frozen_variant_counts.get(key[0]) == 1
             ]
             linked_return_cost_sources = await resolve_linked_return_cost_sources(
                 db,
