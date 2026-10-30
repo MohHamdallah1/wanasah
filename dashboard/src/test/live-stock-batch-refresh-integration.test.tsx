@@ -124,7 +124,7 @@ describe("L-02 list/detail coupling without batch-wide eager reads", () => {
     expect(defaults.onRefresh).toHaveBeenCalled();
     expect(screen.getByTestId("detail-quantity")).toHaveTextContent("no-verified-batches");
     expect(screen.getByTestId("source-count")).toHaveTextContent("0");
-    expect(screen.getByTestId("detail-error")).toHaveTextContent("stale");
+    expect(screen.getByTestId("detail-error")).toHaveTextContent("Previous batch details are no longer verified after refresh. Retry to check.");
     expect(countDetailReads()).toBe(1);
 
     rerender(<Tab1LiveStock {...defaults} products={[first]} lastSync={new Date(1000)} loading pageReady />);
@@ -159,7 +159,7 @@ describe("L-02 list/detail coupling without batch-wide eager reads", () => {
     rerender(<Tab1LiveStock {...defaults} products={[first]} lastSync={new Date(1000)}
       pageError="list unavailable" loading={false} />);
     expect(screen.getByTestId("detail-quantity")).toHaveTextContent("no-verified-batches");
-    expect(screen.getByTestId("detail-error")).toHaveTextContent("stale");
+    expect(screen.getByTestId("detail-error")).toHaveTextContent("Previous batch details are no longer verified after refresh. Retry to check.");
     expect(countDetailReads()).toBe(1);
   });
 });
