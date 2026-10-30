@@ -54,6 +54,7 @@ export function Tab1LiveStock({
   pageError,
   summaryError,
   alertCount,
+  matchingTotal,
   hasMore,
   stockState,
   indicators,
@@ -206,12 +207,51 @@ export function Tab1LiveStock({
             locationId={locationId}
             locations={locations}
             stockTotal={stockTotal}
-            lastSync={lastSync}
+            lastSync={pageReady ? lastSync : null}
             isAuditLocked={isAuditLocked}
             loading={loading}
             onLocationChange={onLocationChange}
             onRefresh={refreshWithDetail}
           />
+        </div>
+
+        <div
+          role="status"
+          aria-live="polite"
+          dir={i18n.dir()}
+          data-live-count-kind={pageReady ? "loaded" : "unverified"}
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600"
+        >
+          {pageReady ? (
+            <>
+              <span data-testid="live-loaded-count">
+                {t("inventoryLive.loadedVariants", {
+                  count: new Intl.NumberFormat(
+                    i18n.resolvedLanguage || i18n.language,
+                    { numberingSystem: "latn" },
+                  ).format(products.length),
+                })}
+              </span>
+              {matchingTotal !== null ? (
+                <span data-testid="live-matching-total">
+                  {t("inventoryLive.exactMatchingVariants", {
+                    count: new Intl.NumberFormat(
+                      i18n.resolvedLanguage || i18n.language,
+                      { numberingSystem: "latn" },
+                    ).format(matchingTotal),
+                  })}
+                </span>
+              ) : hasMore ? (
+                <span data-testid="live-unknown-total">
+                  {t("inventoryLive.loadedMoreAvailable")}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            <span data-testid="live-count-unverified">
+              {t("inventoryLive.loadedCountUnverified")}
+            </span>
+          )}
         </div>
 
         {pageError && pageReady ? (

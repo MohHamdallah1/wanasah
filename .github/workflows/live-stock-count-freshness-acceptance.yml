@@ -1,0 +1,57 @@
+name: Live Stock UI-07 UI-08 count and freshness semantics
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/liveStock/LiveStockWarehouseContext.tsx"
+      - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-count-freshness-semantics.test.tsx"
+      - ".github/workflows/live-stock-count-freshness-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-count-freshness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Exact count and freshness meaning
+        working-directory: dashboard
+        run: npm test -- src/test/live-stock-count-freshness-semantics.test.tsx --reporter=verbose
+      - name: Existing Live Stock authorization, freshness, infinite-scroll and accessibility regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/live-stock-warm-authority.test.tsx
+          src/test/live-stock-warehouse-discovery.test.tsx
+          src/test/inventory-session-cache.test.ts
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/live-stock-batch-refresh-integration.test.tsx
+          src/test/inventory-cp13-operations-consistency.test.tsx
+          --reporter=verbose
+      - name: TypeScript strict noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production Dashboard build
+        working-directory: dashboard
+        run: npm run build
