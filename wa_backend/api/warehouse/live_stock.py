@@ -130,13 +130,24 @@ async def _require_live_stock_read_model_ready(
             if refreshed <= 0:
                 failure = stale_exc
             else:
-                repaired_readiness = await assert_live_stock_projection_ready(
-                    db,
-                    company_id=company_id,
-                    warehouse_location_id=location_id,
-                )
-                await db.commit()
-                return repaired_readiness
+                try:
+                    repaired_readiness = await assert_live_stock_projection_ready(
+                        db,
+                        company_id=company_id,
+                        warehouse_location_id=location_id,
+                    )
+                except LiveStockProjectionDueTransitionError as pending_exc:
+                    # More than one bounded batch is due. Persist only the
+                    # completed warehouse-scoped repair; never claim READY or
+                    # loop through further batches in this HTTP request.
+                    # A retry (or the scheduled worker) resumes from the
+                    # remaining keys. Other projection failures still roll
+                    # back the batch below.
+                    await db.commit()
+                    failure = pending_exc
+                else:
+                    await db.commit()
+                    return repaired_readiness
         except LiveStockProjectionError as repair_exc:
             await db.rollback()
             failure = repair_exc
