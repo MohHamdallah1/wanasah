@@ -11,11 +11,13 @@ import json
 import os
 from datetime import date, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete
 
+from api import inventory_stock_policy as stock_policy
 from api.warehouse import live_stock
 from models import UserLocationAccess
 from tests.live_stock_r1_support import (
@@ -88,6 +90,26 @@ async def test_independent_requests_observe_real_committed_instants_without_fake
 
     # Initial committed truth from the existing R1 fixture is W=10, V=10.
     await assert_truth(case, warehouse="10", vehicle="10")
+
+    # Configure a real minimum-stock threshold through the production command so
+    # the Summary response has an observable state transition too: W=10 is an
+    # alert at minimum 12, while the committed V->W move to W=15 clears it.
+    async with case.pg.session() as config_db:
+        configured = await stock_policy.update_minimum_stock(
+            case.tenant.variant_id,
+            stock_policy.MinimumStockUpdateRequest(
+                request_id=uuid4(),
+                location_id=case.warehouse_id,
+                uom_id=case.tenant.uom_id,
+                minimum_quantity=D("12"),
+                expected_minimum_quantity=D("0"),
+            ),
+            config_db,
+            case.tenant.owner.access(config_db),
+            case.tenant.owner.operational_driver,
+        )
+        assert D(configured["minimum_quantity_base"]) == D("12")
+
     async with case.pg.session() as db:
         access = case.tenant.ordinary.access(db)
         old_list = await live_stock.get_warehouse_inventory(
@@ -119,6 +141,7 @@ async def test_independent_requests_observe_real_committed_instants_without_fake
             case.vehicle_id: ("VEHICLE", D("10"), D("0")),
         }
         assert int(old_summary["stock_total"]) == 1
+        assert int(old_summary["alert_count"]) == 1
 
         # Commit a real inventory movement in a different transaction while the
         # same reader session remains open. READ COMMITTED means later endpoint
@@ -156,6 +179,7 @@ async def test_independent_requests_observe_real_committed_instants_without_fake
             case.batch_id, db, access
         )
         assert int(new_summary["stock_total"]) == 1
+        assert int(new_summary["alert_count"]) == 0
         assert D(_batch_item(case, new_detail)["on_hand_quantity"]) == D("15")
         assert _source_available(new_sources) == {
             case.warehouse_id: ("WAREHOUSE", D("15"), D("0")),
@@ -184,7 +208,7 @@ async def test_independent_requests_observe_real_committed_instants_without_fake
                 "contract": "independent_committed_instants",
                 "before": {"warehouse": "10", "vehicle": "10"},
                 "after": {"warehouse": "15", "vehicle": "5"},
-                "summary_semantics": "variant-count-not-quantity",
+                "summary_transition": {"alert_count": [1, 0]},
                 "cross_request_atomic_snapshot": False,
             },
             sort_keys=True,
