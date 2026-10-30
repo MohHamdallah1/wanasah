@@ -44,17 +44,24 @@ export function LiveStockFilters({
   const [searchInput, setSearchInput] = useState("");
   const [familySearch, setFamilySearch] = useState("");
   const [families, setFamilies] = useState<LiveStockFamilyOption[]>([]);
+  const [familyNextCursor, setFamilyNextCursor] = useState<string | null>(null);
   const [familyLoading, setFamilyLoading] = useState(false);
+  const [familyLoadingMore, setFamilyLoadingMore] = useState(false);
   const [familyError, setFamilyError] = useState<string | null>(null);
+  const [familyMoreError, setFamilyMoreError] = useState<string | null>(null);
   const [familyRetryKey, setFamilyRetryKey] = useState(0);
   const [selectedFamilyOption, setSelectedFamilyOption] = useState<LiveStockFamilyOption | null>(null);
+  const familyRequestSeq = useRef(0);
+  const familyMoreAbort = useRef<AbortController | null>(null);
   const emittedSearch = useRef("");
 
   useEffect(() => {
     setSearchInput("");
     setFamilySearch("");
     setFamilies([]);
-    setSelectedFamilyOption(null);
+    setFamilyNextCursor(null);
+    // Family identity is catalog-scoped, not a row of the currently loaded
+    // search page. Keep its confirmed label while the parent filter keeps id.
     emittedSearch.current = "";
   }, [locationId]);
 
@@ -81,8 +88,14 @@ export function LiveStockFilters({
 
   useEffect(() => {
     const clean = familySearch.trim();
+    const requestSeq = ++familyRequestSeq.current;
+    familyMoreAbort.current?.abort();
+    familyMoreAbort.current = null;
     setFamilies([]);
+    setFamilyNextCursor(null);
     setFamilyError(null);
+    setFamilyMoreError(null);
+    setFamilyLoadingMore(false);
     if (clean.length === 1) {
       setFamilyLoading(false);
       return;
@@ -100,37 +113,90 @@ export function LiveStockFilters({
         signal: controller.signal,
       })
         .then((raw) => {
-          if (!controller.signal.aborted) {
-            setFamilies(parseLiveStockFamilies(raw).items);
-          }
+          if (controller.signal.aborted || familyRequestSeq.current !== requestSeq) return;
+          const page = parseLiveStockFamilies(raw);
+          setFamilies(page.items);
+          setFamilyNextCursor(page.next_cursor);
         })
         .catch((error: unknown) => {
-          if (
-            !controller.signal.aborted &&
-            !(error instanceof Error && error.name === "AbortError")
-          ) {
-            const fallback = t("inventoryLive.errors.familyLoadFailed");
-            // Raw browser/network errors have no stable localized reason.
-            // Preserve structured server reasons, codes and request references.
-            setFamilyError(
-              error instanceof Error &&
-              !apiErrorCode(error) &&
-              !apiErrorRequestId(error) &&
-              apiErrorStatus(error) === undefined
-                ? fallback
-                : apiErrorMessage(error, fallback),
-            );
-          }
+          if (controller.signal.aborted || familyRequestSeq.current !== requestSeq ||
+              (error instanceof Error && error.name === "AbortError")) return;
+          const fallback = t("inventoryLive.errors.familyLoadFailed");
+          setFamilyError(
+            error instanceof Error &&
+            !apiErrorCode(error) &&
+            !apiErrorRequestId(error) &&
+            apiErrorStatus(error) === undefined
+              ? fallback
+              : apiErrorMessage(error, fallback),
+          );
         })
         .finally(() => {
-          if (!controller.signal.aborted) setFamilyLoading(false);
+          if (!controller.signal.aborted && familyRequestSeq.current === requestSeq) {
+            setFamilyLoading(false);
+          }
         });
     }, 250);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
+      familyMoreAbort.current?.abort();
+      familyRequestSeq.current += 1;
     };
   }, [authFetch, familySearch, familyRetryKey, locationId, t]);
+
+  const loadMoreFamilies = () => {
+    if (!familyNextCursor || familyLoading || familyLoadingMore ||
+        familySearch.trim().length === 1) return;
+    const requestSeq = familyRequestSeq.current;
+    const requestCursor = familyNextCursor;
+    const controller = new AbortController();
+    familyMoreAbort.current?.abort();
+    familyMoreAbort.current = controller;
+    setFamilyMoreError(null);
+    setFamilyLoadingMore(true);
+    const params = new URLSearchParams({
+      location_id: String(locationId),
+      limit: "50",
+      cursor: requestCursor,
+    });
+    const clean = familySearch.trim();
+    if (clean.length >= 2) params.set("search", clean);
+    void authFetch(`/warehouse/inventory/families?${params.toString()}`, {
+      signal: controller.signal,
+    })
+      .then((raw) => {
+        if (controller.signal.aborted || familyRequestSeq.current !== requestSeq) return;
+        const page = parseLiveStockFamilies(raw);
+        if (page.next_cursor === requestCursor) {
+          throw new Error("Non-advancing family cursor");
+        }
+        setFamilies((previous) => {
+          const seen = new Set(previous.map((item) => item.id));
+          return [...previous, ...page.items.filter((item) => !seen.has(item.id))];
+        });
+        setFamilyNextCursor(page.next_cursor);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted || familyRequestSeq.current !== requestSeq ||
+            (error instanceof Error && error.name === "AbortError")) return;
+        const fallback = t("inventoryLive.errors.familyLoadFailed");
+        setFamilyMoreError(
+          error instanceof Error &&
+          !apiErrorCode(error) &&
+          !apiErrorRequestId(error) &&
+          apiErrorStatus(error) === undefined
+            ? fallback
+            : apiErrorMessage(error, fallback),
+        );
+      })
+      .finally(() => {
+        if (familyMoreAbort.current === controller) familyMoreAbort.current = null;
+        if (!controller.signal.aborted && familyRequestSeq.current === requestSeq) {
+          setFamilyLoadingMore(false);
+        }
+      });
+  };
 
   const activeFilterCount = (stockState !== "all" ? 1 : 0) + indicators.length;
   const selectedFamily =
@@ -281,7 +347,12 @@ export function LiveStockFilters({
               </button>
             ) : null}
           </div>
-          <div className="live-stock-family-list custom-scrollbar">
+          <div
+            className="live-stock-family-list custom-scrollbar"
+            role="group"
+            aria-label={t("inventoryLive.familyTitle")}
+            aria-busy={familyLoading || familyLoadingMore}
+          >
             {familyLoading ? (
               <div className="live-stock-family-empty" role="status">{t("common.loading")}</div>
             ) : familyError ? (
@@ -295,28 +366,59 @@ export function LiveStockFilters({
                   {t("common.retry")}
                 </button>
               </div>
-            ) : familySearch.trim().length === 1 ? null : families.length === 0 ? (
-              <div className="live-stock-family-empty">{t("inventoryLive.familyNoMatches")}</div>
+            ) : familySearch.trim().length === 1 ? (
+              <div className="live-stock-family-empty" role="status">
+                {t("inventoryLive.familySearchMinLength")}
+              </div>
             ) : (
-              families.map((family) => (
-                <button
-                  key={family.id}
-                  type="button"
-                  className="live-stock-family-option"
-                  data-active={familyId === family.id}
-                  aria-pressed={familyId === family.id}
-                  onClick={() => {
-                    setSelectedFamilyOption(family);
-                    onFamilyChange(family.id);
-                  }}
-                >
-                  <span>
-                    <strong>{family.name}</strong>
-                    <small>{family.code}</small>
-                  </span>
-                  {familyId === family.id ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
-                </button>
-              ))
+              <>
+                {families.length === 0 ? (
+                  <div className="live-stock-family-empty">{t("inventoryLive.familyNoMatches")}</div>
+                ) : families.map((family) => (
+                  <button
+                    key={family.id}
+                    type="button"
+                    className="live-stock-family-option"
+                    data-active={familyId === family.id}
+                    aria-pressed={familyId === family.id}
+                    onClick={() => {
+                      setSelectedFamilyOption(family);
+                      onFamilyChange(family.id);
+                    }}
+                  >
+                    <span>
+                      <strong>{family.name}</strong>
+                      <small>{family.code}</small>
+                    </span>
+                    {familyId === family.id ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                  </button>
+                ))}
+                {familyNextCursor !== null && (
+                  <div className="live-stock-family-empty">
+                    {familyMoreError && (
+                      <p role="alert" className="mb-1">{familyMoreError}</p>
+                    )}
+                    <button
+                      type="button"
+                      className="live-stock-family-option"
+                      onClick={loadMoreFamilies}
+                      disabled={familyLoadingMore}
+                      aria-label={familyMoreError
+                        ? t("inventoryLive.familyRetryMore")
+                        : t("inventoryLive.familyLoadMore")}
+                    >
+                      {familyLoadingMore
+                        ? t("common.loading")
+                        : familyMoreError
+                          ? t("inventoryLive.familyRetryMore")
+                          : t("inventoryLive.familyLoadMore")}
+                    </button>
+                  </div>
+                )}
+                <div className="sr-only" role="status" aria-live="polite">
+                  {t("inventoryLive.familyLoadedCount", { count: families.length })}
+                </div>
+              </>
             )}
           </div>
         </PopoverContent>
