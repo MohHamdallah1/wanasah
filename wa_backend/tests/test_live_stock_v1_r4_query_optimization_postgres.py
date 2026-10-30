@@ -544,7 +544,7 @@ async def _acceptance():
 
             # The measured defect was a correlated point lookup once per search
             # member. Broad/short HEAD plans must eliminate that 50k-loop shape.
-            if name in {"broad_1", "broad_50", "short_200"}:
+            if name in {"broad_50", "short_200"}:
                 old_correlated = [
                     row for row in base_result["plan"]["relations"]
                     if row["catalog_correlated"]
@@ -555,6 +555,15 @@ async def _acceptance():
                     if row["catalog_correlated"]
                 ]
                 assert not new_correlated, (actor, name, head_result["plan"])
+            elif name == "broad_1":
+                # #661 measured this defect as singleton-probe overhead rather
+                # than a 50k correlated-loop shape. Keep the structural gate
+                # honest: HEAD must not introduce catalog-correlated lookup,
+                # while latency/buffers stay descriptive before/after evidence.
+                assert not [
+                    row for row in head_result["plan"]["relations"]
+                    if row["catalog_correlated"]
+                ], (actor, name, head_result["plan"])
 
             # Preserve #645's rare-search point-access result: no catalog-sized
             # ProductVariant work and a tenant/id point index remains visible.
