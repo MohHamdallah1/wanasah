@@ -86,6 +86,21 @@ def test_positive_stock_filters_drive_from_sparse_projection():
     assert "minimum_unset" in body
     assert ".outerjoin(projection" in body
 
+
+
+def test_vehicle_and_recall_filters_drive_the_page_from_materialized_ids():
+    source = SOURCE.read_text(encoding="utf-8")
+    node = _function(source, "get_warehouse_inventory")
+    body = ast.unparse(node)
+
+    assert "if has_vehicle or has_recalled" in body
+    assert "inventory_selective_filtered_ids" in body
+    assert "selective_filtered_ids.c.id == ProductVariant.id" in body
+    assert "ProductVariant.id.in_(filtered_ids)" in body
+    # Only measured selective filters bypass the ordinary membership path;
+    # other stock filters retain the existing candidate strategy.
+    assert "else:\n                candidate_filters.append(ProductVariant.id.in_(filtered_ids))" in body
+
 def test_unmodified_live_stock_query_families_stay_exact_base():
     current = SOURCE.read_text(encoding="utf-8")
     base = subprocess.check_output(
