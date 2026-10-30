@@ -24,11 +24,13 @@ from models import (
     InventoryMovement,
     InventoryTransferHeader,
 )
-from schemas import (
+from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
     StocktakeCountCommand,
     StocktakeRecountCommand,
     StocktakeStartCommand,
+)
+from schemas import (
     UnifiedDispatchRequest,
     UnifiedReceiveRequest,
     UnifiedTransferDecisionRequest,
