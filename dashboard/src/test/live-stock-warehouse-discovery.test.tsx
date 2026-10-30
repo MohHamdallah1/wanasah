@@ -140,8 +140,12 @@ describe("inventory scoped warehouse discovery integration", () => {
     expect(selector).toHaveValue("1");
     fireEvent.click(screen.getByRole("button", { name: "inventoryShell.nextWarehouses" }));
     await waitFor(() => expect(screen.getByRole("option", { name: "Warehouse 201" })).toBeInTheDocument());
-    fireEvent.change(selector, { target: { value: "201" } });
-    expect(selector).toHaveValue("201");
+    fireEvent.change(screen.getByRole("combobox", { name: "live-warehouse" }), {
+      target: { value: "201" },
+    });
+    await waitFor(() => expect(
+      screen.getByRole("combobox", { name: "live-warehouse" }),
+    ).toHaveValue("201"));
     expect(localStorage.getItem("inventory_selected_location:1")).toBe("201");
 
     expect(mocks.authFetch.mock.calls.map(([url]) => String(url))).not.toEqual(
