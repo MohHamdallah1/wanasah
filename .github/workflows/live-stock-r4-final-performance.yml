@@ -136,7 +136,7 @@ jobs:
         if: always()
         run: |
           mkdir -p /tmp/r4-final-evidence
-          docker stats --no-stream --format '{{json .}}' r4-perf-postgres > /tmp/r4-final-evidence/postgres-container-stats.json
+          docker stats --no-stream --format '{{json .}}' r4-perf-postgres | tee /tmp/r4-final-evidence/postgres-container-stats.json
 
       - name: Retain real HTTP, SQL, EXPLAIN and memory evidence
         if: always()

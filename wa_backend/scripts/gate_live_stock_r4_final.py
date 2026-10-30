@@ -157,6 +157,13 @@ async def acceptance():
         fixture, identities = await build(root, size, admin)
         report["fixture"] = fixture
         report["environment"] = await r4.metadata(engine, fixture)
+        print("R4_FINAL_ENVIRONMENT " + json.dumps({
+            "hardware": report["hardware_before"],
+            "runtime": report["environment"]["runtime"],
+            "postgres": report["environment"]["postgres"],
+            "stocked_variants": report["environment"]["stocked_variants"],
+            "rls": report["environment"]["rls"],
+            "runtime_sha256": report["runtime_sha256"]}, default=str), flush=True)
         report["inventory_before"] = await fingerprint(engine, fixture)
         tokens = await login(identities)
         specs = await specifications(engine, fixture)
@@ -180,8 +187,11 @@ async def acceptance():
                     "spec": spec, "implementation": label, "http": result["http"],
                     "sql_count": result["sql_count"], "returned_bytes": result["returned_bytes"],
                     "python_peak_bytes": result["python_one_request_peak_bytes_separate_from_latency"],
+                    "rss_high_water_kib": result["python_process_rss_high_water_kib"],
                     "artifact": result["artifact"], "payload_sha256": result["payload_sha256"],
-                    "plans": [{k: v for k, v in p.items() if k != "catalog_work_nodes"}
+                    "plans": [{**{k: v for k, v in p.items() if k != "catalog_work_nodes"},
+                               "largest_catalog_work_nodes": sorted(p["catalog_work_nodes"],
+                                   key=lambda n: n["emitted_plus_filter_rows_x_loops"], reverse=True)[:3]}
                               for p in result["plan_summary"]]}, default=str), flush=True)
                 save(root, report)
             assert len(signatures) == 1, ("membership/cursor/quantity parity", spec)
@@ -213,6 +223,11 @@ async def acceptance():
         raise
     finally:
         report["hardware_after"] = hardware()
+        print("R4_FINAL_RESOURCES " + json.dumps({
+            "hardware_after": report["hardware_after"],
+            "inventory_before": report.get("inventory_before"),
+            "inventory_after": report.get("inventory_after"),
+            "status": report["status"], "error": report.get("error")}, default=str), flush=True)
         save(root, report)
         await engine.dispose()
         await admin.dispose()
