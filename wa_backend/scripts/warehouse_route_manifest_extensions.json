@@ -228,6 +228,18 @@
       "status_code": "200",
       "response_model": "WholeProductQualityResolveResponse",
       "expected_module": "whole_product_quality"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/locations"
+      },
+      "method": "GET",
+      "path": "/warehouse/locations/selection",
+      "function": "discover_inventory_warehouse_selection",
+      "status_code": "200",
+      "response_model": null,
+      "expected_module": "locations"
     }
   ]
 }

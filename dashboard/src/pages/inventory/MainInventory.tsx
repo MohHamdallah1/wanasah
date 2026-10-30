@@ -146,6 +146,7 @@ interface WarehouseLocationPage {
   next_cursor: string | null;
   has_more: boolean;
   total: number | null;
+  selected?: WarehouseLocationOption | null;
 }
 
 type InventoryContractError = Error & { code: string };
@@ -218,11 +219,27 @@ const parseWarehouseLocationPage = (value: unknown): WarehouseLocationPage => {
       ? page.total
       : inventoryContractError("WAREHOUSE_LOCATION_RESPONSE_INVALID");
 
+  let selected: WarehouseLocationOption | null | undefined;
+  if ("selected" in page) {
+    if (page.selected === null) {
+      selected = null;
+    } else {
+      const parsedSelected = parseWarehouseLocationPage({
+        items: [page.selected],
+        next_cursor: null,
+        has_more: false,
+        total: null,
+      });
+      selected = parsedSelected.items[0];
+    }
+  }
+
   return {
     items,
     next_cursor: nextCursor,
     has_more: hasMore as boolean,
     total,
+    selected,
   };
 };
 
@@ -479,6 +496,24 @@ export default function MainInventory() {
   const stockSummaryRequestSeq = useRef(0);
   const stockSummaryAbortRef = useRef<AbortController | null>(null);
   const locationRequestSeq = useRef(0);
+  const locationAbortRef = useRef<AbortController | null>(null);
+  const [warehouseSearchInput, setWarehouseSearchInput] = useState("");
+  const [warehouseSearch, setWarehouseSearch] = useState("");
+  const [warehouseCursorTrail, setWarehouseCursorTrail] = useState<Array<string | null>>([null]);
+  const [warehouseNextCursor, setWarehouseNextCursor] = useState<string | null>(null);
+  const warehouseCursor = warehouseCursorTrail[warehouseCursorTrail.length - 1] ?? null;
+  useEffect(() => {
+    const clean = warehouseSearchInput.trim();
+    if (clean.length === 1) return;
+    const timer = window.setTimeout(() => {
+      const next = clean.length >= 2 ? clean : "";
+      if (next !== warehouseSearch) {
+        setWarehouseCursorTrail([null]);
+        setWarehouseSearch(next);
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [warehouseSearchInput, warehouseSearch]);
   const statusRequestSeq = useRef(0);
 
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
@@ -601,96 +636,107 @@ export default function MainInventory() {
   ]);
 
   const fetchLocations = useCallback(async () => {
-    if (!canAny('location.read')) return;
+    if (!canAny('inventory.read') && !canAny('location.read')) return;
     const requestSeq = ++locationRequestSeq.current;
+    locationAbortRef.current?.abort();
+    const controller = new AbortController();
+    locationAbortRef.current = controller;
     setLoadingLocations(true);
     setLocationError(false);
 
+    const savedRaw = localStorage.getItem(selectedLocationStorageKey);
+    const savedId = savedRaw ? Number(savedRaw) : null;
+    const currentId = selectedLocationIdRef.current;
+    const preferredId = (
+      savedId !== null && Number.isSafeInteger(savedId) && savedId > 0
+        ? savedId
+        : currentId
+    );
+    const params = new URLSearchParams({ limit: "100" });
+    if (warehouseSearch) params.set("search", warehouseSearch);
+    if (warehouseCursor) params.set("cursor", warehouseCursor);
+    if (preferredId !== null) {
+      params.set("selected_location_id", String(preferredId));
+    }
+
     try {
       const [locationsRaw, setupRaw] = await Promise.all([
-        authFetch("/warehouse/locations?include_inactive=false&limit=200"),
-        authFetch("/warehouse/setup-status"),
+        authFetch(`/warehouse/locations/selection?${params.toString()}`, {
+          signal: controller.signal,
+        }),
+        canAny('location.read')
+          ? authFetch("/warehouse/setup-status", { signal: controller.signal })
+          : Promise.resolve(null),
       ]);
       if (requestSeq !== locationRequestSeq.current) return;
 
       const page = parseWarehouseLocationPage(locationsRaw);
-      const setup = parseWarehouseSetupStatus(setupRaw);
-      if (page.items.length !== setup.accessible_warehouse_count && !page.has_more) {
-        inventoryContractError("WAREHOUSE_SETUP_RESPONSE_INVALID");
-      }
+      // The company-wide setup contract is management-only. Its location.read
+      // count is not interchangeable with this inventory-accessible selector.
+      const setup = setupRaw === null ? null : parseWarehouseSetupStatus(setupRaw);
+      const selected = page.selected?.id === preferredId ? page.selected : null;
+      const options = selected && !page.items.some((item) => item.id === selected.id)
+        ? [selected, ...page.items]
+        : page.items;
 
-      setLocations(page.items);
+      setLocations(options);
       setWarehouseSetup(setup);
       setLocationsTruncated(page.has_more);
+      setWarehouseNextCursor(page.next_cursor);
 
-      const savedRaw = localStorage.getItem(selectedLocationStorageKey);
-      const savedId = savedRaw ? Number(savedRaw) : null;
-      const currentId = selectedLocationIdRef.current;
-      const savedIsValid =
-        savedId !== null &&
-        Number.isSafeInteger(savedId) &&
-        page.items.some((location) => location.id === savedId);
-      const currentIsValid =
-        currentId !== null &&
-        page.items.some((location) => location.id === currentId);
-
-      const nextLocationId = savedIsValid
-        ? savedId
-        : currentIsValid
-          ? currentId
-          : page.items[0]?.id ?? null;
-
+      const nextLocationId = selected?.id ?? page.items[0]?.id ?? null;
       if (nextLocationId !== currentId) {
         prepareLocationChange(nextLocationId);
         selectedLocationIdRef.current = nextLocationId;
         setSelectedLocationId(nextLocationId);
       }
-
       if (nextLocationId !== null) {
-        localStorage.setItem(
-          selectedLocationStorageKey,
-          String(nextLocationId),
-        );
-      } else if (savedRaw !== null) {
+        localStorage.setItem(selectedLocationStorageKey, String(nextLocationId));
+      } else {
         localStorage.removeItem(selectedLocationStorageKey);
       }
     } catch (error: unknown) {
       if (requestSeq !== locationRequestSeq.current) return;
-
-      if (warehouseSetupRef.current === null) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      const rejected = (error as { status?: number } | null)?.status === 403;
+      if (rejected || (selectedLocationIdRef.current === null && warehouseSetupRef.current === null)) {
+        if (rejected) clearInventoryWarmScope(warmScopeKey);
         setLocations([]);
         setWarehouseSetup(null);
         setLocationsTruncated(false);
+        setWarehouseNextCursor(null);
         prepareLocationChange(null);
         selectedLocationIdRef.current = null;
         setSelectedLocationId(null);
+        localStorage.removeItem(selectedLocationStorageKey);
         setLocationError(true);
       } else {
-        // Background revalidation must not destroy a valid warm view.
+        // Recoverable refresh failure keeps the last validated warm selector.
         setLocationError(false);
       }
       toast.error(
-        apiErrorMessage(
-          error,
-          t("inventoryShell.errors.locationsLoadFailed"),
-        ),
+        apiErrorMessage(error, t("inventoryShell.errors.locationsLoadFailed")),
       );
     } finally {
-      if (requestSeq === locationRequestSeq.current) {
-        setLoadingLocations(false);
-      }
+      if (locationAbortRef.current === controller) locationAbortRef.current = null;
+      if (requestSeq === locationRequestSeq.current) setLoadingLocations(false);
     }
-  }, [authFetch, canAny, prepareLocationChange, selectedLocationStorageKey, t]);
+  }, [
+    authFetch, canAny, prepareLocationChange, selectedLocationStorageKey,
+    t, warehouseCursor, warehouseSearch, warmScopeKey,
+  ]);
 
   useEffect(() => {
     if (!access.isSuccess) return;
 
-    if (!canAny('location.read')) {
+    if (!canAny('inventory.read') && !canAny('location.read')) {
       locationRequestSeq.current += 1;
+      locationAbortRef.current?.abort();
       clearInventoryWarmScope(warmScopeKey);
       setLocations([]);
       setWarehouseSetup(null);
       setLocationsTruncated(false);
+      setWarehouseNextCursor(null);
       prepareLocationChange(null);
       selectedLocationIdRef.current = null;
       setSelectedLocationId(null);
@@ -1150,6 +1196,8 @@ export default function MainInventory() {
 
   useEffect(() => {
     return () => {
+      locationRequestSeq.current += 1;
+      locationAbortRef.current?.abort();
       statusRequestSeq.current += 1;
       stockRequestSeq.current += 1;
       stockAbortRef.current?.abort();
@@ -1202,7 +1250,7 @@ export default function MainInventory() {
       }} />;
   }
 
-  if (loadingLocations && warehouseSetup === null) {
+  if (loadingLocations && warehouseSetup === null && selectedLocationId === null) {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
         <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
@@ -1343,10 +1391,43 @@ export default function MainInventory() {
         </div>
       )}
 
-      {locationsTruncated && (
-        <p role="status" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
-          {t("inventoryShell.locationsTruncated")}
-        </p>
+      {(locationsTruncated || warehouseCursorTrail.length > 1 || warehouseSearchInput.length > 0) && (
+        <div className="inventory-alert-banner flex flex-wrap items-center gap-2 px-4 py-2 text-sm font-bold">
+          <label className="flex min-w-[180px] flex-1 items-center gap-2">
+            <span>{t("inventoryShell.warehouseSearch")}</span>
+            <input
+              type="search"
+              value={warehouseSearchInput}
+              onChange={(event) => setWarehouseSearchInput(event.target.value)}
+              maxLength={100}
+              aria-label={t("inventoryShell.warehouseSearch")}
+              className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={loadingLocations || warehouseCursorTrail.length <= 1}
+            onClick={() => setWarehouseCursorTrail((trail) => trail.slice(0, -1))}
+            className="rounded-lg border px-2 py-1 disabled:opacity-50"
+          >
+            {t("inventoryShell.previousWarehouses")}
+          </button>
+          <button
+            type="button"
+            disabled={loadingLocations || !warehouseNextCursor}
+            onClick={() => {
+              if (warehouseNextCursor) {
+                setWarehouseCursorTrail((trail) => [...trail, warehouseNextCursor]);
+              }
+            }}
+            className="rounded-lg border px-2 py-1 disabled:opacity-50"
+          >
+            {t("inventoryShell.nextWarehouses")}
+          </button>
+          {locationsTruncated ? (
+            <span role="status">{t("inventoryShell.locationsTruncated")}</span>
+          ) : null}
+        </div>
       )}
       {locationAccess.isError && selectedLocationId !== null && (
         <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
