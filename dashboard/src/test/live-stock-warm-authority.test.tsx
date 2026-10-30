@@ -5,6 +5,7 @@ import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 
 const state = vi.hoisted(() => ({
   authFetch: vi.fn(),
+  stablePermission: vi.fn<(code: string) => boolean>(),
   scope: "1",
   principal: "75",
   actor: "75",
@@ -35,8 +36,8 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
       isSuccess: success, isPending: pending, isFetching: fetching,
       isError: error, isFetchedAfterMount: success && !pending && !fetching,
       error: error ? Object.assign(new Error("authorization-check-failed"), { status: state.errorStatus }) : null,
-      can: (code: string) => permitted && code === "inventory.read",
-      canAny: (code: string) => permitted && code === "inventory.read",
+      can: state.stablePermission,
+      canAny: state.stablePermission,
       isCompanyOwner: false, refetch: vi.fn(),
       data: success ? {
         company_id: Number(state.scope), principal_id: Number(state.principal),
@@ -140,6 +141,10 @@ beforeEach(() => {
     locationError: false, errorStatus: 403, globalPending: false, globalFetching: false,
     globalSuccess: true, globalError: false, permission: true, locale: "en" });
   state.authFetch.mockReset();
+  state.stablePermission.mockReset();
+  state.stablePermission.mockImplementation(
+    (code) => state.permission && code === "inventory.read",
+  );
 });
 afterEach(() => { cleanup(); clearInventoryWarmScope("1:75:75"); clearInventoryWarmScope("1:75"); });
 
