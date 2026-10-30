@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorMessage, apiErrorStatus } from "@/lib/apiErrors";
 import {
   parseBatchDetailResponse,
   type WarehouseBatchDetailResponse,
@@ -22,6 +22,7 @@ type LoadError = {
 export function useLiveStockBatchDetail(
   locationId: number,
   fallbackMessage: string,
+  staleMessage: string,
 ) {
   const authFetch = useAuthFetch();
   const [product, setProduct] = useState<WarehouseProduct | null>(null);
@@ -31,6 +32,7 @@ export function useLiveStockBatchDetail(
   const [sourceByBatch, setSourceByBatch] = useState<
     Record<number, LiveStockWarehouseSource>
   >({});
+  const [sourceOpenId, setSourceOpenId] = useState<number | null>(null);
   const [sourceLoadingId, setSourceLoadingId] = useState<number | null>(null);
   const [sourceErrorId, setSourceErrorId] = useState<number | null>(null);
 
@@ -55,6 +57,7 @@ export function useLiveStockBatchDetail(
     setLoading(false);
     setLoadError(null);
     setSourceByBatch({});
+    setSourceOpenId(null);
     setSourceLoadingId(null);
     setSourceErrorId(null);
   }, [stopRequests]);
@@ -114,9 +117,19 @@ export function useLiveStockBatchDetail(
       } catch (error: unknown) {
         if (sequence !== requestSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
+        if (apiErrorStatus(error) === 403) {
+          // A revoked read must not leave formerly authorized evidence visible.
+          sourceSeq.current += 1;
+          sourceAbort.current?.abort();
+          setSourceByBatch({});
+          setSourceOpenId(null);
+          setSourceLoadingId(null);
+          setSourceErrorId(null);
+          setPage(null);
+        }
         setLoadError({
           message: apiErrorMessage(error, fallbackMessage),
-          kind: append ? "continuation" : "initial",
+          kind: apiErrorStatus(error) === 403 ? "initial" : append ? "continuation" : "initial",
         });
       } finally {
         if (requestAbort.current === controller) requestAbort.current = null;
@@ -126,12 +139,47 @@ export function useLiveStockBatchDetail(
     [authFetch, fallbackMessage, locationId],
   );
 
+  const refresh = useCallback(
+    (selected?: WarehouseProduct) => {
+      const current = selected ?? product;
+      if (!current) return;
+      stopRequests();
+      setProduct(current);
+      setPage(null);
+      setLoadError(null);
+      setLoading(false);
+      setSourceByBatch({});
+      setSourceOpenId(null);
+      setSourceLoadingId(null);
+      setSourceErrorId(null);
+      // Detail is an independent bounded read; never imply the list and detail
+      // are one database snapshot or retain old source evidence as verified.
+      void readPage(current, null, false);
+    },
+    [product, readPage, stopRequests],
+  );
+
+  const invalidate = useCallback(() => {
+    if (!product) return;
+    stopRequests();
+    setPage(null);
+    setLoading(false);
+    setLoadError({ message: staleMessage, kind: "initial" });
+    setSourceByBatch({});
+    setSourceOpenId(null);
+    setSourceLoadingId(null);
+    setSourceErrorId(null);
+  }, [product, staleMessage, stopRequests]);
+
   const open = useCallback(
     (selected: WarehouseProduct) => {
       stopRequests();
       setProduct(selected);
       setPage(null);
+      setLoadError(null);
+      setLoading(false);
       setSourceByBatch({});
+      setSourceOpenId(null);
       setSourceLoadingId(null);
       setSourceErrorId(null);
       void readPage(selected, null, false);
@@ -154,19 +202,19 @@ export function useLiveStockBatchDetail(
     void readPage(product, page.next_cursor, true);
   }, [loading, page?.next_cursor, product, readPage]);
 
-  const loadSource = useCallback(
-    async (batchId: number) => {
-      if (!product || sourceByBatch[batchId]) return;
+  const fetchSource = useCallback(
+    async (batchId: number, selected: WarehouseProduct) => {
       const sequence = ++sourceSeq.current;
       sourceAbort.current?.abort();
       const controller = new AbortController();
       sourceAbort.current = controller;
+      setSourceByBatch({});
       setSourceLoadingId(batchId);
       setSourceErrorId(null);
       try {
         const raw = await authFetch(
           `/warehouse/inventory/${encodeURIComponent(
-            String(product.id),
+            String(selected.id),
           )}/batches/${encodeURIComponent(
             String(batchId),
           )}/source?location_id=${encodeURIComponent(String(locationId))}`,
@@ -176,22 +224,68 @@ export function useLiveStockBatchDetail(
         const parsed = parseLiveStockWarehouseSource(raw);
         if (
           parsed.location_id !== locationId ||
-          parsed.product_variant_id !== product.id ||
+          parsed.product_variant_id !== selected.id ||
           parsed.batch_id !== batchId
         ) {
           throw new Error("LIVE_STOCK_SOURCE_RESPONSE_INVALID");
         }
-        setSourceByBatch((current) => ({ ...current, [batchId]: parsed }));
+        setSourceByBatch({ [batchId]: parsed });
       } catch (error: unknown) {
         if (sequence !== sourceSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
-        setSourceErrorId(batchId);
+        if (apiErrorStatus(error) === 403) {
+          // Source revocation invalidates the entire displayed batch evidence.
+          stopRequests();
+          setPage(null);
+          setLoading(false);
+          setLoadError({ message: apiErrorMessage(error, fallbackMessage), kind: "initial" });
+          setSourceByBatch({});
+          setSourceOpenId(null);
+          setSourceLoadingId(null);
+          setSourceErrorId(null);
+        } else {
+          setSourceErrorId(batchId);
+        }
       } finally {
         if (sourceAbort.current === controller) sourceAbort.current = null;
         if (sequence === sourceSeq.current) setSourceLoadingId(null);
       }
     },
-    [authFetch, locationId, product, sourceByBatch],
+    [authFetch, fallbackMessage, locationId, stopRequests],
+  );
+
+  const loadSource = useCallback(
+    (batchId: number) => {
+      if (!product || !page?.batches.some((batch) => batch.batch_id === batchId)) return;
+      if (sourceOpenId === batchId) {
+        sourceSeq.current += 1;
+        sourceAbort.current?.abort();
+        sourceAbort.current = null;
+        setSourceOpenId(null);
+        setSourceLoadingId(null);
+        setSourceErrorId(null);
+        setSourceByBatch({});
+        return;
+      }
+      setSourceOpenId(batchId);
+      // Reopening always revalidates. Cache is presentation state, not proof
+      // that a source remains accessible or has unchanged quantities.
+      void fetchSource(batchId, product);
+    },
+    [fetchSource, page?.batches, product, sourceOpenId],
+  );
+
+  const retrySource = useCallback(
+    (batchId: number) => {
+      if (
+        !product ||
+        sourceOpenId !== batchId ||
+        sourceLoadingId === batchId ||
+        !page?.batches.some((batch) => batch.batch_id === batchId)
+      ) return;
+      void fetchSource(batchId, product);
+    },
+    [fetchSource, page?.batches, product, sourceLoadingId, sourceOpenId],
   );
 
   return {
@@ -200,12 +294,16 @@ export function useLiveStockBatchDetail(
     loading,
     loadError,
     sourceByBatch,
+    sourceOpenId,
     sourceLoadingId,
     sourceErrorId,
     open,
     close,
+    refresh,
+    invalidate,
     retry,
     loadMore,
     loadSource,
+    retrySource,
   };
 }

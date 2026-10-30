@@ -12,6 +12,7 @@ import { LiveStockFilters } from "./liveStock/LiveStockFilters";
 import { LiveStockMobileCards } from "./liveStock/LiveStockMobileCards";
 import { LiveStockTable } from "./liveStock/LiveStockTable";
 import { LiveStockWarehouseContext } from "./liveStock/LiveStockWarehouseContext";
+import { getLiveStockCp7Copy } from "./liveStock/i18n";
 import { useLiveStockBatchDetail } from "./liveStock/useLiveStockBatchDetail";
 
 interface Props {
@@ -66,13 +67,94 @@ export function Tab1LiveStock({
   onFamilyChange,
   onLoadMore,
 }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const detail = useLiveStockBatchDetail(
     locationId,
     t("inventoryLive.errors.batchLoadFailed"),
+    getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language).staleBatchDetails,
   );
+
+  const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
+  const selectionRead = useRef<{
+    locationId: number; productId: number | null;
+    syncedAt: number | null; wasVisible: boolean;
+  }>({ locationId, productId: null, syncedAt: null, wasVisible: false });
+  const listSelected = detail.product
+    ? products.find((item) => item.id === detail.product?.id)
+    : undefined;
+
+  const refreshWithDetail = () => {
+    if (detail.product) {
+      pendingManualRefresh.current = {
+        locationId,
+        syncedAt: lastSync?.getTime() ?? null,
+      };
+      // Invalidate immediately. Old batch/source evidence must not look newly
+      // verified while the stock list refresh is pending or fails.
+      detail.invalidate();
+    }
+    onRefresh();
+  };
+
+  useEffect(() => {
+    const current = detail.product;
+    const stamp = lastSync?.getTime() ?? null;
+    const prior = selectionRead.current;
+    if (!current) {
+      pendingManualRefresh.current = null;
+      selectionRead.current = {
+        locationId, productId: null, syncedAt: stamp, wasVisible: false,
+      };
+      return;
+    }
+    if (prior.locationId !== locationId || prior.productId !== current.id) {
+      selectionRead.current = {
+        locationId, productId: current.id,
+        syncedAt: stamp, wasVisible: Boolean(listSelected),
+      };
+    }
+
+    const pending = pendingManualRefresh.current;
+    if (pending) {
+      if (pending.locationId !== locationId) {
+        pendingManualRefresh.current = null;
+        return;
+      }
+      if (pageError && !loading) {
+        // Preserve the explicit stale/retry state instead of showing old data.
+        pendingManualRefresh.current = null;
+        return;
+      }
+      if (!loading && stamp !== pending.syncedAt && stamp !== null) {
+        pendingManualRefresh.current = null;
+        selectionRead.current = {
+          locationId, productId: current.id,
+          syncedAt: stamp, wasVisible: Boolean(listSelected),
+        };
+        detail.refresh(listSelected ?? current);
+      }
+      return;
+    }
+
+    // An unrelated re-render and cursor append never refresh an open batch.
+    // Revalidate once when a newly fetched list changes (or drops) its
+    // previously visible selected row, without repeatedly fetching on later pages.
+    const previous = selectionRead.current;
+    if (!loading && !pageError && stamp !== previous.syncedAt) {
+      selectionRead.current = {
+        locationId, productId: current.id,
+        syncedAt: stamp, wasVisible: Boolean(listSelected),
+      };
+      if (
+        (listSelected && listSelected !== current) ||
+        (!listSelected && previous.wasVisible)
+      ) {
+        detail.refresh(listSelected ?? current);
+      }
+    }
+  }, [detail.product, detail.refresh, lastSync, listSelected, locationId, loading, pageError]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -128,7 +210,7 @@ export function Tab1LiveStock({
             isAuditLocked={isAuditLocked}
             loading={loading}
             onLocationChange={onLocationChange}
-            onRefresh={onRefresh}
+            onRefresh={refreshWithDetail}
           />
         </div>
 
@@ -235,12 +317,14 @@ export function Tab1LiveStock({
         loading={detail.loading}
         error={detail.loadError}
         sourceByBatch={detail.sourceByBatch}
+        sourceOpenId={detail.sourceOpenId}
         sourceLoadingId={detail.sourceLoadingId}
         sourceErrorId={detail.sourceErrorId}
         onClose={detail.close}
         onRetry={detail.retry}
         onLoadMore={detail.loadMore}
         onLoadSource={detail.loadSource}
+        onRetrySource={detail.retrySource}
       />
     </div>
   );

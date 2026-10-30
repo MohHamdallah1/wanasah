@@ -6,6 +6,8 @@ export type LiveStockCp7Copy = {
   sourceEvidence: string;
   sourceLoading: string;
   sourceUnavailable: string;
+  freshnessNotice: string;
+  staleBatchDetails: string;
   sourceWarehouse: string;
   loadMore: string;
   continuationFailed: string;
@@ -34,6 +36,8 @@ const ar: LiveStockCp7Copy = {
   sourceEvidence: "مصدر الرصيد والحجوزات",
   sourceLoading: "جاري تحميل دليل المصدر...",
   sourceUnavailable: "تعذر تحميل دليل المصدر لهذا المستودع.",
+  freshnessNotice: "القائمة والتشغيلات ودليل المصدر قراءات مستقلة؛ قد تتغير الكميات بعد جلبها. حدّث للتحقق.",
+  staleBatchDetails: "تفاصيل التشغيلات السابقة لم تعد مؤكدة بعد التحديث. أعد المحاولة للتحقق.",
   sourceWarehouse: "المستودع",
   loadMore: "تحميل المزيد",
   continuationFailed: "تعذر تحميل بقية التشغيلات. البيانات المحملة ما زالت ظاهرة.",
@@ -76,6 +80,8 @@ const en: LiveStockCp7Copy = {
   sourceEvidence: "Stock source and reservations",
   sourceLoading: "Loading source evidence...",
   sourceUnavailable: "Source evidence could not be loaded for this warehouse.",
+  freshnessNotice: "The list, batches and source evidence are separate reads. Quantities can change after retrieval; refresh to verify.",
+  staleBatchDetails: "Previous batch details are no longer verified after refresh. Retry to check.",
   sourceWarehouse: "Warehouse",
   loadMore: "Load more",
   continuationFailed: "More batches could not be loaded. Loaded data is still available.",

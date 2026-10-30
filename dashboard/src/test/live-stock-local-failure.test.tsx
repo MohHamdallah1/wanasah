@@ -1,9 +1,11 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
 } from "@testing-library/react";
 import {
+  afterEach,
   describe,
   expect,
   it,
@@ -16,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     next_cursor: null,
     has_more: false,
   }),
+  t: (key: string) => key,
 }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
@@ -33,7 +36,7 @@ vi.mock(
     return {
       ...actual,
       useTranslation: () => ({
-        t: (key: string) => key,
+        t: mocks.t,
         i18n: {
           language: "en",
           resolvedLanguage: "en",
@@ -54,6 +57,8 @@ vi.stubGlobal(
   "IntersectionObserver",
   IntersectionObserverStub,
 );
+
+afterEach(cleanup);
 
 import { Tab1LiveStock } from "../pages/inventory/Tab1LiveStock";
 import type { WarehouseProduct } from "../pages/inventory/liveStock/contracts";

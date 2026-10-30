@@ -22,12 +22,14 @@ type Props = {
   loading: boolean;
   error: { message: string; kind: "initial" | "continuation" } | null;
   sourceByBatch: Record<number, LiveStockWarehouseSource>;
+  sourceOpenId?: number | null;
   sourceLoadingId: number | null;
   sourceErrorId: number | null;
   onClose: () => void;
   onRetry: () => void;
   onLoadMore: () => void;
   onLoadSource: (batchId: number) => void;
+  onRetrySource?: (batchId: number) => void;
 };
 
 const dateText = (value: string | null, locale: string): string => {
@@ -52,12 +54,14 @@ export function BatchDetailPanel({
   loading,
   error,
   sourceByBatch,
+  sourceOpenId = null,
   sourceLoadingId,
   sourceErrorId,
   onClose,
   onRetry,
   onLoadMore,
   onLoadSource,
+  onRetrySource,
 }: Props) {
   const { t, i18n } = useTranslation();
   const locale = resolveI18nLocale(i18n);
@@ -125,8 +129,14 @@ export function BatchDetailPanel({
           </p>
         ) : null}
 
+        {batches.length > 0 && !loading ? (
+          <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
+        ) : null}
+
         {batches.map((batch) => {
-          const source = sourceByBatch[batch.batch_id];
+          const expanded = sourceOpenId === batch.batch_id;
+          const source = expanded ? sourceByBatch[batch.batch_id] : undefined;
+          const evidenceId = `live-stock-source-${product.id}-${batch.batch_id}`;
           return (
             <article
               key={batch.batch_id}
@@ -179,24 +189,25 @@ export function BatchDetailPanel({
                 <button
                   type="button"
                   onClick={() => onLoadSource(batch.batch_id)}
-                  aria-expanded={Boolean(source)}
+                  aria-expanded={expanded}
+                  aria-controls={source ? evidenceId : undefined}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                 >
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
                   {copy.sourceEvidence}
                 </button>
 
-                {sourceLoadingId === batch.batch_id ? (
+                {expanded && sourceLoadingId === batch.batch_id ? (
                   <p role="status" className="mt-2 text-xs font-bold text-slate-500">
                     {copy.sourceLoading}
                   </p>
                 ) : null}
-                {sourceErrorId === batch.batch_id ? (
+                {expanded && sourceErrorId === batch.batch_id ? (
                   <div role="alert" className="mt-2 flex flex-wrap items-center gap-2 text-xs font-bold text-red-700">
                     <span>{copy.sourceUnavailable}</span>
                     <button
                       type="button"
-                      onClick={() => onLoadSource(batch.batch_id)}
+                      onClick={() => (onRetrySource ?? onLoadSource)(batch.batch_id)}
                       className="rounded-md border border-red-200 bg-white px-2 py-1"
                     >
                       {copy.retry}
@@ -205,7 +216,7 @@ export function BatchDetailPanel({
                 ) : null}
 
                 {source ? (
-                  <div className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <div id={evidenceId} className="mt-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-xs font-black text-slate-800">
                       {copy.sourceWarehouse}: {source.location_name}
                     </p>
