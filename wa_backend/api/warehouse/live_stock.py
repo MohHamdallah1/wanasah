@@ -634,21 +634,14 @@ def _live_stock_filtered_variant_ids_stmt(
     projected_damaged = func.coalesce(projection.damaged_packs, 0)
     projected_recalled = func.coalesce(projection.recalled_packs, 0)
 
-    lifecycle_status = (
-        projection.lifecycle_status
-        if projection_guaranteed
-        else variant.lifecycle_status
-    )
-    operational_hold = (
-        projection.operational_hold
-        if projection_guaranteed
-        else variant.operational_hold
-    )
+    # ProductVariant remains lifecycle/hold authority exactly as before.
+    # The projection is only the bounded driving set for predicates that prove
+    # its row must exist.
     effective_sellable = case(
         (
             and_(
-                lifecycle_status == "ACTIVE",
-                operational_hold == "NONE",
+                variant.lifecycle_status == "ACTIVE",
+                variant.operational_hold == "NONE",
             ),
             projected_sellable_on_hand - projected_sellable_reserved,
         ),
@@ -727,6 +720,13 @@ def _live_stock_filtered_variant_ids_stmt(
     if projection_guaranteed:
         return (
             select(projection.product_variant_id)
+            .join(
+                variant,
+                and_(
+                    variant.company_id == projection.company_id,
+                    variant.id == projection.product_variant_id,
+                ),
+            )
             .where(
                 projection.company_id == company_id,
                 projection.warehouse_location_id == location_id,
