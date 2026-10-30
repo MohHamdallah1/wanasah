@@ -708,6 +708,7 @@ export default function MainInventory() {
         prepareLocationChange(null);
         selectedLocationIdRef.current = null;
         setSelectedLocationId(null);
+        localStorage.removeItem(selectedLocationStorageKey);
         setLocationError(true);
       } else {
         // Recoverable refresh failure keeps the last validated warm selector.
