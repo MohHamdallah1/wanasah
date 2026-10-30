@@ -303,6 +303,7 @@ describe("CP7 Live Stock Dashboard closure", () => {
         loading={false}
         error={null}
         sourceByBatch={{ 71: parsed }}
+        sourceOpenId={71}
         sourceLoadingId={null}
         sourceErrorId={null}
         onClose={vi.fn()}
