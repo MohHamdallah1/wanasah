@@ -1,0 +1,114 @@
+name: Live Stock R1 PostgreSQL integrity proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/live_stock_r1_support.py"
+      - "wa_backend/tests/test_live_stock_r1_*_postgres.py"
+      - ".github/workflows/live-stock-r1-integrity-proof.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-r1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-proof:
+    name: R1 ${{ matrix.part }} PostgreSQL gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [movement, snapshot]
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: R1IsolatedPostgresOnlyKeyAbc1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_R1_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify production runtime is unchanged from assigned base
+        run: |
+          git diff --exit-code 59b760b59b21b0438ba920067d58b5face2555e9 HEAD -- \
+            wa_backend/api/warehouse/live_stock.py \
+            wa_backend/services.py wa_backend/domains/live_stock_projection \
+            wa_backend/domains/inventory_costing wa_backend/database.py
+      - name: Install focused test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+      - name: Compile only R1 test files
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile tests/live_stock_r1_support.py
+          tests/test_live_stock_r1_movement_postgres.py
+          tests/test_live_stock_r1_snapshot_postgres.py
+      - name: Start ephemeral PostgreSQL 16 on this hosted runner
+        run: |
+          docker run --detach --name r1-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec r1-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs r1-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate only the disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant runtime DML and synthetic fixture permissions
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: Run real PostgreSQL R1 ${{ matrix.part }} tests
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_r1_${{ matrix.part }}_postgres.py
+          --junitxml=r1-${{ matrix.part }}.xml
+      - name: Retain test evidence even when the integrity gate fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r1-${{ matrix.part }}-${{ github.sha }}
+          path: wa_backend/r1-${{ matrix.part }}.xml
+          if-no-files-found: warn
