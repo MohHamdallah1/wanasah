@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+from decimal import Decimal
 from pathlib import Path
 import statistics
 import subprocess
@@ -375,6 +376,7 @@ async def _acceptance():
     fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
     await r4.enrich_fixture(fixture)
     fixture["products"] = r4.seed.PRODUCTS
+    fixture["rare_search"] = "049999"
     fixture_path.write_text(json.dumps(fixture, indent=2), encoding="utf-8")
 
     base_source, current_source = _sources()
@@ -533,8 +535,8 @@ async def _acceptance():
             if name == "combined_50":
                 assert all(
                     row["is_low_stock"]
-                    and float(row["reserved_quantity"]) > 0
-                    and float(row["damaged_quantity"]) > 0
+                    and Decimal(row["reserved_quantity"]) > 0
+                    and Decimal(row["damaged_quantity"]) > 0
                     for row in head_result["payload"]["items"]
                 )
             if name == "empty_vehicle":
