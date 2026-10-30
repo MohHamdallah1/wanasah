@@ -80,12 +80,25 @@ import {
   writeInventoryShellWarmSnapshot,
 } from "@/pages/inventory/inventorySessionCache";
 
-const item = { id: 41, name: "PRIVATE_STOCK_ROW", average_cost_display: "SECRET_COST_123" } as WarehouseProduct;
+const item: WarehouseProduct = {
+  id: 41, name: "PRIVATE_STOCK_ROW", sku: "SECRET-SKU", product_id: 1,
+  family_name: "Private family", base_uom_id: 1, base_uom_code: "EA",
+  base_uom_name: "Each", display_uom_id: 1, display_uom_code: "EA",
+  display_uom_name: "Each", display_factor_to_base: "1", currency_code: "JOD",
+  average_cost_display: "123.000000", last_purchase_cost: "123.000000",
+  last_purchase_uom_code: "EA", last_purchase_date: "2026-10-15",
+  quantity_scale: 6, quantity_step: "0.000001", on_hand_quantity: "10",
+  reserved_quantity: "0", available_for_sale_quantity: "10",
+  unavailable_quantity: "0", vehicle_quantity: "0", recalled_quantity: "0",
+  available_quantity: "10", blocked_quantity: "0", total_quantity: "10",
+  damaged_quantity: "0", minimum_quantity: "0",
+};
 const loc = { id: 101, name: "Warehouse 101", code: "W101" };
 const shell = { locations: [loc], locationsTruncated: false,
   selectedLocationId: 101, setup: { warehouse_ready: true, active_warehouse_count: 1,
     accessible_warehouse_count: 1, can_create: false } };
-const resultPage = { items: [], next_cursor: null, has_more: false, total: null };
+const resultPage = { items: [] as WarehouseProduct[], next_cursor: null,
+  has_more: false, total: null, alert_count: null, alert_samples: [] as string[] };
 const warehousePage = { items: [loc], next_cursor: null, has_more: false, selected: loc, total: 1 };
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
@@ -137,7 +150,7 @@ describe("UI-04: cache is never its own access authority", () => {
     fakeServer({ selection: selection.promise });
     mount();
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/SECRET_COST_123/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/123.000000/)).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.warmUnverified");
   });
 
