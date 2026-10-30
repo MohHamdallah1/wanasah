@@ -734,12 +734,14 @@ export default function MainInventory() {
       setWarehouseNextCursor(page.next_cursor);
 
       const nextLocationId = selected?.id ?? page.items[0]?.id ?? null;
-      setServerVerifiedLocationId(nextLocationId);
       if (nextLocationId !== currentId) {
         prepareLocationChange(nextLocationId);
         selectedLocationIdRef.current = nextLocationId;
         setSelectedLocationId(nextLocationId);
       }
+      // The backend selector response, not the warm shell, authorizes
+      // offering this warehouse to the user for the current request.
+      setServerVerifiedLocationId(nextLocationId);
       if (nextLocationId !== null) {
         localStorage.setItem(selectedLocationStorageKey, String(nextLocationId));
       } else {
