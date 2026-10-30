@@ -1,0 +1,53 @@
+name: Live Stock UI-04 warm authority acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/pages/inventory/inventorySessionCache.ts"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-warm-authority.test.tsx"
+      - ".github/workflows/live-stock-ui04-warm-authority-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-ui04-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: UI-04 authority/race scenarios
+        working-directory: dashboard
+        run: npm test -- src/test/live-stock-warm-authority.test.tsx --reporter=verbose
+      - name: Existing Live Stock, warehouse, cache and accessibility regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/live-stock-warehouse-discovery.test.tsx
+          src/test/inventory-session-cache.test.ts
+          src/test/inventory-cp7-live-stock.test.tsx
+          --reporter=verbose
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
