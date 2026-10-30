@@ -683,7 +683,11 @@ async def test_f2_exact_quarantined_10_hold_recall_denial_audit_and_rollback(pg)
     await _assert_f2_source(pg, tenant, batch_id, tenant.ordinary)
 
     final = await _f2_fingerprint(pg, tenant, batch_id)
-    assert final["balances"] == (("QUARANTINED", Decimal("10"), Decimal("0")),)
+    assert final["balances"] == (
+        ("AVAILABLE", Decimal("0"), Decimal("0")),
+        ("QUARANTINED", Decimal("10"), Decimal("0")),
+    )
+    assert sum((row[1] for row in final["balances"]), Decimal("0")) == F2_QUARANTINED
     assert final["cost_events"] == 1
 
     print(
