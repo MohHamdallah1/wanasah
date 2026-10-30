@@ -50,6 +50,7 @@ jobs:
       WANASAH_FIELD_CONTRACT_PG_GATE: "1"
       WANASAH_RETURN_COST_FIDELITY_PG_GATE: "1"
       WANASAH_RETURN_COST_FIDELITY_METHOD: ${{ matrix.method }}
+      WANASAH_REMAINING_ACCOUNTING_PG_GATE: "1"
       PYTHONPATH: ".:tests"
 
     defaults:
@@ -77,6 +78,7 @@ jobs:
             api/driver.py \
             domains/inventory_costing/service.py \
             tests/test_return_cost_fidelity_c3_c5_postgres.py \
+            tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py \
             tests/test_costed_driver_customer_return_c2_db.py \
             tests/test_costed_driver_sale_correction_real_c2_db.py \
             tests/test_legacy_field_transport_boundary.py \
@@ -135,6 +137,13 @@ jobs:
       - name: Seed isolated synthetic FIELD fixture
         run: python -m tests.field_contract_postgres_fixture
 
+      - name: Merged #668 continuous accounting test before expectation reconciliation
+        if: matrix.method == 'FIFO'
+        run: >-
+          python -m pytest -q -s
+          tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py
+          --junitxml=pre-reconcile-668.xml
+
       - name: Existing C2 sale and return regression
         if: matrix.method == 'FIFO'
         run: >-
@@ -178,7 +187,7 @@ jobs:
         if: always()
         working-directory: .
         run: |
-          base="a07dfa6e06acbd9c0c8a1dfe6974f6eb53fb9f84"
+          base="8a74834fc80e434c15eec99de45cb1c96cdeed56"
           git cat-file -e "$base^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD --
@@ -228,4 +237,5 @@ jobs:
           path: |
             wa_backend/return-cost-${{ matrix.method }}.xml
             wa_backend/return-cost-existing-c2.xml
+            wa_backend/pre-reconcile-668.xml
           if-no-files-found: warn
