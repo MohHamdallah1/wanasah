@@ -10,7 +10,7 @@ from decimal import Decimal
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.warehouse import live_stock
@@ -57,14 +57,13 @@ async def _cursor(pg, *, party=0, location_id=None):
 
 async def test_ui01_canonical_policy_and_cursor_flag(pg):
     tenant = pg.tenants[0]
-    await_pg = pg
     # Ten physical units committed through the normal inventory engine.
     async with pg.session() as db:
         await pg.post(db, pg.request(quantity="10", lot="UI01-BASE"))
 
     async with AsyncSession(pg.admin_engine, expire_on_commit=False) as admin:
         await admin.execute(
-            __import__("sqlalchemy").text("SELECT set_config('app.current_tenant',:tenant,true)"),
+            text("SELECT set_config('app.current_tenant',:tenant,true)"),
             {"tenant": str(tenant.company_id)},
         )
         admin.add(
@@ -94,7 +93,7 @@ async def test_ui01_canonical_policy_and_cursor_flag(pg):
     for lifecycle, hold, minimum, expected in cases:
         async with AsyncSession(pg.admin_engine, expire_on_commit=False) as admin:
             await admin.execute(
-                __import__("sqlalchemy").text(
+                text(
                     "SELECT set_config('app.current_tenant',:tenant,true)"
                 ),
                 {"tenant": str(tenant.company_id)},
