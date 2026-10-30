@@ -29,14 +29,16 @@ def upgrade() -> None:
                 ),
                 'off'
             ) = 'on' THEN
-                RETURN COALESCE(NEW, OLD);
+                RETURN NULL;
             END IF;
 
-            affected_company_id := COALESCE(NEW.company_id, OLD.company_id);
-            affected_warehouse_id := COALESCE(
-                NEW.warehouse_location_id,
-                OLD.warehouse_location_id
-            );
+            IF TG_OP = 'DELETE' THEN
+                affected_company_id := OLD.company_id;
+                affected_warehouse_id := OLD.warehouse_location_id;
+            ELSE
+                affected_company_id := NEW.company_id;
+                affected_warehouse_id := NEW.warehouse_location_id;
+            END IF;
 
             UPDATE inventory_live_stock_warehouse_summaries
             SET projection_state = 'DEGRADED',
@@ -46,7 +48,7 @@ def upgrade() -> None:
               AND warehouse_location_id = affected_warehouse_id
               AND projection_state = 'READY';
 
-            RETURN COALESCE(NEW, OLD);
+            RETURN NULL;
         END;
         $$;
 
