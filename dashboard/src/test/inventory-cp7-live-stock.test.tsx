@@ -10,7 +10,7 @@ import { LiveStockMobileCards } from "@/pages/inventory/liveStock/LiveStockMobil
 import { LiveStockTable } from "@/pages/inventory/liveStock/LiveStockTable";
 import { resolveAppLocale } from "@/lib/locale";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
-import { parseLiveStockWarehouseSource } from "@/pages/inventory/liveStock/sourceContract";
+import { parseLiveStockWarehouseSource, type LiveStockReservationEvidence } from "@/pages/inventory/liveStock/sourceContract";
 
 const mocks = vi.hoisted(() => ({
   language: "en",
@@ -502,5 +502,142 @@ describe("UI-05 mobile cost parity", () => {
       expect(container.querySelector("[data-live-stock-window-spacer=bottom]")).toHaveStyle({ height: "2200px" });
       expect(onExtent).toHaveBeenCalledWith(174);
     } finally { measurement.mockRestore(); }
+  });
+});
+
+describe("UI-06 bounded reservation evidence disclosure", () => {
+  const completeOwners: LiveStockReservationEvidence["owners"] = [
+    { transfer_id: 701, reference_number: "ROUTE-701", quantity: "16" },
+    { transfer_id: 702, reference_number: "ROUTE-702", quantity: "10" },
+  ];
+  const evidence = (changes: Partial<LiveStockReservationEvidence> = {}): LiveStockReservationEvidence => ({
+    coverage: "COMPLETE", owners: completeOwners, unattributed_quantity: "0",
+    owners_truncated: false, ...changes,
+  });
+  const renderSource = (reservation: LiveStockReservationEvidence) => {
+    const stock = parseLiveStockWarehouseSource({
+      location_id: 11, location_name: "Warehouse A1",
+      product_variant_id: 41, batch_id: 71,
+      statuses: [{
+        stock_status: "AVAILABLE", on_hand_quantity: "40",
+        reserved_quantity: reservation.coverage === "NONE" ? "0" : "26",
+        movable_quantity: reservation.coverage === "NONE" ? "40" : "14",
+        reservation_evidence: reservation,
+      }],
+    });
+    const onLoadSource = vi.fn();
+    const props = {
+      product: { ...product, display_uom_code: "CT", display_factor_to_base: "8" },
+      batches: [{
+        ...batch, allowed_disposition_targets: [...batch.allowed_disposition_targets],
+        on_hand_quantity: "40", reserved_quantity: "26",
+        restricted_quantity: "0", expiry_unavailable_quantity: "0",
+        latest_purchase_cost: null, latest_purchase_uom_code: null,
+        purchase_event_count: 0,
+      }],
+      hasMore: false, loading: false, error: null, sourceByBatch: { 71: stock },
+      sourceOpenId: 71, sourceLoadingId: null, sourceErrorId: null,
+      onClose: vi.fn(), onRetry: vi.fn(), onLoadMore: vi.fn(), onLoadSource,
+    };
+    const view = render(<BatchDetailPanel {...props} />);
+    return { ...view, props, onLoadSource };
+  };
+
+  it("shows only returned complete owner references with exact converted units", () => {
+    renderSource(evidence());
+    const list = screen.getByRole("list", { name: "Known reservations" });
+    const rows = Array.from(list.querySelectorAll("li"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("ROUTE-701");
+    expect(rows[0]).toHaveTextContent("2 CT");
+    expect(rows[1]).toHaveTextContent("ROUTE-702");
+    expect(rows[1]).toHaveTextContent("1 CT + 2 EA");
+    expect(rows[1].querySelector("[title]")).toHaveAttribute("title", "10 EA");
+    expect(screen.getByText("Reservation evidence complete")).toBeInTheDocument();
+    expect(screen.queryByText(/Truncated list:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unattributed reserved quantity:/)).not.toBeInTheDocument();
+    expect(list.querySelector("a, button")).toBeNull();
+    expect(list.querySelector("[data-transfer-id]")).toBeNull();
+  });
+
+  it("separates partial known references from unattributed reserved quantity", () => {
+    renderSource(evidence({ coverage: "PARTIAL", owners: completeOwners.slice(0, 1),
+      unattributed_quantity: "10" }));
+    expect(screen.getByText("Reservation evidence partial")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Known reservations" }).querySelectorAll("li")).toHaveLength(1);
+    expect(screen.getByText(/Unattributed reserved quantity:/)).toHaveTextContent("1 CT + 2 EA");
+    expect(screen.queryByText("ROUTE-702")).not.toBeInTheDocument();
+  });
+
+  it("warns about truncated evidence and never renders beyond server-returned owners", () => {
+    const owners = Array.from({ length: 20 }, (_, index) => ({
+      transfer_id: 801 + index, reference_number: `LIMIT-${index + 1}`, quantity: "1",
+    }));
+    renderSource(evidence({ coverage: "PARTIAL", owners,
+      unattributed_quantity: "6", owners_truncated: true }));
+    const list = screen.getByRole("list", { name: "Known reservations" });
+    expect(list.querySelectorAll("li")).toHaveLength(20);
+    expect(screen.getByText(/Truncated list: additional known reservation owners/)).toBeInTheDocument();
+    expect(screen.getByText("LIMIT-20")).toBeInTheDocument();
+    expect(screen.queryByText("LIMIT-21")).not.toBeInTheDocument();
+    expect(list.querySelector("a, button")).toBeNull();
+    const overLimit = evidence({ owners: [...owners, {
+      transfer_id: 1000, reference_number: "LIMIT-21", quantity: "1",
+    }] });
+    expect(() => parseLiveStockWarehouseSource({
+      location_id: 11, location_name: "Warehouse A1", product_variant_id: 41, batch_id: 71,
+      statuses: [{ stock_status: "AVAILABLE", on_hand_quantity: "40",
+        reserved_quantity: "26", movable_quantity: "14", reservation_evidence: overLimit }],
+    })).toThrow("LIVE_STOCK_SOURCE_RESPONSE_INVALID");
+  });
+
+  it("distinguishes unresolved evidence with no known owners from unattributed quantity", () => {
+    renderSource(evidence({ coverage: "UNRESOLVED", owners: [],
+      unattributed_quantity: "26" }));
+    expect(screen.getByText("Reservation evidence unresolved")).toBeInTheDocument();
+    expect(screen.getByText("No known reservation references in the returned evidence.")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Known reservations" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Unattributed reserved quantity:/)).toHaveTextContent("3 CT + 2 EA");
+  });
+
+  it("keeps NONE/empty evidence empty without implying unreturned reservations", () => {
+    renderSource(evidence({ coverage: "NONE", owners: [], unattributed_quantity: "0" }));
+    expect(screen.getByText("No reservations")).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "Known reservations" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/No known reservation references/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unattributed reserved quantity:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Truncated list:/)).not.toBeInTheDocument();
+  });
+
+  it("localizes Arabic evidence, keeps RTL and native keyboard source toggle", () => {
+    mocks.language = "ar";
+    const view = renderSource(evidence({ coverage: "PARTIAL",
+      owners: completeOwners.slice(0, 1), unattributed_quantity: "10",
+      owners_truncated: true }));
+    expect(screen.getByRole("dialog").closest(".app-modal")).toHaveAttribute("dir", "rtl");
+    expect(screen.getByRole("list", { name: "حجوزات معروفة" })).toBeInTheDocument();
+    expect(screen.getByText(/مرجع الحجز:/)).toHaveTextContent("ROUTE-701");
+    expect(screen.getByText(/القائمة مقتطعة:/)).toBeInTheDocument();
+    expect(screen.getByText("دليل الحجز جزئي")).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: "مصدر الرصيد والحجوزات" });
+    toggle.focus();
+    expect(toggle).toHaveFocus();
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(toggle);
+    expect(view.onLoadSource).toHaveBeenCalledWith(71);
+    view.rerender(<BatchDetailPanel {...view.props} sourceOpenId={null} />);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText(/مرجع الحجز:/)).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+  });
+
+  it("does not reveal cached references while source is loading or unavailable", () => {
+    const view = renderSource(evidence());
+    view.rerender(<BatchDetailPanel {...view.props} sourceByBatch={{}} sourceLoadingId={71} />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading source evidence");
+    expect(screen.queryByText("ROUTE-701")).not.toBeInTheDocument();
+    view.rerender(<BatchDetailPanel {...view.props} sourceByBatch={{}} sourceErrorId={71} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Source evidence could not be loaded");
+    expect(screen.queryByText("ROUTE-701")).not.toBeInTheDocument();
   });
 });
