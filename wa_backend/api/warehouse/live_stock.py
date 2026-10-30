@@ -1342,8 +1342,8 @@ async def get_warehouse_inventory(
                 .scalar_subquery()
             )
             search_probe_ids = select(search_probe.c.product_variant_id)
-            # Match the installed trigram expression index exactly; the
-            # separator is SQL structure, while search patterns remain bound.
+            # Keep the exact searchable text expression shared by the
+            # sparse trigram probe and the ordered literal-substring stream.
             searchable_text = func.lower(
                 ProductVariant.name
                 + literal_column("' '")
