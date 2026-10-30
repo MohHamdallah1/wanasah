@@ -12,7 +12,11 @@ from __future__ import annotations
 
 import os
 import unittest
-from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_field_fixture
+from tests.canonical_actor_fixtures import (
+    load_company_owner_fixture,
+    seed_field_fixture,
+    seed_ordinary_backoffice_fixture,
+)
 from tests.supplier_fixtures import seed_receipt_supplier
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -24,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import test_costed_driver_customer_return_c2_db as customer_fixture
 from api.driver import update_visit
+from api.warehouse import stocktake
 from context import tenant_context
 from database import engine
 from domains.pricing.context import lock_route_commercial_context
@@ -33,9 +38,17 @@ from domains.taxation.models import (
     TaxJurisdiction, TaxRuleComponent, TaxRuleScope,
     TaxRuleSet, TaxRuleSetVersion,
 )
+from domains.authorization.capabilities import PERMISSIONS
+from domains.stocktake.contracts import (
+    StocktakeApprovalCommand,
+    StocktakeCountCommand,
+    StocktakeRecountCommand,
+    StocktakeStartCommand,
+)
 from models import (
-    DispatchRoute, Driver, PriceBook, PriceBookAssignment, PriceBookEntry,
-    PricePublication, RouteCommercialContext, Shop, Visit, WorkSession,
+    DispatchRoute, Driver, Permission, PriceBook, PriceBookAssignment, PriceBookEntry,
+    PricePublication, Role, RouteCommercialContext, Shop, UserLocationAccess,
+    Visit, WorkSession, role_permissions,
 )
 from schemas import VisitUpdateRequest
 
@@ -231,6 +244,78 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         await self.db.flush()
         return int(locked.id)
 
+    async def _seed_independent_stocktake_actors(self):
+        """Auth/master fixture only; never writes inventory, movement or cost truth."""
+        password = "RemainingConsistencyCount123"
+        counter = await seed_ordinary_backoffice_fixture(
+            self.db, self.tenant, password=password
+        )
+        recounter = await seed_ordinary_backoffice_fixture(
+            self.db, self.tenant, password=password
+        )
+        needed = {
+            "inventory.read",
+            "stocktake.read",
+            "stocktake.start",
+            "stocktake.count",
+            "stocktake.review",
+            "stocktake.recount",
+        }
+        self.assertTrue(needed <= PERMISSIONS)
+        existing = set(
+            (
+                await self.db.scalars(
+                    select(Permission.code).where(Permission.code.in_(needed))
+                )
+            ).all()
+        )
+        self.db.add_all(
+            [Permission(code=code) for code in sorted(needed - existing)]
+        )
+        await self.db.flush()
+        permission_ids = list(
+            (
+                await self.db.scalars(
+                    select(Permission.id).where(Permission.code.in_(needed))
+                )
+            ).all()
+        )
+        for actor in (counter, recounter):
+            role = Role(
+                company_id=self.tenant,
+                name="Remaining stocktake " + uuid4().hex,
+            )
+            self.db.add(role)
+            await self.db.flush()
+            await self.db.execute(
+                role_permissions.insert(),
+                [
+                    {
+                        "company_id": self.tenant,
+                        "role_id": role.id,
+                        "permission_id": permission_id,
+                    }
+                    for permission_id in permission_ids
+                ],
+            )
+            self.db.add(
+                UserLocationAccess(
+                    company_id=self.tenant,
+                    driver_id=actor.driver_id,
+                    location_id=self.warehouse_id,
+                    role_id=role.id,
+                )
+            )
+        await self.db.commit()
+        recounter_username = await self.db.scalar(
+            select(Driver.username).where(
+                Driver.company_id == self.tenant,
+                Driver.id == recounter.driver_id,
+            )
+        )
+        self.assertIsNotNone(recounter_username)
+        return counter, recounter, str(recounter_username), password
+
     async def _assert_sale_and_correction(self, method: str):
         visit_id, vehicle_id, batch_id = (
             await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
@@ -239,6 +324,49 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 second_purchase_price="4",
             )
         )
+        # Every expected Decimal and evidence count below is fixed BEFORE any
+        # sale/correction/stocktake mutation executes.
+        expected_purchase_quantity = Decimal("300")
+        expected_purchase_value = Decimal("800")
+        expected_sale_quantity = Decimal("4")
+        expected_sale_cogs = (
+            Decimal("8.000000")
+            if method == "FIFO"
+            else Decimal("10.666668")
+        )
+        expected_after_sale_quantity = Decimal("296")
+        expected_after_sale_value = expected_purchase_value - expected_sale_cogs
+        expected_after_correction_quantity = Decimal("300")
+        expected_after_correction_value = Decimal("800")
+        expected_warehouse_first_batch_before_count = Decimal("50")
+        expected_stocktake_actual = Decimal("40")
+        expected_stocktake_shortage = Decimal("10")
+        expected_stocktake_cogs = (
+            Decimal("20.000000")
+            if method == "FIFO"
+            else Decimal("26.666670")
+        )
+        expected_final_quantity = Decimal("290")
+        expected_final_value = (
+            Decimal("780.000000")
+            if method == "FIFO"
+            else Decimal("773.333330")
+        )
+        expected_final_average = (
+            Decimal("2.689655")
+            if method == "FIFO"
+            else Decimal("2.666667")
+        )
+        expected_visit_movement_kinds = {
+            "VISIT_ITEM_OUT": 1,
+            "VISIT_REVERSAL": 1,
+            "VISIT_EXCHANGE_OUT": 1,
+            "VISIT_RETURN_IN": 1,
+        }
+        expected_cost_event_count_after_correction = 6
+        expected_cost_event_count_final = 7
+        expected_movement_count_final = 8
+
         # Independent accounting expectations are defined before the sale.
         # Two genuine supplier receipts are immutable acquisition evidence:
         # 200 x 2 + 100 x 4 = 300 base units valued at JOD 800.
@@ -286,7 +414,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 Decimal(cost_state_before["inventory_value"]),
                 Decimal(cost_state_before["average_unit_cost"]),
             ),
-            (Decimal("300"), Decimal("800"), expected_average),
+            (expected_purchase_quantity, expected_purchase_value, expected_average),
         )
 
         base_uom_code = await self.db.scalar(
@@ -337,10 +465,6 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         ).mappings().all()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["method"], method)
-        expected_sale_cogs = (
-            Decimal("8.000000") if method == "FIFO"
-            else Decimal("10.666668")
-        )
         self.assertEqual(Decimal(rows[0]["total_cost"]), expected_sale_cogs)
         self.assertEqual(
             rows[0]["cost_basis"],
@@ -352,10 +476,13 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "WHERE company_id=:t AND product_variant_id=:p"
             ), {"t": self.tenant, "p": self.variant["id"]})
         ).mappings().one()
-        self.assertEqual(Decimal(state_after_sale["quantity"]), Decimal("296"))
+        self.assertEqual(
+            Decimal(state_after_sale["quantity"]),
+            expected_after_sale_quantity,
+        )
         self.assertEqual(
             Decimal(state_after_sale["inventory_value"]),
-            Decimal("800") - expected_sale_cogs,
+            expected_after_sale_value,
         )
 
         original = (
@@ -412,10 +539,7 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             ), {"t": self.tenant, "v": str(visit_id)})
         ).all()
         kinds = {k:n for k,n in lines}
-        self.assertEqual(kinds["VISIT_ITEM_OUT"],1)
-        self.assertEqual(kinds["VISIT_REVERSAL"],1)
-        self.assertEqual(kinds["VISIT_EXCHANGE_OUT"],1)
-        self.assertEqual(kinds["VISIT_RETURN_IN"],1)
+        self.assertEqual(kinds, expected_visit_movement_kinds)
         reversed_costs = (
             await self.db.execute(text(
                 "SELECT e.event_type,e.total_cost,e.reversal_of_cost_event_id "
@@ -460,7 +584,219 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
-        # Sale/correction/exchange must never rewrite either acquisition row.
+        # The authorized correction reverses the sale cost exactly, then the
+        # 1:1 damaged exchange moves physical custody AVAILABLE->DAMAGED without
+        # changing company quantity/value.
+        state_after_correction = (
+            await self.db.execute(text(
+                "SELECT quantity,inventory_value,average_unit_cost "
+                "FROM inventory_cost_states WHERE company_id=:t "
+                "AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().one()
+        self.assertEqual(
+            (
+                Decimal(state_after_correction["quantity"]),
+                Decimal(state_after_correction["inventory_value"]),
+            ),
+            (
+                expected_after_correction_quantity,
+                expected_after_correction_value,
+            ),
+        )
+        self.assertEqual(
+            await self.db.scalar(text(
+                "SELECT COUNT(*) FROM inventory_cost_events "
+                "WHERE company_id=:t AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]}),
+            expected_cost_event_count_after_correction,
+        )
+        warehouse_first_before_count = await self.db.scalar(
+            text(
+                "SELECT on_hand_quantity FROM inventory_balances "
+                "WHERE company_id=:t AND location_id=:loc "
+                "AND product_variant_id=:p AND batch_id=:b "
+                "AND stock_status='AVAILABLE'"
+            ),
+            {
+                "t": self.tenant,
+                "loc": self.warehouse_id,
+                "p": self.variant["id"],
+                "b": batch_id,
+            },
+        )
+        self.assertEqual(
+            Decimal(warehouse_first_before_count),
+            expected_warehouse_first_batch_before_count,
+        )
+
+        # Continue the SAME product/batch/acquisition history into an actual
+        # independent CYCLE_COUNT: first counter -> authorized independent
+        # recount -> second counter -> CompanyOwner approval/posting.
+        counter, recounter, recounter_username, counter_password = (
+            await self._seed_independent_stocktake_actors()
+        )
+        start_command = StocktakeStartCommand(
+            request_id=uuid4(),
+            location_id=int(self.warehouse_id),
+            stocktake_type="CYCLE_COUNT",
+            product_variant_id=int(self.variant["id"]),
+            batch_id=int(batch_id),
+        )
+        started = await stocktake.start_unified_stocktake(
+            start_command,
+            self.db,
+            counter.access(self.db),
+            counter.operational_driver,
+        )
+        session_id = int(started["session_id"])
+        count_command = StocktakeCountCommand(
+            request_id=uuid4(),
+            items=[{
+                "product_variant_id": int(self.variant["id"]),
+                "batch_id": int(batch_id),
+                "stock_status": "AVAILABLE",
+                "actual_quantity": expected_stocktake_actual,
+                "uom_id": int(self.variant["base_uom_id"]),
+            }],
+        )
+        first_count = await stocktake.submit_stocktake_count(
+            session_id,
+            count_command,
+            self.db,
+            counter.access(self.db),
+            counter.operational_driver,
+        )
+        self.assertTrue(first_count["requires_independent_recount"])
+        first_attempt = int(first_count["attempt_id"])
+
+        recount_command = StocktakeRecountCommand(
+            request_id=uuid4(),
+            count_attempt_id=first_attempt,
+            reason="Independent remaining-consistency shortage confirmation",
+            authorizer_username=recounter_username,
+            authorizer_password=counter_password,
+        )
+        authorized = await stocktake.recount_stocktake_session(
+            session_id,
+            recount_command,
+            self.db,
+            counter.access(self.db),
+            counter.operational_driver,
+        )
+        self.assertEqual(authorized["status"], "RECOUNT_REQUIRED")
+        self.assertTrue(authorized["requires_independent_counter"])
+
+        second_count_command = count_command.model_copy(
+            update={"request_id": uuid4()}
+        )
+        confirmed = await stocktake.submit_stocktake_count(
+            session_id,
+            second_count_command,
+            self.db,
+            recounter.access(self.db),
+            recounter.operational_driver,
+        )
+        second_attempt = int(confirmed["attempt_id"])
+        self.assertNotEqual(second_attempt, first_attempt)
+        self.assertEqual(confirmed["attempt_number"], 2)
+
+        approval = StocktakeApprovalCommand(
+            request_id=uuid4(),
+            count_attempt_id=second_attempt,
+            password="FieldSyntheticFixture123",
+        )
+        posted = await stocktake.approve_stocktake_session(
+            session_id,
+            approval,
+            self.db,
+            self.owner.access(self.db),
+            self.actor,
+        )
+        self.assertEqual(posted["status"], "POSTED")
+        self.assertEqual(posted["movement_count"], 1)
+
+        # Independent final reconciliation from authoritative rows.
+        final_state = (
+            await self.db.execute(text(
+                "SELECT quantity,inventory_value,average_unit_cost "
+                "FROM inventory_cost_states WHERE company_id=:t "
+                "AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().one()
+        self.assertEqual(
+            (
+                Decimal(final_state["quantity"]),
+                Decimal(final_state["inventory_value"]),
+                Decimal(final_state["average_unit_cost"]),
+            ),
+            (
+                expected_final_quantity,
+                expected_final_value,
+                expected_final_average,
+            ),
+        )
+        final_warehouse_first = await self.db.scalar(
+            text(
+                "SELECT on_hand_quantity FROM inventory_balances "
+                "WHERE company_id=:t AND location_id=:loc "
+                "AND product_variant_id=:p AND batch_id=:b "
+                "AND stock_status='AVAILABLE'"
+            ),
+            {
+                "t": self.tenant,
+                "loc": self.warehouse_id,
+                "p": self.variant["id"],
+                "b": batch_id,
+            },
+        )
+        self.assertEqual(Decimal(final_warehouse_first), expected_stocktake_actual)
+
+        stocktake_cost = (
+            await self.db.execute(text(
+                "SELECT e.event_type,e.quantity,e.total_cost,e.quantity_before,"
+                "e.quantity_after,e.value_before,e.value_after "
+                "FROM inventory_cost_events e "
+                "JOIN inventory_movements m ON m.company_id=e.company_id "
+                "AND m.id=e.inventory_movement_id "
+                "WHERE e.company_id=:t AND m.stocktake_session_id=:s"
+            ), {"t": self.tenant, "s": session_id})
+        ).mappings().one()
+        self.assertEqual(stocktake_cost["event_type"], "OUTBOUND")
+        self.assertEqual(
+            (
+                Decimal(stocktake_cost["quantity"]),
+                Decimal(stocktake_cost["total_cost"]),
+                Decimal(stocktake_cost["quantity_before"]),
+                Decimal(stocktake_cost["quantity_after"]),
+                Decimal(stocktake_cost["value_before"]),
+                Decimal(stocktake_cost["value_after"]),
+            ),
+            (
+                expected_stocktake_shortage,
+                expected_stocktake_cogs,
+                expected_after_correction_quantity,
+                expected_final_quantity,
+                expected_after_correction_value,
+                expected_final_value,
+            ),
+        )
+        self.assertEqual(
+            await self.db.scalar(text(
+                "SELECT COUNT(*) FROM inventory_cost_events "
+                "WHERE company_id=:t AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]}),
+            expected_cost_event_count_final,
+        )
+        self.assertEqual(
+            await self.db.scalar(text(
+                "SELECT COUNT(*) FROM inventory_movements "
+                "WHERE company_id=:t AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]}),
+            expected_movement_count_final,
+        )
+
+        # Sale/correction/exchange/stocktake must never rewrite either acquisition row.
         purchase_history_after = (
             await self.db.execute(text(
                 "SELECT id,batch_id,quantity,input_quantity,input_unit_cost,"
