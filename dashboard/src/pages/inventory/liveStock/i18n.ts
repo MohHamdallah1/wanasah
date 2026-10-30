@@ -25,6 +25,9 @@ export type LiveStockCp7Copy = {
   reservationEvidence: string;
   unattributedReservation: string;
   reservationOwners: string;
+  reservationReference: string;
+  noKnownReservationOwners: string;
+  reservationOwnersTruncated: string;
   mobileOpen: string;
 };
 
@@ -69,6 +72,9 @@ const ar: LiveStockCp7Copy = {
   reservationEvidence: "دليل الحجز",
   unattributedReservation: "كمية محجوزة غير منسوبة",
   reservationOwners: "حجوزات معروفة",
+  reservationReference: "مرجع الحجز",
+  noKnownReservationOwners: "لا توجد مراجع حجوزات معروفة ضمن الدليل المعروض.",
+  reservationOwnersTruncated: "القائمة مقتطعة: يوجد أصحاب حجوزات معروفون آخرون لم تعرضهم الاستجابة.",
   mobileOpen: "فتح التفاصيل",
 };
 
@@ -113,6 +119,9 @@ const en: LiveStockCp7Copy = {
   reservationEvidence: "Reservation evidence",
   unattributedReservation: "Unattributed reserved quantity",
   reservationOwners: "Known reservations",
+  reservationReference: "Reservation reference",
+  noKnownReservationOwners: "No known reservation references in the returned evidence.",
+  reservationOwnersTruncated: "Truncated list: additional known reservation owners were not included in this response.",
   mobileOpen: "Open details",
 };
 
