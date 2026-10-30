@@ -206,13 +206,13 @@ jobs:
 
           with tempfile.TemporaryDirectory() as temp:
               baseline, candidate = Path(temp) / "base", Path(temp) / "candidate"
-              baseline.write_text("old\\n", encoding="utf-8")
-              candidate.write_text("old\\nclean addition\\n", encoding="utf-8")
+              baseline.write_text("old\n", encoding="utf-8")
+              candidate.write_text("old\nclean addition\n", encoding="utf-8")
               command = ["git", "diff", "--no-index", "--check",
                          str(baseline), str(candidate)]
               clean = subprocess.run(command, capture_output=True, text=True)
               assert "trailing whitespace" not in clean.stdout + clean.stderr
-              candidate.write_text("old\\nbad addition \\n", encoding="utf-8")
+              candidate.write_text("old\nbad addition \n", encoding="utf-8")
               dirty = subprocess.run(command, capture_output=True, text=True)
               assert dirty.returncode != 0
               assert "trailing whitespace" in dirty.stdout + dirty.stderr
