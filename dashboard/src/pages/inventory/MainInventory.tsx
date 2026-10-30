@@ -1250,7 +1250,7 @@ export default function MainInventory() {
       }} />;
   }
 
-  if (loadingLocations && warehouseSetup === null) {
+  if (loadingLocations && warehouseSetup === null && selectedLocationId === null) {
     return (
       <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
         <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
