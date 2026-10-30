@@ -76,9 +76,12 @@ describe("F5/UI-03 bounded family cursor and selected identity", () => {
       });
     }
     expect(screen.queryByRole("button", { name: "inventoryLive.familyLoadMore" })).not.toBeInTheDocument();
-    for (let i = 1; i <= count; i++) {
-      expect(screen.getAllByRole("button", { name: new RegExp(`Family ${String(i).padStart(3, "0")}`) })).toHaveLength(1);
-    }
+    const renderedNames = Array.from(
+      document.querySelectorAll(".live-stock-family-option strong"),
+      (element) => element.textContent,
+    );
+    expect(renderedNames).toEqual(all.map((item) => item.name));
+    expect(new Set(renderedNames).size).toBe(count);
     expect(mock.fetch).toHaveBeenCalledTimes(requests);
     mock.fetch.mock.calls.forEach(([url], i) => {
       const params = readParams(String(url));
