@@ -109,7 +109,7 @@ describe("Live Stock visual stability regressions", () => {
     );
   });
 
-  it("keeps a warm warehouse page mounted during access revalidation", () => {
+  it("keeps warm inventory fail-closed until fresh canonical admission is verified", () => {
     const main = normalizeWhitespace(
       readSource("../pages/inventory/MainInventory.tsx"),
     );
@@ -118,19 +118,16 @@ describe("Live Stock visual stability regressions", () => {
     );
 
     expect(main).toContain(
-      'const canShowWarmLiveDuringAccessRefresh = activeTab === "live" && selectedLocationId !== null && locationAccess.isPending && stockPageReady && !locationAccess.isError;',
+      "const liveVisible = liveAuthorityVerified && !accessDenied && !locationError && liveReadPhase !== \"denied\";",
     );
     expect(main).toContain(
-      "selectedLocationId !== null && locationAccess.isPending && !canShowWarmLiveDuringAccessRefresh && (",
+      'activeTab === "live" && selectedLocationId !== null && liveVisible && tabAllowed("live")',
     );
     expect(main).toContain(
-      'canShowWarmLiveDuringAccessRefresh || (!locationAccess.isPending && tabAllowed("live"))',
+      "locationAccess.isSuccess && locationAccess.isFetchedAfterMount && !locationAccess.isFetching",
     );
-    expect(main).toContain(
-      "pageReady={stockPageReady}",
-    );
-    expect(live).toContain(
-      "loading && !pageReady",
-    );
+    expect(main).not.toContain("canShowWarmLiveDuringAccessRefresh");
+    expect(main).toContain("pageReady={stockPageReady}");
+    expect(live).toContain("loading && !pageReady");
   });
 });
