@@ -93,6 +93,22 @@ describe("Live Stock visual stability regressions", () => {
     expect(main).toContain("summaryError={stockSummaryError}");
   });
 
+  it("defers Live Stock list and summary requests while another inventory tab is active", () => {
+    const main = normalizeWhitespace(
+      readSource("../pages/inventory/MainInventory.tsx"),
+    );
+
+    expect(main).toContain(
+      'if (activeTab === "live" && selectedLocationId !== null) { void fetchStock(); }',
+    );
+    expect(main).toContain(
+      'if (activeTab === "live" && selectedLocationId !== null) { void fetchStockSummary(); }',
+    );
+    expect(main).toContain(
+      "[activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]",
+    );
+  });
+
   it("keeps a warm warehouse page mounted during access revalidation", () => {
     const main = normalizeWhitespace(
       readSource("../pages/inventory/MainInventory.tsx"),
