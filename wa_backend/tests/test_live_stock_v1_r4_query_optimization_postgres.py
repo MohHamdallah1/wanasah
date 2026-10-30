@@ -569,6 +569,21 @@ async def _acceptance():
                     actor, name, head_result["plan"]
                 )
 
+            # These exact-base empty filters are independently known from #661
+            # to suffer the catalog-correlated projection lookup. Require the
+            # focused comparison to reproduce that cause before calling it fixed.
+            if (
+                name == "empty_recalled"
+                or (name == "empty_vehicle" and actor == "owner")
+            ):
+                old_correlated = [
+                    row for row in base_result["plan"]["relations"]
+                    if row["catalog_correlated"]
+                ]
+                assert old_correlated, (
+                    actor, name, base_result["plan"]
+                )
+
             # The measured defect was a correlated point lookup once per search
             # member. Broad/short HEAD plans must eliminate that 50k-loop shape.
             if name in {"broad_50", "short_200"}:
