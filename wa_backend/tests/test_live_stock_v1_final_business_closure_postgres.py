@@ -917,6 +917,7 @@ async def test_concurrent_warehouse_transfer_and_stocktake_are_serialized_withou
         await pg.post(db, payload)
 
     transfer_payload = _warehouse_dispatch(tenant, "8")
+    before_race = await _state_digest(pg, tenant)
     stocktake_payload = StocktakeStartCommand(
         request_id=uuid4(),
         location_id=tenant.location_id,
@@ -1037,19 +1038,10 @@ async def test_concurrent_warehouse_transfer_and_stocktake_are_serialized_withou
         assert denied.status_code == 409
         assert snapshot_qty == D("40")
         assert physical.get(tenant.location_id, D("0")) == D("40")
-        async with pg.session() as db:
-            assert int(
-                await db.scalar(
-                    select(func.count())
-                    .select_from(InventoryTransferHeader)
-                    .where(
-                        InventoryTransferHeader.company_id == tenant.company_id,
-                        InventoryTransferHeader.id
-                        == getattr(denied, "header_id", -1),
-                    )
-                )
-                or 0
-            ) == 0
+        # Stocktake start itself owns no inventory/cost movement. A denied
+        # transfer must therefore leave the complete inventory/cost/transfer
+        # digest byte-for-byte equivalent to the pre-race state.
+        assert await _state_digest(pg, tenant) == before_race
 
     # Both legitimate schedules conserve all forty base units and never create
     # COGS/value change for an internal transfer.
