@@ -261,6 +261,70 @@ describe("NEW-01 Live Stock bounded responsive rendering", () => {
     expect(onLoadMore).toHaveBeenCalledTimes(1);
   });
 
+  it("uses measured variable extents and keeps absolute positions far down a 5000-row list", async () => {
+    createMediaController(false);
+    const measurement = vi.spyOn(
+      HTMLElement.prototype,
+      "getBoundingClientRect",
+    ).mockImplementation(function () {
+      const element = this as HTMLElement;
+      const opener = element.querySelector?.("[data-live-stock-product-open]");
+      const id = Number(opener?.getAttribute("data-live-stock-product-open") ?? 0);
+      const height = element.matches?.("[data-cp13-stock-row]")
+        ? (id % 2 === 0 ? 96 : 48)
+        : 0;
+      return {
+        height,
+        width: 900,
+        x: 0,
+        y: 0,
+        top: 0,
+        right: 900,
+        bottom: height,
+        left: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+
+    try {
+      const { container } = render(<Tab1LiveStock {...tabProps()} />);
+      const scroller = container.querySelector<HTMLElement>(
+        "[data-cp13-stock-list]",
+      );
+      expect(scroller).not.toBeNull();
+      scroller!.scrollTop = 150_000;
+      fireEvent.scroll(scroller!);
+
+      await waitFor(() => {
+        const first = container.querySelector<HTMLElement>(
+          "[data-cp13-stock-row]",
+        );
+        expect(Number(first?.getAttribute("aria-rowindex") ?? 0)).toBeGreaterThan(1000);
+      });
+
+      const mounted = container.querySelectorAll("[data-cp13-stock-row]");
+      expect(mounted.length).toBeGreaterThan(0);
+      expect(mounted.length).toBeLessThanOrEqual(40);
+      const first = mounted[0] as HTMLElement;
+      const ariaRow = Number(first.getAttribute("aria-rowindex"));
+      const visualNumber = Number(
+        first.querySelector(".live-stock-row-number")?.textContent,
+      );
+      expect(visualNumber).toBe(ariaRow - 1);
+      expect(
+        Number(
+          (
+            container.querySelector(
+              '[data-live-stock-window-spacer="top"] td',
+            ) as HTMLElement | null
+          )?.style.height?.replace("px", "") ?? 0,
+        ),
+      ).toBeGreaterThan(0);
+    } finally {
+      measurement.mockRestore();
+    }
+  });
+
   it("preserves locale-driven direction while the list is windowed", () => {
     mocks.language = "ar";
     createMediaController(true);
