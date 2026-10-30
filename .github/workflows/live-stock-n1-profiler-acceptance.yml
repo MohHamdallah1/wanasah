@@ -1,0 +1,128 @@
+name: Live Stock N1 profiler acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/scripts/profile_live_stock_explain.py"
+      - "wa_backend/tests/test_live_stock_profiler_postgres.py"
+      - ".github/workflows/live-stock-n1-profiler-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-n1-profiler-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: N1ProfilerIsolatedPostgresOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      N1_PROFILER_EVIDENCE_DIR: /tmp/n1-profiler-evidence
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile profiler and acceptance
+        working-directory: wa_backend
+        run: python -m py_compile scripts/profile_live_stock_explain.py tests/test_live_stock_profiler_postgres.py
+
+      - name: Start isolated PostgreSQL 16
+        run: |
+          docker run --detach --name n1-profiler-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec n1-profiler-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs n1-profiler-postgres
+          exit 1
+
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Migrate isolated database
+        working-directory: wa_backend
+        run: alembic upgrade head
+
+      - name: Grant runtime DML only
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "INSERT INTO permissions(code) VALUES "
+                  "('inventory.read'), ('inbound.create') "
+                  "ON CONFLICT(code) DO NOTHING"
+              )
+          PY
+
+      - name: Run focused N1 PostgreSQL profiler acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_profiler_postgres.py
+
+      - name: Retain real SQL and EXPLAIN evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: n1-live-stock-profiler-${{ github.sha }}
+          path: /tmp/n1-profiler-evidence/*.json
+          if-no-files-found: warn
