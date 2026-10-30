@@ -16,6 +16,8 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
+from api import dispatch
+from api.driver import start_work_session, update_visit
 from api.warehouse import inbound, ledger, live_stock, stocktake, transfers
 from models import (
     InventoryBalance,
@@ -24,6 +26,7 @@ from models import (
     InventoryMovement,
     InventoryTransferHeader,
     StocktakeLine,
+    Visit,
 )
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
@@ -32,9 +35,13 @@ from domains.stocktake.contracts import (
     StocktakeStartCommand,
 )
 from schemas import (
+    AuthorizeSessionRequest,
+    DispatchRouteRequest,
+    SessionStartRequest,
     UnifiedDispatchRequest,
     UnifiedReceiveRequest,
     UnifiedTransferDecisionRequest,
+    VisitUpdateRequest,
 )
 from domains.inventory_vehicle_load.service import mutate_vehicle_load
 from services import InventoryMutationError, apply_inventory_movement
@@ -43,6 +50,8 @@ from tests.test_live_stock_v1_quantity_reconciliation_postgres import (
     _create_vehicle_with_historical_attribution,
 )
 from tests.test_live_stock_v1_route_sale_unload_postgres import (
+    _seed_commercial_master,
+    _seed_mobile_uom_and_field,
     test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth
     as run_route_sale_unload_foundation,
 )
@@ -1067,3 +1076,243 @@ async def test_concurrent_warehouse_transfer_and_stocktake_are_serialized_withou
             )
         )
         assert int(negative or 0) == 0
+
+
+
+async def test_actual_field_sale_vs_reservation_race_never_overspends_vehicle_custody(pg):
+    """A real FIELD sale and a concurrent reservation cannot both claim 20 units."""
+    tenant = pg.tenants[0]
+
+    # Only master/auth/commercial setup; stock enters through canonical inbound.
+    field = await _seed_mobile_uom_and_field(pg, tenant)
+    zone_id, shop_id = await _seed_commercial_master(pg, tenant, field)
+
+    inbound_payload = pg.request(
+        quantity="40",
+        cost="2",
+        lot="FINAL-SALE-RES-" + uuid4().hex[:12],
+    )
+    async with pg.session() as db:
+        await pg.post(db, inbound_payload)
+        inbound_move = await db.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.company_id == tenant.company_id,
+                InventoryMovement.reference_type == "INBOUND_SUPPLIER",
+                InventoryMovement.reference_id == inbound_payload.reference_id,
+            )
+        )
+        assert inbound_move is not None
+        batch_id = int(inbound_move.batch_id)
+
+    vehicle_id, vehicle_location_id = await _create_vehicle_with_historical_attribution(
+        pg, tenant
+    )
+    async with pg.session() as db:
+        loaded = await mutate_vehicle_load(
+            db,
+            access=tenant.owner.access(db),
+            actor_id=tenant.owner.driver_id,
+            vehicle_id=vehicle_id,
+            warehouse_id=tenant.location_id,
+            direction="ADD",
+            request_id=uuid4(),
+            items=[{
+                "product_variant_id": tenant.variant_id,
+                "quantity": D("20"),
+            }],
+        )
+    assert loaded["movement_count"] == 1
+
+    route_payload = DispatchRouteRequest(
+        zone_id=zone_id,
+        driver_id=field.driver.id,
+        vehicle_id=vehicle_id,
+        source_location_id=tenant.location_id,
+        inventory_base={str(tenant.variant_id): D("20")},
+        expected_inventory_base={str(tenant.variant_id): D("20")},
+    )
+    async with pg.session() as db:
+        launched = await dispatch.dispatch_route(
+            route_payload,
+            db,
+            tenant.owner.access(db),
+            tenant.owner.operational_driver,
+        )
+        route_id = int(launched["route_id"])
+
+    async with pg.session() as db:
+        started = await start_work_session(
+            SessionStartRequest(), db, field.context, field.driver
+        )
+        session_id = int(started["session_id"])
+        visit_id = int(
+            await db.scalar(
+                select(Visit.id).where(
+                    Visit.company_id == tenant.company_id,
+                    Visit.work_session_id == session_id,
+                    Visit.shop_id == shop_id,
+                    Visit.status == "Pending",
+                )
+            )
+        )
+
+    async with pg.session() as db:
+        await dispatch.authorize_session(
+            session_id,
+            AuthorizeSessionRequest(is_authorized=True),
+            db,
+            tenant.owner.access(db),
+            tenant.owner.operational_driver,
+        )
+
+    sale_request = VisitUpdateRequest(
+        request_id=uuid4(),
+        outcome="Sale",
+        cart_items=[{
+            "product_variant_id": tenant.variant_id,
+            "quantity": 0,
+            "packs_quantity": 8,
+        }],
+        returns=[],
+        cash_collected=D("8"),
+    )
+    reserve_key = "FINAL-FIELD-RACE-" + uuid4().hex
+
+    ready: asyncio.Queue[bool] = asyncio.Queue()
+    start = asyncio.Event()
+
+    async def field_sale():
+        await ready.put(True)
+        await start.wait()
+        try:
+            async with pg.session() as db:
+                result = await update_visit(
+                    visit_id,
+                    sale_request,
+                    db,
+                    field.context,
+                    field.driver,
+                )
+            return ("sale", "ok", result)
+        except HTTPException as exc:
+            return ("sale", "denied", exc)
+
+    async def vehicle_reservation():
+        await ready.put(True)
+        await start.wait()
+        try:
+            async with pg.session() as db:
+                movement = await apply_inventory_movement(
+                    db,
+                    company_id=tenant.company_id,
+                    performed_by=tenant.owner.driver_id,
+                    product_variant_id=tenant.variant_id,
+                    batch_id=batch_id,
+                    quantity=D("13"),
+                    movement_kind="RESERVATION",
+                    reservation_action="RESERVE",
+                    reference_type="FINAL_FIELD_SALE_RACE",
+                    reference_id=reserve_key,
+                    idempotency_key=reserve_key,
+                    source_location_id=vehicle_location_id,
+                    destination_location_id=vehicle_location_id,
+                    source_stock_status="AVAILABLE",
+                    destination_stock_status="AVAILABLE",
+                )
+                await db.commit()
+                return ("reservation", "ok", int(movement.id))
+        except InventoryMutationError as exc:
+            return ("reservation", "denied", exc)
+
+    tasks = [
+        asyncio.create_task(field_sale()),
+        asyncio.create_task(vehicle_reservation()),
+    ]
+    try:
+        await asyncio.wait_for(ready.get(), 20)
+        await asyncio.wait_for(ready.get(), 20)
+        start.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks), 25)
+    finally:
+        start.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    sale_result = next(row for row in results if row[0] == "sale")
+    reserve_result = next(row for row in results if row[0] == "reservation")
+    assert {sale_result[1], reserve_result[1]} == {"ok", "denied"}, results
+
+    async with pg.session() as db:
+        vehicle_balance = (
+            await db.execute(
+                select(
+                    InventoryBalance.on_hand_quantity,
+                    InventoryBalance.reserved_quantity,
+                ).where(
+                    InventoryBalance.company_id == tenant.company_id,
+                    InventoryBalance.location_id == vehicle_location_id,
+                    InventoryBalance.product_variant_id == tenant.variant_id,
+                    InventoryBalance.batch_id == batch_id,
+                    InventoryBalance.stock_status == "AVAILABLE",
+                )
+            )
+        ).one()
+        warehouse_balance = await db.scalar(
+            select(InventoryBalance.on_hand_quantity).where(
+                InventoryBalance.company_id == tenant.company_id,
+                InventoryBalance.location_id == tenant.location_id,
+                InventoryBalance.product_variant_id == tenant.variant_id,
+                InventoryBalance.batch_id == batch_id,
+                InventoryBalance.stock_status == "AVAILABLE",
+            )
+        )
+        on_hand, reserved = D(vehicle_balance[0]), D(vehicle_balance[1])
+        assert D(warehouse_balance) == D("20")
+        assert on_hand >= 0 and D("0") <= reserved <= on_hand
+
+        state = await db.scalar(
+            select(InventoryCostState).where(
+                InventoryCostState.company_id == tenant.company_id,
+                InventoryCostState.product_variant_id == tenant.variant_id,
+            )
+        )
+        assert state is not None
+        events = (
+            await db.scalars(
+                select(InventoryCostEvent)
+                .where(
+                    InventoryCostEvent.company_id == tenant.company_id,
+                    InventoryCostEvent.product_variant_id == tenant.variant_id,
+                )
+                .order_by(InventoryCostEvent.id)
+            )
+        ).all()
+        visit = await db.get(Visit, visit_id)
+
+    if sale_result[1] == "ok":
+        assert reserve_result[1] == "denied"
+        assert (on_hand, reserved) == (D("12"), D("0"))
+        assert (D(state.quantity), D(state.inventory_value)) == (D("32"), D("64"))
+        assert [event.event_type for event in events] == ["PURCHASE_IN", "OUTBOUND"]
+        assert D(events[-1].quantity) == D("8")
+        assert D(events[-1].total_cost) == D("16")
+        assert visit.status != "Pending"
+    else:
+        assert sale_result[1] == "denied"
+        assert reserve_result[1] == "ok"
+        assert (on_hand, reserved) == (D("20"), D("13"))
+        assert (D(state.quantity), D(state.inventory_value)) == (D("40"), D("80"))
+        assert [event.event_type for event in events] == ["PURCHASE_IN"]
+        assert visit.status == "Pending"
+
+    # Either serialization is valid, but 8-sale + 13-reserve may never both post.
+    assert not (sale_result[1] == "ok" and reserve_result[1] == "ok")
+    assert sum(
+        (
+            D("20"),
+            on_hand,
+        ),
+        D("0"),
+    ) in {D("32"), D("40")}
