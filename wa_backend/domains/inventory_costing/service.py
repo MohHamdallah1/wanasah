@@ -723,11 +723,20 @@ async def validate_inventory_costing_replays(
         source_movement_id = spec.get("cost_source_movement_id")
         if source_movement_id is not None:
             source_event = linked_event_by_movement.get(int(source_movement_id))
+            expected_linked_total = (
+                money6(
+                    Decimal(source_event.unit_cost) * Decimal(event.quantity),
+                    "linked_return_replay_cost",
+                )
+                if source_event is not None
+                else None
+            )
             if (
                 source_event is None
+                or str(source_event.event_type) != "OUTBOUND"
                 or event.source_cost_event_id != int(source_event.id)
                 or str(event.cost_basis) != LINKED_RETURN_COST_BASIS
-                or Decimal(event.total_cost) != Decimal(source_event.total_cost)
+                or Decimal(event.total_cost) != expected_linked_total
             ):
                 raise CostingError(
                     "INVENTORY_COST_REPLAY_CONFLICT",
@@ -1019,7 +1028,7 @@ async def apply_inventory_costing_for_movements(
         ):
             raise CostingError(
                 "RETURN_COST_SOURCE_MISSING",
-                "Linked customer return requires a committed-in-transaction exchange cost source.",
+                "Linked customer return requires an authoritative original Sale cost source.",
             )
         linked_source_event_ids = [
             int(event.id) for event in linked_source_events_by_movement.values()
@@ -1033,7 +1042,7 @@ async def apply_inventory_costing_for_movements(
         if int(already_linked or 0) != 0:
             raise CostingError(
                 "RETURN_COST_SOURCE_ALREADY_LINKED",
-                "An exchange cost event cannot fund more than one linked customer return.",
+                "An original Sale cost event cannot fund more than one linked customer return.",
             )
         if method == "FIFO":
             allocations = list((await db.scalars(
