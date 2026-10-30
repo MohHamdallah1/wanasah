@@ -1,0 +1,124 @@
+name: Live Stock authorized warehouse discovery acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "wa_backend/api/warehouse/locations.py"
+      - "wa_backend/scripts/warehouse_route_manifest_extensions.json"
+      - "wa_backend/tests/test_live_stock_warehouse_discovery_postgres.py"
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-warehouse-discovery.test.tsx"
+      - ".github/workflows/live-stock-authorized-warehouse-discovery-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-warehouse-selection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-security:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockSelectionPgGateKeySecure123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install exact backend requirements
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name live-stock-selection-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-selection-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-selection-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute("SELECT 1 FROM pg_roles WHERE rolname='wanasah_app'").fetchone() is None:
+                  conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: Real PostgreSQL capability and cursor security
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_live_stock_warehouse_discovery_postgres.py
+      - name: Warehouse route registration contract
+        working-directory: wa_backend
+        run: python scripts/gate_warehouse_route_manifest.py
+
+  dashboard-selection:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused warehouse discovery integration
+        working-directory: dashboard
+        run: npm test -- src/test/live-stock-warehouse-discovery.test.tsx --reporter=verbose
+      - name: Existing Live Stock and warm-cache regressions
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-session-cache.test.ts --reporter=verbose
+      - name: TypeScript noEmit
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Dashboard production build
+        working-directory: dashboard
+        run: npm run build
