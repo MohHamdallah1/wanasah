@@ -153,8 +153,13 @@ check(
     'search_patterns = [' in warehouse
     and 'f"%{_escape_like(token)}%"' in warehouse
     and 'func.public.live_stock_search_variant_ids(' in warehouse
-    and 'ProductVariant.id.in_(search_variant_ids)' in warehouse,
-    "Live Stock search delegates exact escaped substring matching to the tenant-scoped native search function",
+    and 'cte("inventory_search_probe")' in warehouse
+    and 'ProductVariant.id.in_(search_probe_ids)' in warehouse
+    and 'search_probe_count <= limit' in warehouse
+    and 'search_probe_count > limit' in warehouse
+    and 'searchable_text.like(pattern, escape="\\\\")' in warehouse
+    and 'union_all(' in warehouse,
+    "Live Stock search keeps tenant-bound sparse lookup while broad pages stream exact escaped membership before LIMIT",
 )
 check(
     'USING gin (' in search_migration
