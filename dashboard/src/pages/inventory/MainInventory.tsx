@@ -1305,12 +1305,19 @@ export default function MainInventory() {
     }
   }, [activeTab, requiresFirstWarehouse]);
 
-  const canShowWarmLiveDuringAccessRefresh =
-    activeTab === "live" &&
-    selectedLocationId !== null &&
-    locationAccess.isPending &&
-    stockPageReady &&
-    !locationAccess.isError;
+  const liveVisible = liveAuthorityVerified && !accessDenied && !locationError &&
+    liveReadPhase !== "denied";
+  const liveDisclosureKey = accessDenied || liveReadPhase === "denied"
+    ? "accessChanged"
+    : !liveVisible
+      ? (stockPageReady ? "warmUnverified" : "loadingVerification")
+      : liveReadPhase === "failed"
+        ? "refreshFailed"
+        : liveReadPhase === "fresh"
+          ? "verifiedFresh"
+          : stockPageReady
+            ? "warmUnverified"
+            : "loadingVerification";
 
   if (archiveOwnerFocus) {
     return <ArchiveOwnerWorkspace intent={archiveOwnerFocus} onClose={() => setArchiveOwnerFocus(null)}
@@ -1410,7 +1417,7 @@ export default function MainInventory() {
                 <span className="text-sm font-black">
                   {t("inventoryShell.liveStockCount")}{" "}
                   <span className="inventory-shared-context-count">
-                    {stockTotal === null
+                    {!liveVisible || liveReadPhase !== "fresh" || stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
                           locale,
@@ -1427,7 +1434,7 @@ export default function MainInventory() {
               <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold">
                 <span>
                   {t("inventoryShell.lastUpdated")}:{" "}
-                  {lastSync
+                  {liveVisible && liveReadPhase === "fresh" && lastSync
                     ? new Intl.DateTimeFormat(
                         locale,
                         {
@@ -1519,8 +1526,8 @@ export default function MainInventory() {
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {selectedLocationId !== null &&
-          locationAccess.isPending &&
-          !canShowWarmLiveDuringAccessRefresh && (
+          !liveVisible &&
+          !accessDenied && (
           <div className="inventory-empty-state flex flex-1 items-center justify-center gap-2 px-6 text-center font-bold text-slate-500">
             <RefreshCcw className="h-5 w-5 animate-spin" />
             {t("common.loading")}
@@ -1549,13 +1556,34 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "live" &&
-          selectedLocationId !== null &&
-          !locationAccess.isError &&
-          (
-            canShowWarmLiveDuringAccessRefresh ||
-            (!locationAccess.isPending && tabAllowed("live"))
-          ) && (
+        {activeTab === "live" && selectedLocationId !== null && (
+          <div
+            role={accessDenied || liveReadPhase === "denied" ? "alert" : "status"}
+            aria-live={accessDenied || liveReadPhase === "denied" ? "assertive" : "polite"}
+            dir={i18n.dir()}
+            data-live-authority={liveDisclosureKey}
+            className="inventory-alert-banner px-4 py-2 text-sm font-semibold"
+          >
+            {t(`inventoryShell.${liveDisclosureKey}`)}
+            {liveDisclosureKey === "refreshFailed" && (
+              <button type="button" onClick={retryStockPage}
+                className="ms-3 rounded-lg border px-2 py-1"
+                aria-label={t("inventoryShell.retry")}>
+                {t("inventoryShell.retry")}
+              </button>
+            )}
+            {liveDisclosureKey === "warmUnverified" && liveVisible && lastSync && (
+              <span className="ms-2" dir="auto">
+                {t("inventoryShell.lastUpdated")}: {new Intl.DateTimeFormat(
+                  locale, { hour: "2-digit", minute: "2-digit",
+                    hour12: false, numberingSystem: "latn" },
+                ).format(lastSync)}
+              </span>
+            )}
+          </div>
+        )}
+        {activeTab === "live" && selectedLocationId !== null &&
+          liveVisible && tabAllowed("live") && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             locations={locations}
