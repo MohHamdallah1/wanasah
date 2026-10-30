@@ -70,7 +70,12 @@ check("apply_inventory_costing_for_movements" in services, "cost engine wired to
 check("LINKED_RETURN_COST_BASIS" in costing, "linked return cost basis")
 check("source_cost_event_id" in models and "cost_source_movement_id" in services, "linked return provenance")
 check('"VISIT_RETURN_IN"' in driver and "cost_source_movement_id" in driver, "driver return cost linkage")
-check("FIFO_RETURN_SOURCE_RECONCILIATION_FAILED" in costing, "linked FIFO return reconciliation")
+check(
+    "resolve_linked_return_cost_sources" in costing
+    and "_uniform_fifo_sale_unit_cost" in costing
+    and '"VISIT_ITEM_OUT"' in costing,
+    "original Sale return cost provenance resolution",
+)
 
 check("unit_cost: InventoryCostMoneyInput" in schemas, "inbound purchase cost schema")
 check("class InboundOptionsRequest" in schemas, "bounded inbound options schema")
