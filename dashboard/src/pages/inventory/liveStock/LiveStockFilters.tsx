@@ -198,7 +198,11 @@ export function LiveStockFilters({
       });
   };
 
-  const activeFilterCount = (stockState !== "all" ? 1 : 0) + indicators.length;
+  const activeFilterCount =
+    (stockState !== "all" ? 1 : 0) +
+    indicators.length +
+    (familyId !== null ? 1 : 0) +
+    (searchInput.trim().length >= 2 ? 1 : 0);
   const selectedFamily =
     familyId === null
       ? null
@@ -211,6 +215,17 @@ export function LiveStockFilters({
         ? indicators.filter((item) => item !== value)
         : [...indicators, value],
     );
+  };
+
+  const resetAllFilters = () => {
+    setSearchInput("");
+    emittedSearch.current = "";
+    onSearchChange("");
+    setFamilySearch("");
+    setSelectedFamilyOption(null);
+    onFamilyChange(null);
+    onStockStateChange("all");
+    onIndicatorsChange([]);
   };
 
   return (
@@ -295,10 +310,7 @@ export function LiveStockFilters({
             <button
               type="button"
               className="live-stock-filter-reset live-stock-filter-reset--compact"
-              onClick={() => {
-                onStockStateChange("all");
-                onIndicatorsChange([]);
-              }}
+              onClick={resetAllFilters}
             >
               <FilterX className="h-3.5 w-3.5" aria-hidden="true" />
               {t("inventoryLive.filterReset")}
