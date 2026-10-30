@@ -46,7 +46,7 @@ async def _seed(db, tenant, count: int) -> tuple[int, int]:
                 (company_id, product_id, base_uom_id, name, sku,
                  lifecycle_status, published_at)
             SELECT :company, :product, :uom, 'F4 variant ' || g,
-                   'F4-' || :company || '-' || :location || '-' || g,
+                   'F4-' || g::text,
                    'ACTIVE', current_timestamp
             FROM generate_series(1, :count) AS g
             RETURNING id, name
@@ -81,7 +81,7 @@ async def _seed(db, tenant, count: int) -> tuple[int, int]:
         WHERE company_id = :company AND sku LIKE :prefix
         ORDER BY id LIMIT 3
     """), {"company": tenant.company_id, "other_location": tenant.other_location_id,
-            "prefix": f"F4-{tenant.company_id}-{tenant.location_id}-%"})
+            "prefix": "F4-%"})
     assert other.rowcount == 3
     await db.commit()
     return tenant.location_id, tenant.other_location_id
