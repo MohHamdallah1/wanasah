@@ -519,9 +519,12 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         ],
     )
     async with pg.session() as db:
-        assert await pg.post(db, inbound) == {"message": "INBOUND_POSTED"}
+        first_inbound = await pg.post(db, inbound)
+    assert first_inbound == {"message": "INBOUND_POSTED"}
     async with pg.session() as db:
-        assert await pg.post(db, inbound) == {"message": "INBOUND_POSTED"}
+        replay_inbound = await pg.post(db, inbound)
+    assert replay_inbound == first_inbound
+    async with pg.session() as db:
         inbound_movement = await db.scalar(
             select(InventoryMovement).where(
                 InventoryMovement.company_id == tenant.company_id,
@@ -567,19 +570,19 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         )
     async with pg.session() as db:
         before = await _movement_count(db, tenant.company_id)
-        assert (
-            await mutate_vehicle_load(
-                db,
-                access=tenant.owner.access(db),
-                actor_id=tenant.owner.driver_id,
-                vehicle_id=vehicle_id,
-                warehouse_id=tenant.location_id,
-                direction="ADD",
-                request_id=load_id,
-                items=load_items,
-            )
-            == first_load
+    async with pg.session() as db:
+        replay_load = await mutate_vehicle_load(
+            db,
+            access=tenant.owner.access(db),
+            actor_id=tenant.owner.driver_id,
+            vehicle_id=vehicle_id,
+            warehouse_id=tenant.location_id,
+            direction="ADD",
+            request_id=load_id,
+            items=load_items,
         )
+    assert replay_load == first_load
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before
 
     await _assert_inventory_truth(
@@ -613,6 +616,7 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
     # Authority failure is checked before the one permitted non-idempotent launch.
     async with pg.session() as db:
         before = await _movement_count(db, tenant.company_id)
+    async with pg.session() as db:
         with pytest.raises(HTTPException) as denied:
             await dispatch.dispatch_route(
                 route_payload,
@@ -621,7 +625,7 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
                 tenant.ordinary.operational_driver,
             )
         assert denied.value.status_code == 403
-        await db.rollback()
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before
 
     # 3) Launch existing 240 target exactly once. DispatchRouteRequest has no
@@ -750,16 +754,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         assert pending is not None
         transfer_id = int(pending.id)
         before_replay = await _movement_count(db, tenant.company_id)
-        assert (
-            await dispatch.adjust_route_inventory(
-                route_id,
-                adjust,
-                db,
-                tenant.owner.access(db),
-                tenant.owner.operational_driver,
-            )
-            == first_adjust
+    async with pg.session() as db:
+        replay_adjust = await dispatch.adjust_route_inventory(
+            route_id,
+            adjust,
+            db,
+            tenant.owner.access(db),
+            tenant.owner.operational_driver,
         )
+    assert replay_adjust == first_adjust
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before_replay
         assert (
             await db.scalar(
@@ -808,16 +812,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         )
     async with pg.session() as db:
         before_accept_replay = await _movement_count(db, tenant.company_id)
-        assert (
-            await respond_to_transfer(
-                transfer_id,
-                TransferResponseRequest(response="accepted"),
-                db,
-                field.context,
-                field.driver,
-            )
-            == accepted
+    async with pg.session() as db:
+        replay_accept = await respond_to_transfer(
+            transfer_id,
+            TransferResponseRequest(response="accepted"),
+            db,
+            field.context,
+            field.driver,
         )
+    assert replay_accept == accepted
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before_accept_replay
         header = await db.get(InventoryTransferHeader, transfer_id)
         assert header.status == "POSTED"
@@ -875,16 +879,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         assert first_sale["message"] == "Visit updated successfully"
     async with pg.session() as db:
         before_sale_replay = await _movement_count(db, tenant.company_id)
-        assert (
-            await update_visit(
-                visit_id,
-                sale,
-                db,
-                field.context,
-                field.driver,
-            )
-            == first_sale
+    async with pg.session() as db:
+        replay_sale = await update_visit(
+            visit_id,
+            sale,
+            db,
+            field.context,
+            field.driver,
         )
+    assert replay_sale == first_sale
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before_sale_replay
 
         visit = await db.scalar(
@@ -1001,16 +1005,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
 
     async with pg.session() as db:
         before_receive_replay = await _movement_count(db, tenant.company_id)
-        assert (
-            await receive_representative_custody(
-                session_id,
-                custody_payload,
-                db,
-                tenant.owner.access(db),
-                tenant.owner.operational_driver,
-            )
-            == first_receive
+    async with pg.session() as db:
+        replay_receive = await receive_representative_custody(
+            session_id,
+            custody_payload,
+            db,
+            tenant.owner.access(db),
+            tenant.owner.operational_driver,
         )
+    assert replay_receive == first_receive
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before_receive_replay
         handoff = await db.scalar(
             select(InventoryMovement).where(
@@ -1069,16 +1073,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
 
     async with pg.session() as db:
         before_settle_replay = await _movement_count(db, tenant.company_id)
-        assert (
-            await dispatch.settle_session(
-                session_id,
-                settlement,
-                db,
-                tenant.owner.access(db),
-                tenant.owner.operational_driver,
-            )
-            == first_settle
+    async with pg.session() as db:
+        replay_settle = await dispatch.settle_session(
+            session_id,
+            settlement,
+            db,
+            tenant.owner.access(db),
+            tenant.owner.operational_driver,
         )
+    assert replay_settle == first_settle
+    async with pg.session() as db:
         assert await _movement_count(db, tenant.company_id) == before_settle_replay
 
         work = await db.scalar(
