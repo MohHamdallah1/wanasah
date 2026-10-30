@@ -33,9 +33,7 @@ from models import (
 )
 from schemas import VisitUpdateRequest
 from tests.canonical_actor_fixtures import seed_ordinary_backoffice_fixture
-from tests.test_costed_driver_sale_correction_real_c2_db import (
-    RealDriverSaleCorrectionC2DatabaseTests,
-)
+from tests import test_costed_driver_sale_correction_real_c2_db as sale_correction_fixture
 
 
 @unittest.skipUnless(
@@ -43,11 +41,10 @@ from tests.test_costed_driver_sale_correction_real_c2_db import (
     "Explicit disposable PostgreSQL 16 remaining-accounting gate only",
 )
 class ContinuousTwoPurchaseSaleReturnStocktakeTests(
-    RealDriverSaleCorrectionC2DatabaseTests
+    sale_correction_fixture.RealDriverSaleCorrectionC2DatabaseTests
 ):
-    # Reuse the accepted setup/helpers without re-collecting #664's two tests.
-    test_fifo_real_priced_sale_and_authorized_return_correction = None
-    test_average_real_priced_sale_and_authorized_return_correction = None
+    # The accepted class is referenced through a module alias so pytest does not
+    # collect #664's two tests again in this module.
 
     async def _seed_stocktake_actors(self):
         """Identity/capability fixture only; no inventory/cost/ledger writes."""
@@ -148,8 +145,27 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         expected_after_sale_value = expected_purchase_value - expected_sale_cogs
 
         expected_return_quantity = Decimal("2")
+        expected_exchange_cost = (
+            Decimal("4.000000")
+            if method == "FIFO"
+            else Decimal("5.333334")
+        )
+        # Current V1 financial contract: VISIT_RETURN_IN is an external increase
+        # without authoritative source-cost linkage, so it is valued at the
+        # current average estimate. Under FIFO this deliberately differs from
+        # the FIFO-layer cost of the 1:1 replacement outbound. Source-cost
+        # fidelity for returns remains an explicitly open architecture gate.
+        expected_return_cost = (
+            Decimal("5.342282")
+            if method == "FIFO"
+            else Decimal("5.333334")
+        )
         expected_after_correction_quantity = Decimal("300")
-        expected_after_correction_value = Decimal("800")
+        expected_after_correction_value = (
+            Decimal("801.342282")
+            if method == "FIFO"
+            else Decimal("800.000000")
+        )
         expected_vehicle_available_after_correction = Decimal("148")
         expected_vehicle_damaged_after_correction = Decimal("2")
 
@@ -162,12 +178,12 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         )
         expected_final_quantity = Decimal("290")
         expected_final_value = (
-            Decimal("780.000000")
+            Decimal("781.342282")
             if method == "FIFO"
             else Decimal("773.333330")
         )
         expected_final_average = (
-            Decimal("2.689655")
+            Decimal("2.694284")
             if method == "FIFO"
             else Decimal("2.666667")
         )
@@ -354,6 +370,38 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
             legacy_actor=self.field.driver,
         )
         self.assertEqual(corrected["message"], "Visit updated successfully")
+
+        exchange_cost_rows = (
+            await self.db.execute(
+                text(
+                    "SELECT m.reference_type,e.event_type,e.cost_basis,e.total_cost "
+                    "FROM inventory_movements m "
+                    "JOIN inventory_cost_events e "
+                    "ON e.company_id=m.company_id "
+                    "AND e.inventory_movement_id=m.id "
+                    "WHERE m.company_id=:t AND m.reference_id=:v "
+                    "AND m.reference_type IN ('VISIT_EXCHANGE_OUT','VISIT_RETURN_IN') "
+                    "ORDER BY m.id"
+                ),
+                {"t": self.tenant, "v": str(visit_id)},
+            )
+        ).mappings().all()
+        self.assertEqual(len(exchange_cost_rows), 2)
+        by_reference = {
+            row["reference_type"]: row for row in exchange_cost_rows
+        }
+        self.assertEqual(
+            Decimal(by_reference["VISIT_EXCHANGE_OUT"]["total_cost"]),
+            expected_exchange_cost,
+        )
+        self.assertEqual(
+            Decimal(by_reference["VISIT_RETURN_IN"]["total_cost"]),
+            expected_return_cost,
+        )
+        self.assertEqual(
+            by_reference["VISIT_RETURN_IN"]["cost_basis"],
+            "CURRENT_AVERAGE_ESTIMATE",
+        )
 
         after_correction_state = (
             await self.db.execute(
