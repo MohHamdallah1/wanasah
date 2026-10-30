@@ -67,6 +67,10 @@ check("INVENTORY_COST_RECONCILIATION_FAILED" in costing, "cost/physical reconcil
 check("ORIGINAL_REVERSAL" in costing and "cost_reversal_of_movement_id" in services, "exact reversal linkage")
 check("validate_inventory_costing_replays" in services, "cost replay validation")
 check("apply_inventory_costing_for_movements" in services, "cost engine wired to movement engine")
+check("LINKED_RETURN_COST_BASIS" in costing, "linked return cost basis")
+check("source_cost_event_id" in models and "cost_source_movement_id" in services, "linked return provenance")
+check('"VISIT_RETURN_IN"' in driver and "cost_source_movement_id" in driver, "driver return cost linkage")
+check("FIFO_RETURN_SOURCE_RECONCILIATION_FAILED" in costing, "linked FIFO return reconciliation")
 
 check("unit_cost: InventoryCostMoneyInput" in schemas, "inbound purchase cost schema")
 check("class InboundOptionsRequest" in schemas, "bounded inbound options schema")
