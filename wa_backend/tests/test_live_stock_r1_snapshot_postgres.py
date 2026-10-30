@@ -168,6 +168,29 @@ async def test_sellable_filter_before_and_after_controls(r1case, boundary):
         assert D(row["vehicle_quantity"]) == D("10")
         partition(row)
 
+async def test_n2_purchase_date_helper_normalizes_padded_timezone():
+    created_at = datetime(2026, 1, 1, 21, 30)
+
+    assert live_stock._company_local_purchase_date(
+        created_at,
+        "  Asia/Amman  ",
+    ) == date(2026, 1, 2)
+
+    with pytest.raises(RuntimeError):
+        live_stock._company_local_purchase_date(created_at, "   ")
+
+
+async def test_n2_purchase_date_helper_respects_new_york_dst_boundary():
+    assert live_stock._company_local_purchase_date(
+        datetime(2026, 3, 8, 4, 30),
+        "America/New_York",
+    ) == date(2026, 3, 7)
+    assert live_stock._company_local_purchase_date(
+        datetime(2026, 3, 8, 7, 30),
+        "America/New_York",
+    ) == date(2026, 3, 8)
+
+
 @pytest.mark.parametrize(
     "company_timezone,utc_created_at,expected_purchase_date",
     [
