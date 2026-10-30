@@ -25,7 +25,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -364,6 +364,15 @@ async def seed():
                 driver_id=reader_a.driver_id,
                 location_id=a1.id,
             )
+            # A2 starts readable only so the browser can warm genuine scoped data.
+            # The revoke command removes this exact grant while preserving the
+            # same principal/token and the A1 grant.
+            await _grant_location_reader(
+                db,
+                company_id=company_a.id,
+                driver_id=reader_a.driver_id,
+                location_id=a2.id,
+            )
             await rebuild_live_stock_company(db, company_id=company_a.id)
             await db.flush()
 
@@ -564,6 +573,7 @@ async def seed():
                 "productName": "Real Browser Product A",
                 "lot": LOT_A,
                 "ownerDriverId": ids.owner_a.driver_id,
+                "readerDriverId": ids.reader_a.driver_id,
                 "expectedInbound": str(EXPECTED_INBOUND),
                 "expectedMove": str(EXPECTED_MOVE),
                 "expectedRemaining": str(EXPECTED_REMAINING),
@@ -668,10 +678,59 @@ async def move():
         await admin_engine.dispose()
 
 
+async def revoke_a2():
+    runtime_url, admin_url = _checked_urls()
+    runtime_engine = create_async_engine(runtime_url, poolclass=NullPool)
+    admin_engine = create_async_engine(admin_url, poolclass=NullPool)
+    try:
+        await _verify_runtime_identity(runtime_engine)
+        await _verify_alembic_head(admin_engine)
+        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        company = state["companyA"]
+        async with _runtime_session(runtime_engine, int(company["id"])) as db:
+            result = await db.execute(
+                delete(UserLocationAccess).where(
+                    UserLocationAccess.company_id == int(company["id"]),
+                    UserLocationAccess.driver_id == int(company["readerDriverId"]),
+                    UserLocationAccess.location_id == int(company["warehouseA2"]),
+                )
+            )
+            assert int(result.rowcount or 0) >= 1
+            await db.commit()
+        async with _runtime_session(runtime_engine, int(company["id"])) as db:
+            remaining_a2 = await db.scalar(
+                select(func.count()).select_from(UserLocationAccess).where(
+                    UserLocationAccess.company_id == int(company["id"]),
+                    UserLocationAccess.driver_id == int(company["readerDriverId"]),
+                    UserLocationAccess.location_id == int(company["warehouseA2"]),
+                )
+            )
+            remaining_a1 = await db.scalar(
+                select(func.count()).select_from(UserLocationAccess).where(
+                    UserLocationAccess.company_id == int(company["id"]),
+                    UserLocationAccess.driver_id == int(company["readerDriverId"]),
+                    UserLocationAccess.location_id == int(company["warehouseA1"]),
+                )
+            )
+            assert int(remaining_a2 or 0) == 0
+            assert int(remaining_a1 or 0) >= 1
+        print("REAL_BROWSER_REVOKE_A2=PASS", flush=True)
+    finally:
+        await runtime_engine.dispose()
+        await admin_engine.dispose()
+
+
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"seed", "move"}:
-        raise SystemExit("usage: live_stock_real_browser_support.py seed|move")
-    asyncio.run(seed() if sys.argv[1] == "seed" else move())
+    if len(sys.argv) != 2 or sys.argv[1] not in {"seed", "move", "revoke-a2"}:
+        raise SystemExit("usage: live_stock_real_browser_support.py seed|move|revoke-a2")
+    command = sys.argv[1]
+    if command == "seed":
+        coroutine = seed()
+    elif command == "move":
+        coroutine = move()
+    else:
+        coroutine = revoke_a2()
+    asyncio.run(coroutine)
 
 
 if __name__ == "__main__":
