@@ -323,18 +323,15 @@ async def seed_fixture(fixture_path: Path) -> None:
             await db.commit()
 
         async with engine.connect() as conn:
-            await conn.execute(
-                text(
-                    """
-                    ANALYZE product_variants;
-                    ANALYZE product_batches;
-                    ANALYZE inventory_balances;
-                    ANALYZE inventory_live_stock_projection;
-                    ANALYZE inventory_live_stock_company_summaries;
-                    ANALYZE inventory_live_stock_warehouse_summaries;
-                    """
-                )
-            )
+            for table in (
+                "product_variants",
+                "product_batches",
+                "inventory_balances",
+                "inventory_live_stock_projection",
+                "inventory_live_stock_company_summaries",
+                "inventory_live_stock_warehouse_summaries",
+            ):
+                await conn.execute(text(f"ANALYZE {table}"))
             await conn.commit()
 
         fixture = {
