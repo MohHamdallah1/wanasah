@@ -1539,7 +1539,7 @@ export default function MainInventory() {
                           numberingSystem: "latn",
                         },
                       ).format(lastSync)
-                    : <span aria-label={t("inventoryShell.countNotVerified")}>—</span>}
+                    : <span aria-label={t("inventoryShell.fetchTimeUnknown")}>—</span>}
                 </span>
                 <button
                   type="button"
