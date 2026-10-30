@@ -1,0 +1,189 @@
+name: Live Stock V1 R3 vehicle attribution truth proof
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/test_live_stock_v1_r3_vehicle_attribution_postgres.py"
+      - "docs/operations/LIVE_STOCK_V1_R3_VEHICLE_ATTRIBUTION_DECISION.md"
+      - ".github/workflows/live-stock-v1-r3-vehicle-attribution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-r3-vehicle-attribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockR3VehicleAttributionKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://r3_vehicle_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_R3_VEHICLE_ATTRIBUTION_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://r3_vehicle_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile focused R3 proof
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          tests/test_live_stock_v1_r3_vehicle_attribution_postgres.py
+          tests/test_live_stock_v1_route_sale_unload_postgres.py
+          tests/test_live_stock_v1_quantity_reconciliation_postgres.py
+          tests/test_inbound_no_lot_frozen_postgres.py
+
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name live-stock-r3-postgres             --env POSTGRES_USER=r3_vehicle_admin             --env POSTGRES_DB=wanasah_no_lot_contract_test             --env POSTGRES_HOST_AUTH_METHOD=trust             --publish 127.0.0.1:55439:55439             postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-r3-postgres pg_isready               -U r3_vehicle_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-r3-postgres
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh Alembic schema and parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Run focused R3 vehicle attribution truth proof
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_r3_vehicle_attribution_postgres.py
+          --junitxml=live-stock-v1-r3-vehicle-attribution.xml
+
+      - name: Reject skips failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("live-stock-v1-r3-vehicle-attribution.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 2, f"Expected FIFO + MOVING_AVERAGE R3 cases, got {len(cases)}"
+          assert not list(root.iter("skipped")), "R3 attribution proof must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), (
+              "R3 attribution PostgreSQL proof failed"
+          )
+          print("R3_VEHICLE_ATTRIBUTION_EXECUTED=2")
+          PY
+
+      - name: Exact proof ownership
+        if: always()
+        run: |
+          base="4c100550ac3dc3fcf16ecd174e285f3dc84c941f"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {
+              ".github/workflows/live-stock-v1-r3-vehicle-attribution.yml",
+              "docs/operations/LIVE_STOCK_V1_R3_VEHICLE_ATTRIBUTION_DECISION.md",
+              "wa_backend/tests/test_live_stock_v1_r3_vehicle_attribution_postgres.py",
+          }
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          extra = changed - allowed
+          if extra:
+              raise SystemExit(f"R3_SCOPE=FAIL extra={sorted(extra)}")
+          forbidden = [
+              path
+              for path in changed
+              if path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
+              or path.startswith("dashboard/")
+              or path.startswith("wanasah_frontend/")
+              or path.startswith("wa_backend/domains/inventory_costing/")
+              or path == "wa_backend/api/warehouse/live_stock.py"
+              or path == "wa_backend/domains/live_stock_projection/service.py"
+          ]
+          if forbidden:
+              raise SystemExit(f"R3_SCOPE=FAIL forbidden={sorted(forbidden)}")
+          print(f"R3_SCOPE=PASS files={len(changed)}")
+          PY
+
+      - name: Retain focused R3 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-v1-r3-vehicle-attribution-${{ github.sha }}
+          path: wa_backend/live-stock-v1-r3-vehicle-attribution.xml
+          if-no-files-found: error
