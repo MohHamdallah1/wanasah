@@ -967,6 +967,9 @@ async def update_visit(
             visit=visit, session=active_session, proofs=return_proofs,
         )
 
+        linked_return_cost_from_sale_correction = (
+            visit.status == "Completed" and visit.outcome == "Sale"
+        )
         if visit.status == "Completed":
             correction_audit_before = {
                 "request_id": str(payload.request_id),
@@ -1837,19 +1840,50 @@ async def update_visit(
                         ),
                     }
                 )
-                linked_return_specs.append((
+                if linked_return_cost_from_sale_correction:
+                    linked_return_specs.append((
+                        {
+                            "product_variant_id": ret.product_variant_id,
+                            # Physical customer-return identity remains the proven
+                            # returned Batch; it need not equal the exchange Batch.
+                            "batch_id": ret.batch_id,
+                            "quantity": qty,
+                            "movement_kind": "PHYSICAL",
+                            "reference_type": "VISIT_RETURN_IN",
+                            "reference_id": str(visit.id),
+                            "idempotency_key": (
+                                f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-"
+                                f"B{ret.batch_id}-S{segment_index}"
+                            ),
+                            "source_location_id": None,
+                            "destination_location_id": veh_loc_id,
+                            "source_stock_status": None,
+                            "destination_stock_status": "DAMAGED",
+                            "work_session_id": active_session.id,
+                            "notes": (
+                                f"استلام مرتجع {ret.return_type} من المحل {shop.name}; "
+                                f"Batch={ret.batch_id}. "
+                                f"{('السبب: ' + ret.reason) if ret.reason else ''}"
+                            ).strip(),
+                        },
+                        exchange_key,
+                    ))
+
+            if not linked_return_cost_from_sale_correction:
+                # No authoritative original-sale financial attribution has been
+                # proven for a standalone historical return. Preserve the V1
+                # documented estimate instead of inventing receipt/carton identity.
+                movement_specs.append(
                     {
                         "product_variant_id": ret.product_variant_id,
-                        # Physical customer-return identity remains the proven
-                        # returned Batch; it need not equal the exchange Batch.
                         "batch_id": ret.batch_id,
-                        "quantity": qty,
+                        "quantity": total_return_base_quantity,
                         "movement_kind": "PHYSICAL",
                         "reference_type": "VISIT_RETURN_IN",
                         "reference_id": str(visit.id),
                         "idempotency_key": (
                             f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-"
-                            f"B{ret.batch_id}-S{segment_index}"
+                            f"B{ret.batch_id}"
                         ),
                         "source_location_id": None,
                         "destination_location_id": veh_loc_id,
@@ -1861,9 +1895,8 @@ async def update_visit(
                             f"Batch={ret.batch_id}. "
                             f"{('السبب: ' + ret.reason) if ret.reason else ''}"
                         ).strip(),
-                    },
-                    exchange_key,
-                ))
+                    }
+                )
 
             db.add(
                 VisitReturn(
