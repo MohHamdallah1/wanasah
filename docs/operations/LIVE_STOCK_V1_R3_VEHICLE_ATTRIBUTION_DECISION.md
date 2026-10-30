@@ -1,6 +1,6 @@
 # Live Stock V1 R3 — Vehicle Attribution Decision Evidence
 
-**Status:** Evidence for owner decision. No attribution policy change is implemented here.  
+**Status:** Evidence for owner decision. No attribution policy change is implemented here.
 **Acceptance base:** `4c100550ac3dc3fcf16ecd174e285f3dc84c941f`.
 
 ## Current V1 contract
@@ -38,21 +38,21 @@ Batch stock sources remain physical disclosure: the W2 batch reports the actual 
 
 Keep current backend semantics unchanged. Treat `vehicle_quantity` as “Vehicle custody associated with the latest Route source,” never as Warehouse-owned stock. Direct no-Route custody can remain unattributed to a Warehouse until a Route exists.
 
-**Advantages:** smallest and safest V1 scope; no new inventory authority, migration, cost logic or allocation rule; matches the frozen Vehicle contract.  
+**Advantages:** smallest and safest V1 scope; no new inventory authority, migration, cost logic or allocation rule; matches the frozen Vehicle contract.
 **Trade-off:** a Vehicle loaded directly can temporarily disappear from every Warehouse's `vehicle_quantity`, and a later Route can visually move the whole Vehicle quantity between Warehouses without a physical movement. Operator wording must remain explicit.
 
 ### Option B — Add an explicit “unattributed Vehicle custody” display bucket
 
 Keep physical truth unchanged but introduce a separate presentation/read-model category for Vehicle stock with no applicable Route-source attribution.
 
-**Advantages:** makes direct no-Route custody visible without pretending it belongs to a Warehouse.  
+**Advantages:** makes direct no-Route custody visible without pretending it belongs to a Warehouse.
 **Trade-off:** changes Live Stock API/UI semantics and aggregate rules; requires separate owner approval and acceptance work. It is not implemented by this proof.
 
 ### Option C — Attribute Vehicle quantity by load provenance
 
 Track/display Vehicle quantities against the Warehouse(s) from which individual units were loaded.
 
-**Advantages:** closer to movement provenance for some questions.  
+**Advantages:** closer to movement provenance for some questions.
 **Trade-off:** substantially more complex after mixed loads, sales, returns, route adjustments and unloads; risks creating a second allocation/ownership concept beside physical and financial authorities. This is not a safe implicit V1 change and likely belongs in a separately designed future policy.
 
 ## Recommended safe V1 decision
