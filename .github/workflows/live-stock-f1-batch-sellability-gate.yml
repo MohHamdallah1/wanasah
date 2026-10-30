@@ -1,0 +1,100 @@
+name: Live Stock F1 PostgreSQL batch/list parity
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/live_stock.py"
+      - "wa_backend/tests/test_cp7_live_stock_postgres.py"
+      - ".github/workflows/live-stock-f1-batch-sellability-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-f1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  f1-postgresql-parity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: F1IsolatedTestOnlyKeyAbc12345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+      - name: Compile changed backend files
+        working-directory: wa_backend
+        run: python -m py_compile api/warehouse/live_stock.py tests/test_cp7_live_stock_postgres.py
+      - name: Provision isolated PostgreSQL 16
+        run: |
+          docker run --detach --name f1-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec f1-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs f1-postgres
+          exit 1
+      - name: Create restricted database role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant database runtime fixtures
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: F1 full CP7 PostgreSQL regression
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp7_live_stock_postgres.py
+          --junitxml=f1-cp7.xml
+      - name: Retain evidence on failure or success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f1-cp7-${{ github.sha }}
+          path: wa_backend/f1-cp7.xml
+          if-no-files-found: warn
