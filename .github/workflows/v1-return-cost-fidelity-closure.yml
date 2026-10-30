@@ -188,6 +188,7 @@ jobs:
 
           allowed = {
               ".github/workflows/v1-return-cost-fidelity-closure.yml",
+              ".github/workflows/purchase-reference-e2e-postgres.yml",
               "wa_backend/models.py",
               "wa_backend/services.py",
               "wa_backend/api/driver.py",
