@@ -98,6 +98,7 @@ function product(index: number): WarehouseProduct {
     total_quantity: "12.000000",
     damaged_quantity: "0.000000",
     minimum_quantity: "2.000000",
+  is_low_stock: false,
   };
 }
 
