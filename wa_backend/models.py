@@ -611,6 +611,10 @@ class InventoryCostEvent(Base):
         UniqueConstraint('company_id', 'id', name='uq_inventory_cost_events_company_id'),
         UniqueConstraint('company_id', 'inventory_movement_id', name='uq_inventory_cost_event_movement'),
         UniqueConstraint(
+            'company_id', 'source_cost_event_id',
+            name='uq_inventory_cost_event_source_cost',
+        ),
+        UniqueConstraint(
             'company_id', 'opening_valuation_line_id', 'batch_id',
             name='uq_inventory_cost_event_opening_batch',
         ),
@@ -644,6 +648,12 @@ class InventoryCostEvent(Base):
             ondelete='RESTRICT',
             name='fk_inventory_cost_event_tenant_reversal',
         ),
+        ForeignKeyConstraint(
+            ['company_id', 'source_cost_event_id'],
+            ['inventory_cost_events.company_id', 'inventory_cost_events.id'],
+            ondelete='RESTRICT',
+            name='fk_inventory_cost_event_tenant_source_cost',
+        ),
         CheckConstraint(
             "method IN ('MOVING_AVERAGE','FIFO')",
             name='chk_inventory_cost_event_method',
@@ -654,7 +664,8 @@ class InventoryCostEvent(Base):
         ),
         CheckConstraint(
             "cost_basis IN ('OPENING_VALUATION','PURCHASE_ACTUAL','MOVING_AVERAGE','FIFO_LAYER',"
-            "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE','LEGACY_FIFO_STATE_BRIDGE')",
+            "'ORIGINAL_REVERSAL','CURRENT_AVERAGE_ESTIMATE','LINKED_RETURN_COST',"
+            "'LEGACY_FIFO_STATE_BRIDGE')",
             name='chk_inventory_cost_event_basis',
         ),
         CheckConstraint('quantity > 0', name='chk_inventory_cost_event_quantity'),
@@ -676,6 +687,12 @@ class InventoryCostEvent(Base):
             "OR (event_type NOT IN ('REVERSAL_IN','REVERSAL_OUT') "
             "AND reversal_of_cost_event_id IS NULL))",
             name='chk_inventory_cost_event_reversal_scope',
+        ),
+        CheckConstraint(
+            "((cost_basis = 'LINKED_RETURN_COST' AND event_type = 'ADJUSTMENT_IN' "
+            "AND source_cost_event_id IS NOT NULL) "
+            "OR (cost_basis <> 'LINKED_RETURN_COST' AND source_cost_event_id IS NULL))",
+            name='chk_inventory_cost_event_source_cost_scope',
         ),
         CheckConstraint(
             "((inventory_movement_id IS NOT NULL AND opening_valuation_line_id IS NULL "
@@ -713,6 +730,7 @@ class InventoryCostEvent(Base):
     input_quantity            = Column(Numeric(20, 6), nullable=True)
     input_unit_cost           = Column(Numeric(20, 6), nullable=True)
     reversal_of_cost_event_id = Column(BigInteger, nullable=True, index=True)
+    source_cost_event_id      = Column(BigInteger, nullable=True, index=True)
     created_at                = Column(DateTime, nullable=False, default=utc_now, index=True)
 
 
