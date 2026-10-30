@@ -129,9 +129,11 @@ describe('live stock response contract', () => {
     expect(parseLiveStockFamilies({
       items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
       has_more: false,
+      next_cursor: null,
     })).toEqual({
       items: [{id: 3, name: 'عائلة', code: 'FAM-3'}],
       has_more: false,
+      next_cursor: null,
     });
   });
 
