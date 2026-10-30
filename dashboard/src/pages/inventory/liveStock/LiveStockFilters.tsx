@@ -182,10 +182,11 @@ export function LiveStockFilters({
             (error instanceof Error && error.name === "AbortError")) return;
         const fallback = t("inventoryLive.errors.familyLoadFailed");
         setFamilyMoreError(
-          error instanceof Error &&
+          apiErrorCode(error) === "LIVE_STOCK_FAMILY_CURSOR_NON_ADVANCING" ||
+          (error instanceof Error &&
           !apiErrorCode(error) &&
           !apiErrorRequestId(error) &&
-          apiErrorStatus(error) === undefined
+          apiErrorStatus(error) === undefined)
             ? fallback
             : apiErrorMessage(error, fallback),
         );
