@@ -88,7 +88,9 @@ function createMediaController(initialNarrow: boolean) {
     configurable: true,
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: query.includes("max-width") ? narrow : !narrow,
+      get matches() {
+        return query.includes("max-width") ? narrow : !narrow;
+      },
       media: query,
       onchange: null,
       addEventListener: (
