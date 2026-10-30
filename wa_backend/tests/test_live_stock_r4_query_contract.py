@@ -75,6 +75,10 @@ def test_positive_stock_filters_drive_from_sparse_projection():
         assert token in body
     assert "select(projection.product_variant_id)" in body
     assert "projection.warehouse_location_id == location_id" in body
+    assert "variant.company_id == projection.company_id" in body
+    assert "variant.id == projection.product_variant_id" in body
+    assert "variant.lifecycle_status == 'ACTIVE'" in body
+    assert "variant.operational_hold == 'NONE'" in body
 
     # Missing projection rows are meaningful for these two filters, so the
     # outer-join fallback must remain instead of changing their membership.
