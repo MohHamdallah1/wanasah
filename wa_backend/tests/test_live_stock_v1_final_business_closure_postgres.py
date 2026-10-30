@@ -220,7 +220,14 @@ async def _connected_truth(
         assert [D(event.total_cost) for event in outbound] == outbound_costs
 
         for location_id, (expected_on_hand, expected_reserved) in expected_locations.items():
-            if location_id == vehicle_location_id or expected_on_hand == 0:
+            # Live Stock list/batch routes are warehouse-only by contract.
+            # Vehicle and IN_TRANSIT custody are already reconciled above from
+            # canonical InventoryBalance and are never coerced into warehouses.
+            if (
+                location_id == vehicle_location_id
+                or location_id not in {tenant.location_id, tenant.other_location_id}
+                or expected_on_hand == 0
+            ):
                 continue
             page = await live_stock.get_warehouse_inventory(
                 location_id=location_id,
