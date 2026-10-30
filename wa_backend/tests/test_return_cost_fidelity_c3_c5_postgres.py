@@ -89,8 +89,8 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
         self.owner = await load_company_owner_fixture(self.db, self.tenant)
         self.actor = self.owner.operational_driver
         self.field = await seed_field_fixture(self.db, self.tenant)
-        self.field_driver_id = self.field_driver_id
-        self.field_context = self.field_context
+        self.field_driver_id = int(self.field.driver.id)
+        self.field_context = self.field.context
         self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.warehouse_id = await self.db.scalar(
             text(
