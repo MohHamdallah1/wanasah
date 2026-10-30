@@ -57,6 +57,31 @@ def test_r4_search_path_is_page_adaptive_without_frontend_authority():
     assert "await db.execute(detail_stmt)" in body
 
 
+
+def test_positive_stock_filters_drive_from_sparse_projection():
+    source = SOURCE.read_text(encoding="utf-8")
+    node = _function(source, "_live_stock_filtered_variant_ids_stmt")
+    body = ast.unparse(node)
+
+    assert "projection_guaranteed" in body
+    for token in (
+        "stock_state in {'on_hand', 'sellable', 'low_stock'}",
+        "has_reserved",
+        "has_unavailable",
+        "has_damaged",
+        "has_recalled",
+        "has_vehicle",
+    ):
+        assert token in body
+    assert "select(projection.product_variant_id)" in body
+    assert "projection.warehouse_location_id == location_id" in body
+
+    # Missing projection rows are meaningful for these two filters, so the
+    # outer-join fallback must remain instead of changing their membership.
+    assert "stock_state == 'out_of_stock'" in body
+    assert "minimum_unset" in body
+    assert ".outerjoin(projection" in body
+
 def test_unmodified_live_stock_query_families_stay_exact_base():
     current = SOURCE.read_text(encoding="utf-8")
     base = subprocess.check_output(
