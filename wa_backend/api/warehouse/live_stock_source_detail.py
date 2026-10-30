@@ -53,6 +53,9 @@ class LiveStockStatusChangeAvailability(BaseModel):
         "PERMISSION_REQUIRED",
         "NO_ELIGIBLE_QUANTITY",
         "BATCH_NOT_SELLABLE",
+        "PRODUCT_NOT_OPERATIONAL",
+        "PRODUCT_SALES_HOLD",
+        "PRODUCT_RECALLED",
     ]
 
 
@@ -129,6 +132,8 @@ async def get_live_stock_batch_source(
                 ProductBatch.is_active,
                 ProductBatch.disposition,
                 ProductVariant.expiry_control_mode,
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
                 ProductVariant.base_uom_id,
                 ProductVariant.quantity_scale,
                 ProductVariant.quantity_step,
@@ -153,6 +158,7 @@ async def get_live_stock_batch_source(
                     InventoryStockPolicy.company_id == company_id,
                     InventoryStockPolicy.location_id == location_id,
                     InventoryStockPolicy.product_variant_id == product_variant_id,
+                    InventoryStockPolicy.is_active.is_(True),
                 ),
             )
             .where(
@@ -287,6 +293,8 @@ async def get_live_stock_batch_source(
                     ),
                     is_active=bool(metadata.is_active),
                     disposition=str(metadata.disposition),
+                    lifecycle_status=str(metadata.lifecycle_status),
+                    operational_hold=str(metadata.operational_hold),
                 )
             ],
         }
