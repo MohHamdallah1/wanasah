@@ -169,7 +169,7 @@ export function LiveStockFilters({
         if (controller.signal.aborted || familyRequestSeq.current !== requestSeq) return;
         const page = parseLiveStockFamilies(raw);
         if (page.next_cursor === requestCursor) {
-          throw new Error("Non-advancing family cursor");
+          throw new Error("LIVE_STOCK_FAMILY_CURSOR_NON_ADVANCING");
         }
         setFamilies((previous) => {
           const seen = new Set(previous.map((item) => item.id));

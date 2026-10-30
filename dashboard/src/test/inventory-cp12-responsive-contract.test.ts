@@ -33,8 +33,14 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     const warehouses = read(inventoryFiles.warehouses);
     const branches = read("src/pages/inventory/warehouse-locations/BranchManagementModal.tsx");
 
-    expect(inbound).toContain("overflow-auto");
-    expect(inbound).toContain("min-w-[1120px]");
+    // Scrolling and column sizing moved from utility classes to Inventory CSS.
+    // Bind the real table to its real scroll owner, then check both width rules.
+    const css = read("src/pages/inventory/inventory.css");
+    expect(inbound).toMatch(/className="inventory-inbound-table-wrap"[\s\S]*?<table className="inventory-inbound-table">/);
+    expect(inbound.match(/<col className="inventory-inbound-col-/g)).toHaveLength(7);
+    expect(css).toMatch(/\.inventory-inbound-table-wrap\s*\{[^}]*overflow:\s*auto;/);
+    expect(css).toMatch(/\.inventory-inbound-table\s*\{[^}]*min-width:\s*1120px;[^}]*table-layout:\s*fixed;/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*1100px\)\s*\{\s*\.inventory-inbound-table\s*\{\s*min-width:\s*1050px;/);
     expect(warehouses).toContain("overflow-x-auto");
     expect(warehouses).toContain("min-w-[760px]");
     expect(branches).toContain("overflow-x-auto");
