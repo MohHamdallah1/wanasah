@@ -123,6 +123,7 @@ jobs:
         run: >-
           npx eslint
           src/pages/inventory/TabWarehouseLocations.tsx
+          src/pages/inventory/Tab2Inbound.tsx
           src/pages/inventory/warehouse-locations/presentation/i18n.ts
           src/pages/inventory/liveStock/LiveStockFilters.tsx
           src/test/live-stock-family-cursor.test.tsx
