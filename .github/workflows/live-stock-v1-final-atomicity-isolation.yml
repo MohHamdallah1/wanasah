@@ -1,0 +1,160 @@
+name: Live Stock V1 final atomicity and SaaS isolation closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/test_live_stock_v1_atomicity_isolation_postgres.py"
+      - ".github/workflows/live-stock-v1-final-atomicity-isolation.yml"
+      - "wa_backend/domains/inventory_vehicle_load/**"
+      - "wa_backend/api/vehicles/load.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-final-atomicity-isolation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-atomicity-isolation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: FinalAtomicityIsolationKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://atomicity_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_FINAL_ATOMICITY_ISOLATION_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://atomicity_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile focused acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          tests/test_live_stock_v1_atomicity_isolation_postgres.py
+          tests/test_inbound_no_lot_frozen_postgres.py
+          domains/inventory_vehicle_load/service.py
+          api/vehicles/load.py
+
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name final-atomicity-postgres \
+            --env POSTGRES_USER=atomicity_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec final-atomicity-postgres pg_isready \
+              -U atomicity_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs final-atomicity-postgres
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh Alembic schema and parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "INSERT INTO permissions(code) VALUES "
+                  "('inventory.read'), ('inbound.create') "
+                  "ON CONFLICT(code) DO NOTHING"
+              )
+          PY
+
+      - name: Run focused cross-domain atomicity and isolation acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_atomicity_isolation_postgres.py
+          --junitxml=final-atomicity-isolation-postgres.xml
+
+      - name: Reject skips failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("final-atomicity-isolation-postgres.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert cases, "No final atomicity/isolation PostgreSQL acceptance executed"
+          assert not list(root.iter("skipped")), "Atomicity/isolation acceptance must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), \
+              "Atomicity/isolation PostgreSQL acceptance failed"
+          print("FINAL_ATOMICITY_ISOLATION_POSTGRES_EXECUTED=" + str(len(cases)))
+          PY
+
+      - name: Diff ownership check
+        run: git diff --check origin/main...HEAD
+
+      - name: Retain focused evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-atomicity-isolation-postgres-${{ github.sha }}
+          path: wa_backend/final-atomicity-isolation-postgres.xml
+          if-no-files-found: error
