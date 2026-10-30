@@ -1,4 +1,5 @@
 import { AlertTriangle, PackageOpen } from "lucide-react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 import { compareQuantity, formatCommercialQuantity } from "@/lib/quantity";
@@ -7,16 +8,49 @@ import { getLiveStockCp7Copy } from "./i18n";
 
 type Props = {
   products: WarehouseProduct[];
+  totalCount?: number;
+  startIndex?: number;
+  topSpacerHeight?: number;
+  bottomSpacerHeight?: number;
+  onItemExtentChange?: (height: number) => void;
+  onProductFocus?: (productId: number) => void;
+  onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
 };
 
-export function LiveStockMobileCards({ products, onOpen }: Props) {
+export function LiveStockMobileCards({
+  products,
+  totalCount = products.length,
+  startIndex = 0,
+  topSpacerHeight = 0,
+  bottomSpacerHeight = 0,
+  onItemExtentChange = () => undefined,
+  onProductFocus = () => undefined,
+  onProductBlur = () => undefined,
+  onOpen,
+}: Props) {
   const { t, i18n } = useTranslation();
+  const measureFirstCard = useCallback(
+    (node: HTMLElement | null) => {
+      if (!node) return;
+      const height = node.getBoundingClientRect().height;
+      if (height > 0) onItemExtentChange(height + 6);
+    },
+    [onItemExtentChange],
+  );
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
 
   return (
-    <div className="space-y-1.5 p-2 md:hidden" data-testid="live-stock-mobile-cards" data-cp13-phone-list="true">
-      {products.map((product) => {
+    <div
+      className="space-y-1.5 p-2 md:hidden"
+      data-testid="live-stock-mobile-cards"
+      data-cp13-phone-list="true"
+      role="list"
+    >
+      {topSpacerHeight > 0 ? (
+        <div aria-hidden="true" data-live-stock-window-spacer="top" style={{ height: topSpacerHeight }} />
+      ) : null}
+      {products.map((product, index) => {
         const displayName = t(`uom.${product.display_uom_code}`, {
           defaultValue: t("inventoryCommon.unit"),
         });
@@ -49,8 +83,12 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
         return (
           <article
             key={product.id}
+            ref={index === 0 ? measureFirstCard : undefined}
             className={`rounded-xl border bg-white p-2.5 shadow-sm ${isAlert ? "border-red-200" : "border-slate-200"}`}
             data-cp13-stock-card="compact"
+            role="listitem"
+            aria-setsize={totalCount}
+            aria-posinset={startIndex + index + 1}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -68,6 +106,12 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
               <button
                 type="button"
                 onClick={() => onOpen(product)}
+                onFocus={(event) => {
+                  onProductFocus(product.id);
+                  event.currentTarget.scrollIntoView({ block: "nearest" });
+                }}
+                onBlur={(event) => onProductBlur(event.relatedTarget)}
+                data-live-stock-product-open={product.id}
                 className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[10px] font-black text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                 aria-label={`${copy.openBatchDetails}: ${product.name}`}
               >
@@ -95,6 +139,9 @@ export function LiveStockMobileCards({ products, onOpen }: Props) {
           </article>
         );
       })}
+      {bottomSpacerHeight > 0 ? (
+        <div aria-hidden="true" data-live-stock-window-spacer="bottom" style={{ height: bottomSpacerHeight }} />
+      ) : null}
     </div>
   );
 }

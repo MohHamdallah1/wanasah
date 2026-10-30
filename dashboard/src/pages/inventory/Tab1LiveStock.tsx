@@ -1,6 +1,8 @@
 import { AlertTriangle, RefreshCcw } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 import {
   type LiveStockIndicator,
@@ -14,6 +16,11 @@ import { LiveStockTable } from "./liveStock/LiveStockTable";
 import { LiveStockWarehouseContext } from "./liveStock/LiveStockWarehouseContext";
 import { getLiveStockCp7Copy } from "./liveStock/i18n";
 import { useLiveStockBatchDetail } from "./liveStock/useLiveStockBatchDetail";
+
+const LIVE_STOCK_OVERSCAN_ROWS = 12;
+const LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX = 64;
+const LIVE_STOCK_FALLBACK_MOBILE_CARD_PX = 126;
+const LIVE_STOCK_FALLBACK_VIEWPORT_PX = 720;
 
 interface Props {
   locationId: number;
@@ -69,8 +76,116 @@ export function Tab1LiveStock({
   onLoadMore,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const isNarrowViewport = useMediaQuery("(max-width: 767px)");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const focusedProductIdRef = useRef<number | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(
+    LIVE_STOCK_FALLBACK_VIEWPORT_PX,
+  );
+  const [itemExtent, setItemExtent] = useState(
+    LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX,
+  );
+  const fallbackItemExtent = isNarrowViewport
+    ? LIVE_STOCK_FALLBACK_MOBILE_CARD_PX
+    : LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX;
+
+  useEffect(() => {
+    setItemExtent(fallbackItemExtent);
+  }, [fallbackItemExtent]);
+
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+
+    let frame = 0;
+    const syncViewport = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        setScrollTop(root.scrollTop);
+        setViewportHeight(
+          root.clientHeight > 0
+            ? root.clientHeight
+            : LIVE_STOCK_FALLBACK_VIEWPORT_PX,
+        );
+      });
+    };
+
+    syncViewport();
+    root.addEventListener("scroll", syncViewport, { passive: true });
+    const resizeObserver =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(syncViewport)
+        : null;
+    resizeObserver?.observe(root);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      root.removeEventListener("scroll", syncViewport);
+    };
+  }, []);
+
+  const renderedWindow = useMemo(() => {
+    const safeExtent = Math.max(1, itemExtent);
+    const visibleRows = Math.max(
+      1,
+      Math.ceil(viewportHeight / safeExtent),
+    );
+    const renderCount = visibleRows + LIVE_STOCK_OVERSCAN_ROWS * 2;
+    const rawStart =
+      Math.floor(scrollTop / safeExtent) - LIVE_STOCK_OVERSCAN_ROWS;
+    const maxStart = Math.max(0, products.length - renderCount);
+    const start = Math.min(maxStart, Math.max(0, rawStart));
+    const end = Math.min(products.length, start + renderCount);
+
+    return {
+      start,
+      end,
+      products: products.slice(start, end),
+      topSpacerHeight: start * safeExtent,
+      bottomSpacerHeight: (products.length - end) * safeExtent,
+    };
+  }, [itemExtent, products, scrollTop, viewportHeight]);
+
+  const handleItemExtentChange = useCallback((nextExtent: number) => {
+    if (!Number.isFinite(nextExtent) || nextExtent < 24) return;
+    setItemExtent((current) =>
+      Math.abs(current - nextExtent) >= 1 ? nextExtent : current,
+    );
+  }, []);
+
+  const resetRenderWindow = useCallback(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setScrollTop(0);
+  }, []);
+
+  const handleProductFocus = useCallback((productId: number) => {
+    focusedProductIdRef.current = productId;
+  }, []);
+
+  const handleProductBlur = useCallback((nextTarget: EventTarget | null) => {
+    if (
+      nextTarget instanceof Element &&
+      nextTarget.closest("[data-live-stock-product-open]")
+    ) {
+      return;
+    }
+    if (nextTarget !== null) focusedProductIdRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    const productId = focusedProductIdRef.current;
+    if (productId === null) return;
+    requestAnimationFrame(() => {
+      const selector =
+        `[data-live-stock-product-open="${productId}"]`;
+      const target = scrollRef.current?.querySelector<HTMLElement>(selector);
+      target?.focus({ preventScroll: true });
+    });
+  }, [isNarrowViewport]);
+
   const detail = useLiveStockBatchDetail(
     locationId,
     t("inventoryLive.errors.batchLoadFailed"),
@@ -198,10 +313,22 @@ export function Tab1LiveStock({
             stockState={stockState}
             indicators={indicators}
             familyId={familyId}
-            onSearchChange={onSearchChange}
-            onStockStateChange={onStockStateChange}
-            onIndicatorsChange={onIndicatorsChange}
-            onFamilyChange={onFamilyChange}
+            onSearchChange={(value) => {
+              resetRenderWindow();
+              onSearchChange(value);
+            }}
+            onStockStateChange={(value) => {
+              resetRenderWindow();
+              onStockStateChange(value);
+            }}
+            onIndicatorsChange={(value) => {
+              resetRenderWindow();
+              onIndicatorsChange(value);
+            }}
+            onFamilyChange={(value) => {
+              resetRenderWindow();
+              onFamilyChange(value);
+            }}
           />
           <LiveStockWarehouseContext
             locationId={locationId}
@@ -210,7 +337,10 @@ export function Tab1LiveStock({
             lastSync={pageReady ? lastSync : null}
             isAuditLocked={isAuditLocked}
             loading={loading}
-            onLocationChange={onLocationChange}
+            onLocationChange={(value) => {
+              resetRenderWindow();
+              onLocationChange(value);
+            }}
             onRefresh={refreshWithDetail}
           />
         </div>
@@ -300,12 +430,32 @@ export function Tab1LiveStock({
         >
           {products.length > 0 ? (
             <>
-              <LiveStockTable
-                products={products}
-                loading={loading}
-                onOpen={detail.open}
-              />
-              <LiveStockMobileCards products={products} onOpen={detail.open} />
+              {isNarrowViewport ? (
+                <LiveStockMobileCards
+                  products={renderedWindow.products}
+                  totalCount={products.length}
+                  startIndex={renderedWindow.start}
+                  topSpacerHeight={renderedWindow.topSpacerHeight}
+                  bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
+                  onItemExtentChange={handleItemExtentChange}
+                  onProductFocus={handleProductFocus}
+                  onProductBlur={handleProductBlur}
+                  onOpen={detail.open}
+                />
+              ) : (
+                <LiveStockTable
+                  products={renderedWindow.products}
+                  totalCount={products.length}
+                  startIndex={renderedWindow.start}
+                  topSpacerHeight={renderedWindow.topSpacerHeight}
+                  bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
+                  onItemExtentChange={handleItemExtentChange}
+                  onProductFocus={handleProductFocus}
+                  onProductBlur={handleProductBlur}
+                  loading={loading}
+                  onOpen={detail.open}
+                />
+              )}
             </>
           ) : (
             <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
