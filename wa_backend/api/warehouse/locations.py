@@ -433,6 +433,106 @@ async def manage_warehouse_locations(
     }
 
 
+
+# Inventory selector discovery deliberately does not reuse /warehouse/locations:
+# that management endpoint remains protected by location.read.
+@router.get("/warehouse/locations/selection", status_code=200)
+async def discover_inventory_warehouse_selection(
+    search: Optional[str] = Query(default=None, min_length=2, max_length=100),
+    cursor: Optional[str] = Query(default=None, max_length=512),
+    selected_location_id: Optional[int] = Query(default=None, gt=0),
+    limit: int = Query(default=100, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    # These grants authorize discovery only. Neither one becomes the other,
+    # and no warehouse management capability is granted by this endpoint.
+    readable = ("inventory.read", "location.read")
+    allowed_any = await db.scalar(
+        select(access.allows(readable, any_location=True))
+    )
+    if not allowed_any:
+        raise HTTPException(
+            status_code=403,
+            detail="لا تملك صلاحية عرض المستودعات المتاحة.",
+        )
+
+    company_id = access.company_id
+    clean_search = (search or "").strip().lower()
+    scope = f"warehouse-selection|{company_id}|{clean_search}"
+    scoped_locations = (
+        InventoryLocation.company_id == company_id,
+        InventoryLocation.location_type == "WAREHOUSE",
+        InventoryLocation.is_active.is_(True),
+        access.location_filter(readable),
+    )
+
+    stmt = select(
+        InventoryLocation.id,
+        InventoryLocation.name,
+        InventoryLocation.code,
+    ).where(*scoped_locations)
+    if clean_search:
+        pattern = f"%{_escape_like(clean_search)}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(InventoryLocation.name).like(pattern, escape="\\"),
+                func.lower(InventoryLocation.code).like(pattern, escape="\\"),
+            )
+        )
+
+    if cursor is not None:
+        cursor_id = _decode_warehouse_location_cursor(
+            cursor, expected_scope=scope,
+        )
+        stmt = stmt.where(InventoryLocation.id > cursor_id)
+
+    rows = (
+        await db.execute(
+            stmt.order_by(InventoryLocation.id.asc()).limit(limit + 1)
+        )
+    ).all()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+
+    def option(row):
+        return {"id": int(row.id), "name": str(row.name), "code": str(row.code)}
+
+    selected = None
+    if selected_location_id is not None:
+        # Saved browser IDs are never authority: apply the same company,
+        # active warehouse and capability predicates as the paged list.
+        selected_row = (
+            await db.execute(
+                select(
+                    InventoryLocation.id,
+                    InventoryLocation.name,
+                    InventoryLocation.code,
+                ).where(
+                    *scoped_locations,
+                    InventoryLocation.id == selected_location_id,
+                )
+            )
+        ).one_or_none()
+        if selected_row is not None:
+            selected = option(selected_row)
+
+    return {
+        "items": [option(row) for row in page],
+        "next_cursor": (
+            _encode_warehouse_location_cursor(
+                int(page[-1].id), scope=scope,
+            )
+            if has_more and page else None
+        ),
+        "has_more": has_more,
+        "total": None,
+        "selected": selected,
+    }
+
+
 # ====================================================
 # 0.9 Suggest the next company-scoped warehouse code
 # ====================================================
