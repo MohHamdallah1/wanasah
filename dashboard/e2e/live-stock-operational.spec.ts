@@ -97,10 +97,10 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await expect(stock(op)).toHaveCount(0);
       await delay(op);
       const start = ownerLog.requests.length;
-      // Actual React Router links keep the warm in-memory session alive.
-      await op.locator('a[href="/products"]').first().click();
+      // Actual sidebar navigation keeps the warm in-memory session alive.
+      await op.locator(".operations-nav").getByRole("button", { name: "Products", exact: true }).click();
       await expect(op).toHaveURL(/\/products/);
-      await op.locator('a[href="/inventory"]').first().click();
+      await op.locator(".operations-nav").getByRole("button", { name: "Inventory & Warehouse", exact: true }).click();
       await expect(op).toHaveURL(/\/inventory/);
       await expect(op.getByRole("tab", { name: "Batches & expiry", exact: true })).toHaveAttribute("aria-selected", "true");
       await delay(op);

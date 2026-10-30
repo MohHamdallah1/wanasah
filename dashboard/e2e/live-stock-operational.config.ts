@@ -11,6 +11,8 @@ export default defineConfig({
     baseURL: "http://127.0.0.1:4173",
     browserName: "chromium",
     headless: true,
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
     timezoneId: "Pacific/Honolulu",
     trace: "off",
     screenshot: "only-on-failure",
