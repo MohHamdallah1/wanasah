@@ -804,8 +804,8 @@ async def test_product_policies_stock_states_field_sales_and_active_unload(pg):
                 request_id=uuid4(),
                 items=[{"product_variant_id": tenant.variant_id, "quantity": Decimal("1")}],
             )
-        assert foreign_denied.value.code == "VEHICLE_LOAD_VEHICLE_NOT_FOUND"
-        assert foreign_denied.value.status_code == 404
+        assert foreign_denied.value.code == "VEHICLE_CUSTODY_LOCATION_MISSING"
+        assert foreign_denied.value.status_code == 409
         await db.rollback()
     assert await _variant_truth(pg, tenant) == before_unload
 
