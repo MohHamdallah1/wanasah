@@ -744,9 +744,14 @@ async def apply_inventory_costing_for_movements(
     if not movement_specs:
         return
     policy = await get_cost_policy(db, company_id=int(company_id))
-    has_cost_input = any(isinstance(spec.get("inventory_cost_input"), dict) for _movement, spec in movement_specs)
+    has_cost_metadata = any(
+        isinstance(spec.get("inventory_cost_input"), dict)
+        or spec.get("cost_reversal_of_movement_id") is not None
+        or spec.get("cost_source_movement_id") is not None
+        for _movement, spec in movement_specs
+    )
     if policy is None or not policy.is_active:
-        if has_cost_input:
+        if has_cost_metadata:
             raise CostingError(
                 "INVENTORY_COST_POLICY_NOT_ACTIVE",
                 "Inventory costing policy must be active before a costed receipt.",
@@ -760,7 +765,11 @@ async def apply_inventory_costing_for_movements(
         return
     if any(
         not _external_physical(movement)
-        and (spec.get("inventory_cost_input") is not None or spec.get("cost_reversal_of_movement_id") is not None)
+        and (
+            spec.get("inventory_cost_input") is not None
+            or spec.get("cost_reversal_of_movement_id") is not None
+            or spec.get("cost_source_movement_id") is not None
+        )
         for movement, spec in movement_specs
     ):
         raise CostingError(
