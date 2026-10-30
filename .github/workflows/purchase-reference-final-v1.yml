@@ -55,6 +55,7 @@ jobs:
       WANASAH_E2E_EVIDENCE: artifacts/purchase-reference-e2e-evidence.jsonl
       EXPECTED_E2E_BASE: ab6307086516483f9615e5b0a7a6c46a6c205110
       PR_WHITESPACE_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,7 +66,9 @@ jobs:
         run: |
           git rev-parse HEAD
           git merge-base --is-ancestor "$EXPECTED_E2E_BASE" HEAD
-          git diff --check "$PR_WHITESPACE_BASE" HEAD
+          # Check only actual PR changes, not later unrelated base-branch edits.
+          branch_base="$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")"
+          git diff --check "$branch_base" "$PR_HEAD_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -121,4 +124,6 @@ jobs:
           path: wa_backend/artifacts/
           if-no-files-found: warn
       - name: Exact-base whitespace check
-        run: git diff --check "$PR_WHITESPACE_BASE" HEAD
+        run: |
+          branch_base="$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")"
+          git diff --check "$branch_base" "$PR_HEAD_SHA"
