@@ -241,6 +241,8 @@ export function useLiveStockBatchDetail(
           setLoadError({ message: apiErrorMessage(error, fallbackMessage), kind: "initial" });
           setSourceByBatch({});
           setSourceOpenId(null);
+          setSourceLoadingId(null);
+          setSourceErrorId(null);
         } else {
           setSourceErrorId(batchId);
         }
