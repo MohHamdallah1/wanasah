@@ -210,7 +210,7 @@ async def test_r2_missing_projection_rejects_false_ready_zero() -> None:
         assert truth == Decimal("10")
         assert projected == Decimal("0")
         assert company_state == "READY"
-        assert warehouse_state == "READY"
+        assert warehouse_state == "DEGRADED"
         await _assert_ready_rejected(ids)
     finally:
         await fixture.cleanup_test_companies()
@@ -253,7 +253,7 @@ async def test_r2_stale_projection_rejects_false_ready() -> None:
         assert truth == Decimal("10")
         assert projected == Decimal("9")
         assert company_state == "READY"
-        assert warehouse_state == "READY"
+        assert warehouse_state == "DEGRADED"
         await _assert_ready_rejected(ids)
     finally:
         await fixture.cleanup_test_companies()
