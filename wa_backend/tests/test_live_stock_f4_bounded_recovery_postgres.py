@@ -36,6 +36,10 @@ async def _due(db, *, company: int, location: int) -> int:
 
 
 async def _seed(db, tenant, count: int) -> tuple[int, int]:
+    # R2's write guard treats ad-hoc projection writes as untrusted. This
+    # fixture acts as the projector, so mark its synthetic writes as trusted
+    # only inside this isolated seed transaction, matching the real service.
+    await projector._set_projection_write_trusted(db, trusted=True)
     info = (await db.execute(text("""
         SELECT product_id, base_uom_id FROM product_variants
         WHERE company_id = :company AND id = :variant
@@ -135,11 +139,13 @@ async def test_f4_bounded_durable_recovery(pg, monkeypatch, due_count):
                 WHERE company_id = :company AND warehouse_location_id = :location
                   AND product_variant_id = ANY(:variant_ids)
             """).bindparams(bindparam("variant_ids", type_=ARRAY(Integer)))
+            await projector._set_projection_write_trusted(session, trusted=True)
             result = await session.execute(statement, {
                 "as_of_date": computed_for_date, "company": tenant.company_id,
                 "location": location, "variant_ids": ids,
             })
             assert result.rowcount == len(ids)
+            await projector._set_projection_write_trusted(session, trusted=False)
 
         monkeypatch.setattr(projector, "refresh_live_stock_keys",
                             advance_selected_keys)
@@ -189,6 +195,7 @@ async def test_f4_broken_repair_rolls_back_without_false_ready(pg, monkeypatch):
         async def broken_repair(session, *, company_id, keys,
                                 computed_for_date=None, **_options):
             assert company_id == tenant.company_id
+            await projector._set_projection_write_trusted(session, trusted=True)
             await session.execute(text("""
                 UPDATE inventory_live_stock_projection
                 SET next_transition_date = NULL
@@ -196,6 +203,7 @@ async def test_f4_broken_repair_rolls_back_without_false_ready(pg, monkeypatch):
                   AND product_variant_id = :variant
             """), {"company": tenant.company_id, "location": location,
                     "variant": keys[0][1]})
+            await projector._set_projection_write_trusted(session, trusted=False)
             raise projector.LiveStockProjectionError("injected transactional failure")
 
         monkeypatch.setattr(projector, "refresh_live_stock_keys", broken_repair)
@@ -219,6 +227,7 @@ async def test_f4_r2_truth_error_cannot_commit_or_claim_ready(pg, monkeypatch):
                                       computed_for_date=None, **_options):
             assert company_id == tenant.company_id
             assert len(keys) == 7
+            await projector._set_projection_write_trusted(session, trusted=True)
             result = await session.execute(text("""
                 UPDATE inventory_live_stock_projection
                 SET next_transition_date = NULL,
@@ -230,6 +239,7 @@ async def test_f4_r2_truth_error_cannot_commit_or_claim_ready(pg, monkeypatch):
             """), {"as_of_date": computed_for_date,
                     "company": tenant.company_id, "location": location})
             assert result.rowcount == len(keys)
+            await projector._set_projection_write_trusted(session, trusted=False)
 
         async def truth_mismatch(*, db, company_id, warehouse_location_id,
                                  computed_for_date):
