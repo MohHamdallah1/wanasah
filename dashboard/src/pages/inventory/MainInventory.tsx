@@ -516,6 +516,8 @@ export default function MainInventory() {
   const [liveReadPhase, setLiveReadPhase] = useState<LiveReadPhase>(
     initialLiveSnapshot?.hasPage ? "warm" : "initial",
   );
+  const [freshPageAdmissionEpoch, setFreshPageAdmissionEpoch] =
+    useState<number | null>(null);
   useEffect(() => {
     stockItemsRef.current = stockItems;
   }, [stockItems]);
@@ -1039,6 +1041,7 @@ export default function MainInventory() {
       setStockItems(nextItems);
       setStockPageReady(true);
       setLiveReadPhase("fresh");
+      setFreshPageAdmissionEpoch(requestAdmissionEpoch);
       if (defaultView && requestCursor === null) {
         patchLiveStockWarmSnapshot(
           warmScopeKey,
@@ -1378,6 +1381,9 @@ export default function MainInventory() {
 
   const liveVisible = liveAuthorityVerified && !accessDenied && !locationError &&
     liveReadPhase !== "denied";
+  const livePageFresh =
+    liveReadPhase === "fresh" &&
+    freshPageAdmissionEpoch === liveAdmissionEpoch.current;
   const liveDisclosureKey = accessDenied || liveReadPhase === "denied"
     ? "accessChanged"
     : access.isError || locationAccess.isError
@@ -1386,7 +1392,7 @@ export default function MainInventory() {
       ? (stockPageReady ? "warmUnverified" : "loadingVerification")
       : liveReadPhase === "failed" || stockPageError || stockSummaryError
         ? "refreshFailed"
-        : liveReadPhase === "fresh"
+        : livePageFresh
           ? "verifiedFresh"
           : stockPageReady
             ? "warmUnverified"
@@ -1490,7 +1496,7 @@ export default function MainInventory() {
                 <span className="text-sm font-black">
                   {t("inventoryShell.liveStockCount")}{" "}
                   <span className="inventory-shared-context-count">
-                    {!liveVisible || liveReadPhase !== "fresh" || stockTotal === null
+                    {!liveVisible || !livePageFresh || stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
                           locale,
@@ -1507,7 +1513,7 @@ export default function MainInventory() {
               <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold">
                 <span>
                   {t("inventoryShell.lastUpdated")}:{" "}
-                  {liveVisible && liveReadPhase === "fresh" && lastSync
+                  {liveVisible && livePageFresh && lastSync
                     ? new Intl.DateTimeFormat(
                         locale,
                         {
