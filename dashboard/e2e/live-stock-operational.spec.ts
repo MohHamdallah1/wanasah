@@ -119,7 +119,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await page.setViewportSize({ width: 1360, height: 900 });
       await expect(item(page, state.mainName)).toBeVisible();
       await page.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
-      const dialog = page.getByRole("dialog");
+      const dialog = page.locator('[role="dialog"][aria-modal="true"]');
       const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
       await first.getByRole("button", { name: "Stock source and reservations" }).click();
       await expect(first).toContainText(/unattributed/i);

@@ -73,7 +73,7 @@ export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<ty
 
 export async function detailFreshness(p: Page, info: TestInfo) {
   await p.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
-  const dialog = p.getByRole("dialog");
+  const dialog = p.locator('[role="dialog"][aria-modal="true"]');
   await expect(dialog).toContainText("OP-FIRST");
   await expect(dialog).toContainText("OP-SECOND");
   const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
