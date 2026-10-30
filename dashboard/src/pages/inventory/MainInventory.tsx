@@ -482,6 +482,7 @@ export default function MainInventory() {
     setStockTotal(null);
     setStockAlertCount(null);
     setLastSync(null);
+    setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
     setLiveReadPhase("denied");
   }, [accessDenied, selectedLocationId, warmScopeKey]);
 
@@ -517,6 +518,8 @@ export default function MainInventory() {
     initialLiveSnapshot?.hasPage ? "warm" : "initial",
   );
   const [freshPageAdmissionEpoch, setFreshPageAdmissionEpoch] =
+    useState<number | null>(null);
+  const [deniedAdmissionEpoch, setDeniedAdmissionEpoch] =
     useState<number | null>(null);
   useEffect(() => {
     stockItemsRef.current = stockItems;
@@ -628,10 +631,11 @@ export default function MainInventory() {
   );
 
   useEffect(() => {
-    if (!liveAuthorityVerified || liveReadPhase !== "denied") return;
+    if (!liveAuthorityVerified || liveReadPhase !== "denied" ||
+        deniedAdmissionEpoch === liveAdmissionEpoch.current) return;
     setLiveReadPhase("initial");
     setStockPageRetryKey((value) => value + 1);
-  }, [liveAuthorityVerified, liveReadPhase]);
+  }, [liveAuthorityVerified, liveReadPhase, deniedAdmissionEpoch]);
 
   const displayAuditLocked =
     canReadStatus && auditLockState === true;
@@ -1083,6 +1087,7 @@ export default function MainInventory() {
         setStockTotal(null);
         setStockAlertCount(null);
         setLastSync(null);
+        setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
         setLiveReadPhase("denied");
       } else {
         setLiveReadPhase("failed");
