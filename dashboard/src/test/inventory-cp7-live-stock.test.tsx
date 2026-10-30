@@ -7,11 +7,20 @@ import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 import { BatchDetailPanel } from "@/pages/inventory/liveStock/BatchDetailPanel";
 import { getLiveStockCp7Copy } from "@/pages/inventory/liveStock/i18n";
 import { LiveStockMobileCards } from "@/pages/inventory/liveStock/LiveStockMobileCards";
+import { LiveStockTable } from "@/pages/inventory/liveStock/LiveStockTable";
+import { resolveAppLocale } from "@/lib/locale";
+import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import { parseLiveStockWarehouseSource } from "@/pages/inventory/liveStock/sourceContract";
 
 const mocks = vi.hoisted(() => ({
   language: "en",
-  t: (key: string) => key,
+  t: (key: string, options?: { unit?: string; defaultValue?: string }) => {
+    if (key.startsWith("uom.")) return key.slice(4);
+    if (key === "inventoryLive.perUnit") {
+      return `${mocks.language === "ar" ? "لكل" : "per"} ${options?.unit ?? ""}`;
+    }
+    return options?.defaultValue ?? key;
+  },
 }));
 
 vi.mock("react-i18next", () => ({
@@ -404,5 +413,94 @@ describe("CP7 Live Stock Dashboard closure", () => {
       expect(text).not.toContain("/warehouse/quality/disposal/confirm");
       expect(text).not.toContain("/warehouse/quality/vendor-return/confirm");
     }
+  });
+});
+
+describe("UI-05 mobile cost parity", () => {
+  const cost = (metric: "last-purchase" | "average") => {
+    const result = document.querySelector<HTMLElement>(`[data-live-stock-mobile-cost="${metric}"]`);
+    expect(result).not.toBeNull();
+    return result!;
+  };
+
+  it("renders distinct purchase/display units with desktop currency and exact-cost parity", () => {
+    const item: WarehouseProduct = {
+      ...product, last_purchase_cost: "1.500001", last_purchase_uom_code: "CT",
+      average_cost_display: "0.125001", display_uom_code: "PK",
+      display_factor_to_base: "8", currency_code: "JOD",
+    };
+    render(<><LiveStockTable products={[item]} loading={false} onOpen={vi.fn()} />
+      <LiveStockMobileCards products={[item]} onOpen={vi.fn()} /></>);
+    const locale = resolveAppLocale("en");
+    const purchase = cost("last-purchase");
+    const average = cost("average");
+    expect(purchase.querySelector("[dir=auto]")?.textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
+    expect(average.querySelector("[dir=auto]")?.textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
+    expect(purchase).toHaveTextContent("per CT");
+    expect(average).toHaveTextContent("per PK");
+    expect(purchase).not.toHaveTextContent("per PK");
+    expect(average).not.toHaveTextContent("per CT");
+    expect(purchase.querySelector("[title]")).toHaveAttribute("title",
+      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
+    expect(average.querySelector("[title]")).toHaveAttribute("title",
+      `${formatMoneyExact(item.average_cost_display!, "JOD", locale)} · per PK`);
+    expect(purchase.querySelector(".sr-only")?.textContent).toBe(
+      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
+    const desktopCells = document.querySelectorAll<HTMLTableCellElement>(".live-stock-row td");
+    expect(desktopCells[8].textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
+    expect(desktopCells[9].textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
+    expect(document.querySelectorAll('[data-testid="live-stock-mobile-cards"] [data-cp13-quantity]')).toHaveLength(5);
+  });
+
+  it("renders null costs as unknown, never zero or a fabricated per-unit amount", () => {
+    render(<LiveStockMobileCards products={[{
+      ...product, last_purchase_cost: null, last_purchase_uom_code: null,
+      last_purchase_date: null, average_cost_display: null,
+    }]} onOpen={vi.fn()} />);
+    for (const metric of ["last-purchase", "average"] as const) {
+      expect(cost(metric)).toHaveTextContent("—");
+      expect(cost(metric)).not.toHaveTextContent("0");
+      expect(cost(metric).querySelector(".sr-only")).toBeNull();
+    }
+    expect(document.querySelectorAll('[data-testid="live-stock-mobile-cards"] [data-cp13-quantity]')).toHaveLength(5);
+  });
+
+  it("preserves real zero values, Arabic locale, and separate purchase/display UOM", () => {
+    mocks.language = "ar";
+    const item: WarehouseProduct = {
+      ...product, currency_code: "JOD", last_purchase_cost: "0",
+      last_purchase_uom_code: "CT", average_cost_display: "0", display_uom_code: "PK",
+    };
+    render(<LiveStockMobileCards products={[item]} onOpen={vi.fn()} />);
+    const display = formatMoneyDisplay("0", "JOD", resolveAppLocale("ar"));
+    expect(cost("last-purchase").querySelector("[dir=auto]")?.textContent).toBe(display);
+    expect(cost("average").querySelector("[dir=auto]")?.textContent).toBe(display);
+    expect(cost("last-purchase")).toHaveTextContent("لكل CT");
+    expect(cost("average")).toHaveTextContent("لكل PK");
+    expect(cost("last-purchase")).not.toHaveTextContent("—");
+    expect(cost("average")).not.toHaveTextContent("—");
+    expect(cost("last-purchase").querySelector("[dir=auto]")).toBeInTheDocument();
+  });
+
+  it("keeps window positions and measures the taller first mobile card", () => {
+    const onExtent = vi.fn();
+    const measurement = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 168, width: 300, x: 0, y: 0, top: 0, right: 300,
+        bottom: 168, left: 0, toJSON: () => ({}) });
+    try {
+      const { container } = render(<LiveStockMobileCards
+        products={[product, { ...product, id: 42 }]} totalCount={5000} startIndex={50}
+        topSpacerHeight={1400} bottomSpacerHeight={2200}
+        onItemExtentChange={onExtent} onOpen={vi.fn()} />);
+      expect(container.querySelectorAll("[data-cp13-stock-card]")).toHaveLength(2);
+      expect(container.querySelectorAll("[data-cp13-quantity]")).toHaveLength(10);
+      const cards = screen.getAllByRole("listitem");
+      expect(cards[0]).toHaveAttribute("aria-posinset", "51");
+      expect(cards[1]).toHaveAttribute("aria-posinset", "52");
+      expect(cards[0]).toHaveAttribute("aria-setsize", "5000");
+      expect(container.querySelector("[data-live-stock-window-spacer=top]")).toHaveStyle({ height: "1400px" });
+      expect(container.querySelector("[data-live-stock-window-spacer=bottom]")).toHaveStyle({ height: "2200px" });
+      expect(onExtent).toHaveBeenCalledWith(174);
+    } finally { measurement.mockRestore(); }
   });
 });

@@ -2,6 +2,8 @@ import { AlertTriangle, PackageOpen } from "lucide-react";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
+import { resolveI18nLocale } from "@/lib/locale";
+import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import { compareQuantity, formatCommercialQuantity } from "@/lib/quantity";
 import type { WarehouseProduct } from "./contracts";
 import { getLiveStockCp7Copy } from "./i18n";
@@ -39,6 +41,7 @@ export function LiveStockMobileCards({
     [onItemExtentChange],
   );
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
+  const locale = resolveI18nLocale(i18n);
 
   return (
     <div
@@ -64,6 +67,15 @@ export function LiveStockMobileCards({
             baseName,
             product.display_factor_to_base,
           );
+        const lastPurchaseUom = product.last_purchase_uom_code
+          ? t(`uom.${product.last_purchase_uom_code}`, {
+              defaultValue: t("inventoryCommon.unit"),
+            })
+          : null;
+        const costs = [
+          ["lastCompanyPurchase", product.last_purchase_cost, lastPurchaseUom, "last-purchase"],
+          ["companyAverage", product.average_cost_display, displayName, "average"],
+        ] as const;
         const hasMinimum = compareQuantity(product.minimum_quantity, "0") > 0;
         const isAlert = product.is_low_stock;
         const minimum = hasMinimum
@@ -128,6 +140,40 @@ export function LiveStockMobileCards({
                       title={rendered.secondary ?? undefined}
                     >
                       {rendered.primary}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 border-t border-slate-100 pt-2 text-[10px]">
+              {costs.map(([label, value, unit, metric]) => {
+                const known = value !== null && unit !== null;
+                const perUnit = known ? t("inventoryLive.perUnit", { unit }) : null;
+                const exact = known ? formatMoneyExact(value, product.currency_code, locale) : null;
+                return (
+                  <div key={label} className="min-w-0">
+                    <dt className="truncate font-bold text-slate-500" title={t(`inventoryLive.${label}Hint`)}>
+                      {t(`inventoryLive.${label}`)}
+                    </dt>
+                    <dd className="mt-0.5 min-w-0" data-live-stock-mobile-cost={metric}>
+                      {known ? (
+                        <>
+                          <span
+                            className="block truncate font-black tabular-nums text-slate-900"
+                            dir="auto"
+                            title={`${exact} · ${perUnit}`}
+                            aria-hidden="true"
+                          >
+                            {formatMoneyDisplay(value, product.currency_code, locale)}
+                          </span>
+                          <span className="block truncate text-[9px] font-semibold text-slate-500" title={perUnit ?? undefined} aria-hidden="true">
+                            {perUnit}
+                          </span>
+                          <span className="sr-only">{exact} · {perUnit}</span>
+                        </>
+                      ) : (
+                        <span className="font-black text-slate-400">—</span>
+                      )}
                     </dd>
                   </div>
                 );
