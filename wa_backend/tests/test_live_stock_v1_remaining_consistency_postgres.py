@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -26,6 +27,12 @@ from tests.live_stock_r1_support import (
     spec,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.test_live_stock_v1_safety_sales_policy_postgres import (
+    _batch_detail_row,
+    _batch_id,
+    _company_date,
+    _set_company_timezone,
+)
 
 
 pytestmark = [
@@ -333,6 +340,90 @@ async def test_restricted_location_vehicle_and_foreign_disclosure_revoke_immedia
                 "warehouse_denied_after_revoke": True,
                 "foreign_location_opaque": True,
                 "foreign_batch_opaque": True,
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+
+
+
+async def test_company_local_day_overrides_client_process_day_at_expiry_boundary(pg):
+    """Backend sellability follows company day, never a browser/process calendar."""
+    tenant = pg.tenants[0]
+    process_day = date.today()
+
+    # Find two real company timezones that straddle one commercial-date boundary
+    # at this exact database instant. At least one side must differ from the
+    # runner/browser-like process calendar, which proves client date is irrelevant.
+    observed = {}
+    for zone in ("Etc/GMT+12", "UTC", "Pacific/Kiritimati"):
+        await _set_company_timezone(pg, tenant, zone)
+        observed[zone] = await _company_date(pg, tenant)
+
+    pairs = [
+        (a, b)
+        for a in observed
+        for b in observed
+        if observed[b] == observed[a] + timedelta(days=1)
+    ]
+    assert pairs, observed
+    zone_before, zone_after = next(
+        (
+            (a, b)
+            for a, b in pairs
+            if observed[a] != process_day or observed[b] != process_day
+        ),
+        pairs[0],
+    )
+    day_before = observed[zone_before]
+    day_after = observed[zone_after]
+    assert day_after == day_before + timedelta(days=1)
+    assert process_day in {
+        day_before - timedelta(days=1),
+        day_before,
+        day_after,
+        day_after + timedelta(days=1),
+    }
+
+    await _set_company_timezone(pg, tenant, zone_before)
+    batch_number = "LOCAL-DAY-" + os.urandom(6).hex()
+    inbound_request = pg.request(
+        lot=batch_number,
+        quantity="6",
+        cost="2",
+        production=day_before - timedelta(days=5),
+        expiry=day_before,
+    )
+    async with pg.session() as db:
+        assert await pg.post(db, inbound_request) == {"message": "INBOUND_POSTED"}
+    batch_id = await _batch_id(pg, tenant, batch_number)
+
+    before = await _batch_detail_row(pg, tenant, batch_id)
+    assert before["days_to_expiry"] == 0
+    assert D(before["on_hand_quantity"]) == D("6")
+    assert D(before["available_for_sale_quantity"]) == D("6")
+
+    # No stock, batch metadata, request payload, or process/browser clock changes.
+    # Only the authoritative company timezone crosses the next company-local day.
+    await _set_company_timezone(pg, tenant, zone_after)
+    assert await _company_date(pg, tenant) == day_after
+    after = await _batch_detail_row(pg, tenant, batch_id)
+    assert after["days_to_expiry"] == -1
+    assert D(after["on_hand_quantity"]) == D("6")
+    assert D(after["available_for_sale_quantity"]) == D("0")
+    assert D(after["expiry_unavailable_quantity"]) == D("6")
+
+    print(
+        "REMAINING_COMPANY_DAY "
+        + json.dumps(
+            {
+                "process_day": process_day.isoformat(),
+                "company_day_before": day_before.isoformat(),
+                "company_day_after": day_after.isoformat(),
+                "company_timezone_before": zone_before,
+                "company_timezone_after": zone_after,
+                "client_date_authority": False,
             },
             sort_keys=True,
         ),
