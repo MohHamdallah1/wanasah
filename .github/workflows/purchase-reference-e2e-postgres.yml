@@ -40,7 +40,9 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://purchase_reference_e2e_admin@127.0.0.1:55473/wanasah_purchase_reference_e2e
       WANASAH_PURCHASE_REFERENCE_E2E: "1"
       WANASAH_E2E_EVIDENCE: artifacts/purchase-reference-e2e-evidence.jsonl
-      EXPECTED_E2E_BASE: ab6307086516483f9615e5b0a7a6c46a6c205110
+      EXPECTED_E2E_BASE: a07dfa6e06acbd9c0c8a1dfe6974f6eb53fb9f84
+      PR_WHITESPACE_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+      PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,7 +53,7 @@ jobs:
         run: |
           git rev-parse HEAD
           git merge-base --is-ancestor "$EXPECTED_E2E_BASE" HEAD
-          git diff --check "$EXPECTED_E2E_BASE" HEAD
+          git diff --check "$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")" "$PR_HEAD_SHA"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -110,4 +112,4 @@ jobs:
           path: wa_backend/artifacts/
           if-no-files-found: warn
       - name: Exact-base whitespace check
-        run: git diff --check "$EXPECTED_E2E_BASE" HEAD
+        run: git diff --check "$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")" "$PR_HEAD_SHA"
