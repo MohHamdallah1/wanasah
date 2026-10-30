@@ -442,28 +442,30 @@ export default function MainInventory() {
       if (first) setActiveTab(first.id);
     }
   }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
+  const accessDenied =
+    [access, locationAccess].some((entry) =>
+      entry.isError && [401, 403, 404].includes(
+        Number((entry.error as { status?: unknown } | null)?.status),
+      ),
+    ) || (locationAccessVerified && !locationAccess.can("inventory.read"));
   useEffect(() => {
-    if (
-      !locationAccess.isError ||
-      selectedLocationId === null
-    ) {
-      return;
-    }
-    const error = locationAccess.error as
-      | { status?: unknown }
-      | null;
-    if (error?.status === 403) {
-      dropLiveStockWarmSnapshot(
-        warmScopeKey,
-        selectedLocationId,
-      );
-    }
-  }, [
-    locationAccess.error,
-    locationAccess.isError,
-    selectedLocationId,
-    warmScopeKey,
-  ]);
+    if (!accessDenied || selectedLocationId === null) return;
+    stockRequestSeq.current += 1;
+    stockAbortRef.current?.abort();
+    stockSummaryRequestSeq.current += 1;
+    stockSummaryAbortRef.current?.abort();
+    dropLiveStockWarmSnapshot(warmScopeKey, selectedLocationId);
+    stockItemsRef.current = [];
+    setStockItems([]);
+    setStockPageReady(false);
+    setStockCursor(null);
+    setStockNextCursor(null);
+    setStockMatchingTotal(null);
+    setStockTotal(null);
+    setStockAlertCount(null);
+    setLastSync(null);
+    setLiveReadPhase("denied");
+  }, [accessDenied, selectedLocationId, warmScopeKey]);
 
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(
@@ -601,6 +603,7 @@ export default function MainInventory() {
         stockItemsRef.current = snapshot.items;
         setStockItems(snapshot.items);
         setStockPageReady(true);
+        setLiveReadPhase("warm");
         setStockMatchingTotal(snapshot.matchingTotal);
         setStockNextCursor(snapshot.nextCursor);
         setLastSync(
@@ -612,6 +615,7 @@ export default function MainInventory() {
         stockItemsRef.current = [];
         setStockItems([]);
         setStockPageReady(false);
+        setLiveReadPhase("initial");
         setStockMatchingTotal(null);
         setStockNextCursor(null);
         setLastSync(null);
@@ -657,6 +661,7 @@ export default function MainInventory() {
       setStockCursor(null);
       setStockPageError(null);
       setStockSummaryError(null);
+      setServerVerifiedLocationId(null);
       hydrateDefaultLiveStock(locationId);
     },
     [hydrateDefaultLiveStock],
@@ -679,13 +684,14 @@ export default function MainInventory() {
   ]);
 
   const fetchLocations = useCallback(async () => {
-    if (!canAny('inventory.read') && !canAny('location.read')) return;
+    if (!globalAccessVerified || (!canAny('inventory.read') && !canAny('location.read'))) return;
     const requestSeq = ++locationRequestSeq.current;
     locationAbortRef.current?.abort();
     const controller = new AbortController();
     locationAbortRef.current = controller;
     setLoadingLocations(true);
     setLocationError(false);
+    setServerVerifiedLocationId(null);
 
     const savedRaw = localStorage.getItem(selectedLocationStorageKey);
     const savedId = savedRaw ? Number(savedRaw) : null;
@@ -728,6 +734,7 @@ export default function MainInventory() {
       setWarehouseNextCursor(page.next_cursor);
 
       const nextLocationId = selected?.id ?? page.items[0]?.id ?? null;
+      setServerVerifiedLocationId(nextLocationId);
       if (nextLocationId !== currentId) {
         prepareLocationChange(nextLocationId);
         selectedLocationIdRef.current = nextLocationId;
@@ -754,8 +761,8 @@ export default function MainInventory() {
         localStorage.removeItem(selectedLocationStorageKey);
         setLocationError(true);
       } else {
-        // Recoverable refresh failure keeps the last validated warm selector.
-        setLocationError(false);
+        // A failed selector refresh cannot attest current warehouse admission.
+        setLocationError(true);
       }
       toast.error(
         apiErrorMessage(error, t("inventoryShell.errors.locationsLoadFailed")),
@@ -765,12 +772,12 @@ export default function MainInventory() {
       if (requestSeq === locationRequestSeq.current) setLoadingLocations(false);
     }
   }, [
-    authFetch, canAny, prepareLocationChange, selectedLocationStorageKey,
+    authFetch, canAny, globalAccessVerified, prepareLocationChange, selectedLocationStorageKey,
     t, warehouseCursor, warehouseSearch, warmScopeKey,
   ]);
 
   useEffect(() => {
-    if (!access.isSuccess) return;
+    if (!globalAccessVerified) return;
 
     if (!canAny('inventory.read') && !canAny('location.read')) {
       locationRequestSeq.current += 1;
@@ -790,7 +797,7 @@ export default function MainInventory() {
 
     void fetchLocations();
   }, [
-    access.isSuccess,
+    globalAccessVerified,
     canAny,
     fetchLocations,
     prepareLocationChange,
@@ -809,6 +816,7 @@ export default function MainInventory() {
       }
 
       prepareLocationChange(nextId);
+      setServerVerifiedLocationId(nextId);
       selectedLocationIdRef.current = nextId;
       setSelectedLocationId(nextId);
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
