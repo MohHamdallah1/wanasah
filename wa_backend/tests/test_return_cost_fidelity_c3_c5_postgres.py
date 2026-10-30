@@ -65,7 +65,7 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
         ).one()
         self.assertEqual(
             tuple(identity),
-            ("wanasah_return_cost_fidelity", "return_cost_runtime", str(self.tenant)),
+            ("wanasah_field_contracts", "return_cost_runtime", str(self.tenant)),
         )
         for table in (
             "inventory_cost_policies",
