@@ -719,7 +719,7 @@ def _live_stock_filtered_variant_ids_stmt(
 
     if projection_guaranteed:
         return (
-            select(projection.product_variant_id)
+            select(projection.product_variant_id.label("id"))
             .join(
                 variant,
                 and_(
