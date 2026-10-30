@@ -132,22 +132,30 @@ jobs:
             tests/test_inventory_batch_index_contract.py \
             tests/test_inventory_batch_index_authorization.py \
             tests/test_inventory_batch_index_postgres_acceptance.py
-      - name: Resolve CP2 audit base
+      - name: Resolve CP2 audit inputs
         if: ${{ !cancelled() }}
         id: audit-base
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # The checkout may be a synthetic merge incorporating unrelated
+          # newer main commits. Audit the real PR head against its merge base.
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            echo "sha=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_OUTPUT"
+            head_sha="$PR_HEAD_SHA"
+            base_sha="$(git merge-base "$PR_BASE_SHA" "$head_sha")"
           else
-            echo "sha=$CP2_REQUESTED_BASE_SHA" >> "$GITHUB_OUTPUT"
+            head_sha="$GITHUB_SHA"
+            base_sha="$CP2_REQUESTED_BASE_SHA"
           fi
-      - name: Diff check
-        if: ${{ !cancelled() }}
-        run: git diff --check "${{ steps.audit-base.outputs.sha }}" HEAD --
+          echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "head=$head_sha" >> "$GITHUB_OUTPUT"
       - name: Exact CP2 scope audit
         if: ${{ !cancelled() }}
+        id: cp2-scope
         env:
           CP2_AUDIT_BASE_SHA: ${{ steps.audit-base.outputs.sha }}
+          CP2_AUDIT_HEAD_SHA: ${{ steps.audit-base.outputs.head }}
         run: |
           python - <<'PY'
           import os
@@ -164,33 +172,97 @@ jobs:
               "wa_backend/tests/test_inventory_batch_index_authorization.py",
               "wa_backend/tests/test_inventory_batch_index_postgres_acceptance.py",
           }
-          changed = set(
-              subprocess.check_output(
-                  ["git", "diff", "--name-only", os.environ["CP2_AUDIT_BASE_SHA"], "HEAD", "--"],
-                  text=True,
-              ).splitlines()
-          )
-          # The historical CP2 introduction was exactly nine files. New
-          # maintenance PRs must stay within that ownership boundary, but
-          # must not be forced to re-touch all nine original files.
-          if os.environ["GITHUB_EVENT_NAME"] == "pull_request":
+          # Exactly these two workflow definitions may be repaired together;
+          # no CP2 runtime/test files can accompany an out-of-scope edit.
+          policy_only = {
+              ".github/workflows/inventory-cp1-acceptance.yml",
+              ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+          }
+          cp2_workflow = ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
+
+          def classify(changed, *, is_pr):
+              if not is_pr:
+                  if changed != expected:
+                      raise ValueError(
+                          "CP2_SCOPE=FAIL historical introduction boundary\n"
+                          f"missing={sorted(expected - changed)}\n"
+                          f"extra={sorted(changed - expected)}"
+                      )
+                  return "historical"
+              if not (changed & expected):
+                  return "not-applicable"
+              if cp2_workflow in changed and changed <= policy_only:
+                  return "policy-maintenance"
               invalid = changed - expected
-              if not changed or invalid:
-                  raise SystemExit(
+              if invalid:
+                  raise ValueError(
                       "CP2_SCOPE=FAIL maintenance changes outside CP2 ownership\n"
                       f"extra={sorted(invalid)}"
                   )
-              scope = "maintenance"
+              return "maintenance"
+
+          # Execute actual policy function against representative ownership
+          # cases. A failure case must raise; never convert real failures to
+          # a green result or exclude a CP2-owned runtime path.
+          for names, expected_mode in (
+              ({"wa_backend/api/warehouse/live_stock.py"}, "not-applicable"),
+              ({"dashboard/src/pages/inventory/MainInventory.tsx"}, "not-applicable"),
+              ({"wa_backend/api/warehouse/batch_index.py"}, "maintenance"),
+              (expected, "maintenance"),
+              (policy_only, "policy-maintenance"),
+          ):
+              assert classify(names, is_pr=True) == expected_mode
+          for names in (
+              {"wa_backend/api/warehouse/batch_index.py", "dashboard/unrelated.tsx"},
+              {cp2_workflow, "wa_backend/alembic/versions/unrelated.py"},
+              {cp2_workflow, "docs/unrelated.md"},
+          ):
+              try:
+                  classify(names, is_pr=True)
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError(f"CP2 scope violation escaped: {sorted(names)}")
+          assert classify(expected, is_pr=False) == "historical"
+          try:
+              classify(expected - {"wa_backend/schemas.py"}, is_pr=False)
+          except ValueError:
+              pass
           else:
-              if changed != expected:
-                  raise SystemExit(
-                      "CP2_SCOPE=FAIL historical introduction boundary\n"
-                      f"missing={sorted(expected - changed)}\n"
-                      f"extra={sorted(changed - expected)}"
-                  )
-              scope = "historical"
-          forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
-          if any(path.startswith(forbidden_prefixes) for path in changed):
-              raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
-          print(f"CP2_SCOPE=PASS mode={scope} files={len(changed)}")
+              raise AssertionError("Original nine-file historical boundary weakened")
+          print("CP2_POLICY_SELFTEST=PASS")
+
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only",
+                   os.environ["CP2_AUDIT_BASE_SHA"],
+                   os.environ["CP2_AUDIT_HEAD_SHA"], "--"],
+                  text=True,
+              ).splitlines()
+          )
+          try:
+              scope = classify(changed, is_pr=os.environ["GITHUB_EVENT_NAME"] == "pull_request")
+          except ValueError as exc:
+              raise SystemExit(str(exc)) from None
+
+          if scope == "not-applicable":
+              # Non-CP2 PRs retain the exact same functional/PostgreSQL job
+              # and check context, but CP2-only ownership policy does not
+              # claim authority over their unrelated files.
+              print("CP2_SCOPE=NOT_APPLICABLE (no CP2-owned files)")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write("applies=false\n")
+          else:
+              forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
+              if any(path.startswith(forbidden_prefixes) for path in changed):
+                  raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
+              print(f"CP2_SCOPE=PASS mode={scope} files={len(changed)}")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+                  out.write("applies=true\n")
           PY
+      - name: Diff check
+        if: ${{ !cancelled() && steps.cp2-scope.outputs.applies == 'true' }}
+        run: >-
+          git diff --check
+          "${{ steps.audit-base.outputs.sha }}"
+          "${{ steps.audit-base.outputs.head }}" --
