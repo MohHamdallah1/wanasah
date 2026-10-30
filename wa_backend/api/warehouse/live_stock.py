@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
@@ -1285,8 +1285,17 @@ async def get_warehouse_inventory(
         )
         candidate_filters = []
         if search_variant_ids is not None:
+            # Keep tenant-safe search membership in a scalar array within
+            # this statement. Selective ANY probes avoid the ordered catalog
+            # scan and rescanned unique-aggregate seen with IN at LIMIT 1.
+            search_matches = search_variant_ids.subquery("inventory_search_matches")
+            search_ids_array = (
+                select(func.array_agg(search_matches.c[0]))
+                .scalar_subquery()
+                .cast(ARRAY(Integer))
+            )
             candidate_filters.append(
-                ProductVariant.id.in_(search_variant_ids)
+                ProductVariant.id == any_(search_ids_array)
             )
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
