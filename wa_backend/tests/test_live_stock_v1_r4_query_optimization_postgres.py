@@ -499,8 +499,18 @@ async def _acceptance():
                     "has_damaged": True,
                 },
             ),
+            ("owner", "sellable_50", 50, None, {"stock_state": "sellable"}),
+            ("restricted", "sellable_50", 50, None, {"stock_state": "sellable"}),
+            ("owner", "on_hand_50", 50, None, {"stock_state": "on_hand"}),
+            ("restricted", "on_hand_50", 50, None, {"stock_state": "on_hand"}),
             ("owner", "empty_vehicle", 50, None, {"has_vehicle": True}),
             ("restricted", "empty_vehicle", 50, None, {"has_vehicle": True}),
+            ("owner", "empty_recalled", 50, None, {"has_recalled": True}),
+            ("restricted", "empty_recalled", 50, None, {"has_recalled": True}),
+            ("owner", "out_of_stock_empty", 50, None, {"stock_state": "out_of_stock"}),
+            ("restricted", "out_of_stock_empty", 50, None, {"stock_state": "out_of_stock"}),
+            ("owner", "minimum_unset_50", 50, None, {"minimum_unset": True}),
+            ("restricted", "minimum_unset_50", 50, None, {"minimum_unset": True}),
         ]
 
         for actor, name, limit, search, filters in cases:
@@ -539,8 +549,25 @@ async def _acceptance():
                     and Decimal(row["damaged_quantity"]) > 0
                     for row in head_result["payload"]["items"]
                 )
-            if name == "empty_vehicle":
+            if name in {"empty_vehicle", "empty_recalled", "out_of_stock_empty"}:
                 assert head_result["payload"]["items"] == []
+
+            # Positive stock predicates guarantee a projection row. HEAD must
+            # not retain the old catalog-correlated ProductVariant/projection
+            # lookup shape for either populated or empty positive filters.
+            if name in {
+                "sellable_50",
+                "on_hand_50",
+                "empty_vehicle",
+                "empty_recalled",
+            }:
+                new_correlated = [
+                    row for row in head_result["plan"]["relations"]
+                    if row["catalog_correlated"]
+                ]
+                assert not new_correlated, (
+                    actor, name, head_result["plan"]
+                )
 
             # The measured defect was a correlated point lookup once per search
             # member. Broad/short HEAD plans must eliminate that 50k-loop shape.
