@@ -451,12 +451,17 @@ async def _add_second_shop(pg_gate, tenant, zone_id: int, first_shop_id: int) ->
 async def test_company_date_expiry_future_production_and_shelf_life_truth(pg):
     tenant = pg.tenants[0]
 
-    # The database clock is authoritative; these two real zones are chosen so
-    # this acceptance run observes adjacent commercial dates.
+    # The database clock is authoritative. Choose adjacent commercial dates
+    # for every UTC execution hour, not only jobs scheduled before UTC noon.
     await _set_company_timezone(pg, tenant, "Etc/GMT+12")
     early_date = await _company_date(pg, tenant)
-    await _set_company_timezone(pg, tenant, "UTC")
+    later_zone = "UTC"
+    await _set_company_timezone(pg, tenant, later_zone)
     later_date = await _company_date(pg, tenant)
+    if later_date == early_date:
+        later_zone = "Pacific/Kiritimati"  # UTC+14
+        await _set_company_timezone(pg, tenant, later_zone)
+        later_date = await _company_date(pg, tenant)
     assert later_date == early_date + timedelta(days=1)
 
     # Create an expires-today batch through real supplier inbound on the early
@@ -519,7 +524,7 @@ async def test_company_date_expiry_future_production_and_shelf_life_truth(pg):
     # The same real batch is now expired-yesterday and remains physical stock,
     # but is not saleable.
     await _set_shelf_policy(pg, tenant, minimum_days=None)
-    await _set_company_timezone(pg, tenant, "UTC")
+    await _set_company_timezone(pg, tenant, later_zone)
     assert await _company_date(pg, tenant) == later_date
     expired = await _batch_detail_row(pg, tenant, batch_id)
     assert expired["days_to_expiry"] == -1
