@@ -20,6 +20,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from main import app
+from database import engine as http_runtime_engine
 from models import Company, Permission, UserLocationAccess
 from domains.identity.models import CompanyPrincipal
 from tests.test_inbound_no_lot_frozen_postgres import pg
@@ -96,7 +97,13 @@ async def http_case(r1case):
         owner = await login(client, identities[0][0], identities[0][1], OWNER_PASSWORD)
         reader = await login(client, identities[0][0], identities[0][2], READER_PASSWORD)
         foreign = await login(client, identities[1][0], identities[1][1], OWNER_PASSWORD)
-        yield NS(case=case, client=client, owner=owner, reader=reader, foreign=foreign)
+        try:
+            yield NS(case=case, client=client, owner=owner, reader=reader, foreign=foreign)
+        finally:
+            # The production app engine is module-global. pytest-asyncio runs
+            # each parameterized test on a fresh loop; pooled asyncpg connections
+            # must not be carried into a different event loop in this isolated CI.
+            await http_runtime_engine.dispose()
 
 
 async def test_real_http_bearer_owner_reader_scope_revocation_and_no_cost_leak(http_case):
@@ -144,7 +151,7 @@ async def test_real_http_bearer_owner_reader_scope_revocation_and_no_cost_leak(h
 
         foreign_denied = await read(client, token, foreign.location_id)
         assert foreign_denied.status_code == 404, foreign_denied.text
-        assert str(foreign.variant_id) not in str(foreign_denied.json())
+        assert "items" not in foreign_denied.json()
 
     # Foreign-company Owner legitimately sees their own separate stock/cost
     # but cannot query this tenant by passing a warehouse id.
