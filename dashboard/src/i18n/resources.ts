@@ -1492,7 +1492,10 @@ export const resources = {
           "تم إيقاف واجهة المخزون احترازياً حتى نتأكد من المواقع التابعة للشركة الحالية.",
         retry: "إعادة المحاولة",
         locationsTruncated:
-          "يعرض محدد التشغيل أول 200 مستودع متاح. استخدم إدارة المستودعات للبحث عن موقع آخر.",
+          "توجد مستودعات أخرى؛ استخدم البحث أو استعراض الصفحات للوصول إليها.",
+        warehouseSearch: "بحث المستودعات",
+        previousWarehouses: "السابق",
+        nextWarehouses: "المزيد",
         accessChanged: "الموقع غير متاح أو تغيرت صلاحياتك.",
         refreshAccess: "تحديث المواقع والصلاحيات",
         noWarehouseCreated:
@@ -3873,7 +3876,10 @@ export const resources = {
           "Inventory has been paused until the current company's locations can be verified.",
         retry: "Retry",
         locationsTruncated:
-          "The selector shows the first 200 accessible warehouses. Use Warehouse Management to find another location.",
+          "More warehouses are available. Search or browse the next page.",
+        warehouseSearch: "Search warehouses",
+        previousWarehouses: "Previous",
+        nextWarehouses: "More",
         accessChanged: "This location is unavailable or your permissions changed.",
         refreshAccess: "Refresh locations and permissions",
         noWarehouseCreated:
