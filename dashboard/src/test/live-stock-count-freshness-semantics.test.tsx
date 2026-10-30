@@ -105,6 +105,7 @@ describe("UI-07/UI-08: distinct summary, row and fetch-time semantics", () => {
   it("represents unverified summary, list and fetch time as unknown, not zero", () => {
     draw({ loading: true, pageReady: false, stockTotal: null, lastSync: null });
     expect(screen.getByLabelText("Count not currently verified")).toBeInTheDocument();
+    expect(screen.getByLabelText("Last successful fetch time unknown")).toBeInTheDocument();
     expect(screen.getByTestId("live-count-unverified"))
       .toHaveTextContent("List variant count has not been verified yet.");
     expect(screen.queryByTestId("live-loaded-count")).not.toBeInTheDocument();
