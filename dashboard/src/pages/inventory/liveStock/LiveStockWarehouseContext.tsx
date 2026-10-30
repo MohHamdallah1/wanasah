@@ -77,7 +77,7 @@ export function LiveStockWarehouseContext({
                   hour12: false,
                   numberingSystem: "latn",
                 }).format(lastSync)
-              : <span aria-label={t("inventoryShell.countNotVerified")}>—</span>}
+              : <span aria-label={t("inventoryShell.fetchTimeUnknown")}>—</span>}
           </span>
           <button
             type="button"
