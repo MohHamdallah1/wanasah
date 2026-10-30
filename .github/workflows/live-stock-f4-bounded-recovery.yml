@@ -26,6 +26,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_F4_PG_GATE: "1"
+      WANASAH_R1_PG_GATE: "1"
       WANASAH_NO_LOT_PG_GATE: "1"
       WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
@@ -90,10 +91,19 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -s
           tests/test_live_stock_f4_bounded_recovery_postgres.py
           --junitxml=f4-acceptance.xml
+      - name: Directly affected R1 coherent snapshot and authorization regressions
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_r1_snapshot_postgres.py::test_rolled_back_writer_cannot_change_read_response
+          tests/test_live_stock_r1_snapshot_postgres.py::test_exact_warehouse_vehicle_and_company_read_permissions
+          --junitxml=f4-r1-regression.xml
       - name: Preserve real test evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: live-stock-f4-${{ github.sha }}
-          path: wa_backend/f4-acceptance.xml
+          path: |
+            wa_backend/f4-acceptance.xml
+            wa_backend/f4-r1-regression.xml
           if-no-files-found: warn
