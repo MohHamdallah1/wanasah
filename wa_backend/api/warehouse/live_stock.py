@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, literal_column, or_, select, true, tuple_, union, union_all
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
@@ -608,6 +608,20 @@ def _live_stock_filtered_variant_ids_stmt(
         name="live_stock_filter_projection",
     )
 
+    # Positive stock predicates imply that a sparse Live Stock projection row
+    # must exist. Drive those filters from the projection itself instead of
+    # probing ProductVariant + projection once per catalog row. Keep the
+    # fallback outer join only for predicates where a *missing* projection is
+    # semantically meaningful (out_of_stock / minimum_unset by themselves).
+    projection_guaranteed = (
+        stock_state in {"on_hand", "sellable", "low_stock"}
+        or has_reserved
+        or has_unavailable
+        or has_damaged
+        or has_recalled
+        or has_vehicle
+    )
+
     projected_on_hand = func.coalesce(projection.warehouse_on_hand, 0)
     projected_reserved = func.coalesce(projection.warehouse_reserved, 0)
     projected_sellable_on_hand = func.coalesce(
@@ -620,6 +634,9 @@ def _live_stock_filtered_variant_ids_stmt(
     projected_damaged = func.coalesce(projection.damaged_packs, 0)
     projected_recalled = func.coalesce(projection.recalled_packs, 0)
 
+    # ProductVariant remains lifecycle/hold authority exactly as before.
+    # The projection is only the bounded driving set for predicates that prove
+    # its row must exist.
     effective_sellable = case(
         (
             and_(
@@ -682,8 +699,7 @@ def _live_stock_filtered_variant_ids_stmt(
                     and_(
                         latest_vehicle_sources.c.vehicle_id
                         == readable_vehicle_locations.c.vehicle_id,
-                        latest_vehicle_sources.c.source_location_id
-                        == location_id,
+                        latest_vehicle_sources.c.source_location_id == location_id,
                     ),
                 )
                 .where(
@@ -693,7 +709,31 @@ def _live_stock_filtered_variant_ids_stmt(
                 )
                 .distinct()
             )
-            conditions.append(variant.id.in_(readable_vehicle_variants))
+            conditions.append(
+                (
+                    projection.product_variant_id
+                    if projection_guaranteed
+                    else variant.id
+                ).in_(readable_vehicle_variants)
+            )
+
+    if projection_guaranteed:
+        return (
+            select(projection.product_variant_id.label("id"))
+            .join(
+                variant,
+                and_(
+                    variant.company_id == projection.company_id,
+                    variant.id == projection.product_variant_id,
+                ),
+            )
+            .where(
+                projection.company_id == company_id,
+                projection.warehouse_location_id == location_id,
+                *conditions,
+            )
+            .correlate(None)
+        )
 
     return (
         select(variant.id)
@@ -1259,12 +1299,28 @@ async def get_warehouse_inventory(
             )
         )
 
-        search_variant_ids = None
+        scope = (
+            f"inventory|{company_id}|{location_id}|{clean_search}|"
+            f"{effective_stock_state}|{family_id or 0}|"
+            f"{int(has_reserved)}{int(has_unavailable)}"
+            f"{int(has_damaged)}{int(has_recalled)}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
+        )
+
+        search_probe = None
+        search_probe_count = None
+        search_probe_ids = None
+        direct_search_filters = ()
         if clean_search:
             search_patterns = [
                 f"%{_escape_like(token)}%"
                 for token in clean_search.split()
             ]
+            # Search has two exact-equivalent access paths. The tenant-bound
+            # trigram function is the sparse membership probe; the ordered
+            # stream uses the same escaped LIKE predicates directly so broad
+            # matches can stop at the requested page instead of performing a
+            # correlated point lookup for every matching catalog row.
             search_variant_ids = select(
                 func.public.live_stock_search_variant_ids(
                     company_id,
@@ -1273,21 +1329,36 @@ async def get_warehouse_inventory(
                         search_patterns,
                         type_=ARRAY(String()),
                     ),
-                )
+                ).label("product_variant_id")
+            )
+            search_probe = (
+                search_variant_ids.limit(limit + 1)
+                .cte("inventory_search_probe")
+                .prefix_with("MATERIALIZED")
+            )
+            search_probe_count = (
+                select(func.count())
+                .select_from(search_probe)
+                .scalar_subquery()
+            )
+            search_probe_ids = select(search_probe.c.product_variant_id)
+            # Keep the exact searchable text expression shared by the
+            # sparse trigram probe and the ordered literal-substring stream.
+            searchable_text = func.lower(
+                ProductVariant.name
+                + literal_column("' '")
+                + ProductVariant.sku
+            )
+            # This branch is used only after the probe proves there are
+            # more matches than the requested page. Preserve exact literal
+            # substring membership but deliberately stream the name-ordered
+            # B-tree instead of expanding a broad trigram bitmap before LIMIT.
+            direct_search_filters = tuple(
+                func.strpos(searchable_text, token) > 0
+                for token in clean_search.split()
             )
 
-        scope = (
-            f"inventory|{company_id}|{location_id}|{clean_search}|"
-            f"{effective_stock_state}|{family_id or 0}|"
-            f"{int(has_reserved)}{int(has_unavailable)}"
-            f"{int(has_damaged)}{int(has_recalled)}"
-            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
-        )
         candidate_filters = []
-        search_membership = None
-        if search_variant_ids is not None:
-            search_membership = ProductVariant.id.in_(search_variant_ids)
-            candidate_filters.append(search_membership)
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
@@ -1295,6 +1366,7 @@ async def get_warehouse_inventory(
             effective_stock_state == "low_stock"
             and not indicator_filters_active
         )
+        selective_filtered_ids = None
         if (
             not use_alert_fast_path
             and (
@@ -1315,7 +1387,20 @@ async def get_warehouse_inventory(
                 has_vehicle=has_vehicle,
                 minimum_unset=minimum_unset,
             )
-            candidate_filters.append(ProductVariant.id.in_(filtered_ids))
+            if has_vehicle or has_recalled:
+                # These filters are selective source/status lookups in the
+                # measured R4 plans. Materialize their exact authorized IDs
+                # once and drive the page from that bounded candidate set,
+                # rather than scanning the ordered ProductVariant catalog and
+                # probing the filter subquery once per row.
+                selective_filtered_ids = (
+                    filtered_ids.cte("inventory_selective_filtered_ids")
+                    .prefix_with("MATERIALIZED")
+                )
+            else:
+                candidate_filters.append(
+                    ProductVariant.id.in_(filtered_ids)
+                )
 
         if cursor is not None:
             cursor_name, cursor_id = _decode_variant_cursor(
@@ -1331,71 +1416,99 @@ async def get_warehouse_inventory(
                 else cursor_key > cursor_value
             )
 
-        singleton_stmt = None
-        if search_variant_ids is not None and limit == 1 and not use_alert_fast_path:
-            # A bounded probe chooses between two equivalent SQL access paths.
-            # Both branches and all detail reads keep the same statement snapshot.
-            search_probe = (
-                search_variant_ids.limit(2)
-                .cte("inventory_single_search_probe")
-                .prefix_with("MATERIALIZED")
-            )
-            probe_count = select(func.count()).select_from(search_probe).scalar_subquery()
-            single_id = select(search_probe.c[0]).limit(1).scalar_subquery()
-            singleton_filters = [
-                item for item in candidate_filters if item is not search_membership
-            ]
-            singleton_filters.extend((probe_count == 1, ProductVariant.id == single_id))
-            candidate_filters.append(probe_count != 1)
-            singleton_stmt = _build_visible_inventory_stmt(
+        def candidate_page_stmt(extra_filters=(), *, alert_suffix=""):
+            scoped_filters = [*candidate_filters, *extra_filters]
+            if use_alert_fast_path:
+                alerts = _build_inventory_alert_variants_stmt(
+                    company_id=company_id,
+                    location_id=location_id,
+                    variant_filters=scoped_filters,
+                ).cte(
+                    f"scoped_alerts{alert_suffix}"
+                ).prefix_with("MATERIALIZED")
+                alert_order = (
+                    (alerts.c.variant_name.desc(), alerts.c.id.desc())
+                    if sort == "name_desc"
+                    else (alerts.c.variant_name.asc(), alerts.c.id.asc())
+                )
+                return (
+                    select(alerts.c.id, alerts.c.variant_name)
+                    .order_by(*alert_order)
+                    .limit(limit + 1)
+                )
+            if selective_filtered_ids is not None:
+                selective_order = _live_stock_ordering(sort=sort)
+                return (
+                    select(
+                        ProductVariant.id,
+                        ProductVariant.name.label("variant_name"),
+                    )
+                    .join(
+                        selective_filtered_ids,
+                        selective_filtered_ids.c.id
+                        == ProductVariant.id,
+                    )
+                    .where(
+                        ProductVariant.company_id == company_id,
+                        *scoped_filters,
+                    )
+                    .order_by(*selective_order)
+                    .limit(limit + 1)
+                )
+            return _build_visible_inventory_stmt(
                 company_id=company_id,
                 location_id=location_id,
                 access=access,
                 company_wide_inventory_read=company_wide_inventory_read,
-                candidate_filters=singleton_filters,
+                candidate_filters=scoped_filters,
                 limit=limit,
                 sort=sort,
             )
 
-        if use_alert_fast_path:
-            alerts = _build_inventory_alert_variants_stmt(
-                company_id=company_id,
-                location_id=location_id,
-                variant_filters=candidate_filters,
-            ).cte("scoped_alerts").prefix_with("MATERIALIZED")
-            alert_order = (
-                (alerts.c.variant_name.desc(), alerts.c.id.desc())
-                if sort == "name_desc"
-                else (alerts.c.variant_name.asc(), alerts.c.id.asc())
-            )
-            candidate_stmt = (
-                select(alerts.c.id, alerts.c.variant_name)
-                .order_by(*alert_order)
-                .limit(limit + 1)
-            )
+        if search_probe is None:
+            candidate_stmt = candidate_page_stmt()
         else:
-            candidate_stmt = _build_visible_inventory_stmt(
-                company_id=company_id,
-                location_id=location_id,
-                access=access,
-                company_wide_inventory_read=company_wide_inventory_read,
-                candidate_filters=candidate_filters,
-                limit=limit,
-                sort=sort,
+            # If the complete search membership fits in this page, keep the
+            # rare-search point-access win from #645. Otherwise stream the
+            # name-ordered catalog with the exact same LIKE predicates and
+            # let LIMIT stop after the first page. The two branches are
+            # mutually exclusive inside this same statement snapshot.
+            sparse_stmt = candidate_page_stmt(
+                (
+                    ProductVariant.id.in_(search_probe_ids),
+                    search_probe_count <= limit,
+                ),
+                alert_suffix="_sparse",
             )
-
-        if singleton_stmt is not None:
-            search_candidates = union_all(singleton_stmt, candidate_stmt).subquery(
-                "inventory_search_candidates"
+            broad_stmt = candidate_page_stmt(
+                (
+                    *direct_search_filters,
+                    search_probe_count > limit,
+                ),
+                alert_suffix="_broad",
             )
+            search_candidates = union_all(
+                sparse_stmt,
+                broad_stmt,
+            ).subquery("inventory_search_candidates")
             search_order = (
-                (search_candidates.c.variant_name.desc(), search_candidates.c.id.desc())
+                (
+                    search_candidates.c.variant_name.desc(),
+                    search_candidates.c.id.desc(),
+                )
                 if sort == "name_desc"
-                else (search_candidates.c.variant_name.asc(), search_candidates.c.id.asc())
+                else (
+                    search_candidates.c.variant_name.asc(),
+                    search_candidates.c.id.asc(),
+                )
             )
             candidate_stmt = (
-                select(search_candidates.c.id, search_candidates.c.variant_name)
-                .order_by(*search_order).limit(limit + 1)
+                select(
+                    search_candidates.c.id,
+                    search_candidates.c.variant_name,
+                )
+                .order_by(*search_order)
+                .limit(limit + 1)
             )
 
         # One statement snapshot owns candidate eligibility and all quantities.
