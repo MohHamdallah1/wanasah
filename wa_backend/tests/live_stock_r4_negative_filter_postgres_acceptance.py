@@ -345,16 +345,23 @@ async def _run():
             assert new["payload"] == old["payload"], (actor, name)
             assert new["sql_count"] == old["sql_count"], (actor, name)
 
-            old_correlated = [
-                row for row in old["plan"]["relations"]
-                if row["catalog_correlated"]
-            ]
+            old_relations = old["plan"]["relations"]
             new_correlated = [
                 row for row in new["plan"]["relations"]
                 if row["catalog_correlated"]
             ]
-            assert old_correlated, (actor, name, old["plan"])
+            old_max_work = max(
+                (int(row["work"]) for row in old_relations),
+                default=0,
+            )
+            assert old_max_work >= fixture["products"], (
+                actor, name, old["plan"]
+            )
             assert not new_correlated, (actor, name, new["plan"])
+            assert (
+                new["plan"]["root_buffers"]["Shared Hit Blocks"]
+                < old["plan"]["root_buffers"]["Shared Hit Blocks"]
+            ), (actor, name, old["plan"], new["plan"])
 
             row = {
                 "actor": actor,
