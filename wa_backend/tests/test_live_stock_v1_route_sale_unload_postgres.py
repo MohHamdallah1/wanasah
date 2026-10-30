@@ -931,7 +931,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
             tenant.owner.access(db),
             tenant.owner.operational_driver,
         )
-        assert closed["status"] == "closed"
+        assert closed["message"] == "تم تحديث خط السير بنجاح"
+    async with pg.session() as db:
+        closed_route = await db.scalar(
+            select(DispatchRoute).where(
+                DispatchRoute.company_id == tenant.company_id,
+                DispatchRoute.id == route_id,
+            )
+        )
+        assert closed_route is not None
+        assert closed_route.status == "closed"
 
     await _assert_inventory_truth(
         pg,
