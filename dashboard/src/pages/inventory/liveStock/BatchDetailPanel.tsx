@@ -190,7 +190,7 @@ export function BatchDetailPanel({
                   type="button"
                   onClick={() => onLoadSource(batch.batch_id)}
                   aria-expanded={expanded}
-                  aria-controls={expanded ? evidenceId : undefined}
+                  aria-controls={source ? evidenceId : undefined}
                   className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                 >
                   <ChevronDown className="h-4 w-4" aria-hidden="true" />
