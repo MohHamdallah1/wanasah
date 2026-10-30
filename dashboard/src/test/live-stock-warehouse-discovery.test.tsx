@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -225,4 +225,91 @@ describe("inventory scoped warehouse discovery integration", () => {
       String(url).includes("/warehouse/setup-status"),
     )).toBe(true);
   });
+  it("server-searches reachable warehouses without eager loading and preserves selection", async () => {
+    mocks.authFetch.mockImplementation((url: string) => {
+      const parsed = new URL(url, "http://test.local");
+      if (parsed.pathname === "/warehouse/locations/selection") {
+        const search = parsed.searchParams.get("search");
+        const selected = parsed.searchParams.get("selected_location_id");
+        return Promise.resolve(
+          search === "special"
+            ? page([201], null, selected === "1" ? option(1) : null)
+            : page([1], "more", selected === "1" ? option(1) : null),
+        );
+      }
+      if (parsed.pathname === "/warehouse/inventory/cursor") {
+        return Promise.resolve({ items: [], next_cursor: null, has_more: false, total: null });
+      }
+      if (parsed.pathname === "/warehouse/inventory/summary") {
+        return Promise.resolve({ stock_total: 0, alert_count: 0 });
+      }
+      throw Error("unrecognized contract");
+    });
+
+    renderInventory();
+    expect(await screen.findByRole("combobox", { name: "live-warehouse" })).toHaveValue("1");
+    const search = screen.getByRole("searchbox", { name: "inventoryShell.warehouseSearch" });
+    fireEvent.change(search, { target: { value: "s" } });
+    expect(mocks.authFetch.mock.calls.filter(([url]) =>
+      String(url).includes("/warehouse/locations/selection?"),
+    )).toHaveLength(1);
+    fireEvent.change(search, { target: { value: "special" } });
+    await screen.findByRole("option", { name: "Warehouse 201" });
+    expect(mocks.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("search=special"),
+    )).toBe(true);
+    expect(screen.getByRole("combobox", { name: "live-warehouse" })).toHaveValue("1");
+    fireEvent.change(screen.getByRole("combobox", { name: "live-warehouse" }), {
+      target: { value: "201" },
+    });
+    await waitFor(() => expect(
+      screen.getByRole("combobox", { name: "live-warehouse" }),
+    ).toHaveValue("201"));
+  });
+
+  it("ignores an old cursor response arriving after a newer server search", async () => {
+    let resolveOld!: (value: ReturnType<typeof page>) => void;
+    const stalePage = new Promise<ReturnType<typeof page>>((resolve) => {
+      resolveOld = resolve;
+    });
+    mocks.authFetch.mockImplementation((url: string) => {
+      const parsed = new URL(url, "http://test.local");
+      if (parsed.pathname === "/warehouse/locations/selection") {
+        if (parsed.searchParams.has("cursor")) return stalePage;
+        if (parsed.searchParams.get("search") === "fresh") {
+          return Promise.resolve(page([201], null, option(1)));
+        }
+        return Promise.resolve(page([1], "stale", option(1)));
+      }
+      if (parsed.pathname === "/warehouse/inventory/cursor") {
+        return Promise.resolve({ items: [], next_cursor: null, has_more: false, total: null });
+      }
+      if (parsed.pathname === "/warehouse/inventory/summary") {
+        return Promise.resolve({ stock_total: 0, alert_count: 0 });
+      }
+      throw Error("unexpected endpoint");
+    });
+    renderInventory();
+    await screen.findByRole("combobox", { name: "live-warehouse" });
+    fireEvent.click(screen.getByRole("button", { name: "inventoryShell.nextWarehouses" }));
+    await waitFor(() => expect(mocks.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("cursor=stale"),
+    )).toBe(true));
+    const oldOptions = mocks.authFetch.mock.calls.find(([url]) =>
+      String(url).includes("cursor=stale"),
+    )?.[1] as { signal: AbortSignal };
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "inventoryShell.warehouseSearch" }), {
+      target: { value: "fresh" },
+    });
+    await screen.findByRole("option", { name: "Warehouse 201" });
+    expect(oldOptions.signal.aborted).toBe(true);
+    await act(async () => {
+      resolveOld(page([999], null, option(1)));
+      await stalePage;
+    });
+    expect(screen.queryByRole("option", { name: "Warehouse 999" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Warehouse 201" })).toBeInTheDocument();
+  });
+
 });
