@@ -1366,6 +1366,7 @@ async def get_warehouse_inventory(
             effective_stock_state == "low_stock"
             and not indicator_filters_active
         )
+        selective_filtered_ids = None
         if (
             not use_alert_fast_path
             and (
@@ -1386,7 +1387,20 @@ async def get_warehouse_inventory(
                 has_vehicle=has_vehicle,
                 minimum_unset=minimum_unset,
             )
-            candidate_filters.append(ProductVariant.id.in_(filtered_ids))
+            if has_vehicle or has_recalled:
+                # These filters are selective source/status lookups in the
+                # measured R4 plans. Materialize their exact authorized IDs
+                # once and drive the page from that bounded candidate set,
+                # rather than scanning the ordered ProductVariant catalog and
+                # probing the filter subquery once per row.
+                selective_filtered_ids = (
+                    filtered_ids.cte("inventory_selective_filtered_ids")
+                    .prefix_with("MATERIALIZED")
+                )
+            else:
+                candidate_filters.append(
+                    ProductVariant.id.in_(filtered_ids)
+                )
 
         if cursor is not None:
             cursor_name, cursor_id = _decode_variant_cursor(
@@ -1420,6 +1434,25 @@ async def get_warehouse_inventory(
                 return (
                     select(alerts.c.id, alerts.c.variant_name)
                     .order_by(*alert_order)
+                    .limit(limit + 1)
+                )
+            if selective_filtered_ids is not None:
+                selective_order = _live_stock_ordering(sort=sort)
+                return (
+                    select(
+                        ProductVariant.id,
+                        ProductVariant.name.label("variant_name"),
+                    )
+                    .join(
+                        selective_filtered_ids,
+                        selective_filtered_ids.c.id
+                        == ProductVariant.id,
+                    )
+                    .where(
+                        ProductVariant.company_id == company_id,
+                        *scoped_filters,
+                    )
+                    .order_by(*selective_order)
                     .limit(limit + 1)
                 )
             return _build_visible_inventory_stmt(
