@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   canAny: vi.fn<(code: string) => boolean>(),
   canAt: vi.fn<(code: string) => boolean>(),
   can: vi.fn<(code: string) => boolean>(),
+  t: (key: string) => key,
 }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
@@ -29,7 +30,7 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: mocks.t,
     i18n: { language: "en", resolvedLanguage: "en", dir: () => "ltr" },
   }),
 }));
