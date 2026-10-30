@@ -1,6 +1,8 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 import logging
 from typing import Annotated, Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
@@ -90,6 +92,24 @@ logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
 
 _LIVE_STOCK_READ_REPAIR_LIMIT = 10_000
+
+
+def _company_local_purchase_date(
+    created_at: datetime | None,
+    company_timezone: str,
+):
+    """Present the project's persisted naive-UTC timestamp on the company day."""
+    if created_at is None:
+        return None
+    normalized_timezone = company_timezone.strip()
+    if not normalized_timezone:
+        raise RuntimeError("Company timezone is unavailable.")
+    utc_created_at = (
+        created_at.replace(tzinfo=timezone.utc)
+        if created_at.tzinfo is None
+        else created_at.astimezone(timezone.utc)
+    )
+    return utc_created_at.astimezone(ZoneInfo(normalized_timezone)).date()
 
 
 # =================================================================================
@@ -1500,6 +1520,7 @@ async def get_warehouse_inventory(
                     "average_unit_cost"
                 ),
                 Company.currency_code.label("currency_code"),
+                Company.timezone.label("company_timezone"),
                 latest_purchase_one.c.last_purchase_cost,
                 latest_purchase_one.c.last_purchase_uom_code,
                 latest_purchase_one.c.last_purchase_created_at,
@@ -1682,10 +1703,9 @@ async def get_warehouse_inventory(
                 last_purchase_created_at = row[
                     "last_purchase_created_at"
                 ]
-                last_purchase_date = (
-                    last_purchase_created_at.date()
-                    if last_purchase_created_at is not None
-                    else None
+                last_purchase_date = _company_local_purchase_date(
+                    last_purchase_created_at,
+                    str(row["company_timezone"]),
                 )
 
             currency_code = row["currency_code"]
@@ -1867,6 +1887,7 @@ async def get_warehouse_inventory_batches(
                 select(
                     ProductVariant.id.label("variant_id"),
                     Company.currency_code.label("currency_code"),
+                    Company.timezone.label("company_timezone"),
                     func.timezone(
                         Company.timezone,
                         func.current_timestamp(),
@@ -2333,8 +2354,9 @@ async def get_warehouse_inventory_batches(
                 latest_purchase_uom_code = str(
                     latest_purchase.input_uom_code
                 )
-                latest_purchase_date = (
-                    latest_purchase.created_at.date()
+                latest_purchase_date = _company_local_purchase_date(
+                    latest_purchase.created_at,
+                    str(variant_company_row.company_timezone),
                 )
 
             batches.append(
