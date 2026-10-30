@@ -87,7 +87,7 @@ async def pg():
             # with the independently accepted Product tracking defaults.
             assert await db.scalar(text("SELECT version_num FROM alembic_version")) in {
                 "f1a6c8e2b940", "b9c5e18a0f42", "c7f3a8e5d912",
-                "e5a7c1d9f042",
+                "e5a7c1d9f042", "e1b7c4d9a203",
             }
             for code in PERMISSIONS:
                 await db.execute(text("INSERT INTO permissions(code) VALUES(:code) ON CONFLICT(code) DO NOTHING"),
