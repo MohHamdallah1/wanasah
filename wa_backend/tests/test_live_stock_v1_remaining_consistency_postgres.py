@@ -108,7 +108,7 @@ async def test_independent_requests_observe_real_committed_instants_without_fake
             case.tenant.owner.access(config_db),
             case.tenant.owner.operational_driver,
         )
-        assert D(configured["minimum_quantity_base"]) == D("12")
+        assert D(configured["minimum_quantity"]) == D("12")
 
     async with case.pg.session() as db:
         access = case.tenant.ordinary.access(db)
