@@ -36,7 +36,7 @@ def test_r4_search_path_is_page_adaptive_without_frontend_authority():
     assert "search_probe_count <= limit" in body
     assert "search_probe_count > limit" in body
     assert "ProductVariant.id.in_(search_probe_ids)" in body
-    assert "searchable_text.like(pattern, escape='\\\\')" in body
+    assert "strpos(searchable_text, token) > 0" in body
     literal_calls = [
         part
         for part in ast.walk(node)
