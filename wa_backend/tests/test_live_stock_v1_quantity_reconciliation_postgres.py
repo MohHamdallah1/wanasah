@@ -244,10 +244,13 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
         first_inbound = await pg.post(db, inbound_payload)
     assert first_inbound == {"message": "INBOUND_POSTED"}
 
-    # Durable replay must not duplicate stock, movement, batch or cost evidence.
+    # Durable replay rolls its transaction back before returning, so each
+    # before/after read uses a fresh tenant-scoped session.
     async with pg.session() as db:
         before_inbound_replay = await _counts(db, tenant.company_id)
+    async with pg.session() as db:
         replay_inbound = await pg.post(db, inbound_payload)
+    async with pg.session() as db:
         after_inbound_replay = await _counts(db, tenant.company_id)
     assert replay_inbound == first_inbound
     assert after_inbound_replay == before_inbound_replay
@@ -325,6 +328,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
     # Vehicle-load replay is exact and creates no second physical/cost event.
     async with pg.session() as db:
         before_load_replay = await _counts(db, tenant.company_id)
+    async with pg.session() as db:
         replay_load = await mutate_vehicle_load(
             db,
             access=tenant.owner.access(db),
@@ -335,6 +339,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
             request_id=load_request_id,
             items=load_items,
         )
+    async with pg.session() as db:
         after_load_replay = await _counts(db, tenant.company_id)
     assert replay_load == first_load
     assert after_load_replay == before_load_replay
@@ -456,6 +461,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
     # Insufficient source stock is rejected and the whole attempt rolls back.
     async with pg.session() as db:
         stable_before_rejection = await _counts(db, tenant.company_id)
+    async with pg.session() as db:
         with pytest.raises(VehicleError) as rejected:
             await mutate_vehicle_load(
                 db,
@@ -474,6 +480,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
             )
         assert rejected.value.code == "VEHICLE_LOAD_SOURCE_STOCK_CHANGED"
         await db.rollback()
+    async with pg.session() as db:
         stable_after_rejection = await _counts(db, tenant.company_id)
         rejected_pair = await _physical_pair(
             db,
@@ -490,6 +497,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
     # either endpoint of the warehouse->vehicle movement.
     async with pg.session() as db:
         before_location_denial = await _counts(db, tenant.company_id)
+    async with pg.session() as db:
         with pytest.raises(VehicleError) as denied:
             await mutate_vehicle_load(
                 db,
@@ -504,6 +512,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
         assert denied.value.code == "VEHICLE_LOAD_PERMISSION_DENIED"
         assert denied.value.status_code == 403
         await db.rollback()
+    async with pg.session() as db:
         assert await _counts(db, tenant.company_id) == before_location_denial
 
     # A foreign-company owner cannot target company A IDs, and FORCE RLS hides
@@ -522,6 +531,7 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
                 items=[{"product_variant_id": tenant.variant_id, "quantity": Decimal("1")}],
             )
         await db.rollback()
+    async with pg.session(party=1) as db:
         assert (
             await db.scalar(
                 select(func.count())
