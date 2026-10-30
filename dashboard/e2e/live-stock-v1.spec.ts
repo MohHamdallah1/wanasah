@@ -71,10 +71,10 @@ for (const locale of ["en", "ar"] as const) {
     await expect(purchase).toContainText("1.500");
     await expect(average).toContainText("0.125");
     await expect(purchase.locator("[title]").first()).toHaveAttribute("title", /1\.500001/);
-    await expect(purchase).toContainText(locale === "ar" ? "لكل حبة" : "per Each");
+    await expect(purchase).toContainText(locale === "ar" ? "لكل حبة" : "per Unit");
     await expect(average).toContainText(locale === "ar" ? "لكل كرتونة" : "per Carton");
     await expect(purchase).not.toContainText(locale === "ar" ? "لكل كرتونة" : "per Carton");
-    await expect(average).not.toContainText(locale === "ar" ? "لكل حبة" : "per Each");
+    await expect(average).not.toContainText(locale === "ar" ? "لكل حبة" : "per Unit");
     await expect(purchase).toContainText(locale === "ar" ? "د.أ." : "JOD");
     for (const label of ["on-hand", "available", "reserved", "unavailable", "vehicle"]) {
       await expect(card.locator(`[data-cp13-quantity="${label}"]`)).toHaveCount(1);
@@ -160,10 +160,10 @@ test("batch details show bounded partial/truncated owners, quantities and fresh 
   await expect(known.locator("li")).toHaveCount(2);
   await expect(known).toContainText("RES-9001");
   await expect(known).toContainText("RES-9002");
-  await expect(known).toContainText("1 كرتونة".replace("كرتونة", "Carton"));
+  await expect(known).toContainText("1 Carton");
   await expect(dialog.getByText("Reservation evidence partial")).toBeVisible();
   await expect(dialog.getByText(/Truncated list:/)).toBeVisible();
-  await expect(dialog.getByText(/Unattributed reserved quantity:/)).toContainText("1 Each");
+  await expect(dialog.getByText(/Unattributed reserved quantity:/)).toContainText("1 Unit");
   await expect(known.locator("a, button")).toHaveCount(0);
   await sourceButton.click();
   await expect(sourceButton).toHaveAttribute("aria-expanded", "false");
