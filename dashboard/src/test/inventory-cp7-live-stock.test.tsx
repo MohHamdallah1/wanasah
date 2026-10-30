@@ -528,7 +528,12 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     const onLoadSource = vi.fn();
     const props = {
       product: { ...product, display_uom_code: "CT", display_factor_to_base: "8" },
-      batches: [{ ...batch, on_hand_quantity: "40", reserved_quantity: "26" }],
+      batches: [{
+        ...batch, on_hand_quantity: "40", reserved_quantity: "26",
+        restricted_quantity: "0", expiry_unavailable_quantity: "0",
+        latest_purchase_cost: null, latest_purchase_uom_code: null,
+        purchase_event_count: 0,
+      }],
       hasMore: false, loading: false, error: null, sourceByBatch: { 71: stock },
       sourceOpenId: 71, sourceLoadingId: null, sourceErrorId: null,
       onClose: vi.fn(), onRetry: vi.fn(), onLoadMore: vi.fn(), onLoadSource,
