@@ -1259,7 +1259,14 @@ async def get_warehouse_inventory(
             )
         )
 
-        search_probe = None
+        scope = (
+            f"inventory|{company_id}|{location_id}|{clean_search}|"
+            f"{effective_stock_state}|{family_id or 0}|"
+            f"{int(has_reserved)}{int(has_unavailable)}"
+            f"{int(has_damaged)}{int(has_recalled)}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
+        )
+\n        search_probe = None
         search_probe_count = None
         search_probe_ids = None
         direct_search_filters = ()
@@ -1306,13 +1313,6 @@ async def get_warehouse_inventory(
                 for pattern in search_patterns
             )
 
-        scope = (
-            f"inventory|{company_id}|{location_id}|{clean_search}|"
-            f"{effective_stock_state}|{family_id or 0}|"
-            f"{int(has_reserved)}{int(has_unavailable)}"
-            f"{int(has_damaged)}{int(has_recalled)}"
-            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
-        )
         candidate_filters = []
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
