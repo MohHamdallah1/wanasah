@@ -10,6 +10,7 @@ on:
       - "dashboard/src/pages/inventory/liveStock/i18n.ts"
       - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
       - "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx"
+      - "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx"
       - "dashboard/src/test/inventory-cp7-live-stock.test.tsx"
       - ".github/workflows/live-stock-batch-detail-freshness-acceptance.yml"
   workflow_dispatch:
@@ -39,7 +40,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Focused detail freshness and source disclosure
         working-directory: dashboard
-        run: npm test -- src/test/live-stock-batch-detail-freshness.test.tsx --reporter=verbose
+        run: npm test -- src/test/live-stock-batch-detail-freshness.test.tsx src/test/live-stock-batch-refresh-integration.test.tsx --reporter=verbose
       - name: Existing CP7 Live Stock source and filter regressions
         working-directory: dashboard
         run: npm test -- src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-cp7-live-stock-parity.test.tsx src/test/live-stock-local-failure.test.tsx --reporter=verbose
