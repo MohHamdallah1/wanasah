@@ -1259,12 +1259,20 @@ async def get_warehouse_inventory(
             )
         )
 
-        search_variant_ids = None
+        search_probe = None
+        search_probe_count = None
+        search_probe_ids = None
+        direct_search_filters = ()
         if clean_search:
             search_patterns = [
                 f"%{_escape_like(token)}%"
                 for token in clean_search.split()
             ]
+            # Search has two exact-equivalent access paths. The tenant-bound
+            # trigram function is the sparse membership probe; the ordered
+            # stream uses the same escaped LIKE predicates directly so broad
+            # matches can stop at the requested page instead of performing a
+            # correlated point lookup for every matching catalog row.
             search_variant_ids = select(
                 func.public.live_stock_search_variant_ids(
                     company_id,
@@ -1273,7 +1281,25 @@ async def get_warehouse_inventory(
                         search_patterns,
                         type_=ARRAY(String()),
                     ),
-                )
+                ).label("product_variant_id")
+            )
+            search_probe = (
+                search_variant_ids.limit(limit + 1)
+                .cte("inventory_search_probe")
+                .prefix_with("MATERIALIZED")
+            )
+            search_probe_count = (
+                select(func.count())
+                .select_from(search_probe)
+                .scalar_subquery()
+            )
+            search_probe_ids = select(search_probe.c.product_variant_id)
+            searchable_text = func.lower(
+                ProductVariant.name + " " + ProductVariant.sku
+            )
+            direct_search_filters = tuple(
+                searchable_text.like(pattern, escape="\\")
+                for pattern in search_patterns
             )
 
         scope = (
@@ -1284,10 +1310,6 @@ async def get_warehouse_inventory(
             f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
         candidate_filters = []
-        search_membership = None
-        if search_variant_ids is not None:
-            search_membership = ProductVariant.id.in_(search_variant_ids)
-            candidate_filters.append(search_membership)
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
@@ -1331,71 +1353,80 @@ async def get_warehouse_inventory(
                 else cursor_key > cursor_value
             )
 
-        singleton_stmt = None
-        if search_variant_ids is not None and limit == 1 and not use_alert_fast_path:
-            # A bounded probe chooses between two equivalent SQL access paths.
-            # Both branches and all detail reads keep the same statement snapshot.
-            search_probe = (
-                search_variant_ids.limit(2)
-                .cte("inventory_single_search_probe")
-                .prefix_with("MATERIALIZED")
-            )
-            probe_count = select(func.count()).select_from(search_probe).scalar_subquery()
-            single_id = select(search_probe.c[0]).limit(1).scalar_subquery()
-            singleton_filters = [
-                item for item in candidate_filters if item is not search_membership
-            ]
-            singleton_filters.extend((probe_count == 1, ProductVariant.id == single_id))
-            candidate_filters.append(probe_count != 1)
-            singleton_stmt = _build_visible_inventory_stmt(
+        def candidate_page_stmt(extra_filters=(), *, alert_suffix=""):
+            scoped_filters = [*candidate_filters, *extra_filters]
+            if use_alert_fast_path:
+                alerts = _build_inventory_alert_variants_stmt(
+                    company_id=company_id,
+                    location_id=location_id,
+                    variant_filters=scoped_filters,
+                ).cte(
+                    f"scoped_alerts{alert_suffix}"
+                ).prefix_with("MATERIALIZED")
+                alert_order = (
+                    (alerts.c.variant_name.desc(), alerts.c.id.desc())
+                    if sort == "name_desc"
+                    else (alerts.c.variant_name.asc(), alerts.c.id.asc())
+                )
+                return (
+                    select(alerts.c.id, alerts.c.variant_name)
+                    .order_by(*alert_order)
+                    .limit(limit + 1)
+                )
+            return _build_visible_inventory_stmt(
                 company_id=company_id,
                 location_id=location_id,
                 access=access,
                 company_wide_inventory_read=company_wide_inventory_read,
-                candidate_filters=singleton_filters,
+                candidate_filters=scoped_filters,
                 limit=limit,
                 sort=sort,
             )
 
-        if use_alert_fast_path:
-            alerts = _build_inventory_alert_variants_stmt(
-                company_id=company_id,
-                location_id=location_id,
-                variant_filters=candidate_filters,
-            ).cte("scoped_alerts").prefix_with("MATERIALIZED")
-            alert_order = (
-                (alerts.c.variant_name.desc(), alerts.c.id.desc())
-                if sort == "name_desc"
-                else (alerts.c.variant_name.asc(), alerts.c.id.asc())
-            )
-            candidate_stmt = (
-                select(alerts.c.id, alerts.c.variant_name)
-                .order_by(*alert_order)
-                .limit(limit + 1)
-            )
+        if search_probe is None:
+            candidate_stmt = candidate_page_stmt()
         else:
-            candidate_stmt = _build_visible_inventory_stmt(
-                company_id=company_id,
-                location_id=location_id,
-                access=access,
-                company_wide_inventory_read=company_wide_inventory_read,
-                candidate_filters=candidate_filters,
-                limit=limit,
-                sort=sort,
+            # If the complete search membership fits in this page, keep the
+            # rare-search point-access win from #645. Otherwise stream the
+            # name-ordered catalog with the exact same LIKE predicates and
+            # let LIMIT stop after the first page. The two branches are
+            # mutually exclusive inside this same statement snapshot.
+            sparse_stmt = candidate_page_stmt(
+                (
+                    ProductVariant.id.in_(search_probe_ids),
+                    search_probe_count <= limit,
+                ),
+                alert_suffix="_sparse",
             )
-
-        if singleton_stmt is not None:
-            search_candidates = union_all(singleton_stmt, candidate_stmt).subquery(
-                "inventory_search_candidates"
+            broad_stmt = candidate_page_stmt(
+                (
+                    *direct_search_filters,
+                    search_probe_count > limit,
+                ),
+                alert_suffix="_broad",
             )
+            search_candidates = union_all(
+                sparse_stmt,
+                broad_stmt,
+            ).subquery("inventory_search_candidates")
             search_order = (
-                (search_candidates.c.variant_name.desc(), search_candidates.c.id.desc())
+                (
+                    search_candidates.c.variant_name.desc(),
+                    search_candidates.c.id.desc(),
+                )
                 if sort == "name_desc"
-                else (search_candidates.c.variant_name.asc(), search_candidates.c.id.asc())
+                else (
+                    search_candidates.c.variant_name.asc(),
+                    search_candidates.c.id.asc(),
+                )
             )
             candidate_stmt = (
-                select(search_candidates.c.id, search_candidates.c.variant_name)
-                .order_by(*search_order).limit(limit + 1)
+                select(
+                    search_candidates.c.id,
+                    search_candidates.c.variant_name,
+                )
+                .order_by(*search_order)
+                .limit(limit + 1)
             )
 
         # One statement snapshot owns candidate eligibility and all quantities.
