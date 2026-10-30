@@ -1883,11 +1883,19 @@ async def get_warehouse_inventory_batches(
                 "Company timezone is unavailable."
             )
 
-        batch_is_sellable = batch_sellability_predicate(
-            as_of_date,
-            expiry_control_mode=ProductVariant.expiry_control_mode,
-            minimum_remaining_shelf_life_days=(
-                InventoryStockPolicy.minimum_remaining_shelf_life_days
+        # Match the product-level sale gate used by the main cursor. Batch
+        # eligibility alone must never label stock sellable under a product
+        # retirement, sales hold, or recall; this is display truth only and
+        # does not replace the movement engine's authoritative write guards.
+        batch_is_sellable = and_(
+            ProductVariant.lifecycle_status == "ACTIVE",
+            ProductVariant.operational_hold == "NONE",
+            batch_sellability_predicate(
+                as_of_date,
+                expiry_control_mode=ProductVariant.expiry_control_mode,
+                minimum_remaining_shelf_life_days=(
+                    InventoryStockPolicy.minimum_remaining_shelf_life_days
+                ),
             ),
         )
         batch_expiry_policy_allows = batch_expiry_policy_predicate(
