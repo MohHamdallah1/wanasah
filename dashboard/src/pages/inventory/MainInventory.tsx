@@ -699,7 +699,7 @@ export default function MainInventory() {
       if (requestSeq !== locationRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
       const rejected = (error as { status?: number } | null)?.status === 403;
-      if (rejected || warehouseSetupRef.current === null) {
+      if (rejected || (selectedLocationIdRef.current === null && warehouseSetupRef.current === null)) {
         if (rejected) clearInventoryWarmScope(warmScopeKey);
         setLocations([]);
         setWarehouseSetup(null);
