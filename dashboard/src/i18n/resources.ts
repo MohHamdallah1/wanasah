@@ -1833,7 +1833,9 @@ export const resources = {
         indicatorVehicle: "له رصيد مع المركبات",
         indicatorMinimumUnset: "الحد الأدنى غير محدد",
         familyTitle: "عائلة المنتج",
+        selectedFamilyLabel: "العائلة المختارة: {{name}}",
         familySearch: "ابحث باسم العائلة أو الكود...",
+        familyNoMatches: "لا توجد عائلات مطابقة.",
         allFamilies: "كل العائلات",
         clearFamily: "إلغاء فلتر العائلة",
         family: "العائلة",
@@ -1892,6 +1894,7 @@ export const resources = {
           summaryUnavailable:
             "جدول المنتجات ما زال متاحًا؛ تعذر فقط تحديث أرقام الملخص.",
           batchLoadFailed: "تعذر تحميل تفاصيل التشغيلات.",
+          familyLoadFailed: "تعذر تحميل عائلات المنتجات. أعد المحاولة.",
         },
       },
       inventoryLedger: {
@@ -4211,7 +4214,9 @@ export const resources = {
         indicatorVehicle: "Stock with vehicles",
         indicatorMinimumUnset: "Minimum not set",
         familyTitle: "Product family",
+        selectedFamilyLabel: "Selected family: {{name}}",
         familySearch: "Search family name or code...",
+        familyNoMatches: "No matching families.",
         allFamilies: "All families",
         clearFamily: "Clear family filter",
         family: "Family",
@@ -4270,6 +4275,7 @@ export const resources = {
           summaryUnavailable:
             "The product table is still available; only the summary figures could not be refreshed.",
           batchLoadFailed: "Could not load batch details.",
+          familyLoadFailed: "Could not load product families. Please retry.",
         },
       },
       inventoryLedger: {
