@@ -239,6 +239,75 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 second_purchase_price="4",
             )
         )
+        # Independent accounting expectations are defined before the sale.
+        # Two genuine supplier receipts are immutable acquisition evidence:
+        # 200 x 2 + 100 x 4 = 300 base units valued at JOD 800.
+        purchase_history_before = (
+            await self.db.execute(text(
+                "SELECT id,batch_id,quantity,input_quantity,input_unit_cost,"
+                "input_uom_id,total_cost,created_at "
+                "FROM inventory_cost_events WHERE company_id=:t "
+                "AND product_variant_id=:p AND event_type='PURCHASE_IN' "
+                "ORDER BY id"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().all()
+        self.assertEqual(len(purchase_history_before), 2)
+        self.assertEqual(
+            [
+                (
+                    Decimal(row["quantity"]),
+                    Decimal(row["input_quantity"]),
+                    Decimal(row["input_unit_cost"]),
+                    int(row["input_uom_id"]),
+                    Decimal(row["total_cost"]),
+                )
+                for row in purchase_history_before
+            ],
+            [
+                (Decimal("200"), Decimal("200"), Decimal("2"),
+                 int(self.variant["base_uom_id"]), Decimal("400")),
+                (Decimal("100"), Decimal("100"), Decimal("4"),
+                 int(self.variant["base_uom_id"]), Decimal("400")),
+            ],
+        )
+        expected_average = (Decimal("800") / Decimal("300")).quantize(
+            Decimal("0.000001")
+        )
+        cost_state_before = (
+            await self.db.execute(text(
+                "SELECT quantity,inventory_value,average_unit_cost "
+                "FROM inventory_cost_states WHERE company_id=:t "
+                "AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().one()
+        self.assertEqual(
+            (
+                Decimal(cost_state_before["quantity"]),
+                Decimal(cost_state_before["inventory_value"]),
+                Decimal(cost_state_before["average_unit_cost"]),
+            ),
+            (Decimal("300"), Decimal("800"), expected_average),
+        )
+
+        base_uom_code = await self.db.scalar(
+            text("SELECT code FROM uom WHERE id=:u"),
+            {"u": int(self.variant["base_uom_id"])},
+        )
+        self.assertIsNotNone(base_uom_code)
+        latest_purchase = purchase_history_before[-1]
+        self.assertEqual(Decimal(latest_purchase["input_unit_cost"]), Decimal("4"))
+        self.assertEqual(
+            int(latest_purchase["input_uom_id"]),
+            int(self.variant["base_uom_id"]),
+        )
+        self.assertEqual(
+            await self.db.scalar(
+                text("SELECT code FROM uom WHERE id=:u"),
+                {"u": int(latest_purchase["input_uom_id"])},
+            ),
+            base_uom_code,
+        )
+
         # Route and work session already received one immutable context during
         # fixture construction. Do not publish the same commercial revision twice.
         sale_uuid = uuid4()
@@ -276,6 +345,17 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             rows[0]["cost_basis"],
             "FIFO_LAYER" if method == "FIFO" else "MOVING_AVERAGE",
+        )
+        state_after_sale = (
+            await self.db.execute(text(
+                "SELECT quantity,inventory_value FROM inventory_cost_states "
+                "WHERE company_id=:t AND product_variant_id=:p"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().one()
+        self.assertEqual(Decimal(state_after_sale["quantity"]), Decimal("296"))
+        self.assertEqual(
+            Decimal(state_after_sale["inventory_value"]),
+            Decimal("800") - expected_sale_cogs,
         )
 
         original = (
@@ -378,6 +458,21 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
                 "AND reference_type='VISIT_REVERSAL'"
             ),{"t":self.tenant,"v":str(visit_id)}),
             1,
+        )
+
+        # Sale/correction/exchange must never rewrite either acquisition row.
+        purchase_history_after = (
+            await self.db.execute(text(
+                "SELECT id,batch_id,quantity,input_quantity,input_unit_cost,"
+                "input_uom_id,total_cost,created_at "
+                "FROM inventory_cost_events WHERE company_id=:t "
+                "AND product_variant_id=:p AND event_type='PURCHASE_IN' "
+                "ORDER BY id"
+            ), {"t": self.tenant, "p": self.variant["id"]})
+        ).mappings().all()
+        self.assertEqual(
+            [tuple(row.values()) for row in purchase_history_after],
+            [tuple(row.values()) for row in purchase_history_before],
         )
 
     async def test_fifo_real_priced_sale_and_authorized_return_correction(self):
