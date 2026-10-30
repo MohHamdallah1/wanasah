@@ -85,7 +85,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(first.getByRole("button", { name: "Stock source and reservations" })).toHaveAttribute("aria-expanded", "false");
   await expect(second).toContainText("Blocked");
   const badSource = await validationFault(p, "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?");
-  const failed = p.waitForResponse(r => r.status() === 422 && r.url().includes("/batches/" + state.firstBatch + "/source?"));
+  const failed = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 422 && r.url().includes("/batches/" + state.firstBatch + "/source?"));
   await first.getByRole("button", { name: "Stock source and reservations" }).click();
   expect((await failed).headers()["x-request-id"]).toBeTruthy();
   await expect(first.getByRole("alert")).toBeVisible();
@@ -94,7 +94,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(first.getByRole("alert")).toHaveCount(0);
   await expect(first).toContainText(/unattributed/i);
   command("reserve");
-  const batchUpdate = p.waitForResponse(r => r.status() === 200 && r.url().includes("/inventory/" + state.mainId + "/batches?"));
+  const batchUpdate = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 200 && r.url().includes("/inventory/" + state.mainId + "/batches?"));
   const refresh = dialog.getByRole("button", { name: "Refresh now", exact: true });
   await refresh.click();
   await expect(dialog).toBeVisible();
@@ -120,7 +120,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
 export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   const search = stock(p).getByRole("searchbox").first();
   const badSummary = await validationFault(p, "/warehouse/inventory/summary?");
-  const summaryFailed = p.waitForResponse(r => r.status() === 422 && r.url().includes("/inventory/summary?"));
+  const summaryFailed = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 422 && r.url().includes("/inventory/summary?"));
   await stock(p).locator(".live-stock-context-refresh").click();
   expect((await summaryFailed).headers()["x-request-id"]).toBeTruthy();
   const banner = stock(p).locator('[data-cp13-state="summary-unavailable"]');
@@ -134,7 +134,7 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   expect(log.requests.filter(u => new URL(u).pathname === "/warehouse/inventory/cursor")).toHaveLength(listReads);
 
   const failPage = await validationFault(p, "/warehouse/inventory/cursor?", true);
-  const pagingRead = p.waitForResponse(r => r.status() === 200 &&
+  const pagingRead = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 200 &&
     new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
     new URL(r.url()).searchParams.get("search") === "Paging");
   await search.fill("Paging");
@@ -174,7 +174,7 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   await p.keyboard.press("Escape");
   await expect(stock(p).locator(".live-stock-family-button")).toHaveAttribute("aria-label", /Journey Family 051/);
   await expect(item(p, "Paging Item 105")).toBeVisible();
-  const familySearchRead = p.waitForResponse(r => r.status() === 200 &&
+  const familySearchRead = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 200 &&
     new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
     new URL(r.url()).searchParams.get("search") === "Paging Item 105" &&
     new URL(r.url()).searchParams.get("family_id") === String(state.family51));

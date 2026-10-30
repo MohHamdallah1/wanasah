@@ -27,7 +27,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
     const ownerLog = record(op);
     await login(op, "owner");
     await test.step("warehouse change resets filters/cursors under real scope", async () => {
-      const searchRead = op.waitForResponse(r => r.status() === 200 &&
+      const searchRead = op.waitForResponse(r => r.request().method() === "GET" && r.status() === 200 &&
         new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
         new URL(r.url()).searchParams.get("search") === "Paging");
       await stock(op).getByRole("searchbox").first().fill("Paging");
@@ -126,7 +126,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       const token = await page.evaluate(() => localStorage.getItem("admin_token"));
       command("revoke");
       await first.getByRole("button", { name: "Stock source and reservations" }).click();
-      const denial = page.waitForResponse(r => r.status() === 403 && r.url().includes("/source?"));
+      const denial = page.waitForResponse(r => r.request().method() === "GET" && r.status() === 403 && r.url().includes("/source?"));
       await first.getByRole("button", { name: "Stock source and reservations" }).click();
       await denial;
       await expect(dialog).toHaveCount(0);
