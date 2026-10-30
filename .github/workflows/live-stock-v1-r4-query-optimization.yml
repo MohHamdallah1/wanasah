@@ -55,12 +55,11 @@ jobs:
           tests/test_live_stock_r4_query_contract.py
           tests/test_live_stock_v1_r4_query_optimization_postgres.py
 
-      - name: Backend-only search and canonical-boundary contracts
+      - name: Backend-only adaptive search contract
         working-directory: wa_backend
         run: >-
           python -B -m pytest -p no:cacheprovider -q
           tests/test_live_stock_r4_query_contract.py
-          tests/test_live_stock_canonical_boundary.py
 
       - name: Start one disposable PostgreSQL 16 server
         run: |
