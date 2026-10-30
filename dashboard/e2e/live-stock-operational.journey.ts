@@ -37,7 +37,10 @@ export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<ty
     await p.setViewportSize({ width, height: 900 });
     const active = item(p, state.mainName);
     await expect(active.locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
-    for (const name of state.policyNames) await expect(item(p, name).locator('[aria-label="Reached minimum stock"]')).toHaveCount(0);
+    for (const name of state.policyNames) {
+      await expect(item(p, name)).toBeVisible();
+      await expect(item(p, name).locator('[aria-label="Reached minimum stock"]')).toHaveCount(0);
+    }
     await expect(active.locator('[data-cp13-quantity="on-hand"]')).toContainText("125");
     await expect(active.locator('[data-cp13-quantity="available"]')).toContainText("122");
     await shot(p, info, width === 390 ? "restricted-one-warehouse-mobile" : "restricted-one-warehouse-desktop");
@@ -143,6 +146,7 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   const selected = p.locator(".live-stock-family-option").filter({ hasText: "Journey Family 051" });
   await selected.focus();
   await p.keyboard.press("Enter");
+  await p.keyboard.press("Escape");
   await expect(stock(p).locator(".live-stock-family-button")).toHaveAttribute("aria-label", /Journey Family 051/);
   await expect(item(p, "Paging Item 105")).toBeVisible();
   await search.fill("Paging Item 105");

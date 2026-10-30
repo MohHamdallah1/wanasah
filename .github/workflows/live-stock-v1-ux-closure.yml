@@ -107,6 +107,7 @@ jobs:
           import subprocess
 
           allowed = {
+              "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
               ".github/workflows/live-stock-v1-ux-closure.yml",
               "dashboard/e2e/live-stock-ux-closure.config.ts",
               "dashboard/e2e/live-stock-ux-closure.fixtures.ts",

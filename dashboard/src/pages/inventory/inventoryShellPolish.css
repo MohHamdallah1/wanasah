@@ -67,8 +67,8 @@
 }
 
 .inventory-workspace .inventory-top-dock__item:focus-visible {
-  outline: 2px solid rgb(252 211 77 / 0.95) !important;
-  outline-offset: -3px;
+  outline: 3px solid rgb(252 211 77 / 0.95) !important;
+  outline-offset: -4px;
   box-shadow: none;
 }
 
