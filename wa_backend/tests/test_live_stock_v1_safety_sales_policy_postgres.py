@@ -418,48 +418,6 @@ async def _add_second_shop(pg_gate, tenant, zone_id: int, first_shop_id: int) ->
         return int(shop.id)
 
 
-async def _sale_attempt(
-    pg_gate,
-    *,
-    visit_id: int,
-    field,
-    cartons: int = 0,
-    packs: int = 1,
-    cash: Decimal | None = None,
-    request_id=None,
-):
-    payload = VisitUpdateRequest(
-        request_id=request_id or uuid4(),
-        outcome="Sale",
-        cart_items=[
-            {
-                "product_variant_id": field_variant_id(field),
-                "quantity": cartons,
-                "packs_quantity": packs,
-            }
-        ],
-        returns=[],
-        cash_collected=(
-            cash
-            if cash is not None
-            else Decimal(cartons * 8 + packs)
-        ),
-    )
-    async with pg_gate.session() as db:
-        return await update_visit(
-            visit_id,
-            payload,
-            db,
-            field.context,
-            field.driver,
-        )
-
-
-def field_variant_id(field) -> int:
-    # Filled on the test fixture object only to keep sale helpers explicit.
-    return int(field._safety_variant_id)
-
-
 async def test_company_date_expiry_future_production_and_shelf_life_truth(pg):
     tenant = pg.tenants[0]
 
@@ -608,7 +566,6 @@ async def test_company_date_expiry_future_production_and_shelf_life_truth(pg):
 async def test_product_policies_stock_states_field_sales_and_active_unload(pg):
     tenant = pg.tenants[0]
     field = await _seed_mobile_uom_and_field(pg, tenant)
-    field._safety_variant_id = tenant.variant_id
     carton_uom_id = await _seed_carton_conversion(pg, tenant)
     zone_id, first_shop_id = await _seed_commercial_master(pg, tenant, field)
     second_shop_id = await _add_second_shop(
