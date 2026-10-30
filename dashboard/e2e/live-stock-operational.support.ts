@@ -67,14 +67,20 @@ export function record(p: Page) {
   const pages: Array<{ url: string; ids: number[]; cursor: string | null }> = [];
   const errors: string[] = [];
   const pending: Promise<void>[] = [];
-  p.on("request", r => { if (r.url().startsWith(API)) requests.push(r.url()); });
+  p.on("request", r => { if (r.method() === "GET" && r.url().startsWith(API)) requests.push(r.url()); });
   p.on("pageerror", e => errors.push(String(e)));
-  p.on("response", r => {
-    if (r.status() === 200 && new URL(r.url()).pathname === "/warehouse/inventory/cursor") {
-      const work = r.json().then(body => { pages.push({ url: r.url(),
-        ids: body.items.map((x: { id: number }) => x.id), cursor: body.next_cursor }); });
-      pending.push(work);
-    }
+  p.on("requestfinished", request => {
+    if (request.method() !== "GET" || new URL(request.url()).pathname !== "/warehouse/inventory/cursor") return;
+    // Count initiated reads above; collect membership only after the body finished.
+    // An intentionally cancelled reader has no committed page to audit.
+    const work = (async () => {
+      const response = await request.response();
+      if (response?.status() !== 200) return;
+      const body = await response.json();
+      pages.push({ url: request.url(), ids: body.items.map((x: { id: number }) => x.id),
+        cursor: body.next_cursor });
+    })();
+    pending.push(work);
   });
   return { requests, pages, errors, flush: () => Promise.all(pending),
     persist: (info: TestInfo, name = "operational-browser-evidence.json") => writeFileSync(info.outputPath(name),
