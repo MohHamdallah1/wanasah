@@ -14,7 +14,7 @@ type Props = {
   startIndex?: number;
   topSpacerHeight?: number;
   bottomSpacerHeight?: number;
-  onItemExtentChange?: (height: number) => void;
+  onItemMeasure?: (productId: number, height: number) => void;
   onProductFocus?: (productId: number) => void;
   onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
@@ -26,19 +26,19 @@ export function LiveStockMobileCards({
   startIndex = 0,
   topSpacerHeight = 0,
   bottomSpacerHeight = 0,
-  onItemExtentChange = () => undefined,
+  onItemMeasure = () => undefined,
   onProductFocus = () => undefined,
   onProductBlur = () => undefined,
   onOpen,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const measureFirstCard = useCallback(
-    (node: HTMLElement | null) => {
+  const measureCard = useCallback(
+    (productId: number, node: HTMLElement | null) => {
       if (!node) return;
       const height = node.getBoundingClientRect().height;
-      if (height > 0) onItemExtentChange(height + 6);
+      if (height > 0) onItemMeasure(productId, height + 6);
     },
-    [onItemExtentChange],
+    [onItemMeasure],
   );
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
   const locale = resolveI18nLocale(i18n);
@@ -92,7 +92,7 @@ export function LiveStockMobileCards({
         return (
           <article
             key={product.id}
-            ref={index === 0 ? measureFirstCard : undefined}
+            ref={(node) => measureCard(product.id, node)}
             className={`rounded-xl border bg-white p-2.5 shadow-sm ${isAlert ? "border-red-200" : "border-slate-200"}`}
             data-cp13-stock-card="compact"
             role="listitem"
@@ -103,7 +103,7 @@ export function LiveStockMobileCards({
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-1.5">
                   {isAlert ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-500" aria-label={t("inventoryLive.atMinimum")} /> : null}
-                  <h3 className="truncate text-sm font-black text-slate-900">{product.name}</h3>
+                  <h3 className="live-stock-product-name-clamp text-sm font-black text-slate-900">{product.name}</h3>
                 </div>
                 <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">
                   {product.family_name}{product.sku ? ` · ${product.sku}` : ""}
