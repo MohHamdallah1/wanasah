@@ -1,0 +1,125 @@
+name: Live Stock R4 real 50k SQL acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/scripts/gate_r4_live_stock_perf_50k.py"
+      - "wa_backend/tests/test_live_stock_r4_plan_metrics.py"
+      - ".github/workflows/live-stock-r4-50k-performance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-r4-50k-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: R4PerfIsolatedPostgresOnlyKey123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_r2_perf_50k
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_r2_perf_50k
+      WANASAH_CODE_ROOT: ${{ github.workspace }}/wa_backend
+      R4_EVIDENCE_DIR: /tmp/r4-evidence
+      R4_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      R4_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest
+
+      - name: Focused metric and bound negative controls
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q tests/test_live_stock_r4_plan_metrics.py
+
+      - name: Start isolated PostgreSQL 16
+        run: |
+          docker run --detach --name r4-perf-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_r2_perf_50k \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec r4-perf-postgres pg_isready -U cp1_admin -d wanasah_r2_perf_50k -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs r4-perf-postgres
+          exit 1
+
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Migrate isolated database
+        working-directory: wa_backend
+        run: alembic upgrade head
+
+      - name: Grant runtime DML only
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "INSERT INTO permissions(code) VALUES "
+                  "('inventory.read'), ('inbound.create') "
+                  "ON CONFLICT(code) DO NOTHING"
+              )
+          PY
+
+      - name: ONE PostgreSQL 16 50k acceptance and all real emitted plans
+        working-directory: wa_backend
+        run: python -B -m scripts.gate_r4_live_stock_perf_50k
+
+      - name: Retain real SQL and EXPLAIN evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r4-live-stock-50k-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/r4-evidence/*.json
+          if-no-files-found: error
