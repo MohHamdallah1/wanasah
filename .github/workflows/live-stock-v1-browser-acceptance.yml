@@ -1,0 +1,93 @@
+name: Live Stock V1 Chromium browser acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/e2e/live-stock-v1.*.ts"
+      - ".github/workflows/live-stock-v1-browser-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-browser-v1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Install disposable Playwright Chromium
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Application TypeScript and explicit Playwright test typecheck
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types node --lib es2022,dom e2e/live-stock-v1.config.ts e2e/live-stock-v1.fixtures.ts e2e/live-stock-v1.spec.ts
+      - name: Build actual Dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+      - name: Start isolated built-app preview
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/live-stock-v1-preview.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/live-stock-v1-preview.log
+          exit 1
+      - name: Chromium Live Stock V1 user journeys
+        working-directory: dashboard
+        run: npx playwright test --config e2e/live-stock-v1.config.ts
+      - name: Upload red-case traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-v1-browser-failures
+          path: dashboard/node_modules/.cache/live-stock-v1-browser
+          if-no-files-found: warn
+      - name: Verify exact four-file scope from approved starting SHA
+        run: |
+          base="90ce302c828802a3f4f825c1d3ff9a035e9f27d1"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          expected = {
+              ".github/workflows/live-stock-v1-browser-acceptance.yml",
+              "dashboard/e2e/live-stock-v1.config.ts",
+              "dashboard/e2e/live-stock-v1.fixtures.ts",
+              "dashboard/e2e/live-stock-v1.spec.ts",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+              text=True,
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(f"LIVE_STOCK_V1_BROWSER_SCOPE=FAIL extra={sorted(changed - expected)} missing={sorted(expected - changed)}")
+          print("LIVE_STOCK_V1_BROWSER_SCOPE=PASS")
+          PY
