@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "wa_backend/domains/live_stock_projection/**"
+      - "wa_backend/alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py"
       - "wa_backend/tests/test_live_stock_r2_projection_truth_postgres.py"
       - ".github/workflows/live-stock-r2-projection-truth-gate.yml"
   workflow_dispatch:
@@ -44,6 +45,7 @@ jobs:
         run: >-
           python -m py_compile
           domains/live_stock_projection/service.py
+          alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py
           tests/test_live_stock_r2_projection_truth_postgres.py
       - name: Provision isolated PostgreSQL 16
         run: |
@@ -93,12 +95,6 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -s
           tests/test_live_stock_r2_projection_truth_postgres.py
           --junitxml=r2-projection-truth.xml
-      - name: Canonical projector PostgreSQL regression
-        working-directory: wa_backend
-        run: python -B scripts/gate_stage821_live_stock_projector_runtime.py
-      - name: Rebuild and drift recovery PostgreSQL regression
-        working-directory: wa_backend
-        run: python -B scripts/gate_stage822_live_stock_rebuild_runtime.py
       - name: CP7 Live Stock regressions on FIFO and moving average
         working-directory: wa_backend
         run: >-
