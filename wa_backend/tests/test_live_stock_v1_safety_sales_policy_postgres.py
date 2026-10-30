@@ -581,7 +581,7 @@ async def test_company_date_expiry_future_production_and_shelf_life_truth(pg):
         assert caught.value.detail["code"] == "INBOUND_PRODUCTION_DATE_FUTURE"
     assert await _variant_truth(pg, tenant) == before_rejections
 
-    await _set_company_timezone(pg, tenant, "UTC")
+    await _set_company_timezone(pg, tenant, later_zone)
     invalid_expired = pg.request(
         lot="SAFETY-REJECT-EXP-" + uuid4().hex[:8],
         quantity="1",
