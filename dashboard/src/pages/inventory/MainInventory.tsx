@@ -952,7 +952,8 @@ export default function MainInventory() {
         { signal: requestController.signal }
       );
 
-      if (requestSeq !== stockRequestSeq.current) return;
+      if (requestSeq !== stockRequestSeq.current ||
+          !requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
       const nextItems = !requestCursor
@@ -972,6 +973,7 @@ export default function MainInventory() {
       stockItemsRef.current = nextItems;
       setStockItems(nextItems);
       setStockPageReady(true);
+      setLiveReadPhase("fresh");
       if (defaultView && requestCursor === null) {
         patchLiveStockWarmSnapshot(
           warmScopeKey,
@@ -997,6 +999,21 @@ export default function MainInventory() {
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
+      if ([401, 403, 404].includes(Number((error as { status?: unknown } | null)?.status))) {
+        dropLiveStockWarmSnapshot(warmScopeKey, requestLocationId);
+        stockItemsRef.current = [];
+        setStockItems([]);
+        setStockPageReady(false);
+        setStockNextCursor(null);
+        setStockMatchingTotal(null);
+        setStockTotal(null);
+        setStockAlertCount(null);
+        setLastSync(null);
+        setLiveReadPhase("denied");
+      } else {
+        setLiveReadPhase("failed");
+      }
       setStockPageError(
         apiErrorMessage(
           error,
@@ -1060,7 +1077,8 @@ export default function MainInventory() {
         { signal: requestController.signal },
       );
 
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (requestSeq !== stockSummaryRequestSeq.current ||
+          !requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockSummary(raw);
       setStockTotal(data.stock_total);
       setStockAlertCount(data.alert_count);
@@ -1076,6 +1094,7 @@ export default function MainInventory() {
     } catch (error: unknown) {
       if (requestSeq !== stockSummaryRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const warmSnapshot = readLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -1110,6 +1129,7 @@ export default function MainInventory() {
     setStockCursor(null);
     setStockNextCursor(null);
     setStockMatchingTotal(null);
+    setLiveReadPhase("initial");
   }, []);
 
   const refreshStock = useCallback(() => {
@@ -1123,8 +1143,9 @@ export default function MainInventory() {
     setStockPageError(null);
     setStockSummaryError(null);
     setLoadingStock(selectedLocationId !== null);
+    setLiveReadPhase(stockPageReady ? "warm" : "initial");
     setStockRefreshKey((value) => value + 1);
-  }, [selectedLocationId]);
+  }, [selectedLocationId, stockPageReady]);
 
   const retryStockPage = useCallback(() => {
     if (selectedLocationId === null || loadingStock) return;
