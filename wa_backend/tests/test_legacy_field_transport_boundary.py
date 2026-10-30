@@ -512,6 +512,12 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             if isinstance(node, ast.ImportFrom) and node.module == "api.field_visit_contracts":
                 self.assertEqual([alias.name for alias in node.names], FIELD_IMPORTS)
                 continue
+            if isinstance(node, ast.ImportFrom) and node.module == "domains.inventory_costing.service":
+                self.assertEqual(
+                    [alias.name for alias in node.names],
+                    ["resolve_linked_return_cost_sources"],
+                )
+                continue
             remainder.append(node)
         baseline = [
             node for node in self.baseline_tree.body
