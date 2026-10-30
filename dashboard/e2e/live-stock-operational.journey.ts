@@ -47,12 +47,23 @@ export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<ty
   }
   await p.setViewportSize({ width: 1360, height: 900 });
   const title = item(p, state.mainName).locator("td").nth(8).locator("[title]").first();
-  await expect(title).toContainText("24.000");
+  await expect(title).toHaveText("JOD\u00a024");
+  await expect(item(p, state.mainName).locator("td").nth(9)).toHaveText("JOD\u00a017.6");
   await expect(title).toHaveAttribute("title", /JOD.*Carton/);
   const date = await p.evaluate((date) => new Intl.DateTimeFormat("en", {
     year: "numeric", month: "2-digit", day: "2-digit", numberingSystem: "latn", timeZone: "UTC",
   }).format(new Date(date + "T00:00:00Z")), state.date);
   expect(await title.getAttribute("title")).toContain(date);
+  await expect(stock(p).locator(".live-stock-context-count strong")).toHaveText("109");
+  await stock(p).locator(".live-stock-filter-button").click();
+  await p.locator(".live-stock-filter-option").filter({ hasText: "At or below minimum" }).click();
+  await p.keyboard.press("Escape");
+  await expect(p.locator(".live-stock-row")).toHaveCount(1);
+  await expect(item(p, state.mainName)).toBeVisible();
+  await stock(p).locator(".live-stock-filter-button").click();
+  await p.locator(".live-stock-filter-reset").click();
+  await p.keyboard.press("Escape");
+  await expect(item(p, state.policyNames[0])).toBeVisible();
 }
 
 export async function detailFreshness(p: Page, info: TestInfo) {

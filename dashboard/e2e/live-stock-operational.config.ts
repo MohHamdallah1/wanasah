@@ -12,7 +12,7 @@ export default defineConfig({
     browserName: "chromium",
     headless: true,
     timezoneId: "Pacific/Honolulu",
-    trace: "on",
+    trace: "off",
     screenshot: "only-on-failure",
   },
 });

@@ -29,13 +29,13 @@ The identifiers below quote the existing lead-owned plan. PASS requires the link
 | Additional UI: family selection identity and infinite continuation across filter/scope changes |105 unique real cursor IDs, family051 keyboard selection, warehouse reset, real revocation | OPEN pending run; external deep-link name resolution is not covered |
 | Section5.B browser scope denial and stale disclosure | Same-token persisted grant revocation while source/dialog/costs are visible;403 purges evidence | OPEN pending run; hidden-vehicle/backend cases remain with their owners |
 | Phase5: integrated authenticated browser acceptance and required CI | Production build, actual authentication, actual FastAPI, PG16 FORCE RLS runtime role | OPEN pending run; broader accounting, all release gates and owner sign-off remain OPEN |
-| Additional UI: currency/UOM/dates/RTL/LTR and focus | JOD3-decimal/carton display, company date distinct from browser date, five visual states | OPEN pending run; no real midnight transition claim |
+| Additional UI: currency/UOM/dates/RTL/LTR and focus | Exact compact JOD/carton display, company date distinct from browser date, five visual states | OPEN pending run; no real midnight transition claim |
 | Additional UI: exit/re-entry request budget | Real SPA navigation on Batches tab produces zero Live Stock reads; Live resumes one list/summary | OPEN pending run |
 | Phase4/5: owner functional/visual approval, merge and complete release closure | Artifacts supplied for review | OPEN owner/lead only |
 | Section5.B: company-day midnight, financial reconciliation, cross-request consistency | Not modified, delegated acceptance in#668 | OPEN separate backend ownership |
 | R4 performance | No50k rerun or tuning in this wave | OPEN/accepted status remains lead-owned |
 
 ## CI and artifacts
-Pending. The dedicated workflow archives screenshots, trace, request budgets and cursor IDs, plus actual FastAPI logs. Credentials and bearer tokens are not archived. HTTP failure injection forwards a deliberately invalid query to actual FastAPI; it never fulfills or stubs inventory HTTP responses. This proves real validation-error recovery, not database-outage or5xx handling.
+Pending. The dedicated workflow archives screenshots, request budgets and cursor IDs, plus actual FastAPI logs. Credentials and bearer tokens are not archived. HTTP failure injection forwards a deliberately invalid query to actual FastAPI; it never fulfills or stubs inventory HTTP responses. This proves real validation-error recovery, not database-outage or5xx handling.
 
 Historical CP13/#665 ownership guards now compare against the actual PR base and preserve an explicit bounded allowlist for this authorized wave. Their product assertions are unchanged. Automatic affected regressions are not presented as new operational acceptance.
