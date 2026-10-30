@@ -873,6 +873,9 @@ export default function MainInventory() {
 
       if (
         !Number.isInteger(nextId) ||
+        !globalAccessVerified ||
+        selectorAdmissionEpoch !== globalAdmissionEpoch.current ||
+        serverVerifiedLocationId === null ||
         !locations.some((location) => location.id === nextId)
       ) {
         return;
@@ -885,7 +888,8 @@ export default function MainInventory() {
       setSelectedLocationId(nextId);
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
     },
-    [locations, prepareLocationChange, selectedLocationStorageKey]
+    [locations, globalAccessVerified, selectorAdmissionEpoch, serverVerifiedLocationId,
+      prepareLocationChange, selectedLocationStorageKey]
   );
   const handleOpenTransfers = useCallback(
     async (transfer?: BatchSpecialTransferResult) => {
@@ -1018,8 +1022,8 @@ export default function MainInventory() {
         { signal: requestController.signal }
       );
 
-      if (requestSeq !== stockRequestSeq.current ||
-          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
+      if (requestSeq !== stockRequestSeq.current) return;
+      if (requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
