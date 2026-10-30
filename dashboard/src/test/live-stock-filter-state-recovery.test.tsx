@@ -24,8 +24,12 @@ vi.mock("@/hooks/useAuthFetch", () => ({
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  PopoverContent: ({ children, dir }: { children: ReactNode; dir?: string }) => (
-    <div dir={dir}>{children}</div>
+  PopoverContent: ({ children, dir, className }: {
+    children: ReactNode;
+    dir?: string;
+    className?: string;
+  }) => (
+    <div dir={dir} className={className}>{children}</div>
   ),
 }));
 
