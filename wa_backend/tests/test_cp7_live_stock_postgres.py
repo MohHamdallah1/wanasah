@@ -25,6 +25,7 @@ from models import (
     role_permissions,
     utc_now,
 )
+from services import apply_inventory_movements_batch
 from tests.test_inbound_no_lot_frozen_postgres import pg
 
 
@@ -280,9 +281,34 @@ async def test_cp7_list_and_batch_detail_share_product_sale_gate(pg):
     case = await _prepare_cp7(pg)
     a = case.a
     expected_physical = Decimal("3.750001")
+    expected_reserved = Decimal("0.5")
+
+    # Reserve a real fraction through the canonical movement engine, rather
+    # than modifying an InventoryBalance row or mocking reservation math.
+    async with pg.session() as db:
+        await apply_inventory_movements_batch(
+            db,
+            company_id=a.company_id,
+            performed_by=a.owner.driver_id,
+            movements=[{
+                "product_variant_id": a.variant_id,
+                "batch_id": case.a1_real_batch_id,
+                "quantity": expected_reserved,
+                "movement_kind": "RESERVATION",
+                "reservation_action": "RESERVE",
+                "source_location_id": a.location_id,
+                "destination_location_id": a.location_id,
+                "source_stock_status": "AVAILABLE",
+                "destination_stock_status": "AVAILABLE",
+                "reference_type": "CP7_R1_RESERVATION",
+                "reference_id": "CP7-BATCH-SELLABLE-FRACTION",
+                "idempotency_key": "CP7-BATCH-SELLABLE-FRACTION",
+            }],
+        )
+        await db.commit()
 
     for lifecycle, hold, expected_sellable in (
-        ("ACTIVE", "NONE", expected_physical),
+        ("ACTIVE", "NONE", expected_physical - expected_reserved),
         ("ACTIVE", "SALES_HOLD", Decimal("0")),
         ("ACTIVE", "RECALL", Decimal("0")),
         ("RETIRING", "NONE", Decimal("0")),
@@ -314,11 +340,15 @@ async def test_cp7_list_and_batch_detail_share_product_sale_gate(pg):
             )
             assert detail["batches"]
             assert Decimal(row["on_hand_quantity"]) == expected_physical
-            assert Decimal(row["reserved_quantity"]) == 0
+            assert Decimal(row["reserved_quantity"]) == expected_reserved
             assert Decimal(row["available_for_sale_quantity"]) == expected_sellable
             assert Decimal(row["unavailable_quantity"]) == (
-                expected_physical - expected_sellable
+                expected_physical - expected_reserved - expected_sellable
             )
+            assert sum(
+                (Decimal(b["reserved_quantity"]) for b in detail["batches"]),
+                Decimal("0"),
+            ) == expected_reserved
             assert sum(
                 (Decimal(b["on_hand_quantity"]) for b in detail["batches"]),
                 Decimal("0"),
