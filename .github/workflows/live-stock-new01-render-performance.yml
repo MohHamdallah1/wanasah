@@ -1,0 +1,64 @@
+name: Live Stock NEW-01 render benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
+      - "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx"
+      - "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx"
+      - "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx"
+      - ".github/workflows/live-stock-new01-render-performance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      BASE_SHA: e79ac839973c6007a354a625f7cdfbdd851664ec
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Preserve benchmark probe
+        run: cp dashboard/src/test/live-stock-render-performance.benchmark.test.tsx /tmp/live-stock-render-performance.benchmark.test.tsx
+
+      - name: Install dashboard dependencies once
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Measure exact accepted main
+        run: |
+          git checkout --detach "$BASE_SHA"
+          cp /tmp/live-stock-render-performance.benchmark.test.tsx dashboard/src/test/live-stock-render-performance.benchmark.test.tsx
+          cd dashboard
+          LIVE_STOCK_RENDER_PHASE=before npx vitest run src/test/live-stock-render-performance.benchmark.test.tsx --reporter=verbose | tee /tmp/live-stock-render-before.log
+
+      - name: Measure NEW-01 branch head
+        run: |
+          git checkout --detach "$HEAD_SHA"
+          cd dashboard
+          LIVE_STOCK_RENDER_PHASE=after npx vitest run src/test/live-stock-render-performance.benchmark.test.tsx --reporter=verbose | tee /tmp/live-stock-render-after.log
+
+      - name: Retain benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-new01-render-${{ github.sha }}
+          path: |
+            /tmp/live-stock-render-before.log
+            /tmp/live-stock-render-after.log
+          if-no-files-found: warn
