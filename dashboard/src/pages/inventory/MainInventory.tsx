@@ -305,7 +305,10 @@ export default function MainInventory() {
     : "inventory_selected_location:anonymous";
 
   const backofficeUserId = localStorage.getItem("backoffice_user_id") || "";
-  const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId);
+  const principalId = localStorage.getItem("principal_id") || "";
+  const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId, principalId);
+  const mountedScopeKey = useRef(warmScopeKey);
+  const [identityChanged, setIdentityChanged] = useState(false);
   const [initialWarmShell] = useState(() =>
     readInventoryShellWarmSnapshot(warmScopeKey),
   );
@@ -378,8 +381,62 @@ export default function MainInventory() {
   }, [selectedLocationId]);
   const access = useInventoryAccess();
   const locationAccess = useInventoryAccess(selectedLocationId);
+  // A cached React Query success is not a fresh canonical admission.
+  const matchesSession = (data: typeof access.data) =>
+    !!data &&
+    data.company_id === Number(companyId) &&
+    data.principal_id === Number(principalId) &&
+    data.backoffice_user_id === Number(backofficeUserId) &&
+    localStorage.getItem("company_id") === companyId &&
+    localStorage.getItem("principal_id") === principalId &&
+    localStorage.getItem("backoffice_user_id") === backofficeUserId &&
+    mountedScopeKey.current === warmScopeKey &&
+    warmScopeKey !== null && !identityChanged;
+  const globalAccessVerified =
+    access.isSuccess && access.isFetchedAfterMount &&
+    !access.isFetching && !access.isError && matchesSession(access.data);
+  const globalAdmissionEpoch = useRef(0);
+  const priorGlobalAdmission = useRef(false);
+  if (priorGlobalAdmission.current && !globalAccessVerified) {
+    globalAdmissionEpoch.current += 1;
+  }
+  priorGlobalAdmission.current = globalAccessVerified;
+  const locationAccessVerified =
+    globalAccessVerified && locationAccess.isSuccess &&
+    locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
+    !locationAccess.isError && matchesSession(locationAccess.data) &&
+    locationAccess.data?.location_id === selectedLocationId;
+  const [serverVerifiedLocationId, setServerVerifiedLocationId] =
+    useState<number | null>(null);
+  const [selectorAdmissionEpoch, setSelectorAdmissionEpoch] =
+    useState<number | null>(null);
+  const liveAuthorityVerified =
+    locationAccessVerified && selectedLocationId !== null &&
+    serverVerifiedLocationId === selectedLocationId &&
+    selectorAdmissionEpoch === globalAdmissionEpoch.current &&
+    locationAccess.can("inventory.read");
+  const liveAdmissionEpoch = useRef(0);
+  const priorLiveAdmission = useRef(false);
+  if (priorLiveAdmission.current && !liveAuthorityVerified) {
+    liveAdmissionEpoch.current += 1;
+  }
+  priorLiveAdmission.current = liveAuthorityVerified;
+  // Retain the canonical capability predicate and enforce fresh admission
+  // separately; a cached capability alone never exposes the read model.
   const canReadStock = locationAccess.can('inventory.read');
-  const canReadStatus = locationAccess.can('location.read');
+  const canReadStatus = locationAccessVerified && locationAccess.can("location.read");
+  const authorityRef = useRef({ admitted: false, scope: warmScopeKey, location: selectedLocationId });
+  authorityRef.current = {
+    admitted: liveAuthorityVerified,
+    scope: warmScopeKey,
+    location: selectedLocationId,
+  };
+  const requestStillAuthorized = (scope: string | null, location: number) =>
+    authorityRef.current.admitted && authorityRef.current.scope === scope &&
+    authorityRef.current.location === location &&
+    localStorage.getItem("company_id") === companyId &&
+    localStorage.getItem("principal_id") === principalId &&
+    localStorage.getItem("backoffice_user_id") === backofficeUserId;
   const { isCompanyOwner, canAny, can } = access;
   const { can: canAtLocation } = locationAccess;
   const tabAllowed = useCallback((id: TabId) => {
@@ -403,28 +460,31 @@ export default function MainInventory() {
       if (first) setActiveTab(first.id);
     }
   }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
+  const accessDenied =
+    identityChanged || [access, locationAccess].some((entry) =>
+      entry.isError && [401, 403, 404].includes(
+        Number((entry.error as { status?: unknown } | null)?.status),
+      ),
+    ) || (locationAccessVerified && !locationAccess.can("inventory.read"));
   useEffect(() => {
-    if (
-      !locationAccess.isError ||
-      selectedLocationId === null
-    ) {
-      return;
-    }
-    const error = locationAccess.error as
-      | { status?: unknown }
-      | null;
-    if (error?.status === 403) {
-      dropLiveStockWarmSnapshot(
-        warmScopeKey,
-        selectedLocationId,
-      );
-    }
-  }, [
-    locationAccess.error,
-    locationAccess.isError,
-    selectedLocationId,
-    warmScopeKey,
-  ]);
+    if (!accessDenied || selectedLocationId === null) return;
+    stockRequestSeq.current += 1;
+    stockAbortRef.current?.abort();
+    stockSummaryRequestSeq.current += 1;
+    stockSummaryAbortRef.current?.abort();
+    dropLiveStockWarmSnapshot(warmScopeKey, selectedLocationId);
+    stockItemsRef.current = [];
+    setStockItems([]);
+    setStockPageReady(false);
+    setStockCursor(null);
+    setStockNextCursor(null);
+    setStockMatchingTotal(null);
+    setStockTotal(null);
+    setStockAlertCount(null);
+    setLastSync(null);
+    setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
+    setLiveReadPhase("denied");
+  }, [accessDenied, selectedLocationId, warmScopeKey]);
 
   const [locationError, setLocationError] = useState(false);
   const [loadingLocations, setLoadingLocations] = useState(
@@ -453,6 +513,16 @@ export default function MainInventory() {
   const [stockPageReady, setStockPageReady] = useState(
     initialLiveSnapshot?.hasPage === true,
   );
+  type LiveReadPhase = "initial" | "warm" | "fresh" | "failed" | "denied";
+  const [liveReadPhase, setLiveReadPhase] = useState<LiveReadPhase>(
+    initialLiveSnapshot?.hasPage ? "warm" : "initial",
+  );
+  const [freshPageAdmissionEpoch, setFreshPageAdmissionEpoch] =
+    useState<number | null>(null);
+  const [freshSummaryAdmissionEpoch, setFreshSummaryAdmissionEpoch] =
+    useState<number | null>(null);
+  const [deniedAdmissionEpoch, setDeniedAdmissionEpoch] =
+    useState<number | null>(null);
   useEffect(() => {
     stockItemsRef.current = stockItems;
   }, [stockItems]);
@@ -495,6 +565,32 @@ export default function MainInventory() {
   const stockAbortRef = useRef<AbortController | null>(null);
   const stockSummaryRequestSeq = useRef(0);
   const stockSummaryAbortRef = useRef<AbortController | null>(null);
+  // Another tab may switch the principal/company while this workspace is
+  // mounted. Revoke disclosure and in-flight readers on the storage event.
+  useEffect(() => {
+    const checkSessionScope = () => {
+      const scopeNow = inventoryWarmScopeKey(
+        localStorage.getItem("company_id") || "",
+        localStorage.getItem("backoffice_user_id") || "",
+        localStorage.getItem("principal_id") || "",
+      );
+      if (scopeNow === mountedScopeKey.current) return;
+      authorityRef.current.admitted = false;
+      stockRequestSeq.current += 1;
+      stockAbortRef.current?.abort();
+      stockSummaryRequestSeq.current += 1;
+      stockSummaryAbortRef.current?.abort();
+      clearInventoryWarmScope(mountedScopeKey.current);
+      setIdentityChanged(true);
+    };
+    window.addEventListener("storage", checkSessionScope);
+    window.addEventListener("focus", checkSessionScope);
+    return () => {
+      window.removeEventListener("storage", checkSessionScope);
+      window.removeEventListener("focus", checkSessionScope);
+    };
+  }, []);
+
   const locationRequestSeq = useRef(0);
   const locationAbortRef = useRef<AbortController | null>(null);
   const [warehouseSearchInput, setWarehouseSearchInput] = useState("");
@@ -536,6 +632,13 @@ export default function MainInventory() {
       : null,
   );
 
+  useEffect(() => {
+    if (!liveAuthorityVerified || liveReadPhase !== "denied" ||
+        deniedAdmissionEpoch === liveAdmissionEpoch.current) return;
+    setLiveReadPhase("initial");
+    setStockPageRetryKey((value) => value + 1);
+  }, [liveAuthorityVerified, liveReadPhase, deniedAdmissionEpoch]);
+
   const displayAuditLocked =
     canReadStatus && auditLockState === true;
   // Warm status is visual only. Mutation safety requires a fresh status
@@ -558,6 +661,7 @@ export default function MainInventory() {
         stockItemsRef.current = snapshot.items;
         setStockItems(snapshot.items);
         setStockPageReady(true);
+        setLiveReadPhase("warm");
         setStockMatchingTotal(snapshot.matchingTotal);
         setStockNextCursor(snapshot.nextCursor);
         setLastSync(
@@ -569,6 +673,7 @@ export default function MainInventory() {
         stockItemsRef.current = [];
         setStockItems([]);
         setStockPageReady(false);
+        setLiveReadPhase("initial");
         setStockMatchingTotal(null);
         setStockNextCursor(null);
         setLastSync(null);
@@ -614,6 +719,8 @@ export default function MainInventory() {
       setStockCursor(null);
       setStockPageError(null);
       setStockSummaryError(null);
+      setServerVerifiedLocationId(null);
+      setSelectorAdmissionEpoch(null);
       hydrateDefaultLiveStock(locationId);
     },
     [hydrateDefaultLiveStock],
@@ -636,13 +743,16 @@ export default function MainInventory() {
   ]);
 
   const fetchLocations = useCallback(async () => {
-    if (!canAny('inventory.read') && !canAny('location.read')) return;
+    if (!globalAccessVerified || (!canAny('inventory.read') && !canAny('location.read'))) return;
     const requestSeq = ++locationRequestSeq.current;
     locationAbortRef.current?.abort();
     const controller = new AbortController();
     locationAbortRef.current = controller;
     setLoadingLocations(true);
     setLocationError(false);
+    setServerVerifiedLocationId(null);
+    setSelectorAdmissionEpoch(null);
+    const requestAccessEpoch = globalAdmissionEpoch.current;
 
     const savedRaw = localStorage.getItem(selectedLocationStorageKey);
     const savedId = savedRaw ? Number(savedRaw) : null;
@@ -668,7 +778,12 @@ export default function MainInventory() {
           ? authFetch("/warehouse/setup-status", { signal: controller.signal })
           : Promise.resolve(null),
       ]);
-      if (requestSeq !== locationRequestSeq.current) return;
+      if (requestSeq !== locationRequestSeq.current ||
+          requestAccessEpoch !== globalAdmissionEpoch.current ||
+          !globalAccessVerified ||
+          localStorage.getItem("company_id") !== companyId ||
+          localStorage.getItem("principal_id") !== principalId ||
+          localStorage.getItem("backoffice_user_id") !== backofficeUserId) return;
 
       const page = parseWarehouseLocationPage(locationsRaw);
       // The company-wide setup contract is management-only. Its location.read
@@ -690,6 +805,10 @@ export default function MainInventory() {
         selectedLocationIdRef.current = nextLocationId;
         setSelectedLocationId(nextLocationId);
       }
+      // The backend selector response, not the warm shell, authorizes
+      // offering this warehouse to the user for the current request.
+      setServerVerifiedLocationId(nextLocationId);
+      setSelectorAdmissionEpoch(requestAccessEpoch);
       if (nextLocationId !== null) {
         localStorage.setItem(selectedLocationStorageKey, String(nextLocationId));
       } else {
@@ -711,8 +830,8 @@ export default function MainInventory() {
         localStorage.removeItem(selectedLocationStorageKey);
         setLocationError(true);
       } else {
-        // Recoverable refresh failure keeps the last validated warm selector.
-        setLocationError(false);
+        // A failed selector refresh cannot attest current warehouse admission.
+        setLocationError(true);
       }
       toast.error(
         apiErrorMessage(error, t("inventoryShell.errors.locationsLoadFailed")),
@@ -722,12 +841,12 @@ export default function MainInventory() {
       if (requestSeq === locationRequestSeq.current) setLoadingLocations(false);
     }
   }, [
-    authFetch, canAny, prepareLocationChange, selectedLocationStorageKey,
-    t, warehouseCursor, warehouseSearch, warmScopeKey,
+    authFetch, canAny, globalAccessVerified, prepareLocationChange, selectedLocationStorageKey,
+    t, warehouseCursor, warehouseSearch, warmScopeKey, companyId, principalId, backofficeUserId,
   ]);
 
   useEffect(() => {
-    if (!access.isSuccess) return;
+    if (!globalAccessVerified) return;
 
     if (!canAny('inventory.read') && !canAny('location.read')) {
       locationRequestSeq.current += 1;
@@ -747,7 +866,7 @@ export default function MainInventory() {
 
     void fetchLocations();
   }, [
-    access.isSuccess,
+    globalAccessVerified,
     canAny,
     fetchLocations,
     prepareLocationChange,
@@ -760,17 +879,23 @@ export default function MainInventory() {
 
       if (
         !Number.isInteger(nextId) ||
+        !globalAccessVerified ||
+        selectorAdmissionEpoch !== globalAdmissionEpoch.current ||
+        serverVerifiedLocationId === null ||
         !locations.some((location) => location.id === nextId)
       ) {
         return;
       }
 
       prepareLocationChange(nextId);
+      setServerVerifiedLocationId(nextId);
+      setSelectorAdmissionEpoch(globalAdmissionEpoch.current);
       selectedLocationIdRef.current = nextId;
       setSelectedLocationId(nextId);
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
     },
-    [locations, prepareLocationChange, selectedLocationStorageKey]
+    [locations, globalAccessVerified, selectorAdmissionEpoch, serverVerifiedLocationId,
+      prepareLocationChange, selectedLocationStorageKey]
   );
   const handleOpenTransfers = useCallback(
     async (transfer?: BatchSpecialTransferResult) => {
@@ -849,6 +974,7 @@ export default function MainInventory() {
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
+    if (!liveAuthorityVerified) return;
 
     const requestLocationId = selectedLocationId;
     const requestCursor = stockCursor;
@@ -859,6 +985,7 @@ export default function MainInventory() {
       stockFamilyId === null;
 
     const requestSeq = ++stockRequestSeq.current;
+    const requestAdmissionEpoch = liveAdmissionEpoch.current;
     stockAbortRef.current?.abort();
     const requestController = new AbortController();
     stockAbortRef.current = requestController;
@@ -902,6 +1029,8 @@ export default function MainInventory() {
       );
 
       if (requestSeq !== stockRequestSeq.current) return;
+      if (requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
       const nextItems = !requestCursor
@@ -921,6 +1050,8 @@ export default function MainInventory() {
       stockItemsRef.current = nextItems;
       setStockItems(nextItems);
       setStockPageReady(true);
+      setLiveReadPhase("fresh");
+      setFreshPageAdmissionEpoch(requestAdmissionEpoch);
       if (defaultView && requestCursor === null) {
         patchLiveStockWarmSnapshot(
           warmScopeKey,
@@ -930,22 +1061,34 @@ export default function MainInventory() {
             items: nextItems,
             nextCursor: data.next_cursor,
             lastSyncMs: syncedAt.getTime(),
-            ...(typeof data.total === "number"
-              ? { matchingTotal: data.total }
-              : {}),
+            matchingTotal: data.total,
           },
         );
       }
       setStockNextCursor(data.next_cursor);
 
-      if (typeof data.total === "number") {
-        setStockMatchingTotal(data.total);
-      }
-
+      setStockMatchingTotal(data.total);
       setLastSync(syncedAt);
     } catch (error: unknown) {
-      if (requestSeq !== stockRequestSeq.current) return;
+      if (requestSeq !== stockRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
+      if ([401, 403, 404].includes(Number((error as { status?: unknown } | null)?.status))) {
+        dropLiveStockWarmSnapshot(warmScopeKey, requestLocationId);
+        stockItemsRef.current = [];
+        setStockItems([]);
+        setStockPageReady(false);
+        setStockNextCursor(null);
+        setStockMatchingTotal(null);
+        setStockTotal(null);
+        setStockAlertCount(null);
+        setLastSync(null);
+        setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
+        setLiveReadPhase("denied");
+      } else {
+        setLiveReadPhase("failed");
+      }
       setStockPageError(
         apiErrorMessage(
           error,
@@ -983,12 +1126,13 @@ export default function MainInventory() {
     stockIndicators,
     stockFamilyId,
     canReadStock,
+    liveAuthorityVerified,
     t,
     warmScopeKey,
   ]);
 
   const fetchStockSummary = useCallback(async () => {
-    if (selectedLocationId === null || !canReadStock) {
+    if (selectedLocationId === null || !canReadStock || !liveAuthorityVerified) {
       setStockTotal(null);
       setStockAlertCount(null);
       return;
@@ -996,6 +1140,7 @@ export default function MainInventory() {
 
     const requestLocationId = selectedLocationId;
     const requestSeq = ++stockSummaryRequestSeq.current;
+    const requestAdmissionEpoch = liveAdmissionEpoch.current;
     stockSummaryAbortRef.current?.abort();
     const requestController = new AbortController();
     stockSummaryAbortRef.current = requestController;
@@ -1009,10 +1154,13 @@ export default function MainInventory() {
         { signal: requestController.signal },
       );
 
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (requestSeq !== stockSummaryRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current ||
+          !requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockSummary(raw);
       setStockTotal(data.stock_total);
       setStockAlertCount(data.alert_count);
+      setFreshSummaryAdmissionEpoch(requestAdmissionEpoch);
       patchLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -1023,8 +1171,10 @@ export default function MainInventory() {
         },
       );
     } catch (error: unknown) {
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (requestSeq !== stockSummaryRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const warmSnapshot = readLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -1048,6 +1198,7 @@ export default function MainInventory() {
     authFetch,
     selectedLocationId,
     canReadStock,
+    liveAuthorityVerified,
     t,
     warmScopeKey,
   ]);
@@ -1059,6 +1210,7 @@ export default function MainInventory() {
     setStockCursor(null);
     setStockNextCursor(null);
     setStockMatchingTotal(null);
+    setLiveReadPhase("initial");
   }, []);
 
   const refreshStock = useCallback(() => {
@@ -1072,8 +1224,9 @@ export default function MainInventory() {
     setStockPageError(null);
     setStockSummaryError(null);
     setLoadingStock(selectedLocationId !== null);
+    setLiveReadPhase(stockPageReady ? "warm" : "initial");
     setStockRefreshKey((value) => value + 1);
-  }, [selectedLocationId]);
+  }, [selectedLocationId, stockPageReady]);
 
   const retryStockPage = useCallback(() => {
     if (selectedLocationId === null || loadingStock) return;
@@ -1233,12 +1386,26 @@ export default function MainInventory() {
     }
   }, [activeTab, requiresFirstWarehouse]);
 
-  const canShowWarmLiveDuringAccessRefresh =
-    activeTab === "live" &&
-    selectedLocationId !== null &&
-    locationAccess.isPending &&
-    stockPageReady &&
-    !locationAccess.isError;
+  const liveVisible = liveAuthorityVerified && !accessDenied && !locationError &&
+    liveReadPhase !== "denied";
+  const livePageFresh =
+    liveReadPhase === "fresh" &&
+    freshPageAdmissionEpoch === liveAdmissionEpoch.current;
+  const liveSummaryFresh = liveVisible && !stockSummaryError &&
+    freshSummaryAdmissionEpoch === liveAdmissionEpoch.current;
+  const liveDisclosureKey = accessDenied || liveReadPhase === "denied"
+    ? "accessChanged"
+    : access.isError || locationAccess.isError
+      ? "accessRefreshFailed"
+    : !liveVisible
+      ? (stockPageReady ? "warmUnverified" : "loadingVerification")
+      : liveReadPhase === "failed" || stockPageError || stockSummaryError
+        ? "refreshFailed"
+        : livePageFresh
+          ? "verifiedFresh"
+          : stockPageReady
+            ? "warmUnverified"
+            : "loadingVerification";
 
   if (archiveOwnerFocus) {
     return <ArchiveOwnerWorkspace intent={archiveOwnerFocus} onClose={() => setArchiveOwnerFocus(null)}
@@ -1338,7 +1505,7 @@ export default function MainInventory() {
                 <span className="text-sm font-black">
                   {t("inventoryShell.liveStockCount")}{" "}
                   <span className="inventory-shared-context-count">
-                    {stockTotal === null
+                    {!livePageFresh || !liveSummaryFresh || stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
                           locale,
@@ -1355,7 +1522,7 @@ export default function MainInventory() {
               <div className="mt-0.5 flex items-center gap-1.5 text-xs font-bold">
                 <span>
                   {t("inventoryShell.lastUpdated")}:{" "}
-                  {lastSync
+                  {liveVisible && livePageFresh && lastSync
                     ? new Intl.DateTimeFormat(
                         locale,
                         {
@@ -1431,7 +1598,7 @@ export default function MainInventory() {
       )}
       {locationAccess.isError && selectedLocationId !== null && (
         <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
-          {t("inventoryShell.accessChanged")}
+          {t(`inventoryShell.${accessDenied ? "accessChanged" : "accessRefreshFailed"}`)}
           <button
             type="button"
             className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800"
@@ -1447,8 +1614,8 @@ export default function MainInventory() {
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {selectedLocationId !== null &&
-          locationAccess.isPending &&
-          !canShowWarmLiveDuringAccessRefresh && (
+          !liveVisible &&
+          !accessDenied && (
           <div className="inventory-empty-state flex flex-1 items-center justify-center gap-2 px-6 text-center font-bold text-slate-500">
             <RefreshCcw className="h-5 w-5 animate-spin" />
             {t("common.loading")}
@@ -1477,17 +1644,47 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "live" &&
-          selectedLocationId !== null &&
-          !locationAccess.isError &&
-          (
-            canShowWarmLiveDuringAccessRefresh ||
-            (!locationAccess.isPending && tabAllowed("live"))
-          ) && (
+        {activeTab === "live" && selectedLocationId !== null && (
+          <div
+            role={accessDenied && !locationAccess.isError ? "alert" : "status"}
+            aria-live={accessDenied || liveReadPhase === "denied" ? "assertive" : "polite"}
+            dir={i18n.dir()}
+            data-live-authority={liveDisclosureKey}
+            className="inventory-alert-banner px-4 py-2 text-sm font-semibold"
+          >
+            {t(`inventoryShell.${liveDisclosureKey}`)}
+            {(liveDisclosureKey === "refreshFailed" ||
+              liveDisclosureKey === "accessRefreshFailed") && (
+              <button type="button" onClick={() => {
+                if (liveDisclosureKey === "accessRefreshFailed") {
+                  void access.refetch();
+                  void locationAccess.refetch();
+                  void fetchLocations();
+                } else {
+                  retryStockPage();
+                }
+              }}
+                className="ms-3 rounded-lg border px-2 py-1"
+                aria-label={t("inventoryShell.retry")}>
+                {t("inventoryShell.retry")}
+              </button>
+            )}
+            {liveDisclosureKey === "warmUnverified" && liveVisible && lastSync && (
+              <span className="ms-2" dir="auto">
+                {t("inventoryShell.lastUpdated")}: {new Intl.DateTimeFormat(
+                  locale, { hour: "2-digit", minute: "2-digit",
+                    hour12: false, numberingSystem: "latn" },
+                ).format(lastSync)}
+              </span>
+            )}
+          </div>
+        )}
+        {activeTab === "live" && selectedLocationId !== null &&
+          liveVisible && tabAllowed("live") && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             locations={locations}
-            stockTotal={stockTotal}
+            stockTotal={liveSummaryFresh ? stockTotal : null}
             lastSync={lastSync}
             isAuditLocked={displayAuditLocked}
             products={stockItems}
@@ -1501,7 +1698,7 @@ export default function MainInventory() {
               void fetchStatus();
             }}
             onRetryPage={retryStockPage}
-            alertCount={stockAlertCount}
+            alertCount={liveSummaryFresh ? stockAlertCount : null}
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}
             stockState={stockState}

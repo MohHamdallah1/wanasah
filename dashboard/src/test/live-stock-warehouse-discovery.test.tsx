@@ -19,11 +19,16 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
   useInventoryAccess: (locationId: number | null = null) => ({
     isSuccess: true,
     isPending: false,
+    isFetching: false,
+    isFetchedAfterMount: true,
     isError: false,
     can: locationId === null ? mocks.can : mocks.canAt,
     canAny: mocks.canAny,
     isCompanyOwner: false,
-    data: { is_company_owner: false },
+    data: {
+      company_id: 1, principal_id: 75, backoffice_user_id: 75,
+      location_id: locationId, is_company_owner: false,
+    },
     refetch: vi.fn(),
   }),
 }));
@@ -109,6 +114,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clearInventoryWarmScope("1:75");
+  clearInventoryWarmScope("1:75:75");
 });
 
 describe("inventory scoped warehouse discovery integration", () => {

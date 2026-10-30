@@ -101,12 +101,18 @@ const touchScope = (
 
 export const inventoryWarmScopeKey = (
   companyId: string,
-  driverId: string,
+  backofficeUserId: string,
+  principalId?: string,
 ): string | null => {
+  // A warm cache partitions UI data; it is never an authorization grant.
+  // The canonical principal further partitions the live Dashboard session.
   const company = companyId.trim();
-  const driver = driverId.trim();
-  if (!company || !driver) return null;
-  return `${company}:${driver}`;
+  const user = backofficeUserId.trim();
+  const principal = principalId?.trim();
+  const validId = (value: string) => /^[1-9]\d*$/.test(value);
+  if (!validId(company) || !validId(user) ||
+      (principalId !== undefined && (!principal || !validId(principal)))) return null;
+  return principal ? `${company}:${user}:${principal}` : `${company}:${user}`;
 };
 
 export const readInventoryShellWarmSnapshot = (
