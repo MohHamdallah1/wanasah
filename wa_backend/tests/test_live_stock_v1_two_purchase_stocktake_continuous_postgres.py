@@ -43,8 +43,10 @@ from tests import test_costed_driver_sale_correction_real_c2_db as sale_correcti
 class ContinuousTwoPurchaseSaleReturnStocktakeTests(
     sale_correction_fixture.RealDriverSaleCorrectionC2DatabaseTests
 ):
-    # The accepted class is referenced through a module alias so pytest does not
-    # collect #664's two tests again in this module.
+    # Reuse accepted setup/helpers, but do not re-collect #664's two inherited
+    # acceptance cases. This wave owns only the two continuous-history tests.
+    test_fifo_real_priced_sale_and_authorized_return_correction = None
+    test_average_real_priced_sale_and_authorized_return_correction = None
 
     async def _seed_stocktake_actors(self):
         """Identity/capability fixture only; no inventory/cost/ledger writes."""
