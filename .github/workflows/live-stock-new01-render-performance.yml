@@ -8,6 +8,7 @@ on:
       - "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx"
       - "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx"
       - "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx"
+      - "dashboard/src/test/live-stock-render-windowing.test.tsx"
       - ".github/workflows/live-stock-new01-render-performance.yml"
   workflow_dispatch:
 
@@ -53,6 +54,23 @@ jobs:
           git checkout --detach "$HEAD_SHA"
           cd dashboard
           LIVE_STOCK_RENDER_PHASE=after npx vitest run src/test/live-stock-render-performance.benchmark.test.tsx --reporter=verbose | tee /tmp/live-stock-render-after.log
+
+      - name: Focused NEW-01 and freshness tests
+        working-directory: dashboard
+        run: >-
+          npx vitest run
+          src/test/live-stock-render-windowing.test.tsx
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/live-stock-batch-refresh-integration.test.tsx
+          src/test/live-stock-count-freshness-semantics.test.tsx
+
+      - name: TypeScript
+        working-directory: dashboard
+        run: npx tsc --noEmit
+
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
 
       - name: Retain benchmark evidence
         if: always()
