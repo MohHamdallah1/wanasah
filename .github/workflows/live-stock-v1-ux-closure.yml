@@ -1,0 +1,167 @@
+name: Live Stock V1 complete UX and accessibility closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
+      - "dashboard/src/pages/inventory/inventory.css"
+      - "dashboard/src/pages/inventory/liveStock/**"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-*.test.ts"
+      - "dashboard/src/test/live-stock-*.test.tsx"
+      - "dashboard/src/test/inventory-cp7-live-stock.test.tsx"
+      - "dashboard/e2e/live-stock-ux-closure.*.ts"
+      - ".github/workflows/live-stock-v1-ux-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-ux-closure-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ux-accessibility-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+
+      - name: Install disposable Playwright Chromium
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Focused Live Stock frontend tests
+        working-directory: dashboard
+        run: |
+          npx vitest run \
+            src/test/live-stock-render-windowing.test.tsx \
+            src/test/live-stock-family-cursor.test.tsx \
+            src/test/live-stock-ui-stability.test.ts \
+            src/test/inventory-cp7-live-stock.test.tsx
+
+      - name: TypeScript application and UX browser proof
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler --types node --lib es2022,dom \
+            e2e/live-stock-ux-closure.config.ts \
+            e2e/live-stock-ux-closure.fixtures.ts \
+            e2e/live-stock-ux-closure.spec.ts
+
+      - name: Production build
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+
+      - name: Start isolated built Dashboard
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/live-stock-v1-ux-preview.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/live-stock-v1-ux-preview.log
+          exit 1
+
+      - name: Chromium UX accessibility and recovery acceptance
+        working-directory: dashboard
+        run: npx playwright test --config e2e/live-stock-ux-closure.config.ts
+
+      - name: Require visual evidence matrix
+        run: |
+          count=$(find dashboard/node_modules/.cache/live-stock-ux-closure -type f -name '*.png' | wc -l)
+          echo "LIVE_STOCK_UX_SCREENSHOTS=$count"
+          test "$count" -ge 5
+
+      - name: Verify isolated ownership scope
+        run: |
+          base="01c9f9870ad6cc23ff38c9e8f42d0345659d32e1"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {
+              ".github/workflows/live-stock-v1-ux-closure.yml",
+              "dashboard/e2e/live-stock-ux-closure.config.ts",
+              "dashboard/e2e/live-stock-ux-closure.fixtures.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/inventory.css",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-render-windowing.test.tsx",
+              "dashboard/src/test/live-stock-ui-stability.test.ts",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+              text=True,
+          ).splitlines())
+          extra = changed - allowed
+          if extra:
+              raise SystemExit(f"LIVE_STOCK_UX_SCOPE=FAIL extra={sorted(extra)}")
+          forbidden = [
+              path for path in changed
+              if path.startswith("wa_backend/")
+              or path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
+              or path.startswith("flutter_app/")
+          ]
+          if forbidden:
+              raise SystemExit(f"LIVE_STOCK_UX_SCOPE=FAIL forbidden={sorted(forbidden)}")
+          print(f"LIVE_STOCK_UX_SCOPE=PASS files={len(changed)}")
+          PY
+
+      - name: Publish checklist evidence summary
+        if: success()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## Live Stock V1 UX closure evidence
+          | Clause | Evidence |
+          |---|---|
+          | Compact modern responsive surface | Production build + Chromium desktop/tablet/mobile screenshots |
+          | Quantity semantics and vehicle disclosure | Focused CP7 + browser source/detail assertions |
+          | Search/filter/family reset + keyboard | Chromium keyboard journey |
+          | Thousands variable-height rows | 2050-row cursor journey, bounded DOM, unique cursor chain |
+          | Multi-batch/source recovery | Two-batch alternate/open/reopen/error/retry journey |
+          | Arabic/English + RTL/LTR + light/dark | Five Chromium visual states |
+          | Partial failure + revocation | Summary/continuation failure recovery and stale disclosure denial |
+          | Other-tab request budget | Zero Live Stock list/summary/family reads while Batches is active |
+          | Owner visual acceptance | Screenshot artifact is intentionally left for owner approval |
+          EOF
+
+      - name: Upload Chromium screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-v1-ux-visual-evidence
+          path: dashboard/node_modules/.cache/live-stock-ux-closure
+          if-no-files-found: warn
