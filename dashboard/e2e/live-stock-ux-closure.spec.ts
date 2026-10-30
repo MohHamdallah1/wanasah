@@ -57,6 +57,12 @@ for (const entry of visualCases) {
     const state = await installUxApi(page, 90);
     await seedUx(page, entry.locale, entry.theme);
     await loadLive(page);
+    // The Dashboard uses Tailwind's class-based dark contract. Apply the
+    // existing root theme contract after the app has mounted, then capture the
+    // actual built UI under that mode.
+    await page.evaluate((theme) => {
+      document.documentElement.classList.toggle("dark", theme === "dark");
+    }, entry.theme);
 
     await expect.poll(() => page.evaluate(() => document.documentElement.dir))
       .toBe(entry.locale === "ar" ? "rtl" : "ltr");
@@ -163,12 +169,20 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
       request.path.startsWith("/warehouse/inventory/cursor") &&
       request.path.includes("family_id=21")),
   ).toBe(true);
+  // Wait for the first filtered response to be applied. The request is
+  // observable before React receives next_cursor, so checking the sentinel
+  // closes that race without weakening cursor assertions.
+  await expect(sentinel(page)).toHaveAttribute("aria-hidden", "false");
+
+  const familyCursorRequests = () => state.requests.filter((request) =>
+    request.path.startsWith("/warehouse/inventory/cursor") &&
+    request.path.includes("family_id=21"));
 
   let guard = 0;
   while ((await sentinel(page).getAttribute("aria-hidden")) !== "true") {
     guard += 1;
     expect(guard, "cursor continuation must terminate").toBeLessThan(30);
-    const before = state.cursorReads;
+    const beforeFamilyReads = familyCursorRequests().length;
     await list(page).evaluate((node) => {
       node.scrollTop = 0;
       node.dispatchEvent(new Event("scroll"));
@@ -178,10 +192,13 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
       node.scrollTop = node.scrollHeight;
       node.dispatchEvent(new Event("scroll"));
     });
-    await expect.poll(() => state.cursorReads, { timeout: 10000 }).toBeGreaterThan(before);
+    await expect.poll(
+      () => familyCursorRequests().length,
+      { timeout: 10000 },
+    ).toBeGreaterThan(beforeFamilyReads);
   }
 
-  const familyRequests = state.requests.filter((request) =>
+  const familyRequests = familyCursorRequests();
     request.path.startsWith("/warehouse/inventory/cursor") &&
     request.path.includes("family_id=21"));
   const cursors = familyRequests.map((request) =>
@@ -246,11 +263,19 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   expect(state.sourceReads[71]).toBe(2);
   expect(state.sourceReads[72]).toBe(2);
 
-  const batchReadsBeforeRefresh = state.batchReads;
+  const cursorReadsBeforeRefresh = state.cursorReads;
   await stock(page).locator(".live-stock-context-refresh").click({ force: true });
-  await expect.poll(() => state.batchReads).toBeGreaterThan(batchReadsBeforeRefresh);
+  // Manual refresh invalidates source evidence immediately. The list refresh is
+  // the freshness boundary; a user may then reopen the bounded detail read.
   await expect(dialog.getByText("RES-9001")).toHaveCount(0);
   await expect(dialog.getByText("RES-9010")).toHaveCount(0);
+  await expect.poll(() => state.cursorReads).toBeGreaterThan(cursorReadsBeforeRefresh);
+
+  const batchReadsBeforeReopen = state.batchReads;
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await openProduct(page);
+  await expect.poll(() => state.batchReads).toBeGreaterThan(batchReadsBeforeReopen);
+  await expect(page.getByRole("dialog").locator("article")).toHaveCount(2);
   assertNoUnexpected(state);
 });
 
