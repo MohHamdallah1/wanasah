@@ -52,6 +52,7 @@ const product: WarehouseProduct = {
   total_quantity: "2.500001",
   damaged_quantity: "0",
   minimum_quantity: "1",
+  is_low_stock: false,
 };
 
 describe("CP7 Live Stock refactor parity", () => {
