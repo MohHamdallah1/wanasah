@@ -94,6 +94,7 @@ const product: WarehouseProduct = {
   total_quantity: "10",
   damaged_quantity: "0",
   minimum_quantity: "2",
+  is_low_stock: false,
 };
 
 const baseProps = {

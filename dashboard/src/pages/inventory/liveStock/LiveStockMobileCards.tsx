@@ -65,10 +65,7 @@ export function LiveStockMobileCards({
             product.display_factor_to_base,
           );
         const hasMinimum = compareQuantity(product.minimum_quantity, "0") > 0;
-        const isAlert = hasMinimum && compareQuantity(
-          product.available_for_sale_quantity,
-          product.minimum_quantity,
-        ) <= 0;
+        const isAlert = product.is_low_stock;
         const minimum = hasMinimum
           ? quantity(product.minimum_quantity).primary
           : t("inventoryLive.minimumStockUnset");

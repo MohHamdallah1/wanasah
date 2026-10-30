@@ -1533,6 +1533,7 @@ class WarehouseInventoryItem(BaseModel):
     total_quantity: NonNegativeQuantity
     damaged_quantity: NonNegativeQuantity
     minimum_quantity: NonNegativeQuantity
+    is_low_stock: bool
 
 class WarehouseInventoryCursorPage(BaseModel):
     items: List[WarehouseInventoryItem] = Field(..., max_length=200)

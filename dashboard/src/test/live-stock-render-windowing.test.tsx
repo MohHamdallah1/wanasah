@@ -156,6 +156,7 @@ function product(index: number): WarehouseProduct {
     total_quantity: "12",
     damaged_quantity: "0",
     minimum_quantity: "2",
+  is_low_stock: false,
   };
 }
 

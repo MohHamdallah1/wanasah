@@ -123,6 +123,7 @@ describe('live stock response contract', () => {
     quantity_scale:3,quantity_step:'0.125',on_hand_quantity:'32.125',reserved_quantity:'3',
     available_for_sale_quantity:'27.125',unavailable_quantity:'2',vehicle_quantity:'0',recalled_quantity:'0',
     available_quantity:'27.125',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
+  is_low_stock: false,
   };
 
   it('parses searchable product-family options for Live Stock filters', () => {

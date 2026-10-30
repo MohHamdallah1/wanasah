@@ -1495,6 +1495,7 @@ async def get_warehouse_inventory(
                 InventoryLiveStockProjection.minimum_quantity.label(
                     "minimum_quantity"
                 ),
+                InventoryLiveStockProjection.is_low_stock.label("is_low_stock"),
                 InventoryCostState.average_unit_cost.label(
                     "average_unit_cost"
                 ),
@@ -1746,6 +1747,7 @@ async def get_warehouse_inventory(
                 "minimum_quantity": canonical_quantity(
                     minimum_quantity
                 ),
+                "is_low_stock": bool(row["is_low_stock"]),
             })
 
         next_cursor = None

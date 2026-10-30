@@ -126,12 +126,7 @@ export function LiveStockTable({
         ) : null}
         {products.map((product, index) => {
           const hasMinimum = compareQuantity(product.minimum_quantity, "0") > 0;
-          const isAlert =
-            hasMinimum &&
-            compareQuantity(
-              product.available_for_sale_quantity,
-              product.minimum_quantity,
-            ) <= 0;
+          const isAlert = product.is_low_stock;
           const displayName = t(`uom.${product.display_uom_code}`, {
             defaultValue: t("inventoryCommon.unit"),
           });
