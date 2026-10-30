@@ -15,6 +15,9 @@ SOURCE = BACKEND / "api" / "driver.py"
 BASELINE_SHA = "1f69d2d8946e027aeea64d518152c4c7bf7bcc13"
 # Approved narrow batch error-identity wave; all other workflows stay frozen.
 BATCH_ERROR_SHA = "5d36daf3f096937e8af045fc62452c63408e6419"
+# Approved V1 return-cost fidelity wave. Only update_visit is rebased to this
+# immutable source; every other frozen FIELD workflow keeps the older baseline.
+RETURN_COST_SHA = "e7d04fdf5cee2098005766e222048dc877812604"
 FROZEN_FUNCTIONS = (
     "start_work_session", "end_work_session", "toggle_break", "update_visit",
     "get_driver_dashboard", "respond_to_transfer", "batch_respond_to_transfers",
@@ -347,6 +350,14 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             ["git", "show", BATCH_ERROR_SHA + ":wa_backend/api/driver.py"],
             cwd=BACKEND.parent, text=True, encoding="utf-8",
         )
+        return_cost = subprocess.check_output(
+            ["git", "show", RETURN_COST_SHA + ":wa_backend/api/driver.py"],
+            cwd=BACKEND.parent, text=True, encoding="utf-8",
+        )
+        self.return_cost_functions = {
+            node.name: node for node in ast.parse(return_cost).body
+            if isinstance(node, ast.AsyncFunctionDef)
+        }
         self.approved_functions = {
             node.name: node for node in ast.parse(approved).body
             if isinstance(node, ast.AsyncFunctionDef)
@@ -444,7 +455,16 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
     def test_entire_workflows_locks_transactions_idempotency_and_responses_preserved(self):
         for name in FROZEN_FUNCTIONS:
             approved_batch = name == "batch_respond_to_transfers"
-            expected = digest((self.approved_functions if approved_batch else self.baseline_functions)[name].body)
+            approved_return_cost = name == "update_visit"
+            if approved_batch:
+                expected = digest(self.approved_functions[name].body)
+            elif approved_return_cost:
+                expected_node = without_load_plan_reconciliation(
+                    self.return_cost_functions[name]
+                )
+                expected = digest(without_field_additions(expected_node))
+            else:
+                expected = digest(self.baseline_functions[name].body)
             with self.subTest(endpoint=name):
                 normalized = without_load_plan_reconciliation(self.functions[name])
                 actual = normalized.body if approved_batch else without_field_additions(normalized)
