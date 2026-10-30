@@ -33,6 +33,8 @@ def status_change_availability(
     eligible_quantity: Decimal,
     can_change: bool,
     batch_sellable: bool,
+    lifecycle_status: str = "ACTIVE",
+    operational_hold: str = "NONE",
 ) -> list[dict[str, object]]:
     """Server-derived advisory actions for one exact inventory source bucket.
 
@@ -46,12 +48,27 @@ def status_change_availability(
     if not free_quantity.is_finite() or free_quantity < 0:
         raise ValueError("eligible_quantity must be finite and non-negative")
 
+    lifecycle = str(lifecycle_status or "").upper()
+    hold = str(operational_hold or "").upper()
+    # Mirrors the normal STATUS_CHANGE movement path, not terminal transfers.
+    # Unknown metadata must fail closed; no advisory ALLOWED on malformed state.
+    nonoperational = lifecycle not in {"ACTIVE", "RETIRING"}
+    release_hold = (
+        "PRODUCT_RECALLED" if hold == "RECALL"
+        else "PRODUCT_SALES_HOLD" if hold != "NONE"
+        else None
+    )
+
     actions: list[dict[str, object]] = []
     for destination in destinations:
         if not can_change:
             reason = "PERMISSION_REQUIRED"
         elif free_quantity <= 0:
             reason = "NO_ELIGIBLE_QUANTITY"
+        elif nonoperational:
+            reason = "PRODUCT_NOT_OPERATIONAL"
+        elif destination == "AVAILABLE" and release_hold is not None:
+            reason = release_hold
         elif (
             source == "QUARANTINED"
             and destination == "AVAILABLE"
@@ -83,6 +100,8 @@ def status_change_availability_for_batch(
     minimum_remaining_shelf_life_days: int,
     is_active: bool,
     disposition: str,
+    lifecycle_status: str,
+    operational_hold: str,
 ) -> list[dict[str, object]]:
     """Project status actions using the canonical batch sellability authority.
 
@@ -107,4 +126,6 @@ def status_change_availability_for_batch(
         eligible_quantity=eligible_quantity,
         can_change=can_change,
         batch_sellable=batch_sellable,
+        lifecycle_status=lifecycle_status,
+        operational_hold=operational_hold,
     )
