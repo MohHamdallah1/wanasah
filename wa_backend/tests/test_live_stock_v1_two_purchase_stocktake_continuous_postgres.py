@@ -152,22 +152,12 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
             if method == "FIFO"
             else Decimal("5.333334")
         )
-        # Current V1 financial contract: VISIT_RETURN_IN is an external increase
-        # without authoritative source-cost linkage, so it is valued at the
-        # current average estimate. Under FIFO this deliberately differs from
-        # the FIFO-layer cost of the 1:1 replacement outbound. Source-cost
-        # fidelity for returns remains an explicitly open architecture gate.
-        expected_return_cost = (
-            Decimal("5.342282")
-            if method == "FIFO"
-            else Decimal("5.333334")
-        )
+        # Linked correction returns now restore the authoritative original Sale
+        # unit cost. This remains separate from physical FEFO Batch identity and
+        # does not change the fallback estimate policy for unproven returns.
+        expected_return_cost = expected_exchange_cost
         expected_after_correction_quantity = Decimal("300")
-        expected_after_correction_value = (
-            Decimal("801.342282")
-            if method == "FIFO"
-            else Decimal("800.000000")
-        )
+        expected_after_correction_value = Decimal("800.000000")
         expected_vehicle_available_after_correction = Decimal("148")
         expected_vehicle_damaged_after_correction = Decimal("2")
 
@@ -180,12 +170,12 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         )
         expected_final_quantity = Decimal("290")
         expected_final_value = (
-            Decimal("781.342282")
+            Decimal("780.000000")
             if method == "FIFO"
             else Decimal("773.333330")
         )
         expected_final_average = (
-            Decimal("2.694284")
+            Decimal("2.689655")
             if method == "FIFO"
             else Decimal("2.666667")
         )
@@ -312,7 +302,8 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         sale_cost = (
             await self.db.execute(
                 text(
-                    "SELECT e.event_type,e.total_cost,e.method,e.cost_basis "
+                    "SELECT e.id AS cost_event_id,e.event_type,e.total_cost,"
+                    "e.method,e.cost_basis "
                     "FROM inventory_cost_events e "
                     "JOIN inventory_movements m "
                     "ON m.company_id=e.company_id "
@@ -376,7 +367,8 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         exchange_cost_rows = (
             await self.db.execute(
                 text(
-                    "SELECT m.reference_type,e.event_type,e.cost_basis,e.total_cost "
+                    "SELECT m.reference_type,e.event_type,e.cost_basis,e.total_cost,"
+                    "e.source_cost_event_id "
                     "FROM inventory_movements m "
                     "JOIN inventory_cost_events e "
                     "ON e.company_id=m.company_id "
@@ -402,7 +394,41 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         )
         self.assertEqual(
             by_reference["VISIT_RETURN_IN"]["cost_basis"],
-            "CURRENT_AVERAGE_ESTIMATE",
+            "LINKED_RETURN_COST",
+        )
+        self.assertEqual(
+            int(by_reference["VISIT_RETURN_IN"]["source_cost_event_id"]),
+            int(sale_cost["cost_event_id"]),
+        )
+        self.assertIsNone(
+            by_reference["VISIT_EXCHANGE_OUT"]["source_cost_event_id"]
+        )
+        self.assertEqual(
+            await self.db.scalar(
+                text(
+                    "SELECT COUNT(*) FROM inventory_cost_events "
+                    "WHERE company_id=:t AND source_cost_event_id=:source "
+                    "AND cost_basis='LINKED_RETURN_COST'"
+                ),
+                {
+                    "t": self.tenant,
+                    "source": int(sale_cost["cost_event_id"]),
+                },
+            ),
+            1,
+        )
+        self.assertEqual(
+            await self.db.scalar(
+                text(
+                    "SELECT COUNT(*) FROM inventory_cost_events "
+                    "WHERE company_id=:t AND reversal_of_cost_event_id=:source"
+                ),
+                {
+                    "t": self.tenant,
+                    "source": int(sale_cost["cost_event_id"]),
+                },
+            ),
+            1,
         )
 
         after_correction_state = (
@@ -665,7 +691,8 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
         print(
             "REMAINING_CONTINUOUS_ACCOUNTING "
             f"method={method} quantity={expected_final_quantity} "
-            f"value={expected_final_value} shortage_cost={expected_stocktake_cost}",
+            f"value={expected_final_value} shortage_cost={expected_stocktake_cost} "
+            "linked_original_sale=true purchase_history_immutable=true",
             flush=True,
         )
 
