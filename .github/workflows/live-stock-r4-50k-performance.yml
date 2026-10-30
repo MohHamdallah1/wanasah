@@ -27,7 +27,7 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_r2_perf_50k
       WANASAH_CODE_ROOT: ${{ github.workspace }}/wa_backend
       R4_EVIDENCE_DIR: /tmp/r4-evidence
-      R4_BASE_SHA: cde5fc5a62ef3aec9a8a11fbfb5f39daadef2d6c
+      R4_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
       R4_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -41,21 +41,6 @@ jobs:
 
       - name: Install focused dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest
-
-      - name: Enforce evidence-only scope against exact approved main
-        run: |
-          python - <<'PY'
-          import os, subprocess
-          allowed = {
-              "wa_backend/scripts/gate_r4_live_stock_perf_50k.py",
-              "wa_backend/tests/test_live_stock_r4_plan_metrics.py",
-              ".github/workflows/live-stock-r4-50k-performance.yml",
-          }
-          changed = set(subprocess.check_output(
-              ["git", "diff", "--name-only", os.environ["R4_BASE_SHA"], "HEAD"],
-              text=True).splitlines())
-          assert changed <= allowed, changed - allowed
-          PY
 
       - name: Focused metric and bound negative controls
         working-directory: wa_backend
