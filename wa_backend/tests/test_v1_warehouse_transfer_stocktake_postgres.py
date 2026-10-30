@@ -237,8 +237,14 @@ async def test_canonical_transfer_and_stocktake_one_coherent_journey(pg):
         case.successful_requests.add(str(start.request_id))
         assert started["snapshot_lines"] == 1
         await checkpoint(case, expected[step], report)
-        await denied(case, report, "active count lock blocks incoming transfer", lambda: command(pg, case.sender,
-            lambda db, access, actor: transfers.unified_transfer_dispatch(dispatch(case, "1"), db, access, actor)), 409)
+        # Dispatch touches source + transit, not the future destination.
+        # Exercise the locked B balance itself, through the real owner command.
+        locked_source = dispatch(case, "1").model_copy(update={
+            "source_location_id": t.other_location_id, "destination_location_id": t.location_id})
+        await denied(case, report, "active count lock blocks dispatch from counted warehouse",
+            lambda: command(pg, t.owner, lambda db, access, actor:
+                transfers.unified_transfer_dispatch(locked_source, db, access, actor)), 409)
+        await checkpoint(case, expected[step], report)
 
         async with pg.session() as db:
             sheet = await stocktake.get_stocktake_count_sheet(
@@ -317,7 +323,7 @@ async def test_canonical_transfer_and_stocktake_one_coherent_journey(pg):
         report["status"] = "PASS"
         report["logical_commands"] = 11
         print("WAREHOUSE_JOURNEY_PASS " + pg.method, flush=True)
-    except Exception as exc:
+    except BaseException as exc:
         report["status"], report["failed_stage"], report["error"] = "RED", step, type(exc).__name__ + ": " + str(exc)
         raise
     finally:
