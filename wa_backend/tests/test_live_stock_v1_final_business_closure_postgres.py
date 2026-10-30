@@ -35,8 +35,12 @@ from schemas import (
     UnifiedReceiveRequest,
     UnifiedTransferDecisionRequest,
 )
+from domains.inventory_vehicle_load.service import mutate_vehicle_load
 from services import InventoryMutationError, apply_inventory_movement
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.test_live_stock_v1_quantity_reconciliation_postgres import (
+    _create_vehicle_with_historical_attribution,
+)
 from tests.test_live_stock_v1_route_sale_unload_postgres import (
     test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth
     as run_route_sale_unload_foundation,
@@ -296,13 +300,17 @@ async def _connected_truth(
 async def test_connected_route_custody_warehouse_transfer_rejection_and_stocktake(pg):
     """One canonical supplier->vehicle->sale->custody->transfer->stocktake journey."""
     tenant = pg.tenants[0]
-    # Master/auth preparation only.  No inventory fixture is written here.
-    case = await prepare(pg)
 
     # Reuse, do not copy, the accepted supplier->vehicle->route->sale->custody
-    # journey.  It finishes with 720 base units back in warehouse A, vehicle=0,
+    # journey exactly as already accepted.  Its display-UOM proof requires one
+    # unambiguous carton conversion, so no later transfer fixture may run first.
+    # It finishes with 720 base units back in warehouse A, vehicle=0,
     # PURCHASE_IN=1600 and sale COGS=160.
     await run_route_sale_unload_foundation(pg)
+
+    # Transfer/stocktake master/auth preparation is deliberately delayed until
+    # after the accepted route proof. It writes no inventory quantity/cost.
+    case = await prepare(pg)
 
     async with pg.session() as db:
         handoff = await db.scalar(
@@ -732,3 +740,155 @@ async def test_partial_full_reservation_overallocation_and_negative_stock_are_at
                 )
             )
         )
+
+
+
+async def test_concurrent_direct_vehicle_load_and_unload_are_serialized_and_replay_safe(pg):
+    """True ADD-vs-UNLOAD race preserves vehicle/warehouse custody and cost truth."""
+    tenant = pg.tenants[0]
+    payload = pg.request(
+        quantity="40",
+        cost="2",
+        lot="FINAL-VRACE-" + uuid4().hex[:12],
+    )
+    async with pg.session() as db:
+        await pg.post(db, payload)
+
+    async with pg.session() as db:
+        inbound_movement = await db.scalar(
+            select(InventoryMovement).where(
+                InventoryMovement.company_id == tenant.company_id,
+                InventoryMovement.reference_type == "INBOUND_SUPPLIER",
+                InventoryMovement.reference_id == payload.reference_id,
+            )
+        )
+        assert inbound_movement is not None
+        batch_id = int(inbound_movement.batch_id)
+
+    vehicle_id, vehicle_location_id = await _create_vehicle_with_historical_attribution(
+        pg, tenant
+    )
+    initial_key = uuid4()
+    initial_items = [{
+        "product_variant_id": tenant.variant_id,
+        "quantity": D("20"),
+    }]
+    async with pg.session() as db:
+        seeded = await mutate_vehicle_load(
+            db,
+            access=tenant.owner.access(db),
+            actor_id=tenant.owner.driver_id,
+            vehicle_id=vehicle_id,
+            warehouse_id=tenant.location_id,
+            direction="ADD",
+            request_id=initial_key,
+            items=initial_items,
+        )
+    assert seeded["direction"] == "ADD"
+
+    async def pair() -> tuple[Decimal, Decimal]:
+        async with pg.session() as db:
+            rows = (
+                await db.execute(
+                    select(
+                        InventoryBalance.location_id,
+                        InventoryBalance.on_hand_quantity,
+                    ).where(
+                        InventoryBalance.company_id == tenant.company_id,
+                        InventoryBalance.product_variant_id == tenant.variant_id,
+                        InventoryBalance.batch_id == batch_id,
+                        InventoryBalance.stock_status == "AVAILABLE",
+                        InventoryBalance.location_id.in_(
+                            [tenant.location_id, vehicle_location_id]
+                        ),
+                    )
+                )
+            ).all()
+            values = {int(location): D(qty) for location, qty in rows}
+            return (
+                values.get(tenant.location_id, D("0")),
+                values.get(vehicle_location_id, D("0")),
+            )
+
+    assert await pair() == (D("20"), D("20"))
+
+    add_key, unload_key = uuid4(), uuid4()
+    items = [{"product_variant_id": tenant.variant_id, "quantity": D("10")}]
+
+    async def mutation(direction: str, request_id):
+        async with pg.session() as db:
+            return await mutate_vehicle_load(
+                db,
+                access=tenant.owner.access(db),
+                actor_id=tenant.owner.driver_id,
+                vehicle_id=vehicle_id,
+                warehouse_id=tenant.location_id,
+                direction=direction,
+                request_id=request_id,
+                items=items,
+            )
+
+    add_result, unload_result = await asyncio.wait_for(
+        asyncio.gather(
+            mutation("ADD", add_key),
+            mutation("UNLOAD", unload_key),
+        ),
+        timeout=20,
+    )
+    assert add_result["direction"] == "ADD"
+    assert unload_result["direction"] == "UNLOAD"
+    # Whichever lock holder runs first, both are valid from the 20/20 starting
+    # split and the serialized net result must be exactly unchanged.
+    assert await pair() == (D("20"), D("20"))
+
+    async with pg.session() as db:
+        movement_count = int(
+            await db.scalar(
+                select(func.count())
+                .select_from(InventoryMovement)
+                .where(InventoryMovement.company_id == tenant.company_id)
+            )
+            or 0
+        )
+
+    assert await mutation("ADD", add_key) == add_result
+    assert await mutation("UNLOAD", unload_key) == unload_result
+
+    async with pg.session() as db:
+        assert (
+            int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryMovement)
+                    .where(InventoryMovement.company_id == tenant.company_id)
+                )
+                or 0
+            )
+            == movement_count
+        )
+        state = await db.scalar(
+            select(InventoryCostState).where(
+                InventoryCostState.company_id == tenant.company_id,
+                InventoryCostState.product_variant_id == tenant.variant_id,
+            )
+        )
+        assert state is not None
+        assert (D(state.quantity), D(state.inventory_value)) == (D("40"), D("80"))
+        cost_events = (
+            await db.scalars(
+                select(InventoryCostEvent).where(
+                    InventoryCostEvent.company_id == tenant.company_id,
+                    InventoryCostEvent.product_variant_id == tenant.variant_id,
+                )
+            )
+        ).all()
+        assert [event.event_type for event in cost_events] == ["PURCHASE_IN"]
+        negative = await db.scalar(
+            select(func.count())
+            .select_from(InventoryBalance)
+            .where(
+                InventoryBalance.company_id == tenant.company_id,
+                InventoryBalance.on_hand_quantity < 0,
+            )
+        )
+        assert int(negative or 0) == 0
