@@ -26,6 +26,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_R2_PG_GATE: "1"
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
 
     steps:
       - uses: actions/checkout@v4
@@ -90,10 +93,24 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -s
           tests/test_live_stock_r2_projection_truth_postgres.py
           --junitxml=r2-projection-truth.xml
+      - name: Canonical projector PostgreSQL regression
+        working-directory: wa_backend
+        run: python -B scripts/gate_stage821_live_stock_projector_runtime.py
+      - name: Rebuild and drift recovery PostgreSQL regression
+        working-directory: wa_backend
+        run: python -B scripts/gate_stage822_live_stock_rebuild_runtime.py
+      - name: CP7 Live Stock regressions on FIFO and moving average
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp7_live_stock_postgres.py
+          --junitxml=r2-cp7-regression.xml
       - name: Retain R2 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r2-projection-truth-${{ github.sha }}
-          path: wa_backend/r2-projection-truth.xml
+          path: |
+            wa_backend/r2-projection-truth.xml
+            wa_backend/r2-cp7-regression.xml
           if-no-files-found: warn
