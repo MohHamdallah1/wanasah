@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, literal_column, or_, select, true, tuple_, union, union_all
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
@@ -1294,8 +1294,12 @@ async def get_warehouse_inventory(
                 .scalar_subquery()
             )
             search_probe_ids = select(search_probe.c.product_variant_id)
+            # Match the installed trigram expression index exactly; the
+            # separator is SQL structure, while search patterns remain bound.
             searchable_text = func.lower(
-                ProductVariant.name + " " + ProductVariant.sku
+                ProductVariant.name
+                + literal_column("' '")
+                + ProductVariant.sku
             )
             direct_search_filters = tuple(
                 searchable_text.like(pattern, escape="\\")
