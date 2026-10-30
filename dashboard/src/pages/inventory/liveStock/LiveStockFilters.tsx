@@ -367,7 +367,7 @@ export function LiveStockFilters({
                 </button>
               </div>
             ) : familySearch.trim().length === 1 ? (
-              <div className="live-stock-family-empty" role="status">
+              <div className="live-stock-family-empty">
                 {t("inventoryLive.familySearchMinLength")}
               </div>
             ) : (
