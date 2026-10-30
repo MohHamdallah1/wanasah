@@ -279,22 +279,32 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
   expect(foreignDenied.status).toBe(404);
   expect(JSON.stringify(foreignDenied.body)).not.toContain(b.expectedCost);
 
-  // Reload under the unchanged token. Discovery must discard the saved A2
-  // selection and recover only the still-authorized A1.
-  await page.reload();
-  await expect(stock(page)).toBeVisible();
-  await expectDesktopStock(page, a, a.expectedRemaining);
-  const allowedValues = await stock(page).locator(".live-stock-context-select option")
+  // A fresh genuine login after revocation must discover only A1. The prior
+  // same-token tab already proved that warmed A2 data is hidden on the 403.
+  const browser = page.context().browser();
+  if (!browser) throw new Error("Chromium browser instance unavailable");
+  const cleanContext = await browser.newContext({
+    baseURL: "http://127.0.0.1:4173",
+    viewport: { width: 1360, height: 900 },
+  });
+  const cleanPage = await cleanContext.newPage();
+  await login(cleanPage, {
+    code: a.code,
+    username: a.readerUsername,
+    password: a.readerPassword,
+  }, "en");
+  await expectDesktopStock(cleanPage, a, a.expectedRemaining);
+  const allowedValues = await stock(cleanPage).locator(".live-stock-context-select option")
     .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
   expect(allowedValues).toContain(String(a.warehouseA1));
   expect(allowedValues).not.toContain(String(a.warehouseA2));
 
-  // Exercise Arabic + mobile on the same genuine API-backed session.
-  await page.setViewportSize({ width: 390, height: 780 });
-  await setLocale(page, "ar");
-  await page.reload();
-  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe("rtl");
-  const card = cardFor(page, a.productName);
+  // Exercise Arabic + mobile through the same genuine API-backed clean session.
+  await cleanPage.setViewportSize({ width: 390, height: 780 });
+  await setLocale(cleanPage, "ar");
+  await cleanPage.reload();
+  await expect.poll(() => cleanPage.evaluate(() => document.documentElement.dir)).toBe("rtl");
+  const card = cardFor(cleanPage, a.productName);
   await expect(card).toHaveCount(1);
   await expect(card.locator('[data-cp13-quantity="on-hand"]')).toContainText(
     quantityPattern(a.expectedRemaining),
@@ -318,26 +328,26 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
 
   // A different company logs in through the real login form and sees only its
   // own independent inbound/cost evidence. Company A is not queryable by ID.
-  await page.evaluate(() => {
+  await cleanPage.evaluate(() => {
     localStorage.removeItem("admin_token");
     localStorage.removeItem("refresh_token");
     localStorage.removeItem("principal_id");
     localStorage.removeItem("backoffice_user_id");
   });
-  await page.goto("/login");
-  await setLocale(page, "en");
-  await page.reload();
-  await page.locator("#company-code").fill(b.code);
-  await page.locator("#username").fill(b.ownerUsername);
-  await page.locator("#password").fill(b.ownerPassword);
+  await cleanPage.goto("/login");
+  await setLocale(cleanPage, "en");
+  await cleanPage.reload();
+  await cleanPage.locator("#company-code").fill(b.code);
+  await cleanPage.locator("#username").fill(b.ownerUsername);
+  await cleanPage.locator("#password").fill(b.ownerPassword);
   await Promise.all([
-    page.waitForURL((url) => url.pathname !== "/login"),
-    page.locator('button[type="submit"]').click(),
+    cleanPage.waitForURL((url) => url.pathname !== "/login"),
+    cleanPage.locator('button[type="submit"]').click(),
   ]);
-  await page.setViewportSize({ width: 1360, height: 900 });
-  await page.goto("/inventory");
-  await expect(stock(page)).toBeVisible();
-  const foreignRow = rowFor(page, b.productName);
+  await cleanPage.setViewportSize({ width: 1360, height: 900 });
+  await cleanPage.goto("/inventory");
+  await expect(stock(cleanPage)).toBeVisible();
+  const foreignRow = rowFor(cleanPage, b.productName);
   await expect(foreignRow).toHaveCount(1);
   await expect(foreignRow.locator('[data-cp13-quantity="on-hand"]')).toContainText(
     quantityPattern(b.expectedQuantity),
@@ -348,12 +358,13 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
   );
   await expect(foreignPurchase)
     .toHaveAttribute("title", costPattern(b.expectedCost));
-  await expect(page.getByText(a.productName)).toHaveCount(0);
+  await expect(cleanPage.getByText(a.productName)).toHaveCount(0);
 
   const companyBCrossTenant = await browserFetch(
-    page,
+    cleanPage,
     `/warehouse/inventory/cursor?location_id=${a.warehouseA1}&limit=50`,
   );
   expect(companyBCrossTenant.status).toBe(404);
   expect(JSON.stringify(companyBCrossTenant.body)).not.toContain(a.expectedCost);
+  await cleanContext.close();
 });
