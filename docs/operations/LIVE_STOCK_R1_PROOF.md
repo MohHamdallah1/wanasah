@@ -135,3 +135,42 @@ Conclusion: R1 is reproduced as a read inconsistency. The tested canonical
 movement path conserves physical custody and ledger/value evidence. The overall
 read-integrity gate FAILS and remains a release blocker. This proof branch does
 not implement a correction or authorize editing the lead-owned live_stock.py.
+
+
+## Authorized correction — accepted main c0fe0187
+
+The lead released live_stock.py after F1 was merged. Original reproduction logs
+above are immutable historical evidence and remain linked.
+
+Alternatives considered:
+- A route-local REPEATABLE READ transaction retains the old query plans, but the
+  authenticated request already has an open transaction. Establishing a snapshot
+  requires a separate read session (and capability context) or a transaction
+  restart. Readiness can perform repair and commit, so the snapshot boundary must
+  follow repair and repeat authorization/readiness. This adds session/transaction
+  ownership and round trips to one hot read and risks changing revocation timing.
+  No global isolation or authentication transaction change is acceptable.
+- The implemented bounded statement retains existing candidate/filter builders.
+  It materializes limit+1 candidates and limit detail keys, joins restricted
+  vehicle totals only for those detail keys, and retains indexed UOM/purchase
+  LATERAL enrichment. Candidates, filters, warehouse, vehicle and cost context
+  now use the same PostgreSQL statement snapshot under ordinary READ COMMITTED.
+  The list remains one page, not a snapshot held across cursor requests.
+
+No movement/costing authority, public quantity meaning or vehicle attribution
+changed. The merged F1 batch-detail function is protected by the CI AST scope
+guard. All runtime nodes except get_warehouse_inventory must match the current
+merge-base exactly; only the seven intended files may differ, and deletion fails.
+
+The original four failing test expectations are unchanged. Their instrumentation
+now pauses before/after the combined real statement because the old separate
+SQL boundaries no longer exist. Additional explicit before/after controls cover
+both quantity and sellable eligibility. No skip or xfail was introduced.
+
+The SQL gate creates 50,000 stocked synthetic variants through bounded canonical
+movement/costing batches in the disposable PostgreSQL runner. It captures actual
+emitted SQL, parameters, query counts and EXPLAIN (ANALYZE, BUFFERS) plans for
+1/50/200 pages, next/deep cursors, owner/restricted access, search and common
+filters. Artifacts retain raw plans. It is a synthetic hosted-runner measurement,
+not production capacity certification. Corrected-query acceptance remains OPEN
+until those jobs actually finish and their outputs are reviewed.

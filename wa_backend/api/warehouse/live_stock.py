@@ -1302,94 +1302,69 @@ async def get_warehouse_inventory(
                 sort=sort,
             )
 
-        # Compatibility fields remain nullable; no exact totals on list reads.
-        total = None
-        candidate_rows = (await db.execute(candidate_stmt)).all()
+        # One statement snapshot owns candidate eligibility and all quantities.
+        # Materialize at most limit+1 keys; enrich only the first limit keys.
+        candidates = candidate_stmt.cte("inventory_page_candidates").prefix_with(
+            "MATERIALIZED"
+        )
+        candidate_order = (
+            (candidates.c.variant_name.desc(), candidates.c.id.desc())
+            if sort == "name_desc"
+            else (candidates.c.variant_name.asc(), candidates.c.id.asc())
+        )
+        detail_key_scope = (
+            select(
+                candidates.c.id.label("product_variant_id"),
+                candidates.c.variant_name.label("cursor_name"),
+            )
+            .order_by(*candidate_order)
+            .limit(limit)
+            .cte("inventory_detail_keys")
+            .prefix_with("MATERIALIZED")
+        )
+        page_candidate_count = (
+            select(func.count()).select_from(candidates).scalar_subquery()
+        )
 
-        has_more = len(candidate_rows) > limit
-        page_candidates = candidate_rows[:limit]
-        page_variant_ids = [int(row.id) for row in page_candidates]
-
-        alert_count = None
-        alert_samples: list[str] = []
-
-        if not page_variant_ids:
-            return {
-                "items": [],
-                "next_cursor": None,
-                "has_more": False,
-                "total": total,
-                "alert_count": alert_count,
-                "alert_samples": alert_samples,
-            }
-
-        vehicles: dict[int, Decimal] = {}
+        vehicle_totals = None
         if not company_wide_inventory_read:
             readable_vehicle_locations = _readable_vehicle_locations_subquery(
-                company_id=company_id,
-                access=access,
+                company_id=company_id, access=access,
             )
             latest_vehicle_sources = _latest_readable_vehicle_sources_subquery(
                 company_id=company_id,
                 readable_vehicle_locations=readable_vehicle_locations,
             )
-            vehicle_inventory_stmt = (
+            vehicle_totals = (
                 select(
                     InventoryBalance.product_variant_id,
-                    func.sum(
-                        InventoryBalance.on_hand_quantity
-                    ).label("vehicle_packs"),
+                    func.sum(InventoryBalance.on_hand_quantity).label("vehicle_packs"),
+                )
+                .join(
+                    detail_key_scope,
+                    detail_key_scope.c.product_variant_id
+                    == InventoryBalance.product_variant_id,
                 )
                 .join(
                     readable_vehicle_locations,
-                    readable_vehicle_locations.c.id
-                    == InventoryBalance.location_id,
+                    readable_vehicle_locations.c.id == InventoryBalance.location_id,
                 )
                 .join(
                     latest_vehicle_sources,
                     and_(
                         latest_vehicle_sources.c.vehicle_id
                         == readable_vehicle_locations.c.vehicle_id,
-                        latest_vehicle_sources.c.source_location_id
-                        == location_id,
+                        latest_vehicle_sources.c.source_location_id == location_id,
                     ),
                 )
                 .where(
                     InventoryBalance.company_id == company_id,
                     InventoryBalance.stock_status != "DAMAGED",
-                    _warehouse_array_membership(
-                        InventoryBalance.product_variant_id,
-                        page_variant_ids,
-                        "inventory_vehicle_page_variant_ids",
-                    ),
                     InventoryBalance.on_hand_quantity > 0,
                 )
                 .group_by(InventoryBalance.product_variant_id)
+                .subquery("inventory_readable_vehicle_totals")
             )
-            vehicles = {
-                int(row.product_variant_id): Decimal(
-                    row.vehicle_packs or 0
-                )
-                for row in (
-                    await db.execute(vehicle_inventory_stmt)
-                ).all()
-            }
-
-        # Drive the entire detail read from the bounded page keyset.
-        # The two enrichment lookups are indexed LATERAL seeks (max 200 keys),
-        # not tenant-wide DISTINCT/GROUP scans. Only scalar columns are selected
-        # so the hot path avoids ORM hydration of ProductVariant/UOM/Projection.
-        detail_key_scope = (
-            func.unnest(
-                bindparam(
-                    "inventory_detail_page_variant_ids",
-                    value=page_variant_ids,
-                    type_=ARRAY(Integer),
-                )
-            )
-            .table_valued("product_variant_id")
-            .render_derived(name="inventory_detail_keys")
-        )
 
         purchase_uom = aliased(
             UOM,
@@ -1431,8 +1406,16 @@ async def get_warehouse_inventory(
             alias_prefix="inventory_display_uom",
         )
 
+        visible_vehicle_quantity = (
+            InventoryLiveStockProjection.vehicle_packs
+            if company_wide_inventory_read
+            else vehicle_totals.c.vehicle_packs
+        )
         detail_stmt = (
             select(
+                page_candidate_count.label("page_candidate_count"),
+                detail_key_scope.c.cursor_name,
+                visible_vehicle_quantity.label("visible_vehicle_packs"),
                 ProductVariant.id.label("variant_id"),
                 ProductVariant.name.label("variant_name"),
                 ProductVariant.sku.label("sku"),
@@ -1529,11 +1512,29 @@ async def get_warehouse_inventory(
             )
             .outerjoin(latest_purchase_one, true())
             .outerjoin(display_uom_one, true())
-            .order_by(ProductVariant.name, ProductVariant.id)
+            .order_by(
+                detail_key_scope.c.cursor_name.desc()
+                if sort == "name_desc" else detail_key_scope.c.cursor_name.asc(),
+                ProductVariant.id.desc()
+                if sort == "name_desc" else ProductVariant.id.asc(),
+            )
         )
+        if vehicle_totals is not None:
+            detail_stmt = detail_stmt.outerjoin(
+                vehicle_totals,
+                vehicle_totals.c.product_variant_id == ProductVariant.id,
+            )
         detail_rows = (
             await db.execute(detail_stmt)
         ).mappings().all()
+
+        total = None
+        alert_count = None
+        alert_samples: list[str] = []
+        candidate_count = int(detail_rows[0]["page_candidate_count"]) if detail_rows else 0
+        has_more = candidate_count > limit
+        if len(detail_rows) != min(candidate_count, limit):
+            raise RuntimeError("Inventory page identity invariant violated.")
 
         result = []
         for row in detail_rows:
@@ -1568,11 +1569,7 @@ async def get_warehouse_inventory(
                 on_hand - sellable_on_hand
             ) + explicit_blocked
             recalled = Decimal(row["recalled_packs"] or 0)
-            vehicle_total = (
-                Decimal(row["projected_vehicle_packs"] or 0)
-                if company_wide_inventory_read
-                else vehicles.get(variant_id, Decimal("0"))
-            )
+            vehicle_total = Decimal(row["visible_vehicle_packs"] or 0)
             damaged = Decimal(row["damaged_packs"] or 0)
             minimum_quantity = Decimal(row["minimum_quantity"] or 0)
 
@@ -1715,27 +1712,13 @@ async def get_warehouse_inventory(
                 ),
             })
 
-        if len(result) != len(page_variant_ids):
-            raise RuntimeError(
-                "Inventory page identity invariant violated."
-            )
-
-        result_by_id = {
-            int(item["id"]): item
-            for item in result
-        }
-        result = [
-            result_by_id[variant_id]
-            for variant_id in page_variant_ids
-        ]
-
         next_cursor = None
         if has_more:
-            last_candidate = page_candidates[-1]
+            last_candidate = detail_rows[-1]
             next_cursor = _encode_variant_cursor(
                 kind="warehouse-inventory",
-                variant_name=str(last_candidate.variant_name),
-                variant_id=int(last_candidate.id),
+                variant_name=str(last_candidate["cursor_name"]),
+                variant_id=int(last_candidate["variant_id"]),
                 scope=scope,
             )
 

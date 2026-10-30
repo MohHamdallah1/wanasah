@@ -208,10 +208,14 @@ class PausingReader:
     async def execute(self, statement, *args, **kwargs):
         sql = str(statement.compile(dialect=postgresql.dialect()))
         self.statements.append(sql)
+        combined = "inventory_page_candidates" in sql and "inventory_detail_keys" in sql
+        before = self.boundary in {"candidates", "before-statement"}
+        if combined and before and not self.paused:
+            self.paused = True
+            self.reached.set()
+            await asyncio.wait_for(self.release.wait(), WAIT)
         result = await self.db.execute(statement, *args, **kwargs)
-        marker = ("inventory_vehicle_page_variant_ids" if self.boundary == "vehicle"
-                  else "visible_inventory_candidates")
-        if not self.paused and marker in sql:
+        if combined and not before and not self.paused:
             self.paused = True
             self.reached.set()
             await asyncio.wait_for(self.release.wait(), WAIT)

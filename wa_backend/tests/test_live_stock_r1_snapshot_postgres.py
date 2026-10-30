@@ -44,7 +44,7 @@ async def test_restricted_reader_never_combines_old_vehicle_with_new_warehouse(r
     observed = (D(row["on_hand_quantity"]), D(row["vehicle_quantity"]))
     emit("restricted_snapshot", physical=physical, observed=list(map(str, observed)),
          observed_total=str(sum(observed, D("0"))),
-         paused_after="inventory_vehicle_page_variant_ids",
+         paused_after="combined_inventory_page_statement",
          query_boundary_count=len(statements))
     # Both coherent instants are valid. (20,10) must fail this acceptance gate.
     assert observed in {(D("10"), D("10")), (D("20"), D("0"))}, (
@@ -64,7 +64,7 @@ async def test_sellable_filter_candidates_and_details_share_snapshot(r1case):
         (row["id"], row["available_for_sale_quantity"]) for row in response["items"]
     ]
     emit("sellable_candidate_detail", physical=physical, observed=observed,
-         paused_after="visible_inventory_candidates",
+         paused_before="combined_inventory_page_statement",
          query_boundary_count=len(statements))
     # A before snapshot may include sellable=10; an after snapshot excludes it.
     assert all(D(row["available_for_sale_quantity"]) > D("0")
@@ -132,3 +132,36 @@ async def test_exact_warehouse_vehicle_and_company_read_permissions(r1case):
         assert denied.value.status_code == 403
     emit("exact_read_scope_and_live_revocation", physical=await assert_truth(
         case, warehouse="10", vehicle="10"))
+
+
+@pytest.mark.parametrize("boundary,expected", [
+    ("before-statement", (D("20"), D("0"))),
+    ("after-statement", (D("10"), D("10"))),
+])
+async def test_combined_statement_before_and_after_controls(r1case, boundary, expected):
+    case = r1case
+    response, _ = await raced_read(
+        case, boundary=boundary,
+        command=spec(case, source=case.vehicle_id, destination=case.warehouse_id),
+    )
+    await assert_truth(case, warehouse="20", vehicle="0")
+    row = item(case, response)
+    assert (D(row["on_hand_quantity"]), D(row["vehicle_quantity"])) == expected
+    partition(row)
+
+
+@pytest.mark.parametrize("boundary", ["before-statement", "after-statement"])
+async def test_sellable_filter_before_and_after_controls(r1case, boundary):
+    case = r1case
+    response, _ = await raced_read(
+        case, boundary=boundary, filters={"stock_state": "sellable"},
+        command=spec(case, source=case.warehouse_id, destination=case.vehicle_id),
+    )
+    await assert_truth(case, warehouse="0", vehicle="20")
+    if boundary == "before-statement":
+        assert response["items"] == []
+    else:
+        row = item(case, response)
+        assert D(row["available_for_sale_quantity"]) == D("10")
+        assert D(row["vehicle_quantity"]) == D("10")
+        partition(row)
