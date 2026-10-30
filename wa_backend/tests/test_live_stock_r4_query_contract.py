@@ -37,7 +37,16 @@ def test_r4_search_path_is_page_adaptive_without_frontend_authority():
     assert "search_probe_count > limit" in body
     assert "ProductVariant.id.in_(search_probe_ids)" in body
     assert "searchable_text.like(pattern, escape='\\\\')" in body
-    assert "literal_column("' '")" in body
+    literal_calls = [
+        part
+        for part in ast.walk(node)
+        if isinstance(part, ast.Call)
+        and isinstance(part.func, ast.Name)
+        and part.func.id == "literal_column"
+    ]
+    assert len(literal_calls) == 1
+    assert isinstance(literal_calls[0].args[0], ast.Constant)
+    assert literal_calls[0].args[0].value == "' '"
     assert "union_all(sparse_stmt, broad_stmt)" in body
     assert "inventory_single_search_probe" not in body
 
