@@ -50,13 +50,16 @@ def upgrade() -> None:
 
             RETURN NULL;
         END;
-        $$;
-
+        $$
+        """
+    )
+    op.execute(
+        """
         CREATE TRIGGER trg_live_stock_projection_untrusted_write_guard
         AFTER INSERT OR UPDATE OR DELETE
         ON inventory_live_stock_projection
         FOR EACH ROW
-        EXECUTE FUNCTION public.live_stock_projection_untrusted_write_guard();
+        EXECUTE FUNCTION public.live_stock_projection_untrusted_write_guard()
         """
     )
 
@@ -65,7 +68,11 @@ def downgrade() -> None:
     op.execute(
         """
         DROP TRIGGER IF EXISTS trg_live_stock_projection_untrusted_write_guard
-            ON inventory_live_stock_projection;
-        DROP FUNCTION IF EXISTS public.live_stock_projection_untrusted_write_guard();
+        ON inventory_live_stock_projection
+        """
+    )
+    op.execute(
+        """
+        DROP FUNCTION IF EXISTS public.live_stock_projection_untrusted_write_guard()
         """
     )
