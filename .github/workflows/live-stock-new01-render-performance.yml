@@ -49,6 +49,7 @@ jobs:
 
       - name: Measure NEW-01 branch head
         run: |
+          rm dashboard/src/test/live-stock-render-performance.benchmark.test.tsx
           git checkout --detach "$HEAD_SHA"
           cd dashboard
           LIVE_STOCK_RENDER_PHASE=after npx vitest run src/test/live-stock-render-performance.benchmark.test.tsx --reporter=verbose | tee /tmp/live-stock-render-after.log
