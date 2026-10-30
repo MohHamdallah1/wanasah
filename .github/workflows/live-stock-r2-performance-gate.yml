@@ -1,0 +1,152 @@
+name: Live Stock R2 final 50k performance gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/scripts/gate_r2_live_stock_perf_50k.py"
+      - ".github/workflows/live-stock-r2-performance-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-r2-perf-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-main-r2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: R2PerfIsolatedOnlyKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_r2_perf_50k
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_r2_perf_50k
+      MAIN_SHA: fc8be56c06a30a56570e74596c0808c5d32e8bdb
+      R2_SERVICE_SHA: a2b551990c84fb3c8a485c64ed1964460df7d827
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare exact main and main-plus-R2 trees
+        run: |
+          git worktree add /tmp/wanasah-main "$MAIN_SHA"
+          git worktree add /tmp/wanasah-r2 "$MAIN_SHA"
+          git show "$R2_SERVICE_SHA:wa_backend/domains/live_stock_projection/service.py"             > /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py
+          cp wa_backend/scripts/gate_r2_live_stock_perf_50k.py /tmp/gate_r2_live_stock_perf_50k.py
+
+      - name: Install focused dependencies
+        run: python -m pip install -r /tmp/wanasah-main/wa_backend/requirements.txt alembic
+
+      - name: Compile both code targets and benchmark
+        run: |
+          python -m py_compile             /tmp/wanasah-main/wa_backend/domains/live_stock_projection/service.py             /tmp/wanasah-main/wa_backend/api/warehouse/live_stock.py             /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py             /tmp/wanasah-r2/wa_backend/api/warehouse/live_stock.py             /tmp/gate_r2_live_stock_perf_50k.py
+
+      - name: Provision isolated PostgreSQL 16
+        run: |
+          docker run --detach --name r2-perf-postgres             --env POSTGRES_USER=cp1_admin             --env POSTGRES_DB=wanasah_r2_perf_50k             --env POSTGRES_HOST_AUTH_METHOD=trust             --publish 127.0.0.1:55439:55439             postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec r2-perf-postgres pg_isready -U cp1_admin -d wanasah_r2_perf_50k -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs r2-perf-postgres
+          exit 1
+
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Migrate exact current main
+        working-directory: /tmp/wanasah-main/wa_backend
+        run: alembic upgrade head
+
+      - name: Grant restricted runtime access
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Seed one exact 50k stocked-variant fixture
+        env:
+          WANASAH_CODE_ROOT: /tmp/wanasah-main/wa_backend
+        run: >-
+          python /tmp/gate_r2_live_stock_perf_50k.py
+          seed --fixture /tmp/r2-perf-fixture.json
+
+      - name: Benchmark exact current main
+        env:
+          WANASAH_CODE_ROOT: /tmp/wanasah-main/wa_backend
+        run: >-
+          python /tmp/gate_r2_live_stock_perf_50k.py
+          bench --label main
+          --fixture /tmp/r2-perf-fixture.json
+          --output /tmp/r2-perf-main.json
+
+      - name: Benchmark current main plus exact R2 implementation
+        env:
+          WANASAH_CODE_ROOT: /tmp/wanasah-r2/wa_backend
+        run: >-
+          python /tmp/gate_r2_live_stock_perf_50k.py
+          bench --label r2
+          --fixture /tmp/r2-perf-fixture.json
+          --output /tmp/r2-perf-r2.json
+
+      - name: Compare main versus R2
+        env:
+          WANASAH_CODE_ROOT: /tmp/wanasah-main/wa_backend
+        run: >-
+          python /tmp/gate_r2_live_stock_perf_50k.py
+          compare --main /tmp/r2-perf-main.json
+          --r2 /tmp/r2-perf-r2.json
+          --output /tmp/r2-perf-comparison.json
+
+      - name: Retain benchmark and EXPLAIN evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-final-perf-50k-${{ github.sha }}
+          path: |
+            /tmp/r2-perf-main.json
+            /tmp/r2-perf-r2.json
+            /tmp/r2-perf-comparison.json
+          if-no-files-found: warn
