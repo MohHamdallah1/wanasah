@@ -7,6 +7,7 @@ import subprocess
 from contextlib import asynccontextmanager
 import os
 from pathlib import Path
+from functools import lru_cache
 from time import perf_counter
 
 import pytest
@@ -94,6 +95,7 @@ async def seed_stock(case, target):
     return product_id
 
 
+@lru_cache(maxsize=1)
 def baseline_list():
     """Compile only the immutable accepted-main function; no router registration."""
     source = subprocess.check_output([
@@ -138,11 +140,11 @@ async def measured_page(case, *, owner, filters, strategy="single-statement"):
         kwargs = cursor_kwargs(case, db, **filters)
         if owner:
             kwargs["access"] = case.tenant.owner.access(db)
+        function = live_stock.get_warehouse_inventory if strategy == "single-statement" else baseline_list()
         event.listen(case.pg.runtime_engine.sync_engine, "before_cursor_execute", before)
         event.listen(case.pg.runtime_engine.sync_engine, "after_cursor_execute", after)
         try:
             started = perf_counter()
-            function = live_stock.get_warehouse_inventory if strategy == "single-statement" else baseline_list()
             page = await function(**kwargs)
             elapsed = (perf_counter() - started) * 1000
         finally:
