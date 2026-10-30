@@ -17,7 +17,7 @@ BASELINE_SHA = "1f69d2d8946e027aeea64d518152c4c7bf7bcc13"
 BATCH_ERROR_SHA = "5d36daf3f096937e8af045fc62452c63408e6419"
 # Approved V1 return-cost fidelity wave. Only update_visit is rebased to this
 # immutable source; every other frozen FIELD workflow keeps the older baseline.
-RETURN_COST_SHA = "30e406ba9589ef14829532e0052d5ee5fb8f2141"
+RETURN_COST_SHA = "51a0810cee5e7c13fe7222822e4f68972a6350ba"
 FROZEN_FUNCTIONS = (
     "start_work_session", "end_work_session", "toggle_break", "update_visit",
     "get_driver_dashboard", "respond_to_transfer", "batch_respond_to_transfers",
