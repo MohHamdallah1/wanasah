@@ -130,7 +130,7 @@ jobs:
       - name: Start actual FastAPI server
         working-directory: wa_backend
         run: |
-          python -m uvicorn main:app --host 127.0.0.1 --port 4174 --lifespan off \
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 \
             > /tmp/live-stock-real-api.log 2>&1 &
           echo $! > /tmp/live-stock-real-api.pid
           for attempt in $(seq 1 40); do
