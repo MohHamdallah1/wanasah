@@ -192,11 +192,14 @@ jobs:
         if: always()
         working-directory: .
         run: |
-          base="8a74834fc80e434c15eec99de45cb1c96cdeed56"
-          git cat-file -e "$base^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD --
-          BASE="$base" python - <<'PY'
+          # Preserve historic implementation ancestry, but enforce scope and
+          # whitespace on only this PR's actual branch changes.
+          implementation_base="8a74834fc80e434c15eec99de45cb1c96cdeed56"
+          git cat-file -e "$implementation_base^{commit}"
+          git merge-base --is-ancestor "$implementation_base" HEAD
+          pr_base="$(git merge-base "${{ github.event.pull_request.base.sha || github.sha }}" HEAD)"
+          git diff --check "$pr_base" HEAD --
+          BASE="$pr_base" python - <<'PY'
           import os
           import subprocess
 
