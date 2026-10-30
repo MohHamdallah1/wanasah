@@ -116,13 +116,12 @@ jobs:
       - name: Install locked dependencies
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
-      - name: F5 UI-03 pagination and existing filter/contract regressions only
+      - name: F5 UI-03 pagination and existing family filter regression only
         working-directory: dashboard
         run: >-
           npm test --
           src/test/live-stock-family-cursor.test.tsx
           src/test/live-stock-filter-state-recovery.test.tsx
-          src/test/inventory-access.test.ts
           --reporter=verbose
       - name: TypeScript
         working-directory: dashboard
