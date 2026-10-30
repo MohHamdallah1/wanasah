@@ -1498,6 +1498,10 @@ export const resources = {
         nextWarehouses: "المزيد",
         accessChanged: "الموقع غير متاح أو تغيرت صلاحياتك.",
         refreshAccess: "تحديث المواقع والصلاحيات",
+        loadingVerification: "جارٍ التحقق من صلاحيات الوصول إلى الرصيد الحي. البيانات السابقة غير معروضة.",
+        warmUnverified: "هذه بيانات محفوظة من تحديث سابق وليست رصيداً مؤكداً الآن. يجري التحقق والتحديث.",
+        verifiedFresh: "تم جلب الرصيد الحي من الخادم بعد التحقق من الصلاحيات.",
+        refreshFailed: "تعذر تحديث الرصيد. الأرقام الظاهرة من آخر تحميل ناجح وقد تكون قديمة؛ أعد المحاولة.",
         noWarehouseCreated:
           "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً.",
         createWarehouseFirstNotice:
@@ -3882,6 +3886,10 @@ export const resources = {
         nextWarehouses: "More",
         accessChanged: "This location is unavailable or your permissions changed.",
         refreshAccess: "Refresh locations and permissions",
+        loadingVerification: "Checking Live Stock access. Previous inventory data is hidden.",
+        warmUnverified: "Previously loaded inventory is not verified as current. Access and stock are being checked.",
+        verifiedFresh: "Live stock loaded from the server after access verification.",
+        refreshFailed: "Refresh failed. Displayed figures are from the last successful load and may be outdated. Retry.",
         noWarehouseCreated:
           "The company has no active warehouse yet. Create one in Warehouse Management first.",
         createWarehouseFirstNotice:
