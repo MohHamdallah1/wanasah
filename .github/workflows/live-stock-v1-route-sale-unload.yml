@@ -22,11 +22,11 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: LiveStockRouteSaleUnloadKeyAbc123456789012345678901234567890
-      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55440/wanasah_no_lot_contract_test
-      DATABASE_URL_MIGRATION: postgresql+asyncpg://route_sale_admin@127.0.0.1:55440/wanasah_no_lot_contract_test
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://route_sale_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_GATE: "1"
-      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55440/wanasah_no_lot_contract_test
-      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://route_sale_admin@127.0.0.1:55440/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://route_sale_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
 
     steps:
       - uses: actions/checkout@v4
@@ -54,11 +54,11 @@ jobs:
             --env POSTGRES_USER=route_sale_admin \
             --env POSTGRES_DB=wanasah_no_lot_contract_test \
             --env POSTGRES_HOST_AUTH_METHOD=trust \
-            --publish 127.0.0.1:55440:55440 \
-            postgres:16 -p 55440
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
           for attempt in $(seq 1 30); do
             if docker exec live-stock-route-sale-postgres pg_isready \
-              -U route_sale_admin -d wanasah_no_lot_contract_test -p 55440; then
+              -U route_sale_admin -d wanasah_no_lot_contract_test -p 55439; then
               exit 0
             fi
             sleep 1
