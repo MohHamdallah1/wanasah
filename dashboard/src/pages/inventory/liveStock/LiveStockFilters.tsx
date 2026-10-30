@@ -8,6 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import {
   parseLiveStockFamilies,
   type LiveStockFamilyOption,
@@ -44,12 +45,16 @@ export function LiveStockFilters({
   const [familySearch, setFamilySearch] = useState("");
   const [families, setFamilies] = useState<LiveStockFamilyOption[]>([]);
   const [familyLoading, setFamilyLoading] = useState(false);
+  const [familyError, setFamilyError] = useState<string | null>(null);
+  const [familyRetryKey, setFamilyRetryKey] = useState(0);
+  const [selectedFamilyOption, setSelectedFamilyOption] = useState<LiveStockFamilyOption | null>(null);
   const emittedSearch = useRef("");
 
   useEffect(() => {
     setSearchInput("");
     setFamilySearch("");
     setFamilies([]);
+    setSelectedFamilyOption(null);
     emittedSearch.current = "";
   }, [locationId]);
 
@@ -65,6 +70,10 @@ export function LiveStockFilters({
   }, [onSearchChange, searchInput]);
 
   useEffect(() => {
+    if (familyId === null) setSelectedFamilyOption(null);
+  }, [familyId]);
+
+  useEffect(() => {
     if (alertCount === 0 && stockState === "low_stock") {
       onStockStateChange("all");
     }
@@ -72,13 +81,16 @@ export function LiveStockFilters({
 
   useEffect(() => {
     const clean = familySearch.trim();
+    setFamilies([]);
+    setFamilyError(null);
     if (clean.length === 1) {
-      setFamilies([]);
+      setFamilyLoading(false);
       return;
     }
+
     const controller = new AbortController();
+    setFamilyLoading(true);
     const timer = window.setTimeout(() => {
-      setFamilyLoading(true);
       const params = new URLSearchParams({
         location_id: String(locationId),
         limit: "50",
@@ -97,7 +109,9 @@ export function LiveStockFilters({
             !controller.signal.aborted &&
             !(error instanceof Error && error.name === "AbortError")
           ) {
-            setFamilies([]);
+            setFamilyError(
+              apiErrorMessage(error, t("inventoryLive.errors.familyLoadFailed")),
+            );
           }
         })
         .finally(() => {
@@ -108,11 +122,14 @@ export function LiveStockFilters({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [authFetch, familySearch, locationId]);
+  }, [authFetch, familySearch, familyRetryKey, locationId, t]);
 
   const activeFilterCount = (stockState !== "all" ? 1 : 0) + indicators.length;
   const selectedFamily =
-    familyId === null ? null : families.find((item) => item.id === familyId) ?? null;
+    familyId === null
+      ? null
+      : families.find((item) => item.id === familyId) ??
+        (selectedFamilyOption?.id === familyId ? selectedFamilyOption : null);
 
   const toggleIndicator = (value: LiveStockIndicator) => {
     onIndicatorsChange(
@@ -167,6 +184,7 @@ export function LiveStockFilters({
                 type="button"
                 className="live-stock-filter-option live-stock-filter-option--compact"
                 data-active={stockState === value}
+                aria-pressed={stockState === value}
                 disabled={value === "low_stock" && alertCount === 0}
                 onClick={() => onStockStateChange(value)}
               >
@@ -191,6 +209,7 @@ export function LiveStockFilters({
                 type="button"
                 className="live-stock-filter-chip"
                 data-active={indicators.includes(value)}
+                aria-pressed={indicators.includes(value)}
                 onClick={() => toggleIndicator(value)}
               >
                 {indicators.includes(value) ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
@@ -219,7 +238,10 @@ export function LiveStockFilters({
           <button
             type="button"
             className={`live-stock-family-button ${familyId !== null ? "live-stock-family-button--active" : ""}`}
-            aria-label={t("inventoryLive.familyTitle")}
+            aria-label={selectedFamily
+              ? t("inventoryLive.selectedFamilyLabel", { name: selectedFamily.name })
+              : t("inventoryLive.familyTitle")
+            }
           >
             <span className="live-stock-family-button-label">
               {selectedFamily?.name ?? t("inventoryLive.familyTitle")}
@@ -241,7 +263,10 @@ export function LiveStockFilters({
               <button
                 type="button"
                 className="live-stock-family-clear"
-                onClick={() => onFamilyChange(null)}
+                onClick={() => {
+                  setSelectedFamilyOption(null);
+                  onFamilyChange(null);
+                }}
                 aria-label={t("inventoryLive.clearFamily")}
               >
                 <FilterX className="h-3.5 w-3.5" aria-hidden="true" />
@@ -250,7 +275,20 @@ export function LiveStockFilters({
           </div>
           <div className="live-stock-family-list custom-scrollbar">
             {familyLoading ? (
-              <div className="live-stock-family-empty">{t("common.loading")}</div>
+              <div className="live-stock-family-empty" role="status">{t("common.loading")}</div>
+            ) : familyError ? (
+              <div className="live-stock-family-empty" role="alert">
+                <p>{familyError}</p>
+                <button
+                  type="button"
+                  className="live-stock-family-option"
+                  onClick={() => setFamilyRetryKey((value) => value + 1)}
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+            ) : families.length === 0 ? (
+              <div className="live-stock-family-empty">{t("inventoryLive.familyNoMatches")}</div>
             ) : (
               families.map((family) => (
                 <button
@@ -258,7 +296,11 @@ export function LiveStockFilters({
                   type="button"
                   className="live-stock-family-option"
                   data-active={familyId === family.id}
-                  onClick={() => onFamilyChange(family.id)}
+                  aria-pressed={familyId === family.id}
+                  onClick={() => {
+                    setSelectedFamilyOption(family);
+                    onFamilyChange(family.id);
+                  }}
                 >
                   <span>
                     <strong>{family.name}</strong>
