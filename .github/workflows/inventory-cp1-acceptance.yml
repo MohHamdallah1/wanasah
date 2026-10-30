@@ -197,6 +197,27 @@ jobs:
           head_ref="${PR_HEAD_SHA:-HEAD}"
           merge_base="$(git merge-base "$base_ref" "$head_ref")"
           git diff --check "$merge_base" "$head_ref" --
+          # Negative control: a real added trailing space must still fail
+          # git's unchanged whitespace validator. No repository files changed.
+          python - <<'PY'
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          with tempfile.TemporaryDirectory() as temp:
+              baseline, candidate = Path(temp) / "base", Path(temp) / "candidate"
+              baseline.write_text("old\\n", encoding="utf-8")
+              candidate.write_text("old\\nclean addition\\n", encoding="utf-8")
+              command = ["git", "diff", "--no-index", "--check",
+                         str(baseline), str(candidate)]
+              clean = subprocess.run(command, capture_output=True, text=True)
+              assert "trailing whitespace" not in clean.stdout + clean.stderr
+              candidate.write_text("old\\nbad addition \\n", encoding="utf-8")
+              dirty = subprocess.run(command, capture_output=True, text=True)
+              assert dirty.returncode != 0
+              assert "trailing whitespace" in dirty.stdout + dirty.stderr
+          print("CP1_WHITESPACE_NEGATIVE_CONTROL=PASS")
+          PY
       - name: Current Supplier V1 frontend regressions
         working-directory: dashboard
         run: >-
