@@ -77,6 +77,10 @@ export function Tab1LiveStock({
   );
 
   const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
+  const selectionRead = useRef<{
+    locationId: number; productId: number | null;
+    syncedAt: number | null; wasVisible: boolean;
+  }>({ locationId, productId: null, syncedAt: null, wasVisible: false });
   const listSelected = detail.product
     ? products.find((item) => item.id === detail.product?.id)
     : undefined;
@@ -95,9 +99,21 @@ export function Tab1LiveStock({
   };
 
   useEffect(() => {
-    if (!detail.product) {
+    const current = detail.product;
+    const stamp = lastSync?.getTime() ?? null;
+    const prior = selectionRead.current;
+    if (!current) {
       pendingManualRefresh.current = null;
+      selectionRead.current = {
+        locationId, productId: null, syncedAt: stamp, wasVisible: false,
+      };
       return;
+    }
+    if (prior.locationId !== locationId || prior.productId !== current.id) {
+      selectionRead.current = {
+        locationId, productId: current.id,
+        syncedAt: stamp, wasVisible: Boolean(listSelected),
+      };
     }
 
     const pending = pendingManualRefresh.current;
@@ -111,19 +127,34 @@ export function Tab1LiveStock({
         pendingManualRefresh.current = null;
         return;
       }
-      if (!loading && lastSync?.getTime() !== pending.syncedAt && lastSync) {
+      if (!loading && stamp !== pending.syncedAt && stamp !== null) {
         pendingManualRefresh.current = null;
-        detail.refresh(listSelected ?? detail.product);
+        selectionRead.current = {
+          locationId, productId: current.id,
+          syncedAt: stamp, wasVisible: Boolean(listSelected),
+        };
+        detail.refresh(listSelected ?? current);
       }
       return;
     }
 
-    // Replacing the selected row indicates a new list read. Continuation
-    // pages retain existing row references and must NOT trigger detail fetches.
-    if (!loading && !pageError && listSelected && listSelected !== detail.product) {
-      detail.refresh(listSelected);
+    // An unrelated re-render and cursor append never refresh an open batch.
+    // Revalidate once when a newly fetched list changes (or drops) its
+    // previously visible selected row, without repeatedly fetching on later pages.
+    const previous = selectionRead.current;
+    if (!loading && !pageError && stamp !== previous.syncedAt) {
+      selectionRead.current = {
+        locationId, productId: current.id,
+        syncedAt: stamp, wasVisible: Boolean(listSelected),
+      };
+      if (
+        (listSelected && listSelected !== current) ||
+        (!listSelected && previous.wasVisible)
+      ) {
+        detail.refresh(listSelected ?? current);
+      }
     }
-  }, [detail.product, detail.invalidate, detail.refresh, lastSync, listSelected, locationId, loading, pageError]);
+  }, [detail.product, detail.refresh, lastSync, listSelected, locationId, loading, pageError]);
 
   useEffect(() => {
     const root = scrollRef.current;
