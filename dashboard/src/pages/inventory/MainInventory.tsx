@@ -1380,9 +1380,11 @@ export default function MainInventory() {
     liveReadPhase !== "denied";
   const liveDisclosureKey = accessDenied || liveReadPhase === "denied"
     ? "accessChanged"
+    : access.isError || locationAccess.isError
+      ? "accessRefreshFailed"
     : !liveVisible
       ? (stockPageReady ? "warmUnverified" : "loadingVerification")
-      : liveReadPhase === "failed"
+      : liveReadPhase === "failed" || stockPageError || stockSummaryError
         ? "refreshFailed"
         : liveReadPhase === "fresh"
           ? "verifiedFresh"
@@ -1581,7 +1583,7 @@ export default function MainInventory() {
       )}
       {locationAccess.isError && selectedLocationId !== null && (
         <p role="alert" className="inventory-alert-banner flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm font-bold">
-          {t("inventoryShell.accessChanged")}
+          {t(`inventoryShell.${accessDenied ? "accessChanged" : "accessRefreshFailed"}`)}
           <button
             type="button"
             className="rounded-lg bg-orange-100 px-3 py-1.5 text-orange-800"
@@ -1629,15 +1631,24 @@ export default function MainInventory() {
 
         {activeTab === "live" && selectedLocationId !== null && (
           <div
-            role={accessDenied || liveReadPhase === "denied" ? "alert" : "status"}
+            role={accessDenied && !locationAccess.isError ? "alert" : "status"}
             aria-live={accessDenied || liveReadPhase === "denied" ? "assertive" : "polite"}
             dir={i18n.dir()}
             data-live-authority={liveDisclosureKey}
             className="inventory-alert-banner px-4 py-2 text-sm font-semibold"
           >
             {t(`inventoryShell.${liveDisclosureKey}`)}
-            {liveDisclosureKey === "refreshFailed" && (
-              <button type="button" onClick={retryStockPage}
+            {(liveDisclosureKey === "refreshFailed" ||
+              liveDisclosureKey === "accessRefreshFailed") && (
+              <button type="button" onClick={() => {
+                if (liveDisclosureKey === "accessRefreshFailed") {
+                  void access.refetch();
+                  void locationAccess.refetch();
+                  void fetchLocations();
+                } else {
+                  retryStockPage();
+                }
+              }}
                 className="ms-3 rounded-lg border px-2 py-1"
                 aria-label={t("inventoryShell.retry")}>
                 {t("inventoryShell.retry")}
