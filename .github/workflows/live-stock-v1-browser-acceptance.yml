@@ -66,7 +66,26 @@ jobs:
           name: live-stock-v1-browser-failures
           path: dashboard/node_modules/.cache/live-stock-v1-browser
           if-no-files-found: warn
-      - name: Verify exact scope and whitespace
+      - name: Verify exact scope and whitespace against merge-base
         run: |
-          git diff --check "${{ github.event.pull_request.base.sha || '90ce302c828802a3f4f825c1d3ff9a035e9f27d1' }}" HEAD --
-          git diff --name-only "${{ github.event.pull_request.base.sha || '90ce302c828802a3f4f825c1d3ff9a035e9f27d1' }}" HEAD --
+          git fetch --no-tags origin main
+          base="$(git merge-base HEAD origin/main)"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          expected = {
+              ".github/workflows/live-stock-v1-browser-acceptance.yml",
+              "dashboard/e2e/live-stock-v1.config.ts",
+              "dashboard/e2e/live-stock-v1.fixtures.ts",
+              "dashboard/e2e/live-stock-v1.spec.ts",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+              text=True,
+          ).splitlines())
+          if changed != expected:
+              raise SystemExit(f"LIVE_STOCK_V1_BROWSER_SCOPE=FAIL extra={sorted(changed - expected)} missing={sorted(expected - changed)}")
+          print("LIVE_STOCK_V1_BROWSER_SCOPE=PASS")
+          PY
