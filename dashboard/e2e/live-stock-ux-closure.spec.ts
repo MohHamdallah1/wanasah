@@ -178,8 +178,11 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
     request.path.startsWith("/warehouse/inventory/cursor") &&
     request.path.includes("family_id=21"));
 
+  // 2050 fixture rows contain 1025 Snacks variants. At 50 rows/page that is
+  // exactly 21 filtered requests (initial + 20 continuations).
+  const expectedFamilyRequestCount = 21;
   let guard = 0;
-  while ((await sentinel(page).getAttribute("aria-hidden")) !== "true") {
+  while (familyCursorRequests().length < expectedFamilyRequestCount) {
     guard += 1;
     expect(guard, "cursor continuation must terminate").toBeLessThan(30);
     const beforeFamilyReads = familyCursorRequests().length;
@@ -197,6 +200,7 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
       { timeout: 10000 },
     ).toBeGreaterThan(beforeFamilyReads);
   }
+  await expect(sentinel(page)).toHaveAttribute("aria-hidden", "true");
 
   const familyRequests = familyCursorRequests();
   const cursors = familyRequests.map((request) =>
@@ -261,19 +265,33 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   expect(state.sourceReads[71]).toBe(2);
   expect(state.sourceReads[72]).toBe(2);
 
+  // Refresh through the real user path: close the modal, refresh the list,
+  // reopen bounded batch detail, then reopen source evidence. This proves no
+  // previously opened source is presented as freshly verified after refresh.
+  const batchReadsBeforeRefresh = state.batchReads;
+  const source71ReadsBeforeRefresh = state.sourceReads[71] ?? 0;
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
   const cursorReadsBeforeRefresh = state.cursorReads;
-  await stock(page).locator(".live-stock-context-refresh").click({ force: true });
-  // Manual refresh invalidates source evidence immediately. The list refresh is
-  // the freshness boundary; a user may then reopen the bounded detail read.
-  await expect(dialog.getByText("RES-9001")).toHaveCount(0);
-  await expect(dialog.getByText("RES-9010")).toHaveCount(0);
+  await stock(page).locator(".live-stock-context-refresh").click();
   await expect.poll(() => state.cursorReads).toBeGreaterThan(cursorReadsBeforeRefresh);
 
-  const batchReadsBeforeReopen = state.batchReads;
-  await dialog.getByRole("button", { name: "Close" }).click();
   await openProduct(page);
-  await expect.poll(() => state.batchReads).toBeGreaterThan(batchReadsBeforeReopen);
-  await expect(page.getByRole("dialog").locator("article")).toHaveCount(2);
+  await expect.poll(() => state.batchReads).toBeGreaterThan(batchReadsBeforeRefresh);
+  const refreshedDialog = page.getByRole("dialog");
+  await expect(refreshedDialog.locator("article")).toHaveCount(2);
+  await expect(refreshedDialog.getByText("RES-9001")).toHaveCount(0);
+  await expect(refreshedDialog.getByText("RES-9010")).toHaveCount(0);
+
+  const refreshedSource71 = refreshedDialog
+    .locator("article")
+    .nth(0)
+    .getByRole("button", { name: "Stock source and reservations" });
+  await refreshedSource71.click();
+  await expect.poll(() => state.sourceReads[71] ?? 0)
+    .toBeGreaterThan(source71ReadsBeforeRefresh);
+  await expect(refreshedDialog.getByText("RES-9001")).toBeVisible();
   assertNoUnexpected(state);
 });
 
