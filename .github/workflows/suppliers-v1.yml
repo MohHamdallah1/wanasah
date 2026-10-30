@@ -69,6 +69,9 @@ jobs:
       - name: Diff whitespace gate
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          branch_base="$(git merge-base "$BASE_SHA" HEAD)"
-          git diff --check "$branch_base" HEAD
+          # pull_request checkout uses a synthetic merge commit; diffing HEAD
+          # would incorrectly include unrelated main changes since branch creation.
+          branch_base="$(git merge-base "$BASE_SHA" "$PR_HEAD_SHA")"
+          git diff --check "$branch_base" "$PR_HEAD_SHA"
