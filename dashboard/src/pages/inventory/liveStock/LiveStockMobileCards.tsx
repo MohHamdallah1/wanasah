@@ -8,25 +8,25 @@ import { getLiveStockCp7Copy } from "./i18n";
 
 type Props = {
   products: WarehouseProduct[];
-  totalCount: number;
-  startIndex: number;
-  topSpacerHeight: number;
-  bottomSpacerHeight: number;
-  onItemExtentChange: (height: number) => void;
-  onProductFocus: (productId: number) => void;
-  onProductBlur: (nextTarget: EventTarget | null) => void;
+  totalCount?: number;
+  startIndex?: number;
+  topSpacerHeight?: number;
+  bottomSpacerHeight?: number;
+  onItemExtentChange?: (height: number) => void;
+  onProductFocus?: (productId: number) => void;
+  onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
 };
 
 export function LiveStockMobileCards({
   products,
-  totalCount,
-  startIndex,
-  topSpacerHeight,
-  bottomSpacerHeight,
-  onItemExtentChange,
-  onProductFocus,
-  onProductBlur,
+  totalCount = products.length,
+  startIndex = 0,
+  topSpacerHeight = 0,
+  bottomSpacerHeight = 0,
+  onItemExtentChange = () => undefined,
+  onProductFocus = () => undefined,
+  onProductBlur = () => undefined,
   onOpen,
 }: Props) {
   const { t, i18n } = useTranslation();
@@ -46,7 +46,6 @@ export function LiveStockMobileCards({
       data-testid="live-stock-mobile-cards"
       data-cp13-phone-list="true"
       role="list"
-      aria-setsize={totalCount}
     >
       {topSpacerHeight > 0 ? (
         <div aria-hidden="true" data-live-stock-window-spacer="top" style={{ height: topSpacerHeight }} />
