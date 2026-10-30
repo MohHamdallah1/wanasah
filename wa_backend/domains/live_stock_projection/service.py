@@ -3106,7 +3106,7 @@ async def _rebuild_live_stock_warehouse_locked(
     candidate_source = _warehouse_candidate_variant_query(
         company_id=company_id,
         warehouse_location_id=warehouse_location_id,
-    )
+    ).subquery("live_stock_rebuild_candidates")
     after_variant_id = 0
     candidate_keys = 0
     drifted_keys = 0
