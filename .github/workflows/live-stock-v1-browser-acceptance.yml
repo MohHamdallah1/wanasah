@@ -67,10 +67,11 @@ jobs:
           name: live-stock-v1-browser-failures
           path: dashboard/node_modules/.cache/live-stock-v1-browser
           if-no-files-found: warn
-      - name: Verify exact scope and whitespace against merge-base
+      - name: Verify exact four-file scope from approved starting SHA
         run: |
-          git fetch --no-tags origin main
-          base="$(git merge-base HEAD origin/main)"
+          base="90ce302c828802a3f4f825c1d3ff9a035e9f27d1"
+          git cat-file -e "$base^{commit}"
+          git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD --
           BASE="$base" python - <<'PY'
           import os
