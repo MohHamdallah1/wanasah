@@ -81,7 +81,12 @@ jobs:
       - name: Exact unmodified foundation TypeScript baseline
         run: |
           mkdir baseline
-          git archive --format=tar --output=baseline.tar 822732366b814beab0a6c1690dfcc2e2e249b4ec dashboard
+          # Compare to this PR's actual common ancestor, not an obsolete 2026 foundation.
+          # This preserves zero *new* diagnostics without treating later main changes
+          # as regressions of unrelated purchase-reference or accounting PRs.
+          pr_base="$(git merge-base '${{ github.event.pull_request.base.sha }}' HEAD)"
+          echo "PR_TYPE_BASE=$pr_base"
+          git archive --format=tar --output=baseline.tar "$pr_base" dashboard
           tar -xf baseline.tar -C baseline
       - name: Reject new TypeScript diagnostics
         working-directory: dashboard
@@ -93,4 +98,6 @@ jobs:
         working-directory: dashboard
         run: npm run build
       - name: Exact-base whitespace check
-        run: git diff --check 822732366b814beab0a6c1690dfcc2e2e249b4ec HEAD
+        run: |
+          pr_base="$(git merge-base '${{ github.event.pull_request.base.sha }}' HEAD)"
+          git diff --check "$pr_base" HEAD

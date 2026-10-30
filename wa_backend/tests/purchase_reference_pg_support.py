@@ -6,6 +6,8 @@ from types import SimpleNamespace as NS
 from uuid import uuid4
 
 import pytest_asyncio
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -83,12 +85,18 @@ async def pg():
             ))).one()
             assert tuple(identity) == ("wanasah_purchase_reference_gate", "purchase_reference_runtime", False, False)
         async with AsyncSession(admin, expire_on_commit=False) as db:
-            # The feature foundation may be tested standalone or together
-            # with the independently accepted Product tracking defaults.
-            assert await db.scalar(text("SELECT version_num FROM alembic_version")) in {
-                "f1a6c8e2b940", "b9c5e18a0f42", "c7f3a8e5d912",
-                "e5a7c1d9f042", "e1b7c4d9a203",
-            }
+            # The disposable DB must be at THIS checked-out repository's
+            # canonical migration head; a frozen list of past heads silently
+            # breaks whenever an unrelated accepted migration is added.
+            expected_migration = ScriptDirectory.from_config(
+                Config("alembic.ini")
+            ).get_current_head()
+            actual_migration = await db.scalar(
+                text("SELECT version_num FROM alembic_version")
+            )
+            assert actual_migration == expected_migration, (
+                actual_migration, expected_migration
+            )
             for code in PERMISSIONS:
                 await db.execute(text("INSERT INTO permissions(code) VALUES(:code) ON CONFLICT(code) DO NOTHING"),
                                  {"code": code})

@@ -1,0 +1,170 @@
+name: Live Stock V1 R4 focused query optimization
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/live_stock.py"
+      - "wa_backend/scripts/gate_live_stock_filter_contract.py"
+      - "wa_backend/tests/test_live_stock_v1_r4_query_optimization_postgres.py"
+      - ".github/workflows/live-stock-v1-r4-query-optimization.yml"
+      - ".github/workflows/live-stock-r4-50k-performance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-r4-query-opt-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-pg16-before-after:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: R4QueryOptimizationKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_r2_perf_50k
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_r2_perf_50k
+      WANASAH_CODE_ROOT: ${{ github.workspace }}/wa_backend
+      R4_EVIDENCE_DIR: /tmp/r4-legacy-unused
+      R4_QUERY_OPT_EVIDENCE_DIR: /tmp/r4-query-optimization-evidence
+      R4_QUERY_OPT_PG_GATE: "1"
+      R4_OPT_BASE_SHA: 8a74834fc80e434c15eec99de45cb1c96cdeed56
+      R4_OPT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile changed runtime and focused acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          api/warehouse/live_stock.py
+          tests/test_live_stock_r4_query_contract.py
+          tests/test_live_stock_v1_r4_query_optimization_postgres.py
+
+      - name: Backend-only adaptive search contract
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q
+          tests/test_live_stock_r4_query_contract.py
+
+      - name: Start one disposable PostgreSQL 16 server
+        run: |
+          docker run --detach --name r4-query-opt-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_r2_perf_50k \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec r4-query-opt-postgres pg_isready \
+              -U cp1_admin -d wanasah_r2_perf_50k -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs r4-query-opt-postgres
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh schema and migration parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "INSERT INTO permissions(code) VALUES "
+                  "('inventory.read'), ('inbound.create') "
+                  "ON CONFLICT(code) DO NOTHING"
+              )
+          PY
+
+      - name: One 50k seed - focused changed-query before/after only
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_r4_query_optimization_postgres.py
+          --junitxml=r4-query-opt-postgres.xml
+
+      - name: Reject skips failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("r4-query-opt-postgres.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert cases, "No focused R4 PostgreSQL acceptance executed"
+          assert not list(root.iter("skipped")), "Focused R4 acceptance must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), \
+              "Focused R4 PostgreSQL acceptance failed"
+          print("R4_QUERY_OPT_POSTGRES_EXECUTED=" + str(len(cases)))
+          PY
+
+      - name: Diff check
+        run: git diff --check origin/main...HEAD
+
+      - name: Retain focused SQL and EXPLAIN evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r4-query-optimization-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            /tmp/r4-query-optimization-evidence/
+            wa_backend/r4-query-opt-postgres.xml
+          if-no-files-found: error
