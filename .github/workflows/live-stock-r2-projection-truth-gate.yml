@@ -1,0 +1,99 @@
+name: Live Stock R2 projection truth PostgreSQL gate
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/domains/live_stock_projection/**"
+      - "wa_backend/tests/test_live_stock_r2_projection_truth_postgres.py"
+      - ".github/workflows/live-stock-r2-projection-truth-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-r2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  r2-projection-truth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: R2IsolatedTestOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_R2_PG_GATE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+      - name: Compile R2 files
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          domains/live_stock_projection/service.py
+          tests/test_live_stock_r2_projection_truth_postgres.py
+      - name: Provision isolated PostgreSQL 16
+        run: |
+          docker run --detach --name r2-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec r2-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs r2-postgres
+          exit 1
+      - name: Create restricted database role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted runtime fixtures
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: R2 real PostgreSQL acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_r2_projection_truth_postgres.py
+          --junitxml=r2-projection-truth.xml
+      - name: Retain R2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-projection-truth-${{ github.sha }}
+          path: wa_backend/r2-projection-truth.xml
+          if-no-files-found: warn
