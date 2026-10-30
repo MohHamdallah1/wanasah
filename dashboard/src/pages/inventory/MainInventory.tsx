@@ -308,6 +308,7 @@ export default function MainInventory() {
   const principalId = localStorage.getItem("principal_id") || "";
   const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId, principalId);
   const mountedScopeKey = useRef(warmScopeKey);
+  const [identityChanged, setIdentityChanged] = useState(false);
   const [initialWarmShell] = useState(() =>
     readInventoryShellWarmSnapshot(warmScopeKey),
   );
@@ -390,7 +391,7 @@ export default function MainInventory() {
     localStorage.getItem("principal_id") === principalId &&
     localStorage.getItem("backoffice_user_id") === backofficeUserId &&
     mountedScopeKey.current === warmScopeKey &&
-    warmScopeKey !== null;
+    warmScopeKey !== null && !identityChanged;
   const globalAccessVerified =
     access.isSuccess && access.isFetchedAfterMount &&
     !access.isFetching && !access.isError && matchesSession(access.data);
@@ -445,7 +446,7 @@ export default function MainInventory() {
     }
   }, [access.isSuccess,locationAccess.isSuccess,selectedLocationId,activeTab,tabAllowed,]);
   const accessDenied =
-    [access, locationAccess].some((entry) =>
+    identityChanged || [access, locationAccess].some((entry) =>
       entry.isError && [401, 403, 404].includes(
         Number((entry.error as { status?: unknown } | null)?.status),
       ),
@@ -542,6 +543,32 @@ export default function MainInventory() {
   const stockAbortRef = useRef<AbortController | null>(null);
   const stockSummaryRequestSeq = useRef(0);
   const stockSummaryAbortRef = useRef<AbortController | null>(null);
+  // Another tab may switch the principal/company while this workspace is
+  // mounted. Revoke disclosure and in-flight readers on the storage event.
+  useEffect(() => {
+    const checkSessionScope = () => {
+      const scopeNow = inventoryWarmScopeKey(
+        localStorage.getItem("company_id") || "",
+        localStorage.getItem("backoffice_user_id") || "",
+        localStorage.getItem("principal_id") || "",
+      );
+      if (scopeNow === mountedScopeKey.current) return;
+      authorityRef.current.admitted = false;
+      stockRequestSeq.current += 1;
+      stockAbortRef.current?.abort();
+      stockSummaryRequestSeq.current += 1;
+      stockSummaryAbortRef.current?.abort();
+      clearInventoryWarmScope(mountedScopeKey.current);
+      setIdentityChanged(true);
+    };
+    window.addEventListener("storage", checkSessionScope);
+    window.addEventListener("focus", checkSessionScope);
+    return () => {
+      window.removeEventListener("storage", checkSessionScope);
+      window.removeEventListener("focus", checkSessionScope);
+    };
+  }, []);
+
   const locationRequestSeq = useRef(0);
   const locationAbortRef = useRef<AbortController | null>(null);
   const [warehouseSearchInput, setWarehouseSearchInput] = useState("");
