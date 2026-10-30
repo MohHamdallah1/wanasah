@@ -41,6 +41,7 @@ from tests.test_live_stock_v1_route_sale_unload_postgres import (
     test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth
     as run_route_sale_unload_foundation,
 )
+from tests.test_v1_warehouse_transfer_stocktake_postgres import twice
 from tests.warehouse_transfer_stocktake_support import (
     D,
     OWNER_PASSWORD,
@@ -48,7 +49,6 @@ from tests.warehouse_transfer_stocktake_support import (
     canonical_access,
     command,
     prepare,
-    twice,
 )
 
 pytestmark = [
