@@ -72,6 +72,10 @@
   box-shadow: none;
 }
 
+.inventory-workspace .inventory-top-dock__item[aria-selected="true"]:focus-visible {
+  outline-color: #020617 !important;
+}
+
 .inventory-workspace .inventory-top-dock__label {
   min-width: 0;
   max-width: 100%;

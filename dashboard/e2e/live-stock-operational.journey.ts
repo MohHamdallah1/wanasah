@@ -44,6 +44,11 @@ export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<ty
     await expect(active.locator('[data-cp13-quantity="on-hand"]')).toContainText("125");
     await expect(active.locator('[data-cp13-quantity="available"]')).toContainText("122");
     await shot(p, info, width === 390 ? "restricted-one-warehouse-mobile" : "restricted-one-warehouse-desktop");
+    if (width === 390) {
+      await item(p, state.policyNames[2]).scrollIntoViewIfNeeded();
+      await shot(p, info, "restricted-mobile-policy-statuses");
+      await active.scrollIntoViewIfNeeded();
+    }
   }
   await p.setViewportSize({ width: 1360, height: 900 });
   const title = item(p, state.mainName).locator("td").nth(8).locator("[title]").first();

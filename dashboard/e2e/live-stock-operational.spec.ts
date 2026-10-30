@@ -73,6 +73,10 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
         await op.keyboard.press("Home");
         await expect(rail.getByRole("tab").first()).toBeFocused();
         await expect(stock(op)).toBeVisible();
+        expect(await rail.getByRole("tab").first().evaluate(e => {
+          const style = getComputedStyle(e);
+          return { style: style.outlineStyle, color: style.outlineColor, offset: style.outlineOffset };
+        })).toEqual({ style: "solid", color: "rgb(2, 6, 23)", offset: "-4px" });
         await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("125");
         await expect(item(op, state.mainName).locator('[data-cp13-quantity="available"]')).toContainText("121");
         await shot(op, info, "real-" + v.name + "-bounded-tabs");
