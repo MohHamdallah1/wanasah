@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [movement, snapshot, sql, cp7]
+        part: [movement, snapshot, sql, cp7, http]
     env:
       ENVIRONMENT: test
       SECRET_KEY: R1IsolatedPostgresOnlyKeyAbc1234567890123456789012345
@@ -61,6 +61,7 @@ jobs:
               "wa_backend/tests/live_stock_r1_support.py",
               "wa_backend/tests/test_live_stock_r1_movement_postgres.py",
               "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
+              "wa_backend/tests/test_live_stock_r1_http_postgres.py",
               "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
               ".github/workflows/live-stock-r1-integrity-proof.yml",
               "docs/operations/LIVE_STOCK_R1_PROOF.md",
@@ -81,13 +82,14 @@ jobs:
           print("R1_SCOPE=PASS", sorted(changed))
           PY
       - name: Install focused test dependencies
-        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
       - name: Compile only R1 test files
         working-directory: wa_backend
         run: >-
           python -m py_compile tests/live_stock_r1_support.py
           tests/test_live_stock_r1_movement_postgres.py
           tests/test_live_stock_r1_snapshot_postgres.py
+          tests/test_live_stock_r1_http_postgres.py
           tests/test_live_stock_r1_sql_postgres.py
           api/warehouse/live_stock.py
       - name: Start ephemeral PostgreSQL 16 on this hosted runner
