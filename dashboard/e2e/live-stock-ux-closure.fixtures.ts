@@ -257,7 +257,14 @@ export async function installUxApi(
       });
     }
 
-    if (path === "/warehouse/status") return fulfill(route, { status: "OPEN" });
+    if (path === "/warehouse/status") {
+      return fulfill(route, {
+        status: "ACTIVE",
+        stocktake_session_id: null,
+        stocktake_reference: null,
+        stocktake_status: null,
+      });
+    }
 
     if (path === "/warehouse/inventory/summary") {
       state.summaryReads += 1;
