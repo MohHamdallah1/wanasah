@@ -405,7 +405,9 @@ export default function MainInventory() {
     locationAccessVerified && selectedLocationId !== null &&
     serverVerifiedLocationId === selectedLocationId &&
     locationAccess.can("inventory.read");
-  const canReadStock = liveAuthorityVerified;
+  // Retain the canonical capability predicate and enforce fresh admission
+  // separately; a cached capability alone never exposes the read model.
+  const canReadStock = locationAccess.can('inventory.read');
   const canReadStatus = locationAccessVerified && locationAccess.can("location.read");
   const authorityRef = useRef({ admitted: false, scope: warmScopeKey, location: selectedLocationId });
   authorityRef.current = {
@@ -580,6 +582,12 @@ export default function MainInventory() {
       ? new Date(initialLiveSnapshot.lastSyncMs)
       : null,
   );
+
+  useEffect(() => {
+    if (!liveAuthorityVerified || liveReadPhase !== "denied") return;
+    setLiveReadPhase("initial");
+    setStockPageRetryKey((value) => value + 1);
+  }, [liveAuthorityVerified, liveReadPhase]);
 
   const displayAuditLocked =
     canReadStatus && auditLockState === true;
@@ -902,6 +910,7 @@ export default function MainInventory() {
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
+    if (!liveAuthorityVerified) return;
 
     const requestLocationId = selectedLocationId;
     const requestCursor = stockCursor;
@@ -954,8 +963,8 @@ export default function MainInventory() {
         { signal: requestController.signal }
       );
 
-      if (requestSeq !== stockRequestSeq.current ||
-          !requestStillAuthorized(warmScopeKey, requestLocationId)) return;
+      if (requestSeq !== stockRequestSeq.current) return;
+      if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
       const nextItems = !requestCursor
@@ -1053,12 +1062,13 @@ export default function MainInventory() {
     stockIndicators,
     stockFamilyId,
     canReadStock,
+    liveAuthorityVerified,
     t,
     warmScopeKey,
   ]);
 
   const fetchStockSummary = useCallback(async () => {
-    if (selectedLocationId === null || !canReadStock) {
+    if (selectedLocationId === null || !canReadStock || !liveAuthorityVerified) {
       setStockTotal(null);
       setStockAlertCount(null);
       return;
@@ -1120,6 +1130,7 @@ export default function MainInventory() {
     authFetch,
     selectedLocationId,
     canReadStock,
+    liveAuthorityVerified,
     t,
     warmScopeKey,
   ]);
