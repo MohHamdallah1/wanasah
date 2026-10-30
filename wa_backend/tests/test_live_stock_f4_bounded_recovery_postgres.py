@@ -97,6 +97,19 @@ async def test_f4_bounded_durable_recovery(pg, monkeypatch, due_count):
     tenant = pg.tenants[0]
     counts: list[int] = []
 
+    # These synthetic due rows intentionally omit matching physical stock.
+    # R2 truth parity is covered independently; for this transaction-boundary
+    # proof only, the parity response is controlled, never in production.
+    async def simulated_truth_clean(*, db, company_id, warehouse_location_id,
+                                    computed_for_date):
+        assert company_id == tenant.company_id
+        assert warehouse_location_id == tenant.location_id
+        assert isinstance(computed_for_date, date)
+        return False
+
+    monkeypatch.setattr(projector, "_warehouse_projection_truth_mismatch_exists",
+                        simulated_truth_clean)
+
     async with pg.session() as db:
         location, other_location = await _seed(db, tenant, due_count)
         assert await _due(db, company=tenant.company_id, location=location) == due_count
@@ -193,3 +206,47 @@ async def test_f4_broken_repair_rolls_back_without_false_ready(pg, monkeypatch):
         await db.rollback()
         assert await _due(db, company=tenant.company_id, location=location) == 7
         print("F4_PG_TRANSACTION_ERROR=PASS zero_partial_commit=7")
+
+async def test_f4_r2_truth_error_cannot_commit_or_claim_ready(pg, monkeypatch):
+    """A genuine R2 parity error remains fail-closed after a due-date repair."""
+    if os.getenv("WANASAH_F4_PG_GATE") != "1":
+        pytest.fail("F4 requires explicit isolated PostgreSQL acceptance gate")
+    tenant = pg.tenants[0]
+    async with pg.session() as db:
+        location, other = await _seed(db, tenant, 7)
+
+        async def simulated_projector(session, *, company_id, keys,
+                                      computed_for_date=None, **_options):
+            assert company_id == tenant.company_id
+            assert len(keys) == 7
+            result = await session.execute(text("""
+                UPDATE inventory_live_stock_projection
+                SET next_transition_date = NULL,
+                    computed_for_date = :as_of_date,
+                    revision = revision + 1
+                WHERE company_id = :company
+                  AND warehouse_location_id = :location
+                  AND next_transition_date IS NOT NULL
+            """), {"as_of_date": computed_for_date,
+                    "company": tenant.company_id, "location": location})
+            assert result.rowcount == len(keys)
+
+        async def truth_mismatch(*, db, company_id, warehouse_location_id,
+                                 computed_for_date):
+            assert company_id == tenant.company_id
+            assert warehouse_location_id == location
+            return True
+
+        monkeypatch.setattr(projector, "refresh_live_stock_keys",
+                            simulated_projector)
+        monkeypatch.setattr(projector, "_warehouse_projection_truth_mismatch_exists",
+                            truth_mismatch)
+        with pytest.raises(HTTPException) as response:
+            await live_stock._require_live_stock_read_model_ready(
+                db, company_id=tenant.company_id, location_id=location)
+        assert response.value.status_code == 503
+        assert response.value.detail["code"] == "LIVE_STOCK_PROJECTION_NOT_READY"
+        await db.rollback()
+        assert await _due(db, company=tenant.company_id, location=location) == 7
+        assert await _due(db, company=tenant.company_id, location=other) == 3
+    print("F4_R2_TRUTH_FAILURE=PASS error_not_downgraded=1 rollback=7")
