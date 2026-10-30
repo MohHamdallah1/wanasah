@@ -1,5 +1,6 @@
 import { AlertTriangle, Info } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 import { resolveI18nLocale } from "@/lib/locale";
@@ -10,7 +11,14 @@ import { getLiveStockCp7Copy } from "./i18n";
 
 type Props = {
   products: WarehouseProduct[];
+  totalCount: number;
+  startIndex: number;
+  topSpacerHeight: number;
+  bottomSpacerHeight: number;
   loading: boolean;
+  onItemExtentChange: (height: number) => void;
+  onProductFocus: (productId: number) => void;
+  onProductBlur: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
 };
 
@@ -38,8 +46,27 @@ function HeaderHelp({ text }: { text: string }) {
   );
 }
 
-export function LiveStockTable({ products, loading, onOpen }: Props) {
+export function LiveStockTable({
+  products,
+  totalCount,
+  startIndex,
+  topSpacerHeight,
+  bottomSpacerHeight,
+  loading,
+  onItemExtentChange,
+  onProductFocus,
+  onProductBlur,
+  onOpen,
+}: Props) {
   const { t, i18n } = useTranslation();
+  const measureFirstRow = useCallback(
+    (node: HTMLTableRowElement | null) => {
+      if (!node) return;
+      const height = node.getBoundingClientRect().height;
+      if (height > 0) onItemExtentChange(height);
+    },
+    [onItemExtentChange],
+  );
   const locale = resolveI18nLocale(i18n);
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
 
@@ -73,6 +100,7 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
       className="live-stock-table hidden md:table min-w-[1180px]"
       aria-label={t("inventoryShell.tabs.live")}
       aria-busy={loading}
+      aria-rowcount={totalCount + 1}
       data-cp13-stock-table="compact"
     >
       <thead>
@@ -91,6 +119,11 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
         </tr>
       </thead>
       <tbody>
+        {topSpacerHeight > 0 ? (
+          <tr aria-hidden="true" data-live-stock-window-spacer="top">
+            <td colSpan={10} className="p-0" style={{ height: topSpacerHeight }} />
+          </tr>
+        ) : null}
         {products.map((product, index) => {
           const hasMinimum = compareQuantity(product.minimum_quantity, "0") > 0;
           const isAlert =
@@ -128,6 +161,8 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
           return (
             <tr
               key={product.id}
+              ref={index === 0 ? measureFirstRow : undefined}
+              aria-rowindex={startIndex + index + 2}
               className={`live-stock-row border-b border-slate-100/80 transition-colors ${
                 isAlert ? "bg-red-50/45 hover:bg-red-50/75" : "bg-white hover:bg-slate-50/65"
               }`}
@@ -145,6 +180,12 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
                 <button
                   type="button"
                   onClick={() => onOpen(product)}
+                  onFocus={(event) => {
+                    onProductFocus(product.id);
+                    event.currentTarget.scrollIntoView({ block: "nearest" });
+                  }}
+                  onBlur={(event) => onProductBlur(event.relatedTarget)}
+                  data-live-stock-product-open={product.id}
                   className="max-w-[260px] rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                   aria-label={`${copy.openBatchDetails}: ${product.name}`}
                 >
@@ -209,6 +250,11 @@ export function LiveStockTable({ products, loading, onOpen }: Props) {
             </tr>
           );
         })}
+        {bottomSpacerHeight > 0 ? (
+          <tr aria-hidden="true" data-live-stock-window-spacer="bottom">
+            <td colSpan={10} className="p-0" style={{ height: bottomSpacerHeight }} />
+          </tr>
+        ) : null}
       </tbody>
     </table>
   );
