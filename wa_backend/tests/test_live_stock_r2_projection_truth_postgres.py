@@ -378,6 +378,95 @@ async def test_r2_truth_check_is_company_scoped() -> None:
 
 
 @pytest.mark.asyncio
+async def test_r2_truth_check_is_warehouse_scoped_within_company() -> None:
+    ids = await _prepare_exact_ten()
+    try:
+        company_id = int(ids["a"])
+        primary_warehouse_id = int(ids["a_wh"])
+        variant_id = int(ids["a_variant"])
+
+        async with fixture.SessionSU() as su:
+            await su.begin()
+            secondary_warehouse_id = int(
+                (
+                    await su.execute(
+                        text(
+                            """
+                            INSERT INTO inventory_locations
+                                (company_id, branch_id, name, code,
+                                 location_type, vehicle_id, system_role,
+                                 is_system_managed, version, is_active,
+                                 created_at, updated_at)
+                            SELECT company_id, branch_id,
+                                   'R2 Empty Warehouse', :code,
+                                   'WAREHOUSE', NULL, NULL,
+                                   false, 1, true, NOW(), NOW()
+                            FROM inventory_locations
+                            WHERE company_id=:company_id
+                              AND id=:primary_warehouse_id
+                            RETURNING id
+                            """
+                        ),
+                        {
+                            "company_id": company_id,
+                            "primary_warehouse_id": primary_warehouse_id,
+                            "code": f"R2-EMPTY-{primary_warehouse_id}",
+                        },
+                    )
+                ).scalar_one()
+            )
+            await su.commit()
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await rebuild_live_stock_company(
+                app,
+                company_id=company_id,
+                batch_size=1000,
+            )
+            await app.commit()
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await app.execute(
+                text(
+                    """
+                    DELETE FROM inventory_live_stock_projection
+                    WHERE company_id=:company_id
+                      AND warehouse_location_id=:warehouse_id
+                      AND product_variant_id=:variant_id
+                    """
+                ),
+                {
+                    "company_id": company_id,
+                    "warehouse_id": primary_warehouse_id,
+                    "variant_id": variant_id,
+                },
+            )
+            await app.commit()
+
+        async with fixture.SessionApp() as app:
+            await app.begin()
+            await fixture.set_tenant(app, company_id)
+            await assert_live_stock_projection_ready(
+                app,
+                company_id=company_id,
+                warehouse_location_id=secondary_warehouse_id,
+            )
+            with pytest.raises(LiveStockProjectionError):
+                await assert_live_stock_projection_ready(
+                    app,
+                    company_id=company_id,
+                    warehouse_location_id=primary_warehouse_id,
+                )
+            await app.rollback()
+    finally:
+        await fixture.cleanup_test_companies()
+
+
+@pytest.mark.asyncio
 async def test_r2_concurrent_movement_delta_and_projection_refresh_converge() -> None:
     ids = await _prepare_exact_ten()
     try:
@@ -415,6 +504,9 @@ async def test_r2_concurrent_movement_delta_and_projection_refresh_converge() ->
                     )
                 ).one()
                 movement_row_locked.set()
+                # Force the competing full refresh to enter while the movement
+                # transaction still owns the authoritative balance row.
+                await asyncio.sleep(0.25)
                 metadata.update(
                     {
                         "on_hand_before": Decimal("10"),
