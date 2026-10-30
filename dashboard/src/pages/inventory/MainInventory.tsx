@@ -519,6 +519,8 @@ export default function MainInventory() {
   );
   const [freshPageAdmissionEpoch, setFreshPageAdmissionEpoch] =
     useState<number | null>(null);
+  const [freshSummaryAdmissionEpoch, setFreshSummaryAdmissionEpoch] =
+    useState<number | null>(null);
   const [deniedAdmissionEpoch, setDeniedAdmissionEpoch] =
     useState<number | null>(null);
   useEffect(() => {
@@ -1059,18 +1061,13 @@ export default function MainInventory() {
             items: nextItems,
             nextCursor: data.next_cursor,
             lastSyncMs: syncedAt.getTime(),
-            ...(typeof data.total === "number"
-              ? { matchingTotal: data.total }
-              : {}),
+            matchingTotal: data.total,
           },
         );
       }
       setStockNextCursor(data.next_cursor);
 
-      if (typeof data.total === "number") {
-        setStockMatchingTotal(data.total);
-      }
-
+      setStockMatchingTotal(data.total);
       setLastSync(syncedAt);
     } catch (error: unknown) {
       if (requestSeq !== stockRequestSeq.current ||
@@ -1163,6 +1160,7 @@ export default function MainInventory() {
       const data = parseLiveStockSummary(raw);
       setStockTotal(data.stock_total);
       setStockAlertCount(data.alert_count);
+      setFreshSummaryAdmissionEpoch(requestAdmissionEpoch);
       patchLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -1393,6 +1391,8 @@ export default function MainInventory() {
   const livePageFresh =
     liveReadPhase === "fresh" &&
     freshPageAdmissionEpoch === liveAdmissionEpoch.current;
+  const liveSummaryFresh = liveVisible && !stockSummaryError &&
+    freshSummaryAdmissionEpoch === liveAdmissionEpoch.current;
   const liveDisclosureKey = accessDenied || liveReadPhase === "denied"
     ? "accessChanged"
     : access.isError || locationAccess.isError
@@ -1505,7 +1505,7 @@ export default function MainInventory() {
                 <span className="text-sm font-black">
                   {t("inventoryShell.liveStockCount")}{" "}
                   <span className="inventory-shared-context-count">
-                    {!liveVisible || !livePageFresh || stockTotal === null
+                    {!livePageFresh || !liveSummaryFresh || stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
                           locale,
@@ -1684,7 +1684,7 @@ export default function MainInventory() {
           <Tab1LiveStock
             locationId={selectedLocationId}
             locations={locations}
-            stockTotal={stockTotal}
+            stockTotal={liveSummaryFresh ? stockTotal : null}
             lastSync={lastSync}
             isAuditLocked={displayAuditLocked}
             products={stockItems}
@@ -1698,7 +1698,7 @@ export default function MainInventory() {
               void fetchStatus();
             }}
             onRetryPage={retryStockPage}
-            alertCount={stockAlertCount}
+            alertCount={liveSummaryFresh ? stockAlertCount : null}
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}
             stockState={stockState}
