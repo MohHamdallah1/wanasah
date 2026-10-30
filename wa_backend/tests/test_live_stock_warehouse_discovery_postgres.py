@@ -75,10 +75,12 @@ async def test_inventory_only_and_location_only_grants_do_not_widen_management(p
         assert [item["id"] for item in managed["items"]] == [a.other_location_id]
 
     async with pg.session(1) as db:
+        # The second company's ordinary user has no grants in this fixture.
+        # Denial is the correct behavior, not an empty successful listing.
         other_company = b.ordinary.access(db)
-        other = await _call(db, other_company, selected=a.location_id)
-        assert other["selected"] is None
-        assert all(item["id"] != a.location_id for item in other["items"])
+        with pytest.raises(HTTPException) as denied:
+            await _call(db, other_company, selected=a.location_id)
+        assert denied.value.status_code == 403
 
 
 async def test_owner_can_page_and_search_beyond_200_and_cannot_replay_cursor_scope(pg):
