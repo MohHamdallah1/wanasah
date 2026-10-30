@@ -551,8 +551,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     expect(screen.queryByText(/Truncated list:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Unattributed reserved quantity:/)).not.toBeInTheDocument();
     expect(list.querySelector("a, button")).toBeNull();
-    expect(list).not.toHaveTextContent("701");
-    expect(list).not.toHaveTextContent("702");
+    expect(list.querySelector("[data-transfer-id]")).toBeNull();
   });
 
   it("separates partial known references from unattributed reserved quantity", () => {
