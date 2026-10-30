@@ -30,6 +30,7 @@ from models import (
     InventoryStockPolicy,
     ProductBatch,
     ProductVariant,
+    PriceBookEntry,
     Shop,
     Visit,
     WorkSession,
@@ -395,6 +396,35 @@ async def _status_change(
         )
 
 
+async def _add_carton_price(pg_gate, tenant, carton_uom_id: int) -> None:
+    """Commercial master fixture only; no inventory/cost truth is written."""
+    async with pg_gate.session() as db:
+        base_entry = await db.scalar(
+            select(PriceBookEntry).where(
+                PriceBookEntry.company_id == tenant.company_id,
+                PriceBookEntry.product_variant_id == tenant.variant_id,
+                PriceBookEntry.uom_id == tenant.uom_id,
+                PriceBookEntry.is_published.is_(True),
+            )
+        )
+        assert base_entry is not None
+        db.add(
+            PriceBookEntry(
+                company_id=tenant.company_id,
+                price_book_id=int(base_entry.price_book_id),
+                publication_id=int(base_entry.publication_id),
+                product_variant_id=tenant.variant_id,
+                uom_id=carton_uom_id,
+                amount=Decimal("8"),
+                effectivity=base_entry.effectivity,
+                priority=int(base_entry.priority),
+                is_published=True,
+                entry_metadata={"fixture": "safety-mixed-uom"},
+            )
+        )
+        await db.commit()
+
+
 async def _add_second_shop(pg_gate, tenant, zone_id: int, first_shop_id: int) -> int:
     async with pg_gate.session() as db:
         first = await db.scalar(
@@ -568,6 +598,7 @@ async def test_product_policies_stock_states_field_sales_and_active_unload(pg):
     field = await _seed_mobile_uom_and_field(pg, tenant)
     carton_uom_id = await _seed_carton_conversion(pg, tenant)
     zone_id, first_shop_id = await _seed_commercial_master(pg, tenant, field)
+    await _add_carton_price(pg, tenant, carton_uom_id)
     second_shop_id = await _add_second_shop(
         pg, tenant, zone_id, first_shop_id
     )
