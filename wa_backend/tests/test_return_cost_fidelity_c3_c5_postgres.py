@@ -89,6 +89,8 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
         self.owner = await load_company_owner_fixture(self.db, self.tenant)
         self.actor = self.owner.operational_driver
         self.field = await seed_field_fixture(self.db, self.tenant)
+        self.field_driver_id = self.field_driver_id
+        self.field_context = self.field_context
         self.supplier_id = await seed_receipt_supplier(self.db, self.actor)
         self.warehouse_id = await self.db.scalar(
             text(
@@ -249,7 +251,7 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             visit_id=visit_id,
             payload=sale_request,
             db=self.db,
-            field_context=self.field.context,
+            field_context=self.field_context,
             legacy_actor=self.field.driver,
         )
         self.assertEqual(sale_response["message"], "Visit updated successfully")
@@ -306,7 +308,7 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
                 visit_id=visit_id,
                 payload=bad_correction,
                 db=self.db,
-                field_context=self.field.context,
+                field_context=self.field_context,
                 legacy_actor=self.field.driver,
             )
         self.assertEqual(rejected.exception.status_code, 400)
@@ -368,13 +370,13 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
         async def submit_correction():
             conn, db = await self._new_session()
             try:
-                actor = await db.get(Driver, int(self.field.driver.id))
+                actor = await db.get(Driver, self.field_driver_id)
                 self.assertIsNotNone(actor)
                 return await update_visit(
                     visit_id=visit_id,
                     payload=correction,
                     db=db,
-                    field_context=self.field.context,
+                    field_context=self.field_context,
                     legacy_actor=actor,
                 )
             finally:
@@ -557,13 +559,13 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
         )
         conflict_conn, conflict_db = await self._new_session()
         try:
-            actor = await conflict_db.get(Driver, int(self.field.driver.id))
+            actor = await conflict_db.get(Driver, self.field_driver_id)
             with self.assertRaises(HTTPException) as duplicate:
                 await update_visit(
                     visit_id=visit_id,
                     payload=conflict,
                     db=conflict_db,
-                    field_context=self.field.context,
+                    field_context=self.field_context,
                     legacy_actor=actor,
                 )
             self.assertEqual(duplicate.exception.status_code, 409)
