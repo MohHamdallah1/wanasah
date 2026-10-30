@@ -1,0 +1,47 @@
+name: Live Stock filter-state recovery acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-filter-state-recovery.test.tsx"
+      - ".github/workflows/live-stock-filter-state-recovery-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-filter-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-filter-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install exact locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused Live Stock filter regression (five scenarios)
+        working-directory: dashboard
+        run: npm test -- src/test/live-stock-filter-state-recovery.test.tsx --reporter=verbose
+      - name: Existing Live Stock list/filter parity regression
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-cp7-live-stock-parity.test.tsx --reporter=verbose
+      - name: TypeScript typecheck
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production dashboard build
+        working-directory: dashboard
+        run: npm run build
