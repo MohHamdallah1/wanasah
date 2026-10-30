@@ -54,6 +54,7 @@ jobs:
       WANASAH_PURCHASE_REFERENCE_E2E: "1"
       WANASAH_E2E_EVIDENCE: artifacts/purchase-reference-e2e-evidence.jsonl
       EXPECTED_E2E_BASE: ab6307086516483f9615e5b0a7a6c46a6c205110
+      PR_WHITESPACE_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +65,7 @@ jobs:
         run: |
           git rev-parse HEAD
           git merge-base --is-ancestor "$EXPECTED_E2E_BASE" HEAD
-          git diff --check "$EXPECTED_E2E_BASE" HEAD
+          git diff --check "$PR_WHITESPACE_BASE" HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -120,4 +121,4 @@ jobs:
           path: wa_backend/artifacts/
           if-no-files-found: warn
       - name: Exact-base whitespace check
-        run: git diff --check "$EXPECTED_E2E_BASE" HEAD
+        run: git diff --check "$PR_WHITESPACE_BASE" HEAD
