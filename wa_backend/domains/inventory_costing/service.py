@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Any
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -735,6 +735,157 @@ async def validate_inventory_costing_replays(
                 )
 
 
+
+def _uniform_fifo_sale_unit_cost(
+    event: InventoryCostEvent,
+    allocations: list[InventoryCostAllocation],
+) -> Decimal | None:
+    if not allocations:
+        return None
+    quantity = sum(
+        (Decimal(allocation.quantity) for allocation in allocations),
+        Decimal("0"),
+    )
+    amount = money6(
+        sum(
+            (Decimal(allocation.amount) for allocation in allocations),
+            Decimal("0"),
+        ),
+        "fifo_sale_allocation_total",
+    )
+    if quantity != Decimal(event.quantity) or amount != Decimal(event.total_cost):
+        return None
+    event_unit = money6(event.unit_cost, "sale_unit_cost")
+    for allocation in allocations:
+        allocation_unit = money6(
+            Decimal(allocation.amount) / Decimal(allocation.quantity),
+            "fifo_sale_allocation_unit_cost",
+        )
+        if allocation_unit != event_unit:
+            return None
+    return event_unit
+
+
+async def resolve_linked_return_cost_sources(
+    db: AsyncSession,
+    *,
+    company_id: int,
+    visit_id: int,
+    return_keys: list[tuple[int, int]],
+) -> dict[tuple[int, int], tuple[int, Decimal]]:
+    """Resolve only unambiguous, currently-active original Sale cost evidence.
+
+    A physical Batch match proves which Sale movement delivered the returned
+    goods within this Visit; it never maps that Batch to FIFO purchase layers.
+    Partial FIFO returns are linked only when every allocation in that Sale
+    event has one identical unit cost. Ambiguous cases deliberately return no
+    source so the existing CURRENT_AVERAGE_ESTIMATE policy remains authoritative.
+    """
+    keys = sorted({
+        (int(product_variant_id), int(batch_id))
+        for product_variant_id, batch_id in return_keys
+    })
+    if not keys:
+        return {}
+
+    key_filters = [
+        and_(
+            InventoryMovement.product_variant_id == product_variant_id,
+            InventoryMovement.batch_id == batch_id,
+        )
+        for product_variant_id, batch_id in keys
+    ]
+    rows = (await db.execute(
+        select(InventoryMovement, InventoryCostEvent)
+        .join(
+            InventoryCostEvent,
+            and_(
+                InventoryCostEvent.company_id == InventoryMovement.company_id,
+                InventoryCostEvent.inventory_movement_id == InventoryMovement.id,
+            ),
+        )
+        .where(
+            InventoryMovement.company_id == int(company_id),
+            InventoryMovement.reference_type == "VISIT_ITEM_OUT",
+            InventoryMovement.reference_id == str(int(visit_id)),
+            InventoryMovement.movement_kind == "PHYSICAL",
+            InventoryMovement.source_location_id.is_not(None),
+            InventoryMovement.destination_location_id.is_(None),
+            InventoryCostEvent.event_type == "OUTBOUND",
+            or_(*key_filters),
+        )
+        .order_by(InventoryMovement.id.asc())
+    )).all()
+    if not rows:
+        return {}
+
+    event_ids = [int(event.id) for _movement, event in rows]
+    reversed_event_ids = set(int(value) for value in (await db.scalars(
+        select(InventoryCostEvent.reversal_of_cost_event_id).where(
+            InventoryCostEvent.company_id == int(company_id),
+            InventoryCostEvent.reversal_of_cost_event_id.in_(event_ids),
+        )
+    )).all() if value is not None)
+
+    active_rows = [
+        (movement, event)
+        for movement, event in rows
+        if int(event.id) not in reversed_event_ids
+    ]
+    fifo_event_ids = [
+        int(event.id)
+        for _movement, event in active_rows
+        if str(event.method) == "FIFO"
+    ]
+    allocations_by_event: dict[int, list[InventoryCostAllocation]] = defaultdict(list)
+    if fifo_event_ids:
+        allocations = list((await db.scalars(
+            select(InventoryCostAllocation)
+            .where(
+                InventoryCostAllocation.company_id == int(company_id),
+                InventoryCostAllocation.cost_event_id.in_(fifo_event_ids),
+                InventoryCostAllocation.allocation_type == "CONSUME",
+            )
+            .order_by(
+                InventoryCostAllocation.cost_event_id.asc(),
+                InventoryCostAllocation.id.asc(),
+            )
+        )).all())
+        for allocation in allocations:
+            allocations_by_event[int(allocation.cost_event_id)].append(allocation)
+
+    candidates: dict[
+        tuple[int, int], list[tuple[InventoryMovement, InventoryCostEvent]]
+    ] = defaultdict(list)
+    for movement, event in active_rows:
+        key = (int(movement.product_variant_id), int(movement.batch_id))
+        candidates[key].append((movement, event))
+
+    resolved: dict[tuple[int, int], tuple[int, Decimal]] = {}
+    for key in keys:
+        matches = candidates.get(key, [])
+        if len(matches) != 1:
+            continue
+        movement, event = matches[0]
+        if Decimal(event.quantity) != Decimal(movement.quantity):
+            continue
+        if str(event.method) == "MOVING_AVERAGE":
+            if str(event.cost_basis) != "MOVING_AVERAGE":
+                continue
+        elif str(event.method) == "FIFO":
+            if str(event.cost_basis) != "FIFO_LAYER":
+                continue
+            if _uniform_fifo_sale_unit_cost(
+                event,
+                allocations_by_event.get(int(event.id), []),
+            ) is None:
+                continue
+        else:
+            continue
+        resolved[key] = (int(movement.id), Decimal(movement.quantity))
+    return resolved
+
+
 async def apply_inventory_costing_for_movements(
     db: AsyncSession,
     *,
@@ -822,7 +973,7 @@ async def apply_inventory_costing_for_movements(
                 .where(
                     InventoryCostAllocation.company_id == int(company_id),
                     InventoryCostAllocation.cost_event_id.in_(original_event_ids),
-                    InventoryCostAllocation.allocation_type.in_(("CONSUME", "RESTORE")),
+                    InventoryCostAllocation.allocation_type == "CONSUME",
                 )
                 .order_by(InventoryCostAllocation.cost_event_id.asc(), InventoryCostAllocation.id.asc())
             )).all())
@@ -899,7 +1050,6 @@ async def apply_inventory_costing_for_movements(
             )).all())
             for allocation in allocations:
                 linked_source_allocations[int(allocation.cost_event_id)].append(allocation)
-                layer_ids_to_lock.add(int(allocation.cost_layer_id))
 
     fifo_layers_by_variant: dict[int, list[InventoryCostLayer]] = defaultdict(list)
     layer_by_id: dict[int, InventoryCostLayer] = {}
@@ -981,10 +1131,7 @@ async def apply_inventory_costing_for_movements(
                         and str(original.cost_basis) != LEGACY_FIFO_STATE_BRIDGE_BASIS
                     ):
                         raise CostingError("FIFO_REVERSAL_ALLOCATIONS_MISSING", "FIFO outbound allocations are missing.")
-                    for allocation in (
-                        allocation for allocation in allocations
-                        if str(allocation.allocation_type) == "CONSUME"
-                    ):
+                    for allocation in allocations:
                         layer = layer_by_id[int(allocation.cost_layer_id)]
                         restored_qty = Decimal(layer.remaining_quantity) + Decimal(allocation.quantity)
                         restored_value = money6(Decimal(layer.remaining_value) + Decimal(allocation.amount), "fifo_restored_value")
@@ -1007,71 +1154,19 @@ async def apply_inventory_costing_for_movements(
                 after_v = money6(before_v - total_cost, "inventory_value")
                 event_type = "REVERSAL_OUT"
                 if method == "FIFO":
-                    if str(original.cost_basis) == LINKED_RETURN_COST_BASIS:
-                        restored = [
-                            allocation
-                            for allocation in original_allocations.get(int(original.id), [])
-                            if str(allocation.allocation_type) == "RESTORE"
-                        ]
-                        if not restored:
-                            raise CostingError(
-                                "FIFO_RETURN_RESTORE_ALLOCATIONS_MISSING",
-                                "Linked FIFO return restore allocations are missing.",
-                            )
-                        restored_quantity = sum(
-                            (Decimal(allocation.quantity) for allocation in restored),
-                            Decimal("0"),
+                    layer = source_layer_by_event.get(int(original.id))
+                    if layer is None:
+                        raise CostingError("FIFO_REVERSAL_LAYER_MISSING", "Original inbound FIFO layer is missing.")
+                    if Decimal(layer.remaining_quantity) < quantity or Decimal(layer.remaining_value) < total_cost:
+                        raise CostingError(
+                            "FIFO_REVERSAL_LAYER_ALREADY_CONSUMED",
+                            "The original inbound FIFO layer was already consumed and cannot be reversed exactly.",
                         )
-                        restored_value = money6(
-                            sum(
-                                (Decimal(allocation.amount) for allocation in restored),
-                                Decimal("0"),
-                            ),
-                            "fifo_return_restored_value",
-                        )
-                        if restored_quantity != quantity or restored_value != total_cost:
-                            raise CostingError(
-                                "FIFO_RETURN_RESTORE_RECONCILIATION_FAILED",
-                                "Linked FIFO return allocations do not reconcile with its cost event.",
-                            )
-                        for allocation in restored:
-                            layer = layer_by_id[int(allocation.cost_layer_id)]
-                            alloc_qty = Decimal(allocation.quantity)
-                            alloc_amount = Decimal(allocation.amount)
-                            if (
-                                Decimal(layer.remaining_quantity) < alloc_qty
-                                or Decimal(layer.remaining_value) < alloc_amount
-                            ):
-                                raise CostingError(
-                                    "FIFO_RETURN_RESTORE_ALREADY_CONSUMED",
-                                    "Linked FIFO return value was consumed and cannot be unwound exactly.",
-                                )
-                            layer.remaining_quantity = (
-                                Decimal(layer.remaining_quantity) - alloc_qty
-                            )
-                            layer.remaining_value = money6(
-                                Decimal(layer.remaining_value) - alloc_amount,
-                                "fifo_return_unwind_value",
-                            )
-                            layer.version += 1
-                            layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                            pending_allocations.append(
-                                (None, layer, "UNWIND", alloc_qty, alloc_amount)
-                            )
-                    else:
-                        layer = source_layer_by_event.get(int(original.id))
-                        if layer is None:
-                            raise CostingError("FIFO_REVERSAL_LAYER_MISSING", "Original inbound FIFO layer is missing.")
-                        if Decimal(layer.remaining_quantity) < quantity or Decimal(layer.remaining_value) < total_cost:
-                            raise CostingError(
-                                "FIFO_REVERSAL_LAYER_ALREADY_CONSUMED",
-                                "The original inbound FIFO layer was already consumed and cannot be reversed exactly.",
-                            )
-                        layer.remaining_quantity = Decimal(layer.remaining_quantity) - quantity
-                        layer.remaining_value = money6(Decimal(layer.remaining_value) - total_cost, "fifo_unwind_value")
-                        layer.version += 1
-                        layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                        pending_allocations.append((None, layer, "UNWIND", quantity, total_cost))
+                    layer.remaining_quantity = Decimal(layer.remaining_quantity) - quantity
+                    layer.remaining_value = money6(Decimal(layer.remaining_value) - total_cost, "fifo_unwind_value")
+                    layer.version += 1
+                    layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                    pending_allocations.append((None, layer, "UNWIND", quantity, total_cost))
 
             if after_q == 0 and after_v != Decimal("0.000000"):
                 raise CostingError("INVENTORY_COST_STATE_INCONSISTENT", "Reversal would leave value on zero quantity.")
@@ -1112,22 +1207,56 @@ async def apply_inventory_costing_for_movements(
                         "RETURN_COST_SOURCE_MISSING",
                         "Linked customer return cost source is missing.",
                     )
+                source_event_id = int(source_event.id)
+                source_reversed = await db.scalar(
+                    select(func.count()).select_from(InventoryCostEvent).where(
+                        InventoryCostEvent.company_id == int(company_id),
+                        InventoryCostEvent.reversal_of_cost_event_id == source_event_id,
+                    )
+                )
                 if (
                     str(movement.reference_type) != "VISIT_RETURN_IN"
-                    or str(source_movement.reference_type) != "VISIT_EXCHANGE_OUT"
+                    or str(source_movement.reference_type) != "VISIT_ITEM_OUT"
                     or str(source_movement.reference_id) != str(movement.reference_id)
                     or source_movement.work_session_id != movement.work_session_id
                     or int(source_movement.product_variant_id) != variant_id
-                    or Decimal(source_movement.quantity) != quantity
+                    or int(source_movement.batch_id) != batch_id
+                    or Decimal(source_movement.quantity) < quantity
                     or str(source_event.event_type) != "OUTBOUND"
                     or str(source_event.method) != method
+                    or int(source_reversed or 0) != 1
                 ):
                     raise CostingError(
                         "RETURN_COST_SOURCE_MISMATCH",
-                        "Customer return cost source does not match its canonical exchange movement.",
+                        "Customer return cost source does not match the reversed original Sale movement.",
                     )
+                if method == "MOVING_AVERAGE":
+                    if str(source_event.cost_basis) != "MOVING_AVERAGE":
+                        raise CostingError(
+                            "RETURN_COST_SOURCE_AMBIGUOUS",
+                            "Original moving-average Sale cost evidence is not authoritative.",
+                        )
+                    source_unit_cost = money6(
+                        source_event.unit_cost,
+                        "linked_return_sale_unit_cost",
+                    )
+                else:
+                    if str(source_event.cost_basis) != "FIFO_LAYER":
+                        raise CostingError(
+                            "RETURN_COST_SOURCE_AMBIGUOUS",
+                            "Original FIFO Sale cost evidence is not authoritative.",
+                        )
+                    source_unit_cost = _uniform_fifo_sale_unit_cost(
+                        source_event,
+                        linked_source_allocations.get(source_event_id, []),
+                    )
+                    if source_unit_cost is None:
+                        raise CostingError(
+                            "RETURN_COST_SOURCE_AMBIGUOUS",
+                            "Partial FIFO return cannot be attributed to one exact original Sale unit cost.",
+                        )
                 total_cost = money6(
-                    Decimal(source_event.total_cost),
+                    source_unit_cost * quantity,
                     "linked_return_cost",
                 )
                 after_q = before_q + quantity
@@ -1143,125 +1272,68 @@ async def apply_inventory_costing_for_movements(
                     value_before=before_v,
                     quantity_after=after_q,
                     value_after=after_v,
-                    source_cost_event_id=int(source_event.id),
-                )
-                pending_events.append(event)
-                if method == "FIFO":
-                    allocations = linked_source_allocations.get(
-                        int(source_event.id), []
-                    )
-                    if not allocations:
-                        raise CostingError(
-                            "FIFO_RETURN_SOURCE_ALLOCATIONS_MISSING",
-                            "FIFO exchange allocations are missing for linked customer return.",
-                        )
-                    source_quantity = sum(
-                        (Decimal(allocation.quantity) for allocation in allocations),
-                        Decimal("0"),
-                    )
-                    source_value = money6(
-                        sum(
-                            (Decimal(allocation.amount) for allocation in allocations),
-                            Decimal("0"),
-                        ),
-                        "fifo_return_source_value",
-                    )
-                    if source_quantity != quantity or source_value != total_cost:
-                        raise CostingError(
-                            "FIFO_RETURN_SOURCE_RECONCILIATION_FAILED",
-                            "FIFO exchange allocations do not reconcile with linked return quantity/value.",
-                        )
-                    for allocation in allocations:
-                        layer = layer_by_id[int(allocation.cost_layer_id)]
-                        alloc_qty = Decimal(allocation.quantity)
-                        alloc_amount = Decimal(allocation.amount)
-                        restored_qty = Decimal(layer.remaining_quantity) + alloc_qty
-                        restored_value = money6(
-                            Decimal(layer.remaining_value) + alloc_amount,
-                            "fifo_linked_return_restore_value",
-                        )
-                        if (
-                            restored_qty > Decimal(layer.original_quantity)
-                            or restored_value > Decimal(layer.original_value)
-                        ):
-                            raise CostingError(
-                                "FIFO_RETURN_LAYER_OVERFLOW",
-                                "Linked customer return would restore more than the original FIFO layer.",
-                            )
-                        layer.remaining_quantity = restored_qty
-                        layer.remaining_value = restored_value
-                        layer.version += 1
-                        layer.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-                        if layer not in fifo_layers_by_variant[variant_id]:
-                            fifo_layers_by_variant[variant_id].append(layer)
-                            fifo_layers_by_variant[variant_id].sort(
-                                key=lambda row: (row.created_at, int(row.id))
-                            )
-                        pending_allocations.append(
-                            (event, layer, "RESTORE", alloc_qty, alloc_amount)
-                        )
-                _set_state(state, quantity=after_q, value=after_v)
-                continue
-
-            if str(movement.reference_type) == "INBOUND_SUPPLIER":
-                raw = spec.get("inventory_cost_input")
-                if not isinstance(raw, dict):
-                    raise CostingError(
-                        "INBOUND_COST_REQUIRED",
-                        "Supplier inbound requires actual purchase cost.",
-                        status_code=422,
-                        context={"product_variant_id": variant_id},
-                    )
-                base_qty = _positive_quantity(raw["base_quantity"], "base_quantity")
-                if base_qty != quantity:
-                    raise CostingError("INBOUND_COST_QUANTITY_MISMATCH", "Cost quantity does not match inventory movement quantity.")
-                input_qty = _positive_quantity(raw["input_quantity"], "input_quantity")
-                input_unit_cost = money6(raw["input_unit_cost"], "input_unit_cost")
-                total_cost = money6(input_qty * input_unit_cost, "total_cost")
-                if total_cost != money6(raw["total_cost"], "total_cost"):
-                    raise CostingError("INBOUND_COST_TOTAL_MISMATCH", "Purchase cost total is inconsistent.")
-                after_q = before_q + quantity
-                after_v = money6(before_v + total_cost, "inventory_value")
-                event = _new_event(
-                    company_id=company_id,
-                    movement=movement,
-                    method=method,
-                    event_type="PURCHASE_IN",
-                    cost_basis="PURCHASE_ACTUAL",
-                    total_cost=total_cost,
-                    quantity_before=before_q,
-                    value_before=before_v,
-                    quantity_after=after_q,
-                    value_after=after_v,
-                    input_uom_id=int(raw["input_uom_id"]),
-                    input_quantity=input_qty,
-                    input_unit_cost=input_unit_cost,
+                    source_cost_event_id=source_event_id,
                 )
             else:
-                if before_q <= 0:
-                    raise CostingError(
-                        "COST_BASIS_REQUIRED",
-                        "External inventory increase has no exact/current cost basis.",
-                        context={
-                            "product_variant_id": variant_id,
-                            "reference_type": str(movement.reference_type),
-                        },
+                if str(movement.reference_type) == "INBOUND_SUPPLIER":
+                    raw = spec.get("inventory_cost_input")
+                    if not isinstance(raw, dict):
+                        raise CostingError(
+                            "INBOUND_COST_REQUIRED",
+                            "Supplier inbound requires actual purchase cost.",
+                            status_code=422,
+                            context={"product_variant_id": variant_id},
+                        )
+                    base_qty = _positive_quantity(raw["base_quantity"], "base_quantity")
+                    if base_qty != quantity:
+                        raise CostingError("INBOUND_COST_QUANTITY_MISMATCH", "Cost quantity does not match inventory movement quantity.")
+                    input_qty = _positive_quantity(raw["input_quantity"], "input_quantity")
+                    input_unit_cost = money6(raw["input_unit_cost"], "input_unit_cost")
+                    total_cost = money6(input_qty * input_unit_cost, "total_cost")
+                    if total_cost != money6(raw["total_cost"], "total_cost"):
+                        raise CostingError("INBOUND_COST_TOTAL_MISMATCH", "Purchase cost total is inconsistent.")
+                    after_q = before_q + quantity
+                    after_v = money6(before_v + total_cost, "inventory_value")
+                    event = _new_event(
+                        company_id=company_id,
+                        movement=movement,
+                        method=method,
+                        event_type="PURCHASE_IN",
+                        cost_basis="PURCHASE_ACTUAL",
+                        total_cost=total_cost,
+                        quantity_before=before_q,
+                        value_before=before_v,
+                        quantity_after=after_q,
+                        value_after=after_v,
+                        input_uom_id=int(raw["input_uom_id"]),
+                        input_quantity=input_qty,
+                        input_unit_cost=input_unit_cost,
                     )
-                total_cost = money6(Decimal(state.average_unit_cost) * quantity, "adjustment_cost")
-                after_q = before_q + quantity
-                after_v = money6(before_v + total_cost, "inventory_value")
-                event = _new_event(
-                    company_id=company_id,
-                    movement=movement,
-                    method=method,
-                    event_type="ADJUSTMENT_IN",
-                    cost_basis="CURRENT_AVERAGE_ESTIMATE",
-                    total_cost=total_cost,
-                    quantity_before=before_q,
-                    value_before=before_v,
-                    quantity_after=after_q,
-                    value_after=after_v,
-                )
+                else:
+                    if before_q <= 0:
+                        raise CostingError(
+                            "COST_BASIS_REQUIRED",
+                            "External inventory increase has no exact/current cost basis.",
+                            context={
+                                "product_variant_id": variant_id,
+                                "reference_type": str(movement.reference_type),
+                            },
+                        )
+                    total_cost = money6(Decimal(state.average_unit_cost) * quantity, "adjustment_cost")
+                    after_q = before_q + quantity
+                    after_v = money6(before_v + total_cost, "inventory_value")
+                    event = _new_event(
+                        company_id=company_id,
+                        movement=movement,
+                        method=method,
+                        event_type="ADJUSTMENT_IN",
+                        cost_basis="CURRENT_AVERAGE_ESTIMATE",
+                        total_cost=total_cost,
+                        quantity_before=before_q,
+                        value_before=before_v,
+                        quantity_after=after_q,
+                        value_after=after_v,
+                    )
             pending_events.append(event)
             if method == "FIFO":
                 now = datetime.now(timezone.utc).replace(tzinfo=None)
