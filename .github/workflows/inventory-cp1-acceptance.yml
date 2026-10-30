@@ -189,10 +189,14 @@ jobs:
       - name: Task diff whitespace gate
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          # Inspect only changes introduced by the PR head, not changes
+          # pulled from main into GitHub's synthetic pull_request merge ref.
           base_ref="${PR_BASE_SHA:-origin/main}"
-          merge_base="$(git merge-base "$base_ref" HEAD)"
-          git diff --check "$merge_base" HEAD
+          head_ref="${PR_HEAD_SHA:-HEAD}"
+          merge_base="$(git merge-base "$base_ref" "$head_ref")"
+          git diff --check "$merge_base" "$head_ref" --
       - name: Current Supplier V1 frontend regressions
         working-directory: dashboard
         run: >-
