@@ -232,7 +232,7 @@ async def test_f3_inactive_shelf_life_policy_is_ignored_but_active_policy_blocks
     assert result["destination_status"] == "AVAILABLE"
 
 
-def test_f3_expiry_boundaries_reservation_and_permission_are_exact_decimal():
+async def test_f3_expiry_boundaries_reservation_and_permission_are_exact_decimal():
     from datetime import date
     today = date(2026, 10, 30)
     base = dict(
@@ -293,3 +293,70 @@ def test_f3_expiry_boundaries_reservation_and_permission_are_exact_decimal():
         lifecycle_status="RETIRING",
         operational_hold="NONE",
     )["allowed"] is True
+
+
+async def test_f2_f3_permission_revocation_and_reserved_fractional_bucket(pg):
+    case = await _prepare(pg)
+    await _mutate(pg, case)
+
+    # An exact source bucket can have a fractional reservation. This is
+    # synthetic evidence like the existing CP3 fixture, not a movement change.
+    async with AsyncSession(pg.admin_engine, expire_on_commit=False) as seed:
+        await seed.execute(
+            text("SELECT set_config('app.current_tenant', :company, true)"),
+            {"company": str(case.a.company_id)},
+        )
+        changed = await seed.execute(
+            update(InventoryBalance)
+            .where(
+                InventoryBalance.company_id == case.a.company_id,
+                InventoryBalance.location_id == case.a.location_id,
+                InventoryBalance.product_variant_id == case.a.variant_id,
+                InventoryBalance.batch_id == case.a_batch_id,
+                InventoryBalance.stock_status == "QUARANTINED",
+            )
+            .values(reserved_quantity=Decimal("2.000000"))
+        )
+        assert changed.rowcount == 1
+        await seed.commit()
+
+    source = await _source(pg, case)
+    release = _action(source, "QUARANTINED", "AVAILABLE")
+    assert release["eligible_quantity"] == "0.500001"
+    assert release["allowed"] is True
+
+    async with AsyncSession(pg.admin_engine, expire_on_commit=False) as seed:
+        await seed.execute(
+            text("SELECT set_config('app.current_tenant', :company, true)"),
+            {"company": str(case.a.company_id)},
+        )
+        status_role_ids = (
+            select(role_permissions.c.role_id)
+            .join(Permission, Permission.id == role_permissions.c.permission_id)
+            .where(
+                role_permissions.c.company_id == case.a.company_id,
+                Permission.code == "inventory.status_change",
+            )
+        )
+        removed = await seed.execute(
+            delete(UserLocationAccess).where(
+                UserLocationAccess.company_id == case.a.company_id,
+                UserLocationAccess.driver_id == case.a.ordinary.driver_id,
+                UserLocationAccess.location_id == case.a.location_id,
+                UserLocationAccess.role_id.in_(status_role_ids),
+            )
+        )
+        assert removed.rowcount == 1
+        await seed.commit()
+
+    denied_source = await _source(pg, case)
+    release = _action(denied_source, "QUARANTINED", "AVAILABLE")
+    assert release["allowed"] is False
+    assert release["reason_code"] == "PERMISSION_REQUIRED"
+    assert release["eligible_quantity"] == "0.500001"
+
+    with pytest.raises(HTTPException) as denied:
+        await _mutate(
+            pg, case, source="QUARANTINED", destination="AVAILABLE", quantity="0.500001",
+        )
+    assert denied.value.status_code == 403
