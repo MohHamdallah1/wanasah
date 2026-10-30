@@ -315,4 +315,3 @@ async def test_n2_purchase_date_uses_company_day_without_mutating_cost_evidence(
 
     assert tuple(persisted_after) == tuple(persisted_before)
     assert persisted_after.created_at == utc_created_at
-
