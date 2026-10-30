@@ -1366,9 +1366,77 @@ async def get_warehouse_inventory(
             effective_stock_state == "low_stock"
             and not indicator_filters_active
         )
+        positive_projection_filter_active = any(
+            (
+                effective_stock_state in {"on_hand", "sellable", "low_stock"},
+                has_reserved,
+                has_unavailable,
+                has_damaged,
+                has_recalled,
+                has_vehicle,
+            )
+        )
+        use_negative_projection_antijoin = (
+            not use_alert_fast_path
+            and not positive_projection_filter_active
+            and effective_stock_state in {"all", "out_of_stock"}
+            and (
+                effective_stock_state == "out_of_stock"
+                or minimum_unset
+            )
+        )
+
+        if use_negative_projection_antijoin:
+            negative_projection = aliased(
+                InventoryLiveStockProjection,
+                name="live_stock_negative_projection",
+            )
+            if effective_stock_state == "out_of_stock":
+                positive_sellable_projection = (
+                    select(1)
+                    .select_from(negative_projection)
+                    .where(
+                        negative_projection.company_id == company_id,
+                        negative_projection.warehouse_location_id
+                        == location_id,
+                        negative_projection.product_variant_id
+                        == ProductVariant.id,
+                        negative_projection.warehouse_sellable_on_hand
+                        > negative_projection.warehouse_sellable_reserved,
+                    )
+                    .correlate(ProductVariant)
+                    .exists()
+                )
+                candidate_filters.append(
+                    or_(
+                        ProductVariant.lifecycle_status != "ACTIVE",
+                        ProductVariant.operational_hold != "NONE",
+                        ~positive_sellable_projection,
+                    )
+                )
+            if minimum_unset:
+                configured_minimum_projection = (
+                    select(1)
+                    .select_from(negative_projection)
+                    .where(
+                        negative_projection.company_id == company_id,
+                        negative_projection.warehouse_location_id
+                        == location_id,
+                        negative_projection.product_variant_id
+                        == ProductVariant.id,
+                        negative_projection.minimum_quantity > 0,
+                    )
+                    .correlate(ProductVariant)
+                    .exists()
+                )
+                candidate_filters.append(
+                    ~configured_minimum_projection
+                )
+
         selective_filtered_ids = None
         if (
-            not use_alert_fast_path
+            not use_negative_projection_antijoin
+            and not use_alert_fast_path
             and (
                 effective_stock_state != "all"
                 or indicator_filters_active
