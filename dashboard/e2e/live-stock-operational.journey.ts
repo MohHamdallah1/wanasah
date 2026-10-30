@@ -48,7 +48,7 @@ export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<ty
   await p.setViewportSize({ width: 1360, height: 900 });
   const title = item(p, state.mainName).locator("td").nth(8).locator("[title]").first();
   await expect(title).toHaveText("JOD\u00a024");
-  await expect(item(p, state.mainName).locator("td").nth(9)).toHaveText("JOD\u00a017.6");
+  await expect(item(p, state.mainName).locator("td").nth(9)).toHaveText("JOD\u00a017.600");
   await expect(title).toHaveAttribute("title", /JOD.*Carton/);
   const date = await p.evaluate((date) => new Intl.DateTimeFormat("en", {
     year: "numeric", month: "2-digit", day: "2-digit", numberingSystem: "latn", timeZone: "UTC",
@@ -108,6 +108,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await shot(p, info, "open-dialog-fresh-reservation-and-source");
   await p.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
+  await expect(item(p, state.mainName).locator('[data-cp13-quantity="available"]')).toContainText("121");
   await expect(p.locator('[data-live-stock-product-open="' + state.mainId + '"]')).toBeFocused();
 }
 
@@ -134,6 +135,7 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   await list.evaluate(e => { e.scrollTop = e.scrollHeight; });
   await expect(stock(p).locator('[data-cp13-state="stale"]')).toBeVisible();
   await failPage();
+  await expect(stock(p).locator(".live-stock-context-count strong")).toHaveText("109");
   const preserved = log.pages.filter(x => new URL(x.url).searchParams.get("search")?.toLowerCase() === "paging");
   expect(preserved[0].ids).toHaveLength(50);
   await stock(p).locator('[data-cp13-state="stale"]').getByRole("button", { name: "Retry", exact: true }).click();

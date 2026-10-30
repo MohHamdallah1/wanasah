@@ -395,4 +395,3 @@ export const visualCases: Array<{
   { name: "mobile-ar-light", locale: "ar", theme: "light", width: 390, height: 844, mobile: true },
   { name: "tablet-en-light", locale: "en", theme: "light", width: 900, height: 760, mobile: false },
 ];
-
