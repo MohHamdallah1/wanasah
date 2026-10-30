@@ -101,19 +101,6 @@ async def test_f4_bounded_durable_recovery(pg, monkeypatch, due_count):
     tenant = pg.tenants[0]
     counts: list[int] = []
 
-    # These synthetic due rows intentionally omit matching physical stock.
-    # R2 truth parity is covered independently; for this transaction-boundary
-    # proof only, the parity response is controlled, never in production.
-    async def simulated_truth_clean(*, db, company_id, warehouse_location_id,
-                                    computed_for_date):
-        assert company_id == tenant.company_id
-        assert warehouse_location_id == tenant.location_id
-        assert isinstance(computed_for_date, date)
-        return False
-
-    monkeypatch.setattr(projector, "_warehouse_projection_truth_mismatch_exists",
-                        simulated_truth_clean)
-
     async with pg.session() as db:
         location, other_location = await _seed(db, tenant, due_count)
         assert await _due(db, company=tenant.company_id, location=location) == due_count
@@ -241,21 +228,34 @@ async def test_f4_r2_truth_error_cannot_commit_or_claim_ready(pg, monkeypatch):
             assert result.rowcount == len(keys)
             await projector._set_projection_write_trusted(session, trusted=False)
 
-        async def truth_mismatch(*, db, company_id, warehouse_location_id,
-                                 computed_for_date):
-            assert company_id == tenant.company_id
-            assert warehouse_location_id == location
-            return True
+        # R2 deliberately keeps expensive parity checks in its rebuild
+        # gate, not on every readiness call. Inject that distinct failure
+        # class only AFTER the real readiness check clears due transitions:
+        # the F4 branch must roll back, not mistake truth drift for more due.
+        real_readiness = live_stock.assert_live_stock_projection_ready
+        truth_checks = 0
+
+        async def fail_after_real_readiness(session, *, company_id,
+                                            warehouse_location_id):
+            nonlocal truth_checks
+            verified = await real_readiness(
+                session, company_id=company_id,
+                warehouse_location_id=warehouse_location_id)
+            assert verified is not None
+            truth_checks += 1
+            raise projector.LiveStockProjectionTruthError(
+                "R2 authoritative parity failure simulated after due clear")
 
         monkeypatch.setattr(projector, "refresh_live_stock_keys",
                             simulated_projector)
-        monkeypatch.setattr(projector, "_warehouse_projection_truth_mismatch_exists",
-                            truth_mismatch)
+        monkeypatch.setattr(live_stock, "assert_live_stock_projection_ready",
+                            fail_after_real_readiness)
         with pytest.raises(HTTPException) as response:
             await live_stock._require_live_stock_read_model_ready(
                 db, company_id=tenant.company_id, location_id=location)
         assert response.value.status_code == 503
         assert response.value.detail["code"] == "LIVE_STOCK_PROJECTION_NOT_READY"
+        assert truth_checks == 1
         await db.rollback()
         assert await _due(db, company=tenant.company_id, location=location) == 7
         assert await _due(db, company=tenant.company_id, location=other) == 3
