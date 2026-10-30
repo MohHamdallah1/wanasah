@@ -36,7 +36,16 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from context import tenant_context  # noqa: E402
 from database import AsyncSessionLocal, engine  # noqa: E402
-from models import Driver  # noqa: E402
+from domains.auth_sessions.context import DashboardRequestContext  # noqa: E402
+from domains.authorization.backoffice_access import (  # noqa: E402
+    BackofficeCapabilityAccess,
+    BackofficeCapabilityAccessRejected,
+)
+from domains.authorization.backoffice_subject import (  # noqa: E402
+    resolve_backoffice_authorization_subject,
+)
+from domains.identity.models import BackofficeUser, CompanyOwner, CompanyPrincipal  # noqa: E402
+from domains.identity.types import PrincipalType  # noqa: E402
 from api.warehouse.live_stock import (  # noqa: E402
     get_warehouse_inventory,
     get_warehouse_inventory_alert_summary,
@@ -128,72 +137,153 @@ def walk_plan(node: dict[str, Any], *, findings: list[dict[str, Any]]) -> None:
         walk_plan(child, findings=findings)
 
 
-async def load_driver(db, company_id: int, driver_id: int) -> Driver:
-    driver = await db.scalar(
-        select(Driver).where(
-            Driver.id == driver_id,
-            Driver.company_id == company_id,
-            Driver.is_active.is_(True),
+async def load_backoffice_access(
+    db,
+    *,
+    company_id: int,
+    backoffice_user_id: int,
+    location_id: int,
+) -> tuple[BackofficeCapabilityAccess, DashboardRequestContext]:
+    """Resolve one persisted Dashboard identity through the canonical access seam."""
+    row = (
+        await db.execute(
+            select(BackofficeUser, CompanyPrincipal)
+            .join(
+                CompanyPrincipal,
+                (CompanyPrincipal.company_id == BackofficeUser.company_id)
+                & (CompanyPrincipal.id == BackofficeUser.principal_id),
+            )
+            .where(
+                BackofficeUser.company_id == company_id,
+                BackofficeUser.id == backoffice_user_id,
+                BackofficeUser.principal_type == PrincipalType.BACKOFFICE.value,
+                CompanyPrincipal.company_id == company_id,
+                CompanyPrincipal.principal_type == PrincipalType.BACKOFFICE.value,
+                CompanyPrincipal.is_active.is_(True),
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise RuntimeError("Active Backoffice benchmark identity not found.")
+
+    profile, principal = row
+    owner_backoffice_user_id = await db.scalar(
+        select(CompanyOwner.backoffice_user_id).where(
+            CompanyOwner.company_id == company_id
         )
     )
-    if driver is None:
-        raise RuntimeError("Active benchmark driver not found.")
-    return driver
+    context = DashboardRequestContext(
+        principal_id=int(principal.id),
+        company_id=company_id,
+        backoffice_user_id=int(profile.id),
+        auth_revision=int(principal.auth_revision),
+        is_company_owner=(
+            owner_backoffice_user_id is not None
+            and int(owner_backoffice_user_id) == int(profile.id)
+        ),
+    )
+    subject = await resolve_backoffice_authorization_subject(db, context)
+    access = BackofficeCapabilityAccess(db=db, subject=subject)
+    try:
+        await access.require("inventory.read", location_id=location_id)
+    except BackofficeCapabilityAccessRejected as exc:
+        raise RuntimeError(
+            "Backoffice benchmark identity lacks inventory.read for this warehouse."
+        ) from exc
+    return access, context
+
+
+def inventory_page_kwargs(
+    *,
+    db,
+    access: BackofficeCapabilityAccess,
+    location_id: int,
+    limit: int,
+    cursor: str | None,
+    search: str | None,
+    only_alerts: bool,
+) -> dict[str, Any]:
+    return {
+        "location_id": location_id,
+        "cursor": cursor,
+        "limit": limit,
+        "search": search,
+        "only_alerts": only_alerts,
+        "stock_state": "all",
+        "family_id": None,
+        "has_reserved": False,
+        "has_unavailable": False,
+        "has_damaged": False,
+        "has_recalled": False,
+        "has_vehicle": False,
+        "minimum_unset": False,
+        "sort": "name_asc",
+        "db": db,
+        "access": access,
+    }
 
 
 async def run_scenario(
     *,
     db,
-    driver: Driver,
+    access: BackofficeCapabilityAccess,
     scenario: str,
     location_id: int,
     limit: int,
     search: str,
     cursor: str | None,
 ) -> dict[str, Any]:
-    if scenario == "live":
+    if scenario in {"live", "only-alerts", "search"}:
         return await get_warehouse_inventory(
-            location_id=location_id,
-            cursor=cursor,
-            limit=limit,
-            search=None,
-            only_alerts=False,
-            db=db,
-            current_admin=driver,
+            **inventory_page_kwargs(
+                db=db,
+                access=access,
+                location_id=location_id,
+                limit=limit,
+                cursor=cursor,
+                search=search if scenario == "search" else None,
+                only_alerts=scenario == "only-alerts",
+            )
         )
     if scenario == "alerts":
         return await get_warehouse_inventory_alert_summary(
             location_id=location_id,
             db=db,
-            current_admin=driver,
+            access=access,
         )
     if scenario == "summary":
         return await get_warehouse_inventory_summary(
             location_id=location_id,
             db=db,
-            current_admin=driver,
-        )
-    if scenario == "only-alerts":
-        return await get_warehouse_inventory(
-            location_id=location_id,
-            cursor=cursor,
-            limit=limit,
-            search=None,
-            only_alerts=True,
-            db=db,
-            current_admin=driver,
-        )
-    if scenario == "search":
-        return await get_warehouse_inventory(
-            location_id=location_id,
-            cursor=cursor,
-            limit=limit,
-            search=search,
-            only_alerts=False,
-            db=db,
-            current_admin=driver,
+            access=access,
         )
     raise RuntimeError(f"Unsupported scenario: {scenario}")
+
+
+async def capture_endpoint_call(capture_engine, operation):
+    bucket: list[dict[str, Any]] = []
+    capture_token = CAPTURE.set(bucket)
+    event.listen(capture_engine.sync_engine, "before_cursor_execute", before_cursor_execute)
+    event.listen(capture_engine.sync_engine, "after_cursor_execute", after_cursor_execute)
+    try:
+        started = time.perf_counter()
+        payload = await operation()
+        endpoint_ms = (time.perf_counter() - started) * 1000
+    finally:
+        event.remove(
+            capture_engine.sync_engine,
+            "before_cursor_execute",
+            before_cursor_execute,
+        )
+        event.remove(
+            capture_engine.sync_engine,
+            "after_cursor_execute",
+            after_cursor_execute,
+        )
+        CAPTURE.reset(capture_token)
+    return payload, endpoint_ms, bucket
+
+
 
 
 async def explain_statement(db, statement: str, parameters: Any) -> dict[str, Any]:
@@ -224,14 +314,115 @@ async def explain_statement(db, statement: str, parameters: Any) -> dict[str, An
     }
 
 
-async def async_main(args: argparse.Namespace) -> None:
-    event.listen(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
-    event.listen(engine.sync_engine, "after_cursor_execute", after_cursor_execute)
+async def profile_scenario(
+    *,
+    db,
+    capture_engine,
+    access: BackofficeCapabilityAccess,
+    scenario: str,
+    location_id: int,
+    limit: int,
+    search: str,
+    cursor_page: int,
+    top: int,
+) -> dict[str, Any]:
+    cursor = None
+    if cursor_page == 2:
+        first = await get_warehouse_inventory(
+            **inventory_page_kwargs(
+                db=db,
+                access=access,
+                location_id=location_id,
+                limit=limit,
+                cursor=None,
+                search=search if scenario == "search" else None,
+                only_alerts=scenario == "only-alerts",
+            )
+        )
+        cursor = first.get("next_cursor")
+        if not cursor:
+            raise RuntimeError("No second-page cursor available.")
 
+    payload, endpoint_ms, bucket = await capture_endpoint_call(
+        capture_engine,
+        lambda: run_scenario(
+            db=db,
+            access=access,
+            scenario=scenario,
+            location_id=location_id,
+            limit=limit,
+            search=search,
+            cursor=cursor,
+        ),
+    )
+
+    statements = [
+        item
+        for item in bucket
+        if str(item["statement"]).lstrip().upper().startswith(("SELECT", "WITH"))
+        and "SET_CONFIG" not in str(item["statement"]).upper()
+    ]
+    statements.sort(key=lambda item: item["duration_ms"], reverse=True)
+
+    explanations = []
+    for rank, row in enumerate(statements[:top], 1):
+        try:
+            explained = await explain_statement(
+                db,
+                str(row["statement"]),
+                row["parameters"],
+            )
+            explanations.append(
+                {
+                    "rank": rank,
+                    "original_duration_ms": row["duration_ms"],
+                    "statement": row["statement_one_line"],
+                    "parameters": clean_json(row["parameters"]),
+                    **explained,
+                }
+            )
+        except Exception as exc:
+            await db.rollback()
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :c, false)"),
+                {"c": str(access.company_id)},
+            )
+            explanations.append(
+                {
+                    "rank": rank,
+                    "original_duration_ms": row["duration_ms"],
+                    "statement": row["statement_one_line"],
+                    "parameters": clean_json(row["parameters"]),
+                    "plan_error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+
+    return {
+        "endpoint_ms": endpoint_ms,
+        "payload_items": (
+            len(payload.get("items", []))
+            if isinstance(payload, dict) and isinstance(payload.get("items"), list)
+            else None
+        ),
+        "sql_statement_count": len(statements),
+        "captured_sql": [
+            {
+                "rank": i + 1,
+                "duration_ms": row["duration_ms"],
+                "statement": row["statement_one_line"],
+                "parameters": clean_json(row["parameters"]),
+            }
+            for i, row in enumerate(statements)
+        ],
+        "explanations": explanations,
+    }
+
+
+async def async_main(args: argparse.Namespace) -> None:
     tenant_token = tenant_context.set(args.company_id)
     report: dict[str, Any] = {
         "company_id": args.company_id,
-        "driver_id": args.driver_id,
+        "backoffice_user_id": args.backoffice_user_id,
         "location_id": args.location_id,
         "scenario": args.scenario,
         "limit": args.limit,
@@ -244,7 +435,14 @@ async def async_main(args: argparse.Namespace) -> None:
                 text("SELECT set_config('app.current_tenant', :c, false)"),
                 {"c": str(args.company_id)},
             )
-            driver = await load_driver(db, args.company_id, args.driver_id)
+            access, dashboard_context = await load_backoffice_access(
+                db,
+                company_id=args.company_id,
+                backoffice_user_id=args.backoffice_user_id,
+                location_id=args.location_id,
+            )
+            report["principal_id"] = dashboard_context.principal_id
+            report["is_company_owner"] = dashboard_context.is_company_owner
 
             server_info = {}
             for key in (
@@ -265,97 +463,19 @@ async def async_main(args: argparse.Namespace) -> None:
                     server_info[key] = f"UNAVAILABLE:{type(exc).__name__}"
             report["postgres"] = server_info
 
-            cursor = None
-            if args.cursor_page == 2:
-                first = await get_warehouse_inventory(
-                    location_id=args.location_id,
-                    cursor=None,
-                    limit=args.limit,
-                    search=None if args.scenario != "search" else args.search,
-                    only_alerts=args.scenario == "only-alerts",
+            report.update(
+                await profile_scenario(
                     db=db,
-                    current_admin=driver,
-                )
-                cursor = first.get("next_cursor")
-                if not cursor:
-                    raise RuntimeError("No second-page cursor available.")
-
-            bucket: list[dict[str, Any]] = []
-            capture_token = CAPTURE.set(bucket)
-            try:
-                started = time.perf_counter()
-                payload = await run_scenario(
-                    db=db,
-                    driver=driver,
+                    capture_engine=engine,
+                    access=access,
                     scenario=args.scenario,
                     location_id=args.location_id,
                     limit=args.limit,
                     search=args.search,
-                    cursor=cursor,
+                    cursor_page=args.cursor_page,
+                    top=args.top,
                 )
-                endpoint_ms = (time.perf_counter() - started) * 1000
-            finally:
-                CAPTURE.reset(capture_token)
-
-            statements = [
-                item
-                for item in bucket
-                if str(item["statement"]).lstrip().upper().startswith(("SELECT", "WITH"))
-                and "SET_CONFIG" not in str(item["statement"]).upper()
-            ]
-            statements.sort(key=lambda item: item["duration_ms"], reverse=True)
-
-            report["endpoint_ms"] = endpoint_ms
-            report["payload_items"] = (
-                len(payload.get("items", []))
-                if isinstance(payload, dict) and isinstance(payload.get("items"), list)
-                else None
             )
-            report["sql_statement_count"] = len(statements)
-            report["captured_sql"] = [
-                {
-                    "rank": i + 1,
-                    "duration_ms": row["duration_ms"],
-                    "statement": row["statement_one_line"],
-                    "parameters": clean_json(row["parameters"]),
-                }
-                for i, row in enumerate(statements)
-            ]
-
-            explanations = []
-            for rank, row in enumerate(statements[: args.top], 1):
-                try:
-                    explained = await explain_statement(
-                        db,
-                        str(row["statement"]),
-                        row["parameters"],
-                    )
-                    explanations.append(
-                        {
-                            "rank": rank,
-                            "original_duration_ms": row["duration_ms"],
-                            "statement": row["statement_one_line"],
-                            "parameters": clean_json(row["parameters"]),
-                            **explained,
-                        }
-                    )
-                except Exception as exc:
-                    await db.rollback()
-                    await db.execute(
-                        text("SELECT set_config('app.current_tenant', :c, false)"),
-                        {"c": str(args.company_id)},
-                    )
-                    explanations.append(
-                        {
-                            "rank": rank,
-                            "original_duration_ms": row["duration_ms"],
-                            "statement": row["statement_one_line"],
-                            "parameters": clean_json(row["parameters"]),
-                            "plan_error": f"{type(exc).__name__}: {exc}",
-                        }
-                    )
-
-            report["explanations"] = explanations
 
             pgss = {"available": False}
             try:
@@ -376,8 +496,6 @@ async def async_main(args: argparse.Namespace) -> None:
 
     finally:
         tenant_context.reset(tenant_token)
-        event.remove(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
-        event.remove(engine.sync_engine, "after_cursor_execute", after_cursor_execute)
 
     reports_dir = BACKEND_ROOT / "perf_reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
@@ -430,7 +548,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--company-id", type=int, required=True)
-    parser.add_argument("--driver-id", type=int, required=True)
+    parser.add_argument("--backoffice-user-id", type=int, required=True)
     parser.add_argument("--location-id", type=int, required=True)
     parser.add_argument(
         "--scenario",
