@@ -14,12 +14,13 @@ vi.mock("@/components/ui/popover", () => ({
     <div dir={dir}>{children}</div>
   ),
 }));
+const translate = (key: string, options?: { name?: string; count?: number }) =>
+  options?.name ? `${key}: ${options.name}` :
+  options?.count !== undefined ? `${key}: ${options.count}` : key;
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
-    t: (key: string, options?: { name?: string; count?: number }) =>
-      options?.name ? `${key}: ${options.name}` :
-      options?.count !== undefined ? `${key}: ${options.count}` : key,
+    t: translate,
     i18n: { language: mock.language, resolvedLanguage: mock.language,
       dir: () => mock.language === "ar" ? "rtl" : "ltr" },
   }),
