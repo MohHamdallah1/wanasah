@@ -139,6 +139,7 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
     new URL(r.url()).searchParams.get("search") === "Paging");
   await search.fill("Paging");
   await pagingRead;
+  await expect(item(p, state.mainName)).toHaveCount(0);
   await log.flush();
   await expect(item(p, "Paging Item 001")).toBeVisible();
   const list = stock(p).locator("[data-cp13-stock-list]");
@@ -185,4 +186,5 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   await p.locator(".live-stock-family-clear").click();
   await p.keyboard.press("Escape");
   await search.fill("");
+  await expect(item(p, state.mainName)).toBeVisible();
 }
