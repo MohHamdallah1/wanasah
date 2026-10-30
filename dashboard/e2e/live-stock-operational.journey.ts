@@ -134,13 +134,19 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   expect(log.requests.filter(u => new URL(u).pathname === "/warehouse/inventory/cursor")).toHaveLength(listReads);
 
   const failPage = await validationFault(p, "/warehouse/inventory/cursor?", true);
+  const pagingRead = p.waitForResponse(r => r.status() === 200 &&
+    new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
+    new URL(r.url()).searchParams.get("search") === "Paging");
   await search.fill("Paging");
+  await pagingRead;
+  await log.flush();
   await expect(item(p, "Paging Item 001")).toBeVisible();
   const list = stock(p).locator("[data-cp13-stock-list]");
   await list.evaluate(e => { e.scrollTop = e.scrollHeight; });
   await expect(stock(p).locator('[data-cp13-state="stale"]')).toBeVisible();
   await failPage();
   await expect(stock(p).locator(".live-stock-context-count strong")).toHaveText("109");
+  await log.flush();
   const preserved = log.pages.filter(x => new URL(x.url).searchParams.get("search")?.toLowerCase() === "paging");
   expect(preserved[0].ids).toHaveLength(50);
   await stock(p).locator('[data-cp13-state="stale"]').getByRole("button", { name: "Retry", exact: true }).click();
@@ -167,7 +173,12 @@ export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   await p.keyboard.press("Escape");
   await expect(stock(p).locator(".live-stock-family-button")).toHaveAttribute("aria-label", /Journey Family 051/);
   await expect(item(p, "Paging Item 105")).toBeVisible();
+  const familySearchRead = p.waitForResponse(r => r.status() === 200 &&
+    new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
+    new URL(r.url()).searchParams.get("search") === "Paging Item 105" &&
+    new URL(r.url()).searchParams.get("family_id") === String(state.family51));
   await search.fill("Paging Item 105");
+  await familySearchRead;
   await expect(item(p, "Paging Item 105")).toBeVisible();
   await expect(stock(p).locator(".live-stock-family-button")).toHaveAttribute("aria-label", /Journey Family 051/);
   await stock(p).locator(".live-stock-family-button").click();

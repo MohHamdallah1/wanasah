@@ -27,7 +27,11 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
     const ownerLog = record(op);
     await login(op, "owner");
     await test.step("warehouse change resets filters/cursors under real scope", async () => {
+      const searchRead = op.waitForResponse(r => r.status() === 200 &&
+        new URL(r.url()).pathname === "/warehouse/inventory/cursor" &&
+        new URL(r.url()).searchParams.get("search") === "Paging");
       await stock(op).getByRole("searchbox").first().fill("Paging");
+      await searchRead;
       await expect(item(op, "Paging Item 001")).toBeVisible();
       await stock(op).locator(".live-stock-context-select").selectOption(String(state.otherWarehouse));
       await expect(stock(op).getByRole("searchbox").first()).toHaveValue("");
@@ -35,6 +39,8 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await op.locator(".live-stock-filter-option").filter({ hasText: "Stock in warehouse" }).click();
       await op.keyboard.press("Escape");
       await expect(item(op, "Paging Item 001")).toBeVisible();
+      await expect(op.locator(".live-stock-row")).toHaveCount(1);
+      await expect(item(op, "Paging Item 001").locator('[data-cp13-quantity="on-hand"]')).toContainText("2");
       const other = await api(op, "/warehouse/inventory/cursor?location_id=" + state.otherWarehouse + "&stock_state=on_hand");
       expect(other.status).toBe(200);
       expect(other.body.items.map((r: { id: number }) => r.id)).toEqual([state.pagingIds[0]]);
