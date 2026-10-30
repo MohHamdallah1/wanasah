@@ -54,7 +54,9 @@ def dispatch(case, cartons, request_id=None):
     return UnifiedDispatchRequest(
         request_id=request_id or uuid4(), source_location_id=t.location_id,
         destination_location_id=t.other_location_id, transfer_purpose="WAREHOUSE_BALANCING",
-        items=[{"product_variant_id": t.variant_id, "quantity": cartons, "uom_id": case.carton_id}])
+        items=[{"product_variant_id": t.variant_id,
+                "quantity": case.authority.to_base(D(cartons), uom_id=case.carton_id, validate_step=True),
+                "uom_id": t.uom_id}])
 
 
 async def reserve(case, action, key):
@@ -169,6 +171,7 @@ async def test_canonical_transfer_and_stocktake_one_coherent_journey(pg):
 
         step = "dispatched_15_cartons"
         payload = dispatch(case, "15")
+        assert (payload.items[0].quantity, payload.items[0].uom_id) == (D("120"), t.uom_id)
         send = lambda: command(pg, case.sender, lambda db, access, actor:
             transfers.unified_transfer_dispatch(payload, db, access, actor))
         sent = await twice(send)
@@ -183,7 +186,7 @@ async def test_canonical_transfer_and_stocktake_one_coherent_journey(pg):
             assert [(line.batch_id, D(line.quantity), line.source_stock_status) for line in lines] == [
                 (case.batches["E2E-FIRST"], D("120"), "AVAILABLE")]
         await checkpoint(case, expected[step], report)
-        changed = payload.model_copy(update={"items": [payload.items[0].model_copy(update={"quantity": D("14")})]})
+        changed = payload.model_copy(update={"items": [payload.items[0].model_copy(update={"quantity": D("112")})]})
         await denied(case, report, "dispatch same UUID different cargo", lambda: command(pg, case.sender,
             lambda db, access, actor: transfers.unified_transfer_dispatch(changed, db, access, actor)), 409)
         receipt = UnifiedReceiveRequest(request_id=uuid4(), transfer_header_id=header_id,

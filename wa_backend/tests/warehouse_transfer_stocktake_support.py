@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.warehouse import ledger, live_stock
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import resolve_backoffice_authorization_subject
+from domains.uom_authority import load_variant_uom_authorities
 from models import (
     Driver, InventoryBalance, InventoryCostAllocation, InventoryCostEvent,
     InventoryCostLayer, InventoryCostPolicy, InventoryCostState,
@@ -84,8 +85,11 @@ async def prepare(pg):
                                       location_id=location_id, role_id=role.id))
         await db.commit()
         carton_id = int(carton.id)
+        authority = (await load_variant_uom_authorities(
+            db, company_id=t.company_id, variant_ids=[t.variant_id]))[t.variant_id]
+        assert authority.to_base(D("15"), uom_id=carton_id, validate_step=True) == D("120")
     return NS(pg=pg, tenant=t, sender=t.ordinary, receiver=receiver, recounter=recounter,
-              recounter_username=recounter_username, carton_id=carton_id,
+              recounter_username=recounter_username, carton_id=carton_id, authority=authority,
               batches={}, session_id=None, purchases=None, supplier_history=None,
               successful_requests=set(), negative_requests=set())
 
