@@ -120,6 +120,7 @@ jobs:
               "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
               "dashboard/src/pages/inventory/liveStock/i18n.ts",
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-family-cursor.test.tsx",
               "dashboard/src/test/live-stock-render-windowing.test.tsx",
               "dashboard/src/test/live-stock-ui-stability.test.ts",
           }
