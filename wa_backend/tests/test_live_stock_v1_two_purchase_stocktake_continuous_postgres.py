@@ -45,6 +45,10 @@ from tests.test_costed_driver_sale_correction_real_c2_db import (
 class ContinuousTwoPurchaseSaleReturnStocktakeTests(
     RealDriverSaleCorrectionC2DatabaseTests
 ):
+    # Reuse the accepted setup/helpers without re-collecting #664's two tests.
+    test_fifo_real_priced_sale_and_authorized_return_correction = None
+    test_average_real_priced_sale_and_authorized_return_correction = None
+
     async def _seed_stocktake_actors(self):
         """Identity/capability fixture only; no inventory/cost/ledger writes."""
         password = "RemainingConsistencyCount123"
