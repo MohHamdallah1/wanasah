@@ -27,6 +27,7 @@ from models import (
 )
 from schemas import InventoryStatusChangeRequest
 from services import get_company_local_date
+from models import utc_now
 from tests.test_cp3_batch_actions_postgres import _prepare
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 
@@ -145,11 +146,14 @@ async def test_f2_hold_cannot_advertise_quarantine_release_when_post_rejects(pg,
         assert forbidden.value.status_code in (403, 404)
 
 
-@pytest.mark.parametrize("lifecycle", ["DRAFT", "ARCHIVED"])
-async def test_f2_nonoperational_lifecycle_does_not_advertise_mutations(pg, lifecycle):
+async def test_f2_archived_lifecycle_does_not_advertise_mutations(pg):
     case = await _prepare(pg)
     await _mutate(pg, case)
-    await _set_variant(pg, case, lifecycle_status=lifecycle)
+    # The lifecycle timestamps are part of a real database check constraint.
+    await _set_variant(
+        pg, case, lifecycle_status="ARCHIVED",
+        retired_at=utc_now(), archived_at=utc_now(),
+    )
 
     source = await _source(pg, case)
     for status in source["statuses"]:
@@ -240,6 +244,8 @@ def test_f3_expiry_boundaries_reservation_and_permission_are_exact_decimal():
         production_date=today - timedelta(days=5),
         is_active=True,
         disposition="RELEASED",
+        lifecycle_status="ACTIVE",
+        operational_hold="NONE",
     )
     def released(**changes):
         kwargs = {**base, **changes}
@@ -274,3 +280,16 @@ def test_f3_expiry_boundaries_reservation_and_permission_are_exact_decimal():
         minimum_remaining_shelf_life_days=0,
         eligible_quantity=Decimal("0"),
     )["reason_code"] == "NO_ELIGIBLE_QUANTITY"
+
+    assert released(
+        expiry_date=today + timedelta(days=10),
+        minimum_remaining_shelf_life_days=0,
+        lifecycle_status="DRAFT",
+        operational_hold="NONE",
+    )["reason_code"] == "PRODUCT_NOT_OPERATIONAL"
+    assert released(
+        expiry_date=today + timedelta(days=10),
+        minimum_remaining_shelf_life_days=0,
+        lifecycle_status="RETIRING",
+        operational_hold="NONE",
+    )["allowed"] is True
