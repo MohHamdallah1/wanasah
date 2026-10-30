@@ -308,7 +308,7 @@ describe("NEW-01 Live Stock bounded responsive rendering", () => {
       const first = mounted[0] as HTMLElement;
       const ariaRow = Number(first.getAttribute("aria-rowindex"));
       const visualNumber = Number(
-        first.querySelector(".live-stock-row-number")?.textContent,
+        first.querySelector(".live-stock-row-number")?.textContent?.replace(/,/g, ""),
       );
       expect(visualNumber).toBe(ariaRow - 1);
       expect(
