@@ -28,8 +28,9 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_REAL_BROWSER_GATE: "1"
-      WANASAH_REAL_BROWSER_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
-      WANASAH_REAL_BROWSER_PG_ADMIN_URL: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_REAL_BROWSER_STATE: /tmp/live-stock-real-browser-state.json
       PYTHON: python
 
@@ -121,7 +122,10 @@ jobs:
           PY
 
       - name: Seed canonical inbound and exact expected truth
-        run: python wa_backend/tests/live_stock_real_browser_support.py seed
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/live_stock_real_browser_support.py::test_seed_real_browser_fixture
 
       - name: Start actual FastAPI server
         working-directory: wa_backend
