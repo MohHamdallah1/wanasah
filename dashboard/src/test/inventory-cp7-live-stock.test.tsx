@@ -434,8 +434,8 @@ describe("UI-05 mobile cost parity", () => {
     const locale = resolveAppLocale("en");
     const purchase = cost("last-purchase");
     const average = cost("average");
-    expect(purchase).toHaveTextContent(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
-    expect(average).toHaveTextContent(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
+    expect(purchase.querySelector("[dir=auto]")?.textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
+    expect(average.querySelector("[dir=auto]")?.textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
     expect(purchase).toHaveTextContent("per CT");
     expect(average).toHaveTextContent("per PK");
     expect(purchase).not.toHaveTextContent("per PK");
@@ -444,11 +444,11 @@ describe("UI-05 mobile cost parity", () => {
       `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
     expect(average.querySelector("[title]")).toHaveAttribute("title",
       `${formatMoneyExact(item.average_cost_display!, "JOD", locale)} · per PK`);
-    expect(purchase.querySelector(".sr-only")).toHaveTextContent(
+    expect(purchase.querySelector(".sr-only")?.textContent).toBe(
       `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
     const desktopCells = document.querySelectorAll<HTMLTableCellElement>(".live-stock-row td");
-    expect(desktopCells[8]).toHaveTextContent(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
-    expect(desktopCells[9]).toHaveTextContent(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
+    expect(desktopCells[8].textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
+    expect(desktopCells[9].textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
     expect(document.querySelectorAll("[data-cp13-quantity]")).toHaveLength(5);
   });
 
@@ -473,8 +473,8 @@ describe("UI-05 mobile cost parity", () => {
     };
     render(<LiveStockMobileCards products={[item]} onOpen={vi.fn()} />);
     const display = formatMoneyDisplay("0", "JOD", resolveAppLocale("ar"));
-    expect(cost("last-purchase")).toHaveTextContent(display);
-    expect(cost("average")).toHaveTextContent(display);
+    expect(cost("last-purchase").querySelector("[dir=auto]")?.textContent).toBe(display);
+    expect(cost("average").querySelector("[dir=auto]")?.textContent).toBe(display);
     expect(cost("last-purchase")).toHaveTextContent("لكل CT");
     expect(cost("average")).toHaveTextContent("لكل PK");
     expect(cost("last-purchase")).not.toHaveTextContent("—");
