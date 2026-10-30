@@ -2,6 +2,8 @@ import { AlertTriangle, RefreshCcw } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
+import { useMediaQuery } from "@/hooks/useMediaQuery";
+
 import {
   type LiveStockIndicator,
   type LiveStockStockState,
@@ -69,6 +71,7 @@ export function Tab1LiveStock({
   onLoadMore,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const isNarrowViewport = useMediaQuery("(max-width: 767px)");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const detail = useLiveStockBatchDetail(
@@ -300,12 +303,15 @@ export function Tab1LiveStock({
         >
           {products.length > 0 ? (
             <>
-              <LiveStockTable
-                products={products}
-                loading={loading}
-                onOpen={detail.open}
-              />
-              <LiveStockMobileCards products={products} onOpen={detail.open} />
+              {isNarrowViewport ? (
+                <LiveStockMobileCards products={products} onOpen={detail.open} />
+              ) : (
+                <LiveStockTable
+                  products={products}
+                  loading={loading}
+                  onOpen={detail.open}
+                />
+              )}
             </>
           ) : (
             <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
