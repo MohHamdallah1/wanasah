@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
   locationFetching: true,
   locationSuccess: false,
   locationError: false,
+  errorStatus: 403,
   globalPending: false,
   globalFetching: false,
   globalSuccess: true,
@@ -33,7 +34,7 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
     return {
       isSuccess: success, isPending: pending, isFetching: fetching,
       isError: error, isFetchedAfterMount: success && !pending && !fetching,
-      error: error ? Object.assign(new Error("denied"), { status: 403 }) : null,
+      error: error ? Object.assign(new Error("authorization-check-failed"), { status: state.errorStatus }) : null,
       can: (code: string) => permitted && code === "inventory.read",
       canAny: (code: string) => permitted && code === "inventory.read",
       isCompanyOwner: false, refetch: vi.fn(),
@@ -123,7 +124,7 @@ beforeEach(() => {
   localStorage.setItem("admin_token", "synthetic-for-unit-test-only");
   Object.assign(state, { scope: "1", principal: "75", actor: "75",
     locationPending: true, locationFetching: true, locationSuccess: false,
-    locationError: false, globalPending: false, globalFetching: false,
+    locationError: false, errorStatus: 403, globalPending: false, globalFetching: false,
     globalSuccess: true, globalError: false, permission: true, locale: "en" });
   state.authFetch.mockReset();
 });
@@ -180,10 +181,17 @@ describe("UI-04: cache is never its own access authority", () => {
   it("distinguishes offline verification failure, keeps sensitive data redacted, and supports retry", async () => {
     seed(); fakeServer(); const view = mount();
     state.locationPending = false; state.locationFetching = false;
+    state.errorStatus = 0; // network failure, not an authorization denial
     state.locationError = true; state.locationSuccess = false;
     view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.accessRefreshFailed");
+    expect(screen.getAllByRole("button", { name: "inventoryShell.retry" }).length).toBeGreaterThan(0);
+    grant();
+    state.locationError = false;
+    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
   });
 
   it("does not revive a revoked scope with a delayed inventory page response", async () => {
