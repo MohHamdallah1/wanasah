@@ -287,7 +287,7 @@ export function LiveStockFilters({
                   {t("common.retry")}
                 </button>
               </div>
-            ) : families.length === 0 ? (
+            ) : familySearch.trim().length === 1 ? null : families.length === 0 ? (
               <div className="live-stock-family-empty">{t("inventoryLive.familyNoMatches")}</div>
             ) : (
               families.map((family) => (
