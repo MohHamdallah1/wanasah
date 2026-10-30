@@ -43,10 +43,11 @@ jobs:
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
 
-      - name: Install disposable Playwright Chromium
+      - name: Install disposable browser and focused test peers
         working-directory: dashboard
         run: |
-          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npm install --no-save --package-lock=false --legacy-peer-deps \
+            playwright@1.55.0 @testing-library/dom@10.4.1
           npx playwright install --with-deps chromium
 
       - name: Focused Live Stock frontend tests
