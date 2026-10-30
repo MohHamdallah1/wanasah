@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { expect, test, type Page, type Response } from "playwright/test";
+import { expect, test, type Page } from "playwright/test";
 
 type CompanyAState = {
   id: number;
@@ -306,6 +306,12 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
 
   // A different company logs in through the real login form and sees only its
   // own independent inbound/cost evidence. Company A is not queryable by ID.
+  await page.evaluate(() => {
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("refresh_token");
+    localStorage.removeItem("principal_id");
+    localStorage.removeItem("backoffice_user_id");
+  });
   await page.goto("/login");
   await setLocale(page, "en");
   await page.reload();
