@@ -75,6 +75,11 @@ export function InventoryTopDock({
 }: InventoryTopDockProps) {
   const rootRef = useInventoryDockController();
 
+  useEffect(() => {
+    rootRef.current?.querySelector<HTMLElement>("[aria-selected='true']")
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [activeId, rootRef]);
+
   const moveFocus = (
     event: KeyboardEvent<HTMLButtonElement>,
     currentIndex: number,

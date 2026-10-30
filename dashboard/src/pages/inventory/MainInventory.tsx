@@ -971,6 +971,28 @@ export default function MainInventory() {
     },
     [routeNavigate],
   );
+  // A denied subordinate read revokes the same warehouse disclosure as a
+  // denied list. Abort both readers so a late success cannot restore old costs.
+  const rejectLiveStockEvidence = useCallback(() => {
+    if (selectedLocationId === null) return;
+    stockRequestSeq.current += 1;
+    stockAbortRef.current?.abort();
+    stockSummaryRequestSeq.current += 1;
+    stockSummaryAbortRef.current?.abort();
+    dropLiveStockWarmSnapshot(warmScopeKey, selectedLocationId);
+    stockItemsRef.current = [];
+    setStockItems([]);
+    setStockPageReady(false);
+    setStockNextCursor(null);
+    setStockMatchingTotal(null);
+    setStockTotal(null);
+    setStockAlertCount(null);
+    setLastSync(null);
+    setLoadingStock(false);
+    setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
+    setLiveReadPhase("denied");
+  }, [selectedLocationId, warmScopeKey]);
+
   // ── fetchers ────────────────────────────────────────────────────────────────
   const fetchStock = useCallback(async () => {
     if (selectedLocationId === null || !canReadStock) return;
@@ -1075,17 +1097,7 @@ export default function MainInventory() {
       if (error instanceof Error && error.name === "AbortError") return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       if ([401, 403, 404].includes(Number((error as { status?: unknown } | null)?.status))) {
-        dropLiveStockWarmSnapshot(warmScopeKey, requestLocationId);
-        stockItemsRef.current = [];
-        setStockItems([]);
-        setStockPageReady(false);
-        setStockNextCursor(null);
-        setStockMatchingTotal(null);
-        setStockTotal(null);
-        setStockAlertCount(null);
-        setLastSync(null);
-        setDeniedAdmissionEpoch(liveAdmissionEpoch.current);
-        setLiveReadPhase("denied");
+        rejectLiveStockEvidence();
       } else {
         setLiveReadPhase("failed");
       }
@@ -1129,6 +1141,7 @@ export default function MainInventory() {
     liveAuthorityVerified,
     t,
     warmScopeKey,
+    rejectLiveStockEvidence,
   ]);
 
   const fetchStockSummary = useCallback(async () => {
@@ -1139,6 +1152,7 @@ export default function MainInventory() {
     }
 
     const requestLocationId = selectedLocationId;
+    setFreshSummaryAdmissionEpoch(null);
     const requestSeq = ++stockSummaryRequestSeq.current;
     const requestAdmissionEpoch = liveAdmissionEpoch.current;
     stockSummaryAbortRef.current?.abort();
@@ -1175,6 +1189,10 @@ export default function MainInventory() {
           requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
+      if ([401, 403, 404].includes(Number((error as { status?: unknown } | null)?.status))) {
+        rejectLiveStockEvidence();
+        return;
+      }
       const warmSnapshot = readLiveStockWarmSnapshot(
         warmScopeKey,
         requestLocationId,
@@ -1201,6 +1219,7 @@ export default function MainInventory() {
     liveAuthorityVerified,
     t,
     warmScopeKey,
+    rejectLiveStockEvidence,
   ]);
 
   const resetStockPagination = useCallback(() => {
@@ -1672,6 +1691,10 @@ export default function MainInventory() {
                   void access.refetch();
                   void locationAccess.refetch();
                   void fetchLocations();
+                } else if (stockPageError) {
+                  retryStockPage();
+                } else if (stockSummaryError) {
+                  void fetchStockSummary();
                 } else {
                   retryStockPage();
                 }
@@ -1710,6 +1733,8 @@ export default function MainInventory() {
               void fetchStatus();
             }}
             onRetryPage={retryStockPage}
+            onRetrySummary={() => { void fetchStockSummary(); }}
+            onReadDenied={rejectLiveStockEvidence}
             alertCount={liveSummaryFresh ? stockAlertCount : null}
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}

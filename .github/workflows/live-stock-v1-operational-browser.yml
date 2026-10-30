@@ -1,0 +1,222 @@
+name: Live Stock V1 operational browser closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/**"
+      - "dashboard/src/components/dashboard/WorkspaceTopBar.css"
+      - "dashboard/e2e/live-stock-operational.*"
+      - "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx"
+      - "wa_backend/tests/live_stock_operational_browser_support.py"
+      - ".github/workflows/live-stock-v1-operational-browser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-operational-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-api-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: RealBrowserPostgresOnlyKeyAbc123456789012345678901234
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_REAL_BROWSER_GATE: "1"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_REAL_BROWSER_STATE: /tmp/live-stock-real-browser-state.json
+      WANASAH_OPERATIONAL_BROWSER_STATE: /tmp/live-stock-operational-state.json
+      PYTHON: python
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+
+      - name: Compile real-browser fixture
+        run: python -m py_compile wa_backend/tests/live_stock_operational_browser_support.py
+
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name live-stock-real-browser-pg \
+            --env POSTGRES_USER=real_browser_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-real-browser-pg pg_isready \
+              -U real_browser_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-real-browser-pg
+          exit 1
+
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Migrate only disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+
+      - name: Grant restricted runtime fixture permissions
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "INSERT INTO permissions(code) VALUES "
+                  "('inventory.read'), ('location.read'), ('inbound.create') "
+                  "ON CONFLICT(code) DO NOTHING"
+              )
+          PY
+
+      - name: Seed canonical inbound and exact expected truth
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/live_stock_operational_browser_support.py::test_prepare_operational_browser
+
+      - name: Start actual FastAPI server
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 \
+            > /tmp/live-stock-real-api.log 2>&1 &
+          echo $! > /tmp/live-stock-real-api.pid
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/live-stock-real-api.log
+          exit 1
+
+      - name: Install locked Dashboard and disposable Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+          npx playwright install --with-deps chromium
+
+      - name: Focused affected frontend regressions
+        working-directory: dashboard
+        run: >-
+          npx vitest run
+          src/test/live-stock-batch-detail-freshness.test.tsx
+          src/test/live-stock-batch-refresh-integration.test.tsx
+          src/test/live-stock-warm-authority.test.tsx
+          src/test/inventory-cp13-shell-polish.test.tsx
+
+      - name: Typecheck app and focused browser proof
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx tsc --noEmit --skipLibCheck --target es2022 --module esnext \
+            --moduleResolution bundler --types node --lib es2022,dom \
+            e2e/live-stock-operational.config.ts e2e/live-stock-operational.spec.ts \
+            e2e/live-stock-operational.journey.ts e2e/live-stock-operational.support.ts
+
+      - name: Build actual Dashboard against actual FastAPI
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: npm run build
+
+      - name: Start isolated built Dashboard
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 \
+            > /tmp/live-stock-real-dashboard.log 2>&1 &
+          echo $! > /tmp/live-stock-real-dashboard.pid
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/live-stock-real-dashboard.log
+          exit 1
+
+      - name: Run real Chromium through FastAPI and PostgreSQL
+        working-directory: dashboard
+        run: npx playwright test --config e2e/live-stock-operational.config.ts
+
+      - name: Verify ownership and real screenshots
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.sha }}" python - <<'PY'
+          import os, subprocess
+          allowed = ["dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","wa_backend/tests/live_stock_operational_browser_support.py","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.config.ts",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml",".github/workflows/inventory-cp13-shell-polish.yml","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", os.environ["BASE"], "HEAD"], text=True).splitlines())
+          assert changed <= set(allowed), changed - set(allowed)
+          subprocess.run(["git", "diff", "--check", os.environ["BASE"], "HEAD"], check=True)
+          print("OPERATIONAL_BROWSER_OWNERSHIP PASS")
+          PY
+          count=$(find dashboard/node_modules/.cache/live-stock-operational -name '*.png' | wc -l)
+          echo "OPERATIONAL_SCREENSHOTS=$count"
+          test "$count" -ge 9
+
+      - name: Upload operational visual and server evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-operational-browser-${{ github.sha }}
+          path: |
+            dashboard/node_modules/.cache/live-stock-operational
+            /tmp/live-stock-real-api.log
+            /tmp/live-stock-real-dashboard.log
+
+          if-no-files-found: error

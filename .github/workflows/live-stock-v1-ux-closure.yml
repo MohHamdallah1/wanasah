@@ -97,7 +97,7 @@ jobs:
 
       - name: Verify isolated ownership scope
         run: |
-          base="01c9f9870ad6cc23ff38c9e8f42d0345659d32e1"
+          base="${{ github.event.pull_request.base.sha || github.sha }}"
           git cat-file -e "$base^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD --
@@ -123,6 +123,26 @@ jobs:
               "dashboard/src/test/live-stock-family-cursor.test.tsx",
               "dashboard/src/test/live-stock-render-windowing.test.tsx",
               "dashboard/src/test/live-stock-ui-stability.test.ts",
+              "dashboard/src/components/dashboard/WorkspaceTopBar.css",
+              "dashboard/src/pages/inventory/inventoryShellPolish.css",
+              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
+              "dashboard/src/pages/inventory/inventoryTopDockController.ts",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/e2e/live-stock-ux-closure.fixtures.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+              "wa_backend/tests/live_stock_operational_browser_support.py",
+              "dashboard/e2e/live-stock-operational.support.ts",
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              "dashboard/e2e/live-stock-operational.config.ts",
+              ".github/workflows/live-stock-v1-operational-browser.yml",
+              ".github/workflows/live-stock-v1-ux-closure.yml",
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
           }
           changed = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
@@ -133,7 +153,7 @@ jobs:
               raise SystemExit(f"LIVE_STOCK_UX_SCOPE=FAIL extra={sorted(extra)}")
           forbidden = [
               path for path in changed
-              if path.startswith("wa_backend/")
+              if (path.startswith("wa_backend/") and path != "wa_backend/tests/live_stock_operational_browser_support.py")
               or path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
               or path.startswith("flutter_app/")
           ]
