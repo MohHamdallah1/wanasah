@@ -75,6 +75,9 @@ describe("CP7 Live Stock refactor parity", () => {
     render(<LiveStockTable products={[product]} loading={false} onOpen={open} />);
 
     const detail = screen.getByRole("button", { name: /View batch details: Parity Product/i });
+    // JSDOM has no native scrollIntoView; the production focus behavior is
+    // unchanged, and the real keyboard focus assertion still runs.
+    detail.scrollIntoView = vi.fn();
     detail.focus();
     expect(detail).toHaveFocus();
     fireEvent.click(detail);
