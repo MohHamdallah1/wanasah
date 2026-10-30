@@ -55,20 +55,6 @@ vi.mock("@/pages/inventory/Tab1LiveStock", () => ({
     </select>
   </div>,
 }));
-for (const path of [
-  "@/pages/inventory/TabBatches",
-  "@/pages/inventory/Tab2Inbound",
-  "@/pages/inventory/Tab3Stocktake",
-  "@/pages/inventory/Tab4Ledger",
-  "@/pages/inventory/TabWarehouseLocations",
-  "@/pages/inventory/TabTransfers",
-  "@/pages/inventory/TabInventoryAccess",
-  "@/pages/inventory/archive/ArchiveOwnerWorkspace",
-]) {
-  // These screens are unrelated to discovery and have their own acceptance.
-  // A module path must be statically declared for Vitest; use explicit mocks below.
-  void path;
-}
 vi.mock("@/pages/inventory/TabBatches", () => ({ TabBatches: () => null }));
 vi.mock("@/pages/inventory/Tab2Inbound", () => ({ Tab2Inbound: () => null }));
 vi.mock("@/pages/inventory/Tab3Stocktake", () => ({ Tab3Stocktake: () => null }));
@@ -131,9 +117,10 @@ describe("inventory scoped warehouse discovery integration", () => {
       if (parsed.pathname === "/warehouse/locations/selection") {
         const cursor = parsed.searchParams.get("cursor");
         const selected = parsed.searchParams.get("selected_location_id");
-        if (cursor === "next2") return Promise.resolve(page([201], null, selected === "201" ? option(201) : null));
-        if (cursor === "next1") return Promise.resolve(page([101, 102], "next2", selected === "201" ? option(201) : null));
-        return Promise.resolve(page([1, 2], "next1", selected === "201" ? option(201) : null));
+        const verified = selected ? option(Number(selected)) : null;
+        if (cursor === "next2") return Promise.resolve(page([201], null, verified));
+        if (cursor === "next1") return Promise.resolve(page([101, 102], "next2", verified));
+        return Promise.resolve(page([1, 2], "next1", verified));
       }
       if (parsed.pathname === "/warehouse/inventory/cursor") {
         return Promise.resolve({ items: [], next_cursor: null, has_more: false, total: null });
@@ -148,7 +135,8 @@ describe("inventory scoped warehouse discovery integration", () => {
     const selector = await screen.findByRole("combobox", { name: "live-warehouse" });
     expect(selector).toHaveValue("1");
     fireEvent.click(screen.getByRole("button", { name: "inventoryShell.nextWarehouses" }));
-    await waitFor(() => expect(selector).toHaveValue("1"));
+    await screen.findByRole("option", { name: "Warehouse 101" });
+    expect(selector).toHaveValue("1");
     fireEvent.click(screen.getByRole("button", { name: "inventoryShell.nextWarehouses" }));
     await waitFor(() => expect(screen.getByRole("option", { name: "Warehouse 201" })).toBeInTheDocument());
     fireEvent.change(selector, { target: { value: "201" } });
