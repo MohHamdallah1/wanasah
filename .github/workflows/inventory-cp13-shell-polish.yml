@@ -154,7 +154,7 @@ jobs:
               base = json.load(response)["merge_base_commit"]["sha"]
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
-          allowed = ["dashboard/src/pages/inventory/TabWarehouseLocations.tsx","dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts","dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx","dashboard/src/test/live-stock-family-cursor.test.tsx","dashboard/src/test/inventory-cp12-responsive-contract.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/e2e/inventory-cp14-device-ux.spec.ts",".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-v1-ux-closure.yml"]
+          allowed = ["dashboard/src/pages/inventory/Tab2Inbound.tsx","dashboard/src/pages/inventory/TabWarehouseLocations.tsx","dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts","dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx","dashboard/src/test/live-stock-family-cursor.test.tsx","dashboard/src/test/inventory-cp12-responsive-contract.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/e2e/inventory-cp14-device-ux.spec.ts",".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-v1-ux-closure.yml"]
           assert changed <= set(allowed), sorted(changed - set(allowed))
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           print("CP12_CP13_SCOPE PASS", base, len(changed))

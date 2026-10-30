@@ -114,6 +114,7 @@ jobs:
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           allowed = {
+              "dashboard/src/pages/inventory/Tab2Inbound.tsx",
               "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts",
               "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",

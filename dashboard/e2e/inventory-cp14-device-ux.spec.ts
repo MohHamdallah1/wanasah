@@ -269,7 +269,10 @@ async function installApi(page: Page, options: MockOptions = {}): Promise<MockSt
       });
     }
     if (path === "/warehouse/locations" || path === "/warehouse/locations/selection") {
-      return fulfill(route, { items: locations, next_cursor: null, has_more: false, total: locations.length });
+      return fulfill(route, {
+        items: locations, next_cursor: null, has_more: false, total: locations.length,
+        selected: locations.find(location => location.id === Number(url.searchParams.get("selected_location_id"))) ?? null,
+      });
     }
     if (path === "/warehouse/setup-status") {
       return fulfill(route, {
@@ -343,6 +346,7 @@ async function installApi(page: Page, options: MockOptions = {}): Promise<MockSt
     if (path === "/warehouse/inbound/options" && method === "POST") {
       return fulfill(route, {
         currency_code: "JOD",
+        as_of_date: "2026-10-31",
         items: [{
           product_variant_id: VARIANT_ID,
           base_uom_id: 7,
@@ -675,15 +679,16 @@ for (const locale of ["ar", "en"] as const) {
     expect(overflow.scroll).toBeGreaterThan(overflow.client);
     const table = inboundScroll.locator("table.inventory-inbound-table");
     console.log("CP12_RENDERED_TABLE " + JSON.stringify(await table.evaluate(node => ({
-      html: node.outerHTML.slice(0, 4200),
       headers: node.querySelectorAll("thead th").length,
-      tableStyle: { display: getComputedStyle(node).display, visibility: getComputedStyle(node).visibility },
-      headStyle: node.querySelector("thead") ? { display: getComputedStyle(node.querySelector("thead")!).display, visibility: getComputedStyle(node.querySelector("thead")!).visibility } : null,
-      ancestors: (() => { const out = []; let e: Element | null = node; while (e && out.length < 8) { out.push({ tag: e.tagName, class: e.className, ariaHidden: e.getAttribute("aria-hidden"), display: getComputedStyle(e).display, visibility: getComputedStyle(e).visibility }); e = e.parentElement; } return out; })(),
+      scopes: Array.from(node.querySelectorAll("thead th"), th => th.getAttribute("scope")),
+      display: getComputedStyle(node).display,
+      visibility: getComputedStyle(node).visibility,
     }))));
     await expect(table.getByRole("columnheader")).toHaveCount(7);
     const row = table.locator("tr[data-inbound-row-id]").first();
     await expect(row).toContainText("Device UX Product");
+    await expect(row.locator(".inventory-inbound-quantity-controls select")).toBeEnabled();
+    await expect(row.locator(".inventory-inbound-quantity-controls select")).toHaveValue("7");
     const geometry = await inboundScroll.evaluate((node) => {
       const table = node.querySelector("table")!;
       const box = node.getBoundingClientRect();

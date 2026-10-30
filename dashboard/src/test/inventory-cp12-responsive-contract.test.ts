@@ -38,6 +38,7 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     const css = read("src/pages/inventory/inventory.css");
     expect(inbound).toMatch(/className="inventory-inbound-table-wrap"[\s\S]*?<table className="inventory-inbound-table">/);
     expect(inbound.match(/<col className="inventory-inbound-col-/g)).toHaveLength(7);
+    expect(inbound.match(/<th scope="col"/g)).toHaveLength(7);
     expect(css).toMatch(/\.inventory-inbound-table-wrap\s*\{[^}]*overflow:\s*auto;/);
     expect(css).toMatch(/\.inventory-inbound-table\s*\{[^}]*min-width:\s*1120px;[^}]*table-layout:\s*fixed;/);
     expect(css).toMatch(/@media\s*\(max-width:\s*1100px\)\s*\{\s*\.inventory-inbound-table\s*\{\s*min-width:\s*1050px;/);
