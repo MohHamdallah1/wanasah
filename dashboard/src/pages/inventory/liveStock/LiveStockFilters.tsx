@@ -8,7 +8,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorMessage, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import {
   parseLiveStockFamilies,
   type LiveStockFamilyOption,
@@ -109,8 +109,16 @@ export function LiveStockFilters({
             !controller.signal.aborted &&
             !(error instanceof Error && error.name === "AbortError")
           ) {
+            const fallback = t("inventoryLive.errors.familyLoadFailed");
+            // Raw browser/network errors have no stable localized reason.
+            // Preserve structured server reasons, codes and request references.
             setFamilyError(
-              apiErrorMessage(error, t("inventoryLive.errors.familyLoadFailed")),
+              error instanceof Error &&
+              !apiErrorCode(error) &&
+              !apiErrorRequestId(error) &&
+              apiErrorStatus(error) === undefined
+                ? fallback
+                : apiErrorMessage(error, fallback),
             );
           }
         })
