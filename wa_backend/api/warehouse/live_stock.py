@@ -1309,9 +1309,13 @@ async def get_warehouse_inventory(
                 + literal_column("' '")
                 + ProductVariant.sku
             )
+            # This branch is used only after the probe proves there are
+            # more matches than the requested page. Preserve exact literal
+            # substring membership but deliberately stream the name-ordered
+            # B-tree instead of expanding a broad trigram bitmap before LIMIT.
             direct_search_filters = tuple(
-                searchable_text.like(pattern, escape="\\")
-                for pattern in search_patterns
+                func.strpos(searchable_text, token) > 0
+                for token in clean_search.split()
             )
 
         candidate_filters = []
