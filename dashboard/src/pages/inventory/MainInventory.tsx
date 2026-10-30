@@ -1502,9 +1502,14 @@ export default function MainInventory() {
 
             <div className="inventory-sync flex min-w-fit flex-col items-start justify-center border-e pe-3">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-black">
+                <span className="text-sm font-black" title={t("inventoryShell.summaryVariantCountHint")}>
                   {t("inventoryShell.liveStockCount")}{" "}
-                  <span className="inventory-shared-context-count">
+                  <span
+                    className="inventory-shared-context-count"
+                    aria-label={!livePageFresh || !liveSummaryFresh || stockTotal === null
+                      ? t("inventoryShell.countNotVerified")
+                      : undefined}
+                  >
                     {!livePageFresh || !liveSummaryFresh || stockTotal === null
                       ? "—"
                       : new Intl.NumberFormat(
@@ -1512,6 +1517,7 @@ export default function MainInventory() {
                           { numberingSystem: "latn" },
                         ).format(stockTotal)}
                   </span>
+                  <span className="sr-only">{t("inventoryShell.summaryVariantCountHint")}</span>
                 </span>
                 {displayAuditLocked && (
                   <span className="inventory-shared-lock-chip">
@@ -1533,7 +1539,7 @@ export default function MainInventory() {
                           numberingSystem: "latn",
                         },
                       ).format(lastSync)
-                    : "—"}
+                    : <span aria-label={t("inventoryShell.countNotVerified")}>—</span>}
                 </span>
                 <button
                   type="button"
