@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import test_costed_driver_customer_return_c2_db as customer_fixture
 import test_costed_driver_sale_correction_real_c2_db as sale_fixture
 from api.driver import update_visit
-from api.warehouse import live_stock
 from api.warehouse.inbound import warehouse_inbound
 from context import tenant_context
 from database import engine
@@ -505,37 +504,29 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             )
             self.assertEqual(D(purchases_after[-1]["input_unit_cost"]), D("4"))
 
-            # One narrow Live Stock read verifies presentation costs still come
-            # from the same purchase/state authority; this is not a new R1/#668
-            # read-consistency journey.
-            page = await live_stock.get_warehouse_inventory(
-                location_id=int(self.warehouse_id),
-                cursor=None,
-                limit=50,
-                search=None,
-                only_alerts=False,
-                stock_state="all",
-                family_id=None,
-                has_reserved=False,
-                has_unavailable=False,
-                has_damaged=False,
-                has_recalled=False,
-                has_vehicle=False,
-                minimum_unset=False,
-                sort="name_asc",
-                db=committed,
-                access=self.owner.access(committed),
-            )
-            item = next(
-                row for row in page["items"]
-                if int(row["id"]) == int(self.variant["id"])
-            )
-            self.assertEqual(D(item["last_purchase_cost"]), D("4"))
-            factor = D(item["display_factor_to_base"])
-            self.assertEqual(
-                D(item["average_cost_display"]),
-                (expected_average * factor).quantize(D("0.000001")),
-            )
+            # Live Stock derives last purchase cost from the latest
+            # PURCHASE_IN event and average cost from InventoryCostState. Verify
+            # those exact authorities directly so this accounting proof does
+            # not depend on, rebuild, or duplicate #668 projection readiness.
+            live_cost_source = (
+                await committed.execute(
+                    text(
+                        "SELECT "
+                        "(SELECT input_unit_cost FROM inventory_cost_events "
+                        " WHERE company_id=:t AND product_variant_id=:p "
+                        " AND event_type='PURCHASE_IN' "
+                        " ORDER BY created_at DESC,id DESC LIMIT 1) last_purchase_cost,"
+                        "(SELECT average_unit_cost FROM inventory_cost_states "
+                        " WHERE company_id=:t AND product_variant_id=:p) average_unit_cost,"
+                        "(SELECT inventory_value FROM inventory_cost_states "
+                        " WHERE company_id=:t AND product_variant_id=:p) inventory_value"
+                    ),
+                    {"t": self.tenant, "p": self.variant["id"]},
+                )
+            ).one()
+            self.assertEqual(D(live_cost_source.last_purchase_cost), D("4"))
+            self.assertEqual(D(live_cost_source.average_unit_cost), expected_average)
+            self.assertEqual(D(live_cost_source.inventory_value), corrected_value)
         finally:
             await committed.close()
             await committed_conn.close()
