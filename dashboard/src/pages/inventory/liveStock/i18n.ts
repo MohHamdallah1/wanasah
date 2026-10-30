@@ -9,6 +9,7 @@ export type LiveStockCp7Copy = {
   freshnessNotice: string;
   staleBatchDetails: string;
   sourceWarehouse: string;
+  movableQuantity: string;
   loadMore: string;
   continuationFailed: string;
   retry: string;
@@ -42,6 +43,7 @@ const ar: LiveStockCp7Copy = {
   freshnessNotice: "القائمة والتشغيلات ودليل المصدر قراءات مستقلة؛ قد تتغير الكميات بعد جلبها. حدّث للتحقق.",
   staleBatchDetails: "تفاصيل التشغيلات السابقة لم تعد مؤكدة بعد التحديث. أعد المحاولة للتحقق.",
   sourceWarehouse: "المستودع",
+  movableQuantity: "قابل للحركة",
   loadMore: "تحميل المزيد",
   continuationFailed: "تعذر تحميل بقية التشغيلات. البيانات المحملة ما زالت ظاهرة.",
   retry: "إعادة المحاولة",
@@ -89,6 +91,7 @@ const en: LiveStockCp7Copy = {
   freshnessNotice: "The list, batches and source evidence are separate reads. Quantities can change after retrieval; refresh to verify.",
   staleBatchDetails: "Previous batch details are no longer verified after refresh. Retry to check.",
   sourceWarehouse: "Warehouse",
+  movableQuantity: "Movable quantity",
   loadMore: "Load more",
   continuationFailed: "More batches could not be loaded. Loaded data is still available.",
   retry: "Retry",

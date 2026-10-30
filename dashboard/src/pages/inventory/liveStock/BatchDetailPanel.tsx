@@ -222,12 +222,21 @@ export function BatchDetailPanel({
                     </p>
                     {source.statuses.map((status) => (
                       <div key={status.stock_status} className="rounded-lg bg-white p-3 text-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <strong>{copy.stockStatusLabels[status.stock_status]}</strong>
-                          <span className="tabular-nums" dir="ltr">
-                            {t("inventoryLive.onHand")}: {quantityText(status.on_hand_quantity)} · {t("inventoryLive.reserved")}: {quantityText(status.reserved_quantity)}
-                          </span>
-                        </div>
+                        <strong>{copy.stockStatusLabels[status.stock_status]}</strong>
+                        <dl className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                          {[
+                            [t("inventoryLive.onHand"), status.on_hand_quantity],
+                            [t("inventoryLive.reserved"), status.reserved_quantity],
+                            [copy.movableQuantity, status.movable_quantity],
+                          ].map(([label, value]) => (
+                            <div key={String(label)} className="rounded-md bg-slate-50 px-2 py-1.5">
+                              <dt className="font-semibold text-slate-500">{label}</dt>
+                              <dd className="mt-0.5 font-black tabular-nums text-slate-900" dir="ltr">
+                                {quantityText(value as Quantity)}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
                         <div className="mt-2 text-[11px] font-semibold text-slate-600">
                           <span>{copy.reservationCoverage[status.reservation_evidence.coverage]}</span>
                           {status.reservation_evidence.owners.length > 0 ? (

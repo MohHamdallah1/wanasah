@@ -1787,7 +1787,7 @@ export const resources = {
           "الكمية الموجودة داخل المستودع التي يسمح النظام بصرفها أو بيعها الآن بعد استبعاد الحجز والحالات غير القابلة للبيع.",
         withVehicles: "مع المركبات",
         withVehiclesHint:
-          "بضاعة خرجت فعليًا من المستودع وأصبحت في مركبات مرتبطة بهذا المستودع. لا تدخل ضمن إجمالي الموجود داخل المستودع.",
+          "رصيد المركبات المرتبط وفق علاقة الخط/المصدر في نموذج القراءة الحالي. هو خارج إجمالي المستودع، ولا يعني ملكية دائمة أو حصرًا كاملًا لعهد المركبات لهذا المستودع.",
         companyCosts: "التكاليف",
         resultCount: "{{total}} منتج",
         costs: "التكلفة",
@@ -4187,7 +4187,7 @@ export const resources = {
           "Stock inside the warehouse that the system can issue or sell now after excluding reservations and non-sellable states.",
         withVehicles: "With vehicles",
         withVehiclesHint:
-          "Stock that has physically left the warehouse and is now held by vehicles linked to this warehouse. It is not included in the warehouse total.",
+          "Vehicle stock associated by the current read model's route/source link. It is outside the warehouse total and must not be read as permanent or complete vehicle ownership by this warehouse.",
         companyCosts: "Costs",
         resultCount: "Products: {{total}}",
         costs: "Cost",

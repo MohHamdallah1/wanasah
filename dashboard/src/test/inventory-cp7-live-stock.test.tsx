@@ -323,6 +323,7 @@ describe("CP7 Live Stock Dashboard closure", () => {
       />,
     );
     expect(screen.getByText(/Warehouse A1/)).toBeInTheDocument();
+    expect(screen.getByText("Movable quantity")).toBeInTheDocument();
     expect(screen.getByText(/Known reservations/)).toBeInTheDocument();
     expect(
       screen.queryAllByRole("button", {
@@ -393,8 +394,9 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(main).toContain("const [stockPageRetryKey, setStockPageRetryKey] = useState(0)");
     expect(main).toContain("const retryStockPage = useCallback");
     expect(main).toContain("setStockPageRetryKey((value) => value + 1)");
-    expect(main).toContain("[selectedLocationId, fetchStock, stockRefreshKey, stockPageRetryKey]");
-    expect(main).toContain("[selectedLocationId, fetchStockSummary, stockRefreshKey]");
+    expect(main).toContain('if (activeTab === "live" && selectedLocationId !== null)');
+    expect(main).toContain("stockPageRetryKey");
+    expect(main).toContain("[activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]");
     expect(main).toContain("onRetryPage={retryStockPage}");
     expect(cp7Tab).toContain("onClick={onRetryPage}");
   });
@@ -491,7 +493,7 @@ describe("UI-05 mobile cost parity", () => {
       const { container } = render(<LiveStockMobileCards
         products={[product, { ...product, id: 42 }]} totalCount={5000} startIndex={50}
         topSpacerHeight={1400} bottomSpacerHeight={2200}
-        onItemExtentChange={onExtent} onOpen={vi.fn()} />);
+        onItemMeasure={onExtent} onOpen={vi.fn()} />);
       expect(container.querySelectorAll("[data-cp13-stock-card]")).toHaveLength(2);
       expect(container.querySelectorAll("[data-cp13-quantity]")).toHaveLength(10);
       const cards = screen.getAllByRole("listitem");
@@ -500,7 +502,8 @@ describe("UI-05 mobile cost parity", () => {
       expect(cards[0]).toHaveAttribute("aria-setsize", "5000");
       expect(container.querySelector("[data-live-stock-window-spacer=top]")).toHaveStyle({ height: "1400px" });
       expect(container.querySelector("[data-live-stock-window-spacer=bottom]")).toHaveStyle({ height: "2200px" });
-      expect(onExtent).toHaveBeenCalledWith(174);
+      expect(onExtent).toHaveBeenCalledWith(41, 174);
+      expect(onExtent).toHaveBeenCalledWith(42, 174);
     } finally { measurement.mockRestore(); }
   });
 });

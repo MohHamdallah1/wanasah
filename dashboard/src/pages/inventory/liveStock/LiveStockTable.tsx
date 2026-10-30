@@ -16,7 +16,7 @@ type Props = {
   topSpacerHeight?: number;
   bottomSpacerHeight?: number;
   loading: boolean;
-  onItemExtentChange?: (height: number) => void;
+  onItemMeasure?: (productId: number, height: number) => void;
   onProductFocus?: (productId: number) => void;
   onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
@@ -53,19 +53,19 @@ export function LiveStockTable({
   topSpacerHeight = 0,
   bottomSpacerHeight = 0,
   loading,
-  onItemExtentChange = () => undefined,
+  onItemMeasure = () => undefined,
   onProductFocus = () => undefined,
   onProductBlur = () => undefined,
   onOpen,
 }: Props) {
   const { t, i18n } = useTranslation();
-  const measureFirstRow = useCallback(
-    (node: HTMLTableRowElement | null) => {
+  const measureRow = useCallback(
+    (productId: number, node: HTMLTableRowElement | null) => {
       if (!node) return;
       const height = node.getBoundingClientRect().height;
-      if (height > 0) onItemExtentChange(height);
+      if (height > 0) onItemMeasure(productId, height);
     },
-    [onItemExtentChange],
+    [onItemMeasure],
   );
   const locale = resolveI18nLocale(i18n);
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
@@ -153,10 +153,12 @@ export function LiveStockTable({
             [product.vehicle_quantity, "text-blue-700", "vehicle"],
           ] as const;
 
+          const absolutePosition = startIndex + index + 1;
+
           return (
             <tr
               key={product.id}
-              ref={index === 0 ? measureFirstRow : undefined}
+              ref={(node) => measureRow(product.id, node)}
               aria-rowindex={startIndex + index + 2}
               className={`live-stock-row border-b border-slate-100/80 transition-colors ${
                 isAlert ? "bg-red-50/45 hover:bg-red-50/75" : "bg-white hover:bg-slate-50/65"
@@ -166,9 +168,9 @@ export function LiveStockTable({
               <td className="live-stock-number-cell px-3 py-2 text-center text-xs font-bold tabular-nums text-slate-400">
                 <span
                   className="live-stock-row-number tabular-nums"
-                  aria-label={t("inventoryLive.rowNumber", { number: index + 1 })}
+                  aria-label={t("inventoryLive.rowNumber", { number: absolutePosition })}
                 >
-                  {new Intl.NumberFormat(locale, { numberingSystem: "latn" }).format(index + 1)}
+                  {new Intl.NumberFormat(locale, { numberingSystem: "latn" }).format(absolutePosition)}
                 </span>
               </td>
               <td className="live-product-cell px-3 py-2">
@@ -191,7 +193,7 @@ export function LiveStockTable({
                         aria-label={t("inventoryLive.atMinimum")}
                       />
                     ) : null}
-                    <span className="block truncate text-sm font-black text-slate-900 underline-offset-4 hover:underline">
+                    <span className="live-stock-product-name-clamp block text-sm font-black text-slate-900 underline-offset-4 hover:underline">
                       {product.name}
                     </span>
                   </span>

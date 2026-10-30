@@ -1362,16 +1362,22 @@ export default function MainInventory() {
   }, []);
 
   useEffect(() => {
-    if (selectedLocationId !== null) {
+    if (activeTab === "live" && selectedLocationId !== null) {
       void fetchStock();
     }
-  }, [selectedLocationId, fetchStock, stockRefreshKey, stockPageRetryKey]);
+  }, [
+    activeTab,
+    selectedLocationId,
+    fetchStock,
+    stockRefreshKey,
+    stockPageRetryKey,
+  ]);
 
   useEffect(() => {
-    if (selectedLocationId !== null) {
+    if (activeTab === "live" && selectedLocationId !== null) {
       void fetchStockSummary();
     }
-  }, [selectedLocationId, fetchStockSummary, stockRefreshKey]);
+  }, [activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]);
 
   const requiresFirstWarehouse =
     !loadingLocations &&

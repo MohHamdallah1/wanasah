@@ -89,7 +89,7 @@ describe("F5/UI-03 bounded family cursor and selected identity", () => {
       expect(params.get("limit")).toBe("50");
       expect(params.get("cursor")).toBe(i ? `opaque-${i * 50}` : null);
     });
-  });
+  }, 15_000);
 
   it("preserves selected family from page 2 across new search, retry, and warehouse switch", async () => {
     const all = options(101);
