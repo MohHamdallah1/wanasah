@@ -329,7 +329,11 @@ async def test_restricted_location_vehicle_and_foreign_disclosure_revoke_immedia
             await live_stock.get_batch_stock_sources(
                 case.batch_id, db, access
             )
-        assert hidden_batch.value.status_code == 404
+        # Once every inventory.read grant is revoked, canonical authorization
+        # rejects before object lookup. 403 is the exact fail-closed contract;
+        # the earlier foreign-batch probe under a valid Warehouse grant remains
+        # strict 404 opacity.
+        assert hidden_batch.value.status_code == 403
 
     print(
         "REMAINING_DISCLOSURE "
