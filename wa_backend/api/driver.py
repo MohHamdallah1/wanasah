@@ -1648,6 +1648,7 @@ async def update_visit(
             return consumed
 
         movement_specs = []
+        linked_return_specs: list[tuple[dict, str]] = []
         request_token = str(payload.request_id)
 
         # البيع والعينات منفصلان محاسبياً ومخزنياً، لكن المندوب لا يختار Batch.
@@ -1799,16 +1800,23 @@ async def update_visit(
                     }
                 )
 
-        # المرتجع: البديل الصالح يخرج FEFO، والمرتجع نفسه يدخل DAMAGED على Batch الممسوح.
+        # المرتجع: البديل الصالح يخرج FEFO، والمرتجع نفسه يدخل DAMAGED على
+        # Batch الممسوح. التكلفة المالية لا تُستنتج من Batch المرتجع: كل مقطع
+        # مرتجع يرتبط بمقطع البديل الذي أنشأه الـBackend نفسه في نفس المعاملة.
+        # هذا يحافظ على الفصل بين FEFO الفيزيائي وFIFO المالي ويمنع أي قيمة
+        # تقديرية من الظهور في تبادل 1:1 موثق.
         for ctx in return_contexts:
             ret = ctx["ret"]
             total_return_base_quantity = ctx["total_return_base_quantity"]
-            for segment_index, (batch_id, qty) in enumerate(
-                consume_fefo(
-                    ret.product_variant_id,
-                    total_return_base_quantity,
+            exchange_segments = consume_fefo(
+                ret.product_variant_id,
+                total_return_base_quantity,
+            )
+            for segment_index, (batch_id, qty) in enumerate(exchange_segments):
+                exchange_key = (
+                    f"VIS-{visit.id}-{request_token}-X{ctx['return_index']}-"
+                    f"B{batch_id}-S{segment_index}"
                 )
-            ):
                 movement_specs.append(
                     {
                         "product_variant_id": ret.product_variant_id,
@@ -1817,10 +1825,7 @@ async def update_visit(
                         "movement_kind": "PHYSICAL",
                         "reference_type": "VISIT_EXCHANGE_OUT",
                         "reference_id": str(visit.id),
-                        "idempotency_key": (
-                            f"VIS-{visit.id}-{request_token}-X{ctx['return_index']}-"
-                            f"B{batch_id}-S{segment_index}"
-                        ),
+                        "idempotency_key": exchange_key,
                         "source_location_id": veh_loc_id,
                         "destination_location_id": None,
                         "source_stock_status": "AVAILABLE",
@@ -1832,30 +1837,33 @@ async def update_visit(
                         ),
                     }
                 )
-
-            movement_specs.append(
-                {
-                    "product_variant_id": ret.product_variant_id,
-                    "batch_id": ret.batch_id,
-                    "quantity": total_return_base_quantity,
-                    "movement_kind": "PHYSICAL",
-                    "reference_type": "VISIT_RETURN_IN",
-                    "reference_id": str(visit.id),
-                    "idempotency_key": (
-                        f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-B{ret.batch_id}"
-                    ),
-                    "source_location_id": None,
-                    "destination_location_id": veh_loc_id,
-                    "source_stock_status": None,
-                    "destination_stock_status": "DAMAGED",
-                    "work_session_id": active_session.id,
-                    "notes": (
-                        f"استلام مرتجع {ret.return_type} من المحل {shop.name}; "
-                        f"Batch={ret.batch_id}. "
-                        f"{('السبب: ' + ret.reason) if ret.reason else ''}"
-                    ).strip(),
-                }
-            )
+                linked_return_specs.append((
+                    {
+                        "product_variant_id": ret.product_variant_id,
+                        # Physical customer-return identity remains the proven
+                        # returned Batch; it need not equal the exchange Batch.
+                        "batch_id": ret.batch_id,
+                        "quantity": qty,
+                        "movement_kind": "PHYSICAL",
+                        "reference_type": "VISIT_RETURN_IN",
+                        "reference_id": str(visit.id),
+                        "idempotency_key": (
+                            f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-"
+                            f"B{ret.batch_id}-S{segment_index}"
+                        ),
+                        "source_location_id": None,
+                        "destination_location_id": veh_loc_id,
+                        "source_stock_status": None,
+                        "destination_stock_status": "DAMAGED",
+                        "work_session_id": active_session.id,
+                        "notes": (
+                            f"استلام مرتجع {ret.return_type} من المحل {shop.name}; "
+                            f"Batch={ret.batch_id}. "
+                            f"{('السبب: ' + ret.reason) if ret.reason else ''}"
+                        ).strip(),
+                    },
+                    exchange_key,
+                ))
 
             db.add(
                 VisitReturn(
@@ -1877,6 +1885,7 @@ async def update_visit(
         ):
             raise RuntimeError("Unconsumed FEFO allocation detected.")
 
+        applied_movements = []
         if movement_specs:
             applied_movements = await apply_inventory_movements_batch(
                 db,
@@ -1886,6 +1895,33 @@ async def update_visit(
             )
             if len(applied_movements) != len(movement_specs):
                 raise RuntimeError("Inventory movement batch result size mismatch.")
+
+        if linked_return_specs:
+            exchange_by_key = {
+                movement.idempotency_key: movement
+                for movement in applied_movements
+                if movement.reference_type == "VISIT_EXCHANGE_OUT"
+            }
+            linked_movements = []
+            for return_spec, exchange_key in linked_return_specs:
+                source_movement = exchange_by_key.get(exchange_key)
+                if source_movement is None:
+                    raise RuntimeError(
+                        "Linked return exchange cost source was not established."
+                    )
+                linked_movements.append({
+                    **return_spec,
+                    "cost_source_movement_id": int(source_movement.id),
+                })
+            applied_returns = await apply_inventory_movements_batch(
+                db,
+                company_id=company_id,
+                performed_by=driver_id,
+                movements=linked_movements,
+            )
+            if len(applied_returns) != len(linked_movements):
+                raise RuntimeError("Linked return movement batch result size mismatch.")
+            applied_movements.extend(applied_returns)
 
         if payload.outcome == "Sale":
             if cash_collected > total_final_amount:
