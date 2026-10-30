@@ -1,0 +1,132 @@
+name: Live Stock F5 UI-03 family cursor acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/live_stock.py"
+      - "wa_backend/tests/test_live_stock_f5_families_postgres.py"
+      - "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx"
+      - "dashboard/src/pages/inventory/liveStock/contracts.ts"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/live-stock-family-cursor.test.tsx"
+      - "dashboard/src/test/live-stock-filter-state-recovery.test.tsx"
+      - "dashboard/src/test/inventory-access.test.ts"
+      - ".github/workflows/live-stock-f5-family-cursor-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-f5-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-family-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: F5DisposablePostgresOnlyKeyAbc12345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_F5_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile backend endpoint and focused F5 test
+        working-directory: wa_backend
+        run: python -m py_compile api/warehouse/live_stock.py tests/test_live_stock_f5_families_postgres.py
+      - name: Ephemeral PostgreSQL 16 (hosted runner only)
+        run: |
+          docker run --detach --name f5-postgres \
+            --env POSTGRES_USER=cp1_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec f5-postgres pg_isready -U cp1_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs f5-postgres
+          exit 1
+      - name: Create non-BYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql")
+          with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable PostgreSQL only
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Grant restricted fixture permissions
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql")
+          with psycopg.connect(url.render_as_string(hide_password=False), autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              conn.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          PY
+      - name: Real PostgreSQL tenant-scoped F5 cursor acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_f5_families_postgres.py
+          --junitxml=f5-postgres.xml
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f5-postgres-${{ github.sha }}
+          path: wa_backend/f5-postgres.xml
+          if-no-files-found: warn
+
+  dashboard-family-picker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: F5 UI-03 pagination and existing filter/contract regressions only
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/test/live-stock-family-cursor.test.tsx
+          src/test/live-stock-filter-state-recovery.test.tsx
+          src/test/inventory-access.test.ts
+          --reporter=verbose
+      - name: TypeScript
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
