@@ -109,7 +109,7 @@ export const inventoryWarmScopeKey = (
   const company = companyId.trim();
   const user = backofficeUserId.trim();
   const principal = principalId?.trim();
-  const validId = (value: string) => /^[1-9]\\d*$/.test(value);
+  const validId = (value: string) => /^[1-9]\d*$/.test(value);
   if (!validId(company) || !validId(user) ||
       (principalId !== undefined && (!principal || !validId(principal)))) return null;
   return principal ? `${company}:${user}:${principal}` : `${company}:${user}`;
