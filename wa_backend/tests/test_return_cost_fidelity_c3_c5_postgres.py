@@ -420,58 +420,58 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             self.assertEqual(returned["cost_basis"], "LINKED_RETURN_COST")
             self.assertEqual(
                 int(returned["source_cost_event_id"]),
-                int(exchange["event_id"]),
+                int(sale_event["id"]),
             )
 
             if self.method == "FIFO":
-                allocations = (
+                return_layer = (
                     await committed.execute(
                         text(
-                            "SELECT cost_event_id,cost_layer_id,allocation_type,quantity,amount "
-                            "FROM inventory_cost_allocations WHERE company_id=:t "
-                            "AND cost_event_id IN (:exchange,:returned) "
-                            "ORDER BY cost_event_id,id"
+                            "SELECT original_quantity,remaining_quantity,unit_cost,"
+                            "original_value,remaining_value "
+                            "FROM inventory_cost_layers WHERE company_id=:t "
+                            "AND source_cost_event_id=:returned"
                         ),
                         {
                             "t": self.tenant,
-                            "exchange": int(exchange["event_id"]),
                             "returned": int(returned["event_id"]),
                         },
                     )
-                ).mappings().all()
-                consumed = [
-                    (int(row["cost_layer_id"]), D(row["quantity"]), D(row["amount"]))
-                    for row in allocations
-                    if int(row["cost_event_id"]) == int(exchange["event_id"])
-                    and row["allocation_type"] == "CONSUME"
-                ]
-                restored = [
-                    (int(row["cost_layer_id"]), D(row["quantity"]), D(row["amount"]))
-                    for row in allocations
-                    if int(row["cost_event_id"]) == int(returned["event_id"])
-                    and row["allocation_type"] == "RESTORE"
-                ]
-                self.assertEqual(restored, consumed)
+                ).mappings().one()
                 self.assertEqual(
-                    sum((row[1] for row in restored), D("0")),
-                    return_qty,
+                    (
+                        D(return_layer["original_quantity"]),
+                        D(return_layer["remaining_quantity"]),
+                        D(return_layer["unit_cost"]),
+                        D(return_layer["original_value"]),
+                        D(return_layer["remaining_value"]),
+                    ),
+                    (
+                        return_qty,
+                        return_qty,
+                        D("2.000000"),
+                        exchange_cost,
+                        exchange_cost,
+                    ),
                 )
                 self.assertEqual(
-                    sum((row[2] for row in restored), D("0")),
-                    exchange_cost,
+                    await committed.scalar(
+                        text(
+                            "SELECT count(*) FROM inventory_cost_allocations "
+                            "WHERE company_id=:t AND cost_event_id=:returned"
+                        ),
+                        {"t": self.tenant, "returned": int(returned["event_id"])},
+                    ),
+                    0,
                 )
             else:
                 self.assertEqual(
                     await committed.scalar(
                         text(
-                            "SELECT count(*) FROM inventory_cost_allocations "
-                            "WHERE company_id=:t AND cost_event_id IN (:exchange,:returned)"
+                            "SELECT count(*) FROM inventory_cost_layers "
+                            "WHERE company_id=:t AND source_cost_event_id=:returned"
                         ),
-                        {
-                            "t": self.tenant,
-                            "exchange": int(exchange["event_id"]),
-                            "returned": int(returned["event_id"]),
-                        },
+                        {"t": self.tenant, "returned": int(returned["event_id"])},
                     ),
                     0,
                 )
@@ -723,6 +723,7 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             "same_batch_two_receipts=true",
             "concurrent_replay=true",
             "post_mutation_rollback=true",
+            "original_sale_source=true",
             f"standalone_estimate={standalone_expected_return_cost}",
         )
 
