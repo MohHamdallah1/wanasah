@@ -84,16 +84,22 @@ export function Tab1LiveStock({
   const [viewportHeight, setViewportHeight] = useState(
     LIVE_STOCK_FALLBACK_VIEWPORT_PX,
   );
-  const [itemExtent, setItemExtent] = useState(
-    LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX,
-  );
+  const measuredItemExtentsRef = useRef<Map<number, number>>(new Map());
+  const [measurementRevision, setMeasurementRevision] = useState(0);
+  const [viewportWidthBucket, setViewportWidthBucket] = useState(0);
   const fallbackItemExtent = isNarrowViewport
     ? LIVE_STOCK_FALLBACK_MOBILE_CARD_PX
     : LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX;
 
   useEffect(() => {
-    setItemExtent(fallbackItemExtent);
-  }, [fallbackItemExtent]);
+    measuredItemExtentsRef.current.clear();
+    setMeasurementRevision((revision) => revision + 1);
+  }, [
+    fallbackItemExtent,
+    viewportWidthBucket,
+    i18n.language,
+    i18n.resolvedLanguage,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -108,6 +114,9 @@ export function Tab1LiveStock({
           root.clientHeight > 0
             ? root.clientHeight
             : LIVE_STOCK_FALLBACK_VIEWPORT_PX,
+        );
+        setViewportWidthBucket(
+          Math.round(Math.max(0, root.clientWidth) / 32),
         );
       });
     };
@@ -128,33 +137,76 @@ export function Tab1LiveStock({
   }, []);
 
   const renderedWindow = useMemo(() => {
-    const safeExtent = Math.max(1, itemExtent);
-    const visibleRows = Math.max(
-      1,
-      Math.ceil(viewportHeight / safeExtent),
+    const count = products.length;
+    if (count === 0) {
+      return {
+        start: 0,
+        end: 0,
+        products: [] as WarehouseProduct[],
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
+    }
+
+    const measured = measuredItemExtentsRef.current;
+    const offsets = new Array<number>(count + 1);
+    offsets[0] = 0;
+    for (let index = 0; index < count; index += 1) {
+      const measuredExtent = measured.get(products[index].id);
+      offsets[index + 1] =
+        offsets[index] +
+        (measuredExtent && measuredExtent >= 24
+          ? measuredExtent
+          : fallbackItemExtent);
+    }
+
+    const itemAtOffset = (offset: number) => {
+      const target = Math.max(0, offset);
+      let low = 0;
+      let high = count;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (offsets[middle + 1] <= target) low = middle + 1;
+        else high = middle;
+      }
+      return Math.min(count - 1, low);
+    };
+
+    const firstVisible = itemAtOffset(scrollTop);
+    const lastVisible = itemAtOffset(scrollTop + viewportHeight);
+    const start = Math.max(0, firstVisible - LIVE_STOCK_OVERSCAN_ROWS);
+    const end = Math.min(
+      count,
+      lastVisible + 1 + LIVE_STOCK_OVERSCAN_ROWS,
     );
-    const renderCount = visibleRows + LIVE_STOCK_OVERSCAN_ROWS * 2;
-    const rawStart =
-      Math.floor(scrollTop / safeExtent) - LIVE_STOCK_OVERSCAN_ROWS;
-    const maxStart = Math.max(0, products.length - renderCount);
-    const start = Math.min(maxStart, Math.max(0, rawStart));
-    const end = Math.min(products.length, start + renderCount);
 
     return {
       start,
       end,
       products: products.slice(start, end),
-      topSpacerHeight: start * safeExtent,
-      bottomSpacerHeight: (products.length - end) * safeExtent,
+      topSpacerHeight: offsets[start],
+      bottomSpacerHeight: offsets[count] - offsets[end],
     };
-  }, [itemExtent, products, scrollTop, viewportHeight]);
+  }, [
+    fallbackItemExtent,
+    measurementRevision,
+    products,
+    scrollTop,
+    viewportHeight,
+  ]);
 
-  const handleItemExtentChange = useCallback((nextExtent: number) => {
-    if (!Number.isFinite(nextExtent) || nextExtent < 24) return;
-    setItemExtent((current) =>
-      Math.abs(current - nextExtent) >= 1 ? nextExtent : current,
-    );
-  }, []);
+  const handleItemMeasure = useCallback(
+    (productId: number, nextExtent: number) => {
+      if (!Number.isFinite(nextExtent) || nextExtent < 24) return;
+      const previous = measuredItemExtentsRef.current.get(productId);
+      if (previous !== undefined && Math.abs(previous - nextExtent) < 1) {
+        return;
+      }
+      measuredItemExtentsRef.current.set(productId, nextExtent);
+      setMeasurementRevision((revision) => revision + 1);
+    },
+    [],
+  );
 
   const resetRenderWindow = useCallback(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
@@ -437,7 +489,7 @@ export function Tab1LiveStock({
                   startIndex={renderedWindow.start}
                   topSpacerHeight={renderedWindow.topSpacerHeight}
                   bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
-                  onItemExtentChange={handleItemExtentChange}
+                  onItemMeasure={handleItemMeasure}
                   onProductFocus={handleProductFocus}
                   onProductBlur={handleProductBlur}
                   onOpen={detail.open}
@@ -449,7 +501,7 @@ export function Tab1LiveStock({
                   startIndex={renderedWindow.start}
                   topSpacerHeight={renderedWindow.topSpacerHeight}
                   bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
-                  onItemExtentChange={handleItemExtentChange}
+                  onItemMeasure={handleItemMeasure}
                   onProductFocus={handleProductFocus}
                   onProductBlur={handleProductBlur}
                   loading={loading}
