@@ -64,6 +64,9 @@ const quantityPattern = (value: string) => {
   return new RegExp(`(^|\\D)${integer}(?:\\.0+)?(?:\\D|$)`);
 };
 
+const costPattern = (value: string) =>
+  new RegExp(String(expectedDecimal(value)).replace(".", "\\."));
+
 async function setLocale(page: Page, locale: "ar" | "en") {
   await page.evaluate((language) => {
     localStorage.setItem("wanasah.language", language);
@@ -117,10 +120,13 @@ async function expectDesktopStock(
 
   const purchase = row.locator("td").nth(8).locator("div");
   const average = row.locator("td").nth(9).locator("div");
+  const displayedCost = expectedDecimal(company.expectedCost).toFixed(3);
   await expect(purchase).toContainText("JOD");
   await expect(average).toContainText("JOD");
-  await expect(purchase).toHaveAttribute("title", new RegExp(company.expectedCost));
-  await expect(average).toHaveAttribute("title", new RegExp(company.expectedCost));
+  await expect(purchase).toContainText(displayedCost);
+  await expect(average).toContainText(displayedCost);
+  await expect(purchase).toHaveAttribute("title", costPattern(company.expectedCost));
+  await expect(average).toHaveAttribute("title", costPattern(company.expectedCost));
   await expect(purchase).toHaveAttribute("title", /per Unit/);
   await expect(average).toHaveAttribute("title", /per Unit/);
 }
@@ -299,10 +305,16 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
   await expect(mobileAverage).toContainText("د.أ.");
   await expect(mobilePurchase).toContainText("لكل حبة");
   await expect(mobileAverage).toContainText("لكل حبة");
+  await expect(mobilePurchase).toContainText(
+    expectedDecimal(a.expectedCost).toFixed(3),
+  );
+  await expect(mobileAverage).toContainText(
+    expectedDecimal(a.expectedCost).toFixed(3),
+  );
   await expect(mobilePurchase.locator("[title]").first())
-    .toHaveAttribute("title", new RegExp(a.expectedCost));
+    .toHaveAttribute("title", costPattern(a.expectedCost));
   await expect(mobileAverage.locator("[title]").first())
-    .toHaveAttribute("title", new RegExp(a.expectedCost));
+    .toHaveAttribute("title", costPattern(a.expectedCost));
 
   // A different company logs in through the real login form and sees only its
   // own independent inbound/cost evidence. Company A is not queryable by ID.
@@ -330,8 +342,12 @@ test("real FastAPI/PostgreSQL browser journey preserves stock, cost, scope and f
   await expect(foreignRow.locator('[data-cp13-quantity="on-hand"]')).toContainText(
     quantityPattern(b.expectedQuantity),
   );
-  await expect(foreignRow.locator("td").nth(8).locator("div"))
-    .toHaveAttribute("title", new RegExp(b.expectedCost));
+  const foreignPurchase = foreignRow.locator("td").nth(8).locator("div");
+  await expect(foreignPurchase).toContainText(
+    expectedDecimal(b.expectedCost).toFixed(3),
+  );
+  await expect(foreignPurchase)
+    .toHaveAttribute("title", costPattern(b.expectedCost));
   await expect(page.getByText(a.productName)).toHaveCount(0);
 
   const companyBCrossTenant = await browserFetch(
