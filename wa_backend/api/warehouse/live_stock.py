@@ -1266,7 +1266,8 @@ async def get_warehouse_inventory(
             f"{int(has_damaged)}{int(has_recalled)}"
             f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
-\n        search_probe = None
+
+        search_probe = None
         search_probe_count = None
         search_probe_ids = None
         direct_search_filters = ()
