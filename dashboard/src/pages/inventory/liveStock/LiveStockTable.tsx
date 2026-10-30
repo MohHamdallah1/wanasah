@@ -11,14 +11,14 @@ import { getLiveStockCp7Copy } from "./i18n";
 
 type Props = {
   products: WarehouseProduct[];
-  totalCount: number;
-  startIndex: number;
-  topSpacerHeight: number;
-  bottomSpacerHeight: number;
+  totalCount?: number;
+  startIndex?: number;
+  topSpacerHeight?: number;
+  bottomSpacerHeight?: number;
   loading: boolean;
-  onItemExtentChange: (height: number) => void;
-  onProductFocus: (productId: number) => void;
-  onProductBlur: (nextTarget: EventTarget | null) => void;
+  onItemExtentChange?: (height: number) => void;
+  onProductFocus?: (productId: number) => void;
+  onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
 };
 
@@ -48,14 +48,14 @@ function HeaderHelp({ text }: { text: string }) {
 
 export function LiveStockTable({
   products,
-  totalCount,
-  startIndex,
-  topSpacerHeight,
-  bottomSpacerHeight,
+  totalCount = products.length,
+  startIndex = 0,
+  topSpacerHeight = 0,
+  bottomSpacerHeight = 0,
   loading,
-  onItemExtentChange,
-  onProductFocus,
-  onProductBlur,
+  onItemExtentChange = () => undefined,
+  onProductFocus = () => undefined,
+  onProductBlur = () => undefined,
   onOpen,
 }: Props) {
   const { t, i18n } = useTranslation();
