@@ -476,7 +476,7 @@ export function parseLiveStockPage(
 
 export function parseLiveStockFamilies(
   raw: unknown,
-): { items: LiveStockFamilyOption[]; has_more: boolean } {
+): { items: LiveStockFamilyOption[]; has_more: boolean; next_cursor: string | null } {
   const code = "LIVE_STOCK_FAMILIES_INVALID";
   const payload = record(raw, code);
   if (!Array.isArray(payload.items) || typeof payload.has_more !== "boolean") {
@@ -490,7 +490,13 @@ export function parseLiveStockFamilies(
       code: str(row.code, code, 100),
     };
   });
-  return { items, has_more: payload.has_more };
+  const nextCursor = payload.next_cursor === null
+    ? null
+    : str(payload.next_cursor, code, 2048);
+  if (payload.has_more !== (nextCursor !== null)) {
+    return contractError(code);
+  }
+  return { items, has_more: payload.has_more, next_cursor: nextCursor };
 }
 
 export function parseLiveStockSummary(
