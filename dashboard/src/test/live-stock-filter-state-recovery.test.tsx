@@ -53,6 +53,7 @@ const family = (id: number, name: string) => ({
 const familyPage = (items: ReturnType<typeof family>[]) => ({
   items,
   has_more: false,
+  next_cursor: null,
 });
 
 function FilterHarness({ locationId = 11 }: { locationId?: number }) {
