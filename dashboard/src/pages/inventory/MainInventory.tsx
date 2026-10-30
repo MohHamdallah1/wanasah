@@ -305,7 +305,9 @@ export default function MainInventory() {
     : "inventory_selected_location:anonymous";
 
   const backofficeUserId = localStorage.getItem("backoffice_user_id") || "";
-  const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId);
+  const principalId = localStorage.getItem("principal_id") || "";
+  const warmScopeKey = inventoryWarmScopeKey(companyId, backofficeUserId, principalId);
+  const mountedScopeKey = useRef(warmScopeKey);
   const [initialWarmShell] = useState(() =>
     readInventoryShellWarmSnapshot(warmScopeKey),
   );
@@ -378,8 +380,45 @@ export default function MainInventory() {
   }, [selectedLocationId]);
   const access = useInventoryAccess();
   const locationAccess = useInventoryAccess(selectedLocationId);
-  const canReadStock = locationAccess.can('inventory.read');
-  const canReadStatus = locationAccess.can('location.read');
+  // A cached React Query success is not a fresh canonical admission.
+  const matchesSession = (data: typeof access.data) =>
+    !!data &&
+    data.company_id === Number(companyId) &&
+    data.principal_id === Number(principalId) &&
+    data.backoffice_user_id === Number(backofficeUserId) &&
+    localStorage.getItem("company_id") === companyId &&
+    localStorage.getItem("principal_id") === principalId &&
+    localStorage.getItem("backoffice_user_id") === backofficeUserId &&
+    mountedScopeKey.current === warmScopeKey &&
+    warmScopeKey !== null;
+  const globalAccessVerified =
+    access.isSuccess && access.isFetchedAfterMount &&
+    !access.isFetching && !access.isError && matchesSession(access.data);
+  const locationAccessVerified =
+    globalAccessVerified && locationAccess.isSuccess &&
+    locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
+    !locationAccess.isError && matchesSession(locationAccess.data) &&
+    locationAccess.data?.location_id === selectedLocationId;
+  const [serverVerifiedLocationId, setServerVerifiedLocationId] =
+    useState<number | null>(null);
+  const liveAuthorityVerified =
+    locationAccessVerified && selectedLocationId !== null &&
+    serverVerifiedLocationId === selectedLocationId &&
+    locationAccess.can("inventory.read");
+  const canReadStock = liveAuthorityVerified;
+  const canReadStatus = locationAccessVerified && locationAccess.can("location.read");
+  const authorityRef = useRef({ admitted: false, scope: warmScopeKey, location: selectedLocationId });
+  authorityRef.current = {
+    admitted: liveAuthorityVerified,
+    scope: warmScopeKey,
+    location: selectedLocationId,
+  };
+  const requestStillAuthorized = (scope: string | null, location: number) =>
+    authorityRef.current.admitted && authorityRef.current.scope === scope &&
+    authorityRef.current.location === location &&
+    localStorage.getItem("company_id") === companyId &&
+    localStorage.getItem("principal_id") === principalId &&
+    localStorage.getItem("backoffice_user_id") === backofficeUserId;
   const { isCompanyOwner, canAny, can } = access;
   const { can: canAtLocation } = locationAccess;
   const tabAllowed = useCallback((id: TabId) => {
@@ -452,6 +491,10 @@ export default function MainInventory() {
   const stockItemsRef = useRef<WarehouseProduct[]>(stockItems);
   const [stockPageReady, setStockPageReady] = useState(
     initialLiveSnapshot?.hasPage === true,
+  );
+  type LiveReadPhase = "initial" | "warm" | "fresh" | "failed" | "denied";
+  const [liveReadPhase, setLiveReadPhase] = useState<LiveReadPhase>(
+    initialLiveSnapshot?.hasPage ? "warm" : "initial",
   );
   useEffect(() => {
     stockItemsRef.current = stockItems;
