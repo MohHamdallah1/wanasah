@@ -199,8 +199,6 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
   }
 
   const familyRequests = familyCursorRequests();
-    request.path.startsWith("/warehouse/inventory/cursor") &&
-    request.path.includes("family_id=21"));
   const cursors = familyRequests.map((request) =>
     new URL(request.path, "http://fixture").searchParams.get("cursor"));
   expect(cursors[0]).toBeNull();
@@ -220,7 +218,7 @@ test("2050 variable-height rows keep stable cursor continuation, selected family
     nodes.map((node) => node.getAttribute("aria-rowindex")));
   expect(new Set(ariaRows).size).toBe(ariaRows.length);
   const visibleNumbers = await rows(page).locator(".live-stock-row-number").allTextContents();
-  expect(Number(visibleNumbers[0])).toBeGreaterThan(1);
+  expect(Number(visibleNumbers[0].replace(/,/g, ""))).toBeGreaterThan(1);
   await expect(familyTrigger).toHaveAttribute("aria-label", /Snacks/);
   assertNoUnexpected(state);
 });
