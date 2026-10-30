@@ -69,4 +69,6 @@ jobs:
       - name: Diff whitespace gate
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git diff --check "$BASE_SHA" HEAD
+        run: |
+          branch_base="$(git merge-base "$BASE_SHA" HEAD)"
+          git diff --check "$branch_base" HEAD
