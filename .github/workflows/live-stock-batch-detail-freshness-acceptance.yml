@@ -1,0 +1,51 @@
+name: Live Stock batch detail freshness and disclosure acceptance
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts"
+      - "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx"
+      - "dashboard/src/pages/inventory/liveStock/i18n.ts"
+      - "dashboard/src/pages/inventory/Tab1LiveStock.tsx"
+      - "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx"
+      - "dashboard/src/test/inventory-cp7-live-stock.test.tsx"
+      - ".github/workflows/live-stock-batch-detail-freshness-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-detail-freshness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dashboard-detail:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused detail freshness and source disclosure
+        working-directory: dashboard
+        run: npm test -- src/test/live-stock-batch-detail-freshness.test.tsx --reporter=verbose
+      - name: Existing CP7 Live Stock source and filter regressions
+        working-directory: dashboard
+        run: npm test -- src/test/inventory-cp7-live-stock.test.tsx src/test/inventory-cp7-live-stock-parity.test.tsx src/test/live-stock-local-failure.test.tsx --reporter=verbose
+      - name: TypeScript typecheck
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Production build
+        working-directory: dashboard
+        run: npm run build
