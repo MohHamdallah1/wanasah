@@ -24,7 +24,7 @@ from api.driver import update_visit
 from api.warehouse.inbound import warehouse_inbound
 from context import tenant_context
 from database import engine
-from models import Driver, ProductBatch
+from models import Driver, ProductBatch, Visit
 from schemas import UpgradedInboundRequest, VisitUpdateRequest
 from tests.canonical_actor_fixtures import load_company_owner_fixture, seed_field_fixture
 from tests.supplier_fixtures import seed_receipt_supplier
@@ -564,6 +564,113 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             await conflict_db.close()
             await conflict_conn.close()
 
+        # A standalone historical return does NOT have authoritative original
+        # sale-cost attribution. Preserve the documented estimate path rather
+        # than borrowing the replacement cost as a new accounting policy.
+        standalone_expected_return_cost = (
+            D("5.342282") if self.method == "FIFO" else D("5.333334")
+        )
+        standalone_expected_value = (
+            D("801.342282") if self.method == "FIFO" else D("800.000000")
+        )
+        standalone_conn, standalone = await self._new_session()
+        try:
+            original_visit = await standalone.get(Visit, visit_id)
+            self.assertIsNotNone(original_visit)
+            standalone_visit_id = 1_400_000_000 + (uuid4().int % 500_000_000)
+            standalone.add(Visit(
+                id=standalone_visit_id,
+                company_id=self.tenant,
+                shop_id=int(original_visit.shop_id),
+                driver_id=self.field_driver_id,
+                operational_date=original_visit.operational_date,
+                status="Pending",
+                outcome="Pending",
+            ))
+            await standalone.commit()
+
+            actor = await standalone.get(Driver, self.field_driver_id)
+            standalone_return = VisitUpdateRequest(
+                request_id=uuid4(),
+                outcome="NoSale",
+                notes="Standalone historical damaged exchange without proven sale cost",
+                cart_items=[],
+                cash_collected="0.000",
+                returns=[{
+                    "product_variant_id": self.variant["id"],
+                    "batch_id": batch_id,
+                    "quantity": 0,
+                    "packs_quantity": int(return_qty),
+                    "return_type": "Damaged",
+                    "reason": "No authoritative original financial allocation",
+                }],
+            )
+            standalone_response = await update_visit(
+                visit_id=standalone_visit_id,
+                payload=standalone_return,
+                db=standalone,
+                field_context=self.field_context,
+                legacy_actor=actor,
+            )
+            self.assertEqual(
+                standalone_response["message"], "Visit updated successfully"
+            )
+            standalone_cost = (
+                await standalone.execute(
+                    text(
+                        "SELECT e.cost_basis,e.total_cost,e.source_cost_event_id "
+                        "FROM inventory_cost_events e "
+                        "JOIN inventory_movements m ON m.company_id=e.company_id "
+                        "AND m.id=e.inventory_movement_id "
+                        "WHERE e.company_id=:t AND m.reference_id=:v "
+                        "AND m.reference_type='VISIT_RETURN_IN'"
+                    ),
+                    {"t": self.tenant, "v": str(standalone_visit_id)},
+                )
+            ).mappings().one()
+            self.assertEqual(
+                standalone_cost["cost_basis"], "CURRENT_AVERAGE_ESTIMATE"
+            )
+            self.assertIsNone(standalone_cost["source_cost_event_id"])
+            self.assertEqual(
+                D(standalone_cost["total_cost"]), standalone_expected_return_cost
+            )
+            self.assertEqual(
+                await self._state(standalone),
+                (
+                    purchase_qty,
+                    standalone_expected_value,
+                    (standalone_expected_value / purchase_qty).quantize(D("0.000001")),
+                ),
+            )
+
+            # Reverse the standalone exchange through the canonical correction
+            # path. Both its estimate and outbound exchange unwind append-only,
+            # returning the authoritative state to the pre-return 300 / 800.
+            actor = await standalone.get(Driver, self.field_driver_id)
+            cleared = await update_visit(
+                visit_id=standalone_visit_id,
+                payload=VisitUpdateRequest(
+                    request_id=uuid4(),
+                    outcome="NoSale",
+                    notes="Clear standalone return after estimate proof",
+                    cart_items=[],
+                    cash_collected="0.000",
+                    returns=[],
+                ),
+                db=standalone,
+                field_context=self.field_context,
+                legacy_actor=actor,
+            )
+            self.assertEqual(cleared["message"], "Visit updated successfully")
+            self.assertEqual(
+                await self._state(standalone),
+                (purchase_qty, corrected_value, expected_average),
+            )
+        finally:
+            await standalone.close()
+            await standalone_conn.close()
+
         final_conn, final = await self._new_session()
         try:
             self.assertEqual(
@@ -616,6 +723,7 @@ class ReturnCostFidelityCommittedPostgresTests(unittest.IsolatedAsyncioTestCase)
             "same_batch_two_receipts=true",
             "concurrent_replay=true",
             "post_mutation_rollback=true",
+            f"standalone_estimate={standalone_expected_return_cost}",
         )
 
 
