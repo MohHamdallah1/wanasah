@@ -23,6 +23,7 @@ from models import (
     InventoryCostState,
     InventoryMovement,
     InventoryTransferHeader,
+    StocktakeLine,
 )
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
@@ -890,6 +891,181 @@ async def test_concurrent_direct_vehicle_load_and_unload_are_serialized_and_repl
             )
         ).all()
         assert [event.event_type for event in cost_events] == ["PURCHASE_IN"]
+        negative = await db.scalar(
+            select(func.count())
+            .select_from(InventoryBalance)
+            .where(
+                InventoryBalance.company_id == tenant.company_id,
+                InventoryBalance.on_hand_quantity < 0,
+            )
+        )
+        assert int(negative or 0) == 0
+
+
+
+async def test_concurrent_warehouse_transfer_and_stocktake_are_serialized_without_partial_state(pg):
+    """True transfer-vs-stocktake race has only coherent serialized outcomes."""
+    tenant = pg.tenants[0]
+    await prepare(pg)
+
+    payload = pg.request(
+        quantity="40",
+        cost="2",
+        lot="FINAL-TR-STK-" + uuid4().hex[:12],
+    )
+    async with pg.session() as db:
+        await pg.post(db, payload)
+
+    transfer_payload = _warehouse_dispatch(tenant, "8")
+    stocktake_payload = StocktakeStartCommand(
+        request_id=uuid4(),
+        location_id=tenant.location_id,
+        stocktake_type="FULL_COUNT",
+    )
+
+    ready: asyncio.Queue[bool] = asyncio.Queue()
+    start = asyncio.Event()
+
+    async def race_transfer():
+        await ready.put(True)
+        await start.wait()
+        try:
+            result = await command(
+                pg,
+                tenant.owner,
+                lambda db, access, actor:
+                    transfers.unified_transfer_dispatch(
+                        transfer_payload, db, access, actor
+                    ),
+            )
+            return ("transfer", "ok", result)
+        except HTTPException as exc:
+            return ("transfer", "denied", exc)
+
+    async def race_stocktake():
+        await ready.put(True)
+        await start.wait()
+        try:
+            result = await command(
+                pg,
+                tenant.owner,
+                lambda db, access, actor:
+                    stocktake.start_unified_stocktake(
+                        stocktake_payload, db, access, actor
+                    ),
+            )
+            return ("stocktake", "ok", result)
+        except HTTPException as exc:
+            return ("stocktake", "denied", exc)
+
+    tasks = [
+        asyncio.create_task(race_transfer()),
+        asyncio.create_task(race_stocktake()),
+    ]
+    try:
+        await asyncio.wait_for(ready.get(), 20)
+        await asyncio.wait_for(ready.get(), 20)
+        start.set()
+        results = await asyncio.wait_for(asyncio.gather(*tasks), 25)
+    finally:
+        start.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    transfer_result = next(row for row in results if row[0] == "transfer")
+    stocktake_result = next(row for row in results if row[0] == "stocktake")
+    assert stocktake_result[1] == "ok", results
+
+    stocktake_response = stocktake_result[2]
+    session_id = int(stocktake_response["session_id"])
+
+    async with pg.session() as db:
+        snapshot_qty = D(
+            await db.scalar(
+                select(StocktakeLine.expected_quantity).where(
+                    StocktakeLine.company_id == tenant.company_id,
+                    StocktakeLine.stocktake_session_id == session_id,
+                    StocktakeLine.product_variant_id == tenant.variant_id,
+                )
+            )
+            or 0
+        )
+        balances = (
+            await db.execute(
+                select(
+                    InventoryBalance.location_id,
+                    InventoryBalance.on_hand_quantity,
+                ).where(
+                    InventoryBalance.company_id == tenant.company_id,
+                    InventoryBalance.product_variant_id == tenant.variant_id,
+                    InventoryBalance.stock_status == "AVAILABLE",
+                    InventoryBalance.on_hand_quantity > 0,
+                )
+            )
+        ).all()
+        physical = {int(location): D(qty) for location, qty in balances}
+        state = await db.scalar(
+            select(InventoryCostState).where(
+                InventoryCostState.company_id == tenant.company_id,
+                InventoryCostState.product_variant_id == tenant.variant_id,
+            )
+        )
+        assert state is not None
+        assert (D(state.quantity), D(state.inventory_value)) == (
+            D("40"), D("80")
+        )
+
+    if transfer_result[1] == "ok":
+        # Transfer acquired the shared location guard first and committed before
+        # stocktake took its exclusive guard; the count snapshot is post-transfer.
+        header_id = int(transfer_result[2]["header_id"])
+        async with pg.session() as db:
+            header = await db.get(InventoryTransferHeader, header_id)
+            assert header is not None and header.status == "IN_TRANSIT"
+            transit_id = int(header.transit_location_id)
+        assert snapshot_qty == D("32")
+        assert physical.get(tenant.location_id, D("0")) == D("32")
+        assert physical.get(transit_id, D("0")) == D("8")
+    else:
+        # Stocktake acquired the exclusive location guard first; after it commits
+        # the active InventoryLock is re-read by the movement engine and blocks
+        # the transfer atomically.
+        denied = transfer_result[2]
+        assert isinstance(denied, HTTPException)
+        assert denied.status_code == 409
+        assert snapshot_qty == D("40")
+        assert physical.get(tenant.location_id, D("0")) == D("40")
+        async with pg.session() as db:
+            assert int(
+                await db.scalar(
+                    select(func.count())
+                    .select_from(InventoryTransferHeader)
+                    .where(
+                        InventoryTransferHeader.company_id == tenant.company_id,
+                        InventoryTransferHeader.id
+                        == getattr(denied, "header_id", -1),
+                    )
+                )
+                or 0
+            ) == 0
+
+    # Both legitimate schedules conserve all forty base units and never create
+    # COGS/value change for an internal transfer.
+    assert sum(physical.values(), D("0")) == D("40")
+    async with pg.session() as db:
+        costs = (
+            await db.scalars(
+                select(InventoryCostEvent).where(
+                    InventoryCostEvent.company_id == tenant.company_id,
+                    InventoryCostEvent.product_variant_id == tenant.variant_id,
+                )
+            )
+        ).all()
+        assert len(costs) == 1
+        assert costs[0].event_type == "PURCHASE_IN"
+        assert D(costs[0].total_cost) == D("80")
         negative = await db.scalar(
             select(func.count())
             .select_from(InventoryBalance)
