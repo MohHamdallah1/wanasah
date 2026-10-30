@@ -842,6 +842,7 @@ async def get_warehouse_inventory_families(
     location_id: int,
     search: Optional[str] = Query(default=None, max_length=100),
     limit: int = Query(default=50, ge=1, le=100),
+    cursor: Optional[str] = Query(default=None, max_length=2048),
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
@@ -881,6 +882,19 @@ async def get_warehouse_inventory_families(
             for token in family_tokens
         )
 
+    # Keep the continuation bound to this authorized tenant, warehouse and
+    # normalized search. Reusing a cursor in another scope is a client error.
+    scope = f"warehouse-inventory-families|{company_id}|{location_id}|{clean_search}"
+    if cursor is not None:
+        cursor_name, cursor_id = _decode_variant_cursor(
+            cursor,
+            expected_kind="warehouse-inventory-families",
+            expected_scope=scope,
+        )
+        filters.append(
+            tuple_(Product.name, Product.id) > tuple_(cursor_name, cursor_id)
+        )
+
     rows = (
         await db.execute(
             select(Product.id, Product.name, Product.code)
@@ -889,7 +903,17 @@ async def get_warehouse_inventory_families(
             .limit(limit + 1)
         )
     ).all()
+    has_more = len(rows) > limit
     page = rows[:limit]
+    next_cursor = (
+        _encode_variant_cursor(
+            kind="warehouse-inventory-families",
+            variant_name=str(page[-1].name),
+            variant_id=int(page[-1].id),
+            scope=scope,
+        )
+        if has_more and page else None
+    )
     return {
         "items": [
             {
@@ -899,7 +923,8 @@ async def get_warehouse_inventory_families(
             }
             for row in page
         ],
-        "has_more": len(rows) > limit,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
     }
 
 
