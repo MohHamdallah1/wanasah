@@ -74,7 +74,7 @@ def implementations():
         # One statement snapshot""")
     return {
         "baseline": compile_endpoint(source, "accepted-main"),
-        "scalar_array": live_stock.get_warehouse_inventory,
+        "adaptive_probe": live_stock.get_warehouse_inventory,
         "materialized_ids": compile_endpoint(ids_cte, "materialized-ids"),
         "materialized_visible": compile_endpoint(visible_cte, "materialized-visible"),
     }

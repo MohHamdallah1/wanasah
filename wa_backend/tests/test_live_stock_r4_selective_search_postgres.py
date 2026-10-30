@@ -58,7 +58,7 @@ async def compare(engine, fixture, functions, report):
             persist(report)
 
     selected = [r for r in report["results"]
-                if r["implementation"] == "scalar_array" and r["name"] == "rare"]
+                if r["implementation"] == "adaptive_probe" and r["name"] == "rare"]
     assert len(selected) == 6
     for result in selected:
         # One matching variant: every variant scan/probe visits at most that
@@ -78,7 +78,7 @@ async def compare(engine, fixture, functions, report):
     assert len(old) == 2
     assert all(relation_work(r) >= fixture["products"] for r in old)
     assert sum(r["implementation"] == "baseline" for r in report["results"]) == 46
-    assert sum(r["implementation"] == "scalar_array" for r in report["results"]) == 46
+    assert sum(r["implementation"] == "adaptive_probe" for r in report["results"]) == 46
     assert len(report["results"]) == 140
 
 
@@ -185,7 +185,7 @@ async def snapshot_controls(engine, admin, fixture, report):
             async with r4.session(engine, fixture["company_id"]) as db:
                 access = await access_for(db, fixture, actor)
                 paused = PausedStatement(db, timing)
-                values = kwargs(paused, fixture, access, search="000001", limit=1, stock_state="sellable")
+                values = kwargs(paused, fixture, access, search="R2-50K-000001", limit=1, stock_state="sellable")
                 task = asyncio.create_task(r4.n1.capture_endpoint_call(
                     engine, lambda: live_stock.get_warehouse_inventory(**values)))
                 try:
@@ -198,7 +198,7 @@ async def snapshot_controls(engine, admin, fixture, report):
                 combined = [s for s in sql if "inventory_page_candidates" in s["statement"]]
                 assert len(combined) == 1
                 assert "inventory_detail_keys" in combined[0]["statement"]
-                assert "array_agg" in combined[0]["statement"]
+                assert "inventory_single_search_probe" in combined[0]["statement"]
                 if timing == "before":
                     assert payload["items"] == []
                 else:

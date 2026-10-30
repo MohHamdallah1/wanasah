@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, String, and_, any_, bindparam, case, func, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, or_, select, true, tuple_, union, union_all
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
@@ -1284,19 +1284,10 @@ async def get_warehouse_inventory(
             f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
         )
         candidate_filters = []
+        search_membership = None
         if search_variant_ids is not None:
-            # Keep tenant-safe search membership in a scalar array within
-            # this statement. Selective ANY probes avoid the ordered catalog
-            # scan and rescanned unique-aggregate seen with IN at LIMIT 1.
-            search_matches = search_variant_ids.subquery("inventory_search_matches")
-            search_ids_array = (
-                select(func.array_agg(search_matches.c[0]))
-                .scalar_subquery()
-                .cast(ARRAY(Integer))
-            )
-            candidate_filters.append(
-                ProductVariant.id == any_(search_ids_array)
-            )
+            search_membership = ProductVariant.id.in_(search_variant_ids)
+            candidate_filters.append(search_membership)
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
@@ -1340,6 +1331,32 @@ async def get_warehouse_inventory(
                 else cursor_key > cursor_value
             )
 
+        singleton_stmt = None
+        if search_variant_ids is not None and limit == 1 and not use_alert_fast_path:
+            # A bounded probe chooses between two equivalent SQL access paths.
+            # Both branches and all detail reads keep the same statement snapshot.
+            search_probe = (
+                search_variant_ids.limit(2)
+                .cte("inventory_single_search_probe")
+                .prefix_with("MATERIALIZED")
+            )
+            probe_count = select(func.count()).select_from(search_probe).scalar_subquery()
+            single_id = select(search_probe.c[0]).limit(1).scalar_subquery()
+            singleton_filters = [
+                item for item in candidate_filters if item is not search_membership
+            ]
+            singleton_filters.extend((probe_count == 1, ProductVariant.id == single_id))
+            candidate_filters.append(probe_count != 1)
+            singleton_stmt = _build_visible_inventory_stmt(
+                company_id=company_id,
+                location_id=location_id,
+                access=access,
+                company_wide_inventory_read=company_wide_inventory_read,
+                candidate_filters=singleton_filters,
+                limit=limit,
+                sort=sort,
+            )
+
         if use_alert_fast_path:
             alerts = _build_inventory_alert_variants_stmt(
                 company_id=company_id,
@@ -1365,6 +1382,20 @@ async def get_warehouse_inventory(
                 candidate_filters=candidate_filters,
                 limit=limit,
                 sort=sort,
+            )
+
+        if singleton_stmt is not None:
+            search_candidates = union_all(singleton_stmt, candidate_stmt).subquery(
+                "inventory_search_candidates"
+            )
+            search_order = (
+                (search_candidates.c.variant_name.desc(), search_candidates.c.id.desc())
+                if sort == "name_desc"
+                else (search_candidates.c.variant_name.asc(), search_candidates.c.id.asc())
+            )
+            candidate_stmt = (
+                select(search_candidates.c.id, search_candidates.c.variant_name)
+                .order_by(*search_order).limit(limit + 1)
             )
 
         # One statement snapshot owns candidate eligibility and all quantities.
