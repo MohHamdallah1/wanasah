@@ -28,6 +28,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_CP3_PG_GATE: "1"
+      WANASAH_CP7_PG_GATE: "1"
       WANASAH_NO_LOT_PG_GATE: "1"
       WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
@@ -90,6 +91,12 @@ jobs:
       - name: Existing CP3 helper and source read contract
         working-directory: wa_backend
         run: python -m pytest -q tests/test_cp3_batch_actions_contract.py
+      - name: Existing CP3 PostgreSQL status-change and reservation regression
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp3_batch_actions_postgres.py
+      - name: Existing CP7 PostgreSQL exact-source isolation regression
+        working-directory: wa_backend
+        run: python -m pytest -q -s tests/test_cp7_live_stock_postgres.py::test_cp7_exact_warehouse_company_rls_and_no_lot_isolation
       - name: Backend compilation
         working-directory: wa_backend
         run: python -m py_compile api/warehouse/live_stock_source_detail.py domains/batch_actions/status_change.py
