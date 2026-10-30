@@ -608,6 +608,20 @@ def _live_stock_filtered_variant_ids_stmt(
         name="live_stock_filter_projection",
     )
 
+    # Positive stock predicates imply that a sparse Live Stock projection row
+    # must exist. Drive those filters from the projection itself instead of
+    # probing ProductVariant + projection once per catalog row. Keep the
+    # fallback outer join only for predicates where a *missing* projection is
+    # semantically meaningful (out_of_stock / minimum_unset by themselves).
+    projection_guaranteed = (
+        stock_state in {"on_hand", "sellable", "low_stock"}
+        or has_reserved
+        or has_unavailable
+        or has_damaged
+        or has_recalled
+        or has_vehicle
+    )
+
     projected_on_hand = func.coalesce(projection.warehouse_on_hand, 0)
     projected_reserved = func.coalesce(projection.warehouse_reserved, 0)
     projected_sellable_on_hand = func.coalesce(
@@ -620,11 +634,21 @@ def _live_stock_filtered_variant_ids_stmt(
     projected_damaged = func.coalesce(projection.damaged_packs, 0)
     projected_recalled = func.coalesce(projection.recalled_packs, 0)
 
+    lifecycle_status = (
+        projection.lifecycle_status
+        if projection_guaranteed
+        else variant.lifecycle_status
+    )
+    operational_hold = (
+        projection.operational_hold
+        if projection_guaranteed
+        else variant.operational_hold
+    )
     effective_sellable = case(
         (
             and_(
-                variant.lifecycle_status == "ACTIVE",
-                variant.operational_hold == "NONE",
+                lifecycle_status == "ACTIVE",
+                operational_hold == "NONE",
             ),
             projected_sellable_on_hand - projected_sellable_reserved,
         ),
@@ -682,8 +706,7 @@ def _live_stock_filtered_variant_ids_stmt(
                     and_(
                         latest_vehicle_sources.c.vehicle_id
                         == readable_vehicle_locations.c.vehicle_id,
-                        latest_vehicle_sources.c.source_location_id
-                        == location_id,
+                        latest_vehicle_sources.c.source_location_id == location_id,
                     ),
                 )
                 .where(
@@ -693,7 +716,24 @@ def _live_stock_filtered_variant_ids_stmt(
                 )
                 .distinct()
             )
-            conditions.append(variant.id.in_(readable_vehicle_variants))
+            conditions.append(
+                (
+                    projection.product_variant_id
+                    if projection_guaranteed
+                    else variant.id
+                ).in_(readable_vehicle_variants)
+            )
+
+    if projection_guaranteed:
+        return (
+            select(projection.product_variant_id)
+            .where(
+                projection.company_id == company_id,
+                projection.warehouse_location_id == location_id,
+                *conditions,
+            )
+            .correlate(None)
+        )
 
     return (
         select(variant.id)
