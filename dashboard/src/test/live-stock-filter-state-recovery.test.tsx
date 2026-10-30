@@ -83,7 +83,7 @@ afterEach(() => {
 describe("Live Stock family filter state and recovery", () => {
   it("shows a fetch failure and explicitly retries instead of showing an empty family list", async () => {
     mocks.authFetch
-      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockRejectedValueOnce(new Error())
       .mockResolvedValueOnce(familyPage([family(1, "Alpha")]));
 
     render(<FilterHarness />);
