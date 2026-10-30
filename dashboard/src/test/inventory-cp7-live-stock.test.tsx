@@ -449,7 +449,7 @@ describe("UI-05 mobile cost parity", () => {
     const desktopCells = document.querySelectorAll<HTMLTableCellElement>(".live-stock-row td");
     expect(desktopCells[8].textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
     expect(desktopCells[9].textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
-    expect(document.querySelectorAll("[data-cp13-quantity]")).toHaveLength(5);
+    expect(document.querySelectorAll('[data-testid="live-stock-mobile-cards"] [data-cp13-quantity]')).toHaveLength(5);
   });
 
   it("renders null costs as unknown, never zero or a fabricated per-unit amount", () => {
@@ -462,7 +462,7 @@ describe("UI-05 mobile cost parity", () => {
       expect(cost(metric)).not.toHaveTextContent("0");
       expect(cost(metric).querySelector(".sr-only")).toBeNull();
     }
-    expect(document.querySelectorAll("[data-cp13-quantity]")).toHaveLength(5);
+    expect(document.querySelectorAll('[data-testid="live-stock-mobile-cards"] [data-cp13-quantity]')).toHaveLength(5);
   });
 
   it("preserves real zero values, Arabic locale, and separate purchase/display UOM", () => {
