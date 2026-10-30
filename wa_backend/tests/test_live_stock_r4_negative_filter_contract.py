@@ -39,8 +39,8 @@ def test_negative_filters_use_correlated_anti_exists_only_when_projection_is_not
     assert "negative_projection.minimum_quantity > 0" in body
     assert "ProductVariant.lifecycle_status != 'ACTIVE'" in body
     assert "ProductVariant.operational_hold != 'NONE'" in body
-    assert "not positive_sellable_projection" in body
-    assert "not configured_minimum_projection" in body
+    assert "~positive_sellable_projection" in body
+    assert "~configured_minimum_projection" in body
 
     # Positive projection predicates keep the accepted #675 projection-driven
     # path; this change must not route them through negative anti-joins.
