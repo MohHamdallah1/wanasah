@@ -161,7 +161,7 @@ describe("UI-07/UI-08: distinct summary, row and fetch-time semantics", () => {
     expect(screen.getByTestId("live-loaded-count"))
       .toHaveTextContent("Variants loaded from the list: 2");
     expect(screen.getByText(/Last successful stock-list fetch/)).toBeInTheDocument();
-    expect(screen.getByText(/Previously loaded inventory/)).toBeInTheDocument();
+    expect(screen.getByText(/The latest data could not be fetched/)).toBeInTheDocument();
     expect(screen.queryByTestId("live-matching-total")).not.toBeInTheDocument();
   });
 
