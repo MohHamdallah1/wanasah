@@ -44,10 +44,10 @@ async def _seed(db, tenant, count: int) -> tuple[int, int]:
         WITH candidates AS (
             INSERT INTO product_variants
                 (company_id, product_id, base_uom_id, name, sku,
-                 lifecycle_status, published_at)
+                 lifecycle_status, published_at, created_at, updated_at)
             SELECT :company, :product, :uom, 'F4 variant ' || g,
                    'F4-' || g::text,
-                   'ACTIVE', current_timestamp
+                   'ACTIVE', current_timestamp, current_timestamp, current_timestamp
             FROM generate_series(1, :count) AS g
             RETURNING id, name
         )
@@ -55,12 +55,13 @@ async def _seed(db, tenant, count: int) -> tuple[int, int]:
             company_id, warehouse_location_id, product_variant_id,
             variant_name, lifecycle_status, operational_hold,
             has_active_policy, is_low_stock, computed_for_date,
-            next_transition_date
+            next_transition_date, updated_at
         )
         SELECT :company, :location, id, name, 'ACTIVE', 'NONE',
                true, false,
                (timezone('Asia/Amman', current_timestamp))::date - 2,
-               (timezone('Asia/Amman', current_timestamp))::date - 1
+               (timezone('Asia/Amman', current_timestamp))::date - 1,
+               current_timestamp
         FROM candidates
     """), {"company": tenant.company_id, "product": info.product_id,
             "uom": info.base_uom_id, "location": tenant.location_id, "count": count})
@@ -71,12 +72,13 @@ async def _seed(db, tenant, count: int) -> tuple[int, int]:
             company_id, warehouse_location_id, product_variant_id,
             variant_name, lifecycle_status, operational_hold,
             has_active_policy, is_low_stock, computed_for_date,
-            next_transition_date
+            next_transition_date, updated_at
         )
         SELECT company_id, :other_location, id, name, 'ACTIVE', 'NONE',
                true, false,
                (timezone('Asia/Amman', current_timestamp))::date - 2,
-               (timezone('Asia/Amman', current_timestamp))::date - 1
+               (timezone('Asia/Amman', current_timestamp))::date - 1,
+               current_timestamp
         FROM product_variants
         WHERE company_id = :company AND sku LIKE :prefix
         ORDER BY id LIMIT 3
