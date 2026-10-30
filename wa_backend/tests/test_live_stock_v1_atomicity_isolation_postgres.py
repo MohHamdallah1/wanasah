@@ -491,10 +491,11 @@ async def test_direct_vehicle_load_precommit_failure_is_fully_atomic_and_retryab
 
 
 async def test_direct_vehicle_mutation_request_identity_is_tenant_scoped_and_revocation_fails_closed(pg):
-    left, right = await asyncio.gather(
-        _prepare_party(pg, 0),
-        _prepare_party(pg, 1),
-    )
+    # Prepare authorization reference rows sequentially; the actual cross-tenant
+    # mutation below is concurrent. Avoid making global Permission fixture setup
+    # itself part of the race being tested.
+    left = await _prepare_party(pg, 0)
+    right = await _prepare_party(pg, 1)
     await _runtime_identity_and_rls(pg, 0)
     await _runtime_identity_and_rls(pg, 1)
 
