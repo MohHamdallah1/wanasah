@@ -98,6 +98,7 @@ jobs:
       - name: Verify isolated ownership scope
         run: |
           base="${{ github.event.pull_request.base.sha || github.sha }}"
+          base=$(git merge-base "$base" HEAD)
           git cat-file -e "$base^{commit}"
           git merge-base --is-ancestor "$base" HEAD
           git diff --check "$base" HEAD --

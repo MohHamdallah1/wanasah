@@ -114,6 +114,8 @@ jobs:
         env:
           CP13_REPAIR_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
+          CP13_REPAIR_BASE=$(git merge-base "$CP13_REPAIR_BASE" HEAD)
+          export CP13_REPAIR_BASE
           git cat-file -e "$CP13_REPAIR_BASE^{commit}"
           python - <<'PY'
           import os
@@ -151,4 +153,4 @@ jobs:
         shell: bash
         env:
           CP13_REPAIR_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
-        run: git diff --check "$CP13_REPAIR_BASE" HEAD
+        run: git diff --check "$(git merge-base "$CP13_REPAIR_BASE" HEAD)" HEAD
