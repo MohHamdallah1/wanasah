@@ -395,6 +395,12 @@ export default function MainInventory() {
   const globalAccessVerified =
     access.isSuccess && access.isFetchedAfterMount &&
     !access.isFetching && !access.isError && matchesSession(access.data);
+  const globalAdmissionEpoch = useRef(0);
+  const priorGlobalAdmission = useRef(false);
+  if (priorGlobalAdmission.current && !globalAccessVerified) {
+    globalAdmissionEpoch.current += 1;
+  }
+  priorGlobalAdmission.current = globalAccessVerified;
   const locationAccessVerified =
     globalAccessVerified && locationAccess.isSuccess &&
     locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
@@ -402,10 +408,19 @@ export default function MainInventory() {
     locationAccess.data?.location_id === selectedLocationId;
   const [serverVerifiedLocationId, setServerVerifiedLocationId] =
     useState<number | null>(null);
+  const [selectorAdmissionEpoch, setSelectorAdmissionEpoch] =
+    useState<number | null>(null);
   const liveAuthorityVerified =
     locationAccessVerified && selectedLocationId !== null &&
     serverVerifiedLocationId === selectedLocationId &&
+    selectorAdmissionEpoch === globalAdmissionEpoch.current &&
     locationAccess.can("inventory.read");
+  const liveAdmissionEpoch = useRef(0);
+  const priorLiveAdmission = useRef(false);
+  if (priorLiveAdmission.current && !liveAuthorityVerified) {
+    liveAdmissionEpoch.current += 1;
+  }
+  priorLiveAdmission.current = liveAuthorityVerified;
   // Retain the canonical capability predicate and enforce fresh admission
   // separately; a cached capability alone never exposes the read model.
   const canReadStock = locationAccess.can('inventory.read');
@@ -697,6 +712,7 @@ export default function MainInventory() {
       setStockPageError(null);
       setStockSummaryError(null);
       setServerVerifiedLocationId(null);
+      setSelectorAdmissionEpoch(null);
       hydrateDefaultLiveStock(locationId);
     },
     [hydrateDefaultLiveStock],
@@ -727,6 +743,8 @@ export default function MainInventory() {
     setLoadingLocations(true);
     setLocationError(false);
     setServerVerifiedLocationId(null);
+    setSelectorAdmissionEpoch(null);
+    const requestAccessEpoch = globalAdmissionEpoch.current;
 
     const savedRaw = localStorage.getItem(selectedLocationStorageKey);
     const savedId = savedRaw ? Number(savedRaw) : null;
@@ -752,7 +770,12 @@ export default function MainInventory() {
           ? authFetch("/warehouse/setup-status", { signal: controller.signal })
           : Promise.resolve(null),
       ]);
-      if (requestSeq !== locationRequestSeq.current) return;
+      if (requestSeq !== locationRequestSeq.current ||
+          requestAccessEpoch !== globalAdmissionEpoch.current ||
+          !globalAccessVerified ||
+          localStorage.getItem("company_id") !== companyId ||
+          localStorage.getItem("principal_id") !== principalId ||
+          localStorage.getItem("backoffice_user_id") !== backofficeUserId) return;
 
       const page = parseWarehouseLocationPage(locationsRaw);
       // The company-wide setup contract is management-only. Its location.read
@@ -777,6 +800,7 @@ export default function MainInventory() {
       // The backend selector response, not the warm shell, authorizes
       // offering this warehouse to the user for the current request.
       setServerVerifiedLocationId(nextLocationId);
+      setSelectorAdmissionEpoch(requestAccessEpoch);
       if (nextLocationId !== null) {
         localStorage.setItem(selectedLocationStorageKey, String(nextLocationId));
       } else {
@@ -810,7 +834,7 @@ export default function MainInventory() {
     }
   }, [
     authFetch, canAny, globalAccessVerified, prepareLocationChange, selectedLocationStorageKey,
-    t, warehouseCursor, warehouseSearch, warmScopeKey,
+    t, warehouseCursor, warehouseSearch, warmScopeKey, companyId, principalId, backofficeUserId,
   ]);
 
   useEffect(() => {
@@ -854,6 +878,7 @@ export default function MainInventory() {
 
       prepareLocationChange(nextId);
       setServerVerifiedLocationId(nextId);
+      setSelectorAdmissionEpoch(globalAdmissionEpoch.current);
       selectedLocationIdRef.current = nextId;
       setSelectedLocationId(nextId);
       localStorage.setItem(selectedLocationStorageKey, String(nextId));
@@ -948,6 +973,7 @@ export default function MainInventory() {
       stockFamilyId === null;
 
     const requestSeq = ++stockRequestSeq.current;
+    const requestAdmissionEpoch = liveAdmissionEpoch.current;
     stockAbortRef.current?.abort();
     const requestController = new AbortController();
     stockAbortRef.current = requestController;
@@ -990,7 +1016,8 @@ export default function MainInventory() {
         { signal: requestController.signal }
       );
 
-      if (requestSeq !== stockRequestSeq.current) return;
+      if (requestSeq !== stockRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockPage(raw);
       const syncedAt = new Date();
@@ -1035,7 +1062,8 @@ export default function MainInventory() {
 
       setLastSync(syncedAt);
     } catch (error: unknown) {
-      if (requestSeq !== stockRequestSeq.current) return;
+      if (requestSeq !== stockRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       if ([401, 403, 404].includes(Number((error as { status?: unknown } | null)?.status))) {
@@ -1103,6 +1131,7 @@ export default function MainInventory() {
 
     const requestLocationId = selectedLocationId;
     const requestSeq = ++stockSummaryRequestSeq.current;
+    const requestAdmissionEpoch = liveAdmissionEpoch.current;
     stockSummaryAbortRef.current?.abort();
     const requestController = new AbortController();
     stockSummaryAbortRef.current = requestController;
@@ -1117,6 +1146,7 @@ export default function MainInventory() {
       );
 
       if (requestSeq !== stockSummaryRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current ||
           !requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const data = parseLiveStockSummary(raw);
       setStockTotal(data.stock_total);
@@ -1131,7 +1161,8 @@ export default function MainInventory() {
         },
       );
     } catch (error: unknown) {
-      if (requestSeq !== stockSummaryRequestSeq.current) return;
+      if (requestSeq !== stockSummaryRequestSeq.current ||
+          requestAdmissionEpoch !== liveAdmissionEpoch.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
       if (!requestStillAuthorized(warmScopeKey, requestLocationId)) return;
       const warmSnapshot = readLiveStockWarmSnapshot(
