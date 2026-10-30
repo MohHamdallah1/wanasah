@@ -828,15 +828,16 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
         expected_cost_events=1,
     )
 
-    # 5) Actual authorized FIELD sale: 10 cartons x 8 = 80 base.
+    # 5) Actual authorized FIELD sale: 80 base units using the published
+    # base-UOM price, matching the canonical real-sale fixture contract.
     sale = VisitUpdateRequest(
         request_id=uuid4(),
         outcome="Sale",
         cart_items=[
             {
                 "product_variant_id": tenant.variant_id,
-                "quantity": 10,
-                "packs_quantity": 0,
+                "quantity": 0,
+                "packs_quantity": 80,
             }
         ],
         returns=[],
