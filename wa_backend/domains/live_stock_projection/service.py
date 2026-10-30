@@ -79,6 +79,22 @@ def _positive_int(value: object, field: str) -> int:
     return int(parsed_decimal)
 
 
+async def _set_projection_write_trusted(
+    db: AsyncSession,
+    *,
+    trusted: bool,
+) -> None:
+    """Scope projection-table write trust to the current transaction."""
+    await db.execute(
+        text(
+            "SELECT set_config("
+            "'app.live_stock_projection_trusted_write', "
+            ":value, true)"
+        ),
+        {"value": "on" if trusted else "off"},
+    )
+
+
 def _normalize_ids(values: Iterable[int], field: str) -> list[int]:
     result = sorted({_positive_int(value, field) for value in values})
     if len(result) > _MAX_PROJECTOR_KEYS:
@@ -1193,7 +1209,9 @@ async def refresh_live_stock_keys(
         old.revision = int(old.revision) + 1
         old.updated_at = utc_now()
 
+    await _set_projection_write_trusted(db, trusted=True)
     await db.flush()
+    await _set_projection_write_trusted(db, trusted=False)
 
     await _apply_warehouse_summary_deltas(
         db,
@@ -2053,7 +2071,9 @@ async def apply_live_stock_balance_impacts(
         old.revision = int(old.revision) + 1
         old.updated_at = utc_now()
 
+    await _set_projection_write_trusted(db, trusted=True)
     await db.flush()
+    await _set_projection_write_trusted(db, trusted=False)
     await _apply_warehouse_summary_deltas(
         db,
         company_id=company_id,
@@ -3533,16 +3553,6 @@ async def assert_live_stock_projection_ready(
     if bool(row.has_due_transition):
         raise LiveStockProjectionDueTransitionError(
             "Live Stock projection has a due time transition and must be refreshed."
-        )
-
-    if await _warehouse_projection_truth_mismatch_exists(
-        db,
-        company_id=company_id,
-        warehouse_location_id=warehouse_location_id,
-        computed_for_date=row.company_local_date,
-    ):
-        raise LiveStockProjectionTruthError(
-            "Live Stock projection does not match authoritative warehouse truth."
         )
 
     return LiveStockReadinessSnapshot(
