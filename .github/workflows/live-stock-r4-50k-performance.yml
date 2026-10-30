@@ -1,15 +1,9 @@
 name: Live Stock R4 real 50k SQL acceptance
 
+# Historical #645 exhaustive comparison stays available for explicit audit.
+# Production live_stock.py changes now use the focused R4 optimization gate
+# instead of automatically reseeding/rerunning this 140-result campaign.
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "wa_backend/api/warehouse/live_stock.py"
-      - "wa_backend/tests/test_live_stock_r4_selective_search_postgres.py"
-      - "wa_backend/tests/live_stock_r4_search_support.py"
-      - "wa_backend/scripts/gate_r4_live_stock_perf_50k.py"
-      - "wa_backend/tests/test_live_stock_r4_plan_metrics.py"
-      - ".github/workflows/live-stock-r4-50k-performance.yml"
   workflow_dispatch:
 
 permissions:
