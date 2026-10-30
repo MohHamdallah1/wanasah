@@ -1,11 +1,20 @@
 # Live Stock R1 PostgreSQL proof gate
 
-Assigned base: 59b760b59b21b0438ba920067d58b5face2555e9.
-Branch: codex/live-stock-snapshot-integrity-proof.
+Historical proof base: 59b760b59b21b0438ba920067d58b5face2555e9.
+Current correction base at verified head: 941847ac5d5bd6578d2070b4f947741d1420a677.
+Branch: codex/live-stock-snapshot-integrity-proof (PR #607, DRAFT).
 Frozen V1 workflow: trustworthy warehouse/vehicle operational stock visibility.
-Scope: integration tests and isolated CI only. PR #605 owns live_stock.py.
+Historical stage: isolated PostgreSQL reproduction (before F1 release).
+Current stage: authorized single-statement list correction, focused PostgreSQL PASS;
+independent review completed, release/merge acceptance remains OPEN.
+PR #605 was merged and released live_stock.py to the R1 owner.
 
-## Evidence status
+## Evidence status (historical FAIL vs corrected candidate PASS)
+
+The historical reproduction below is intentionally retained as FAIL evidence;
+its 2026-10-30 pre-fix conclusions are not the current PR state.
+Current tested SHA: `8ed79adff290a1c9aff014c2a4d007e211968f75`.
+See the final independent review section below before citing acceptance.
 
 No result is implied by committing these tests. Read the exact head's Actions
 logs and JUnit artifacts. A skipped test or provisioning/collection error leaves
@@ -53,7 +62,7 @@ changed-input rejection, two simultaneous identical commands, rollback then
 same-key retry, a competing reservation, and cross-company destination denial.
 Expected race outcomes are an explicit finite set, never a percentage tolerance.
 
-## Deterministic read boundaries
+## Historical deterministic read boundaries (pre-correction)
 
 PausingReader delegates every call to the real PostgreSQL AsyncSession and
 returns the original real result object unchanged. It pauses only after:
@@ -79,7 +88,7 @@ physical/ledger/cost assertions. They report the observed response and physical
 truth separately. query_boundary_count counts instrumented execute calls only;
 it is not an HTTP query-count, latency or EXPLAIN measurement.
 
-## Narrow correction proposal for the lead (not implemented)
+## Historical narrow correction proposal (implemented later with authorization)
 
 If PostgreSQL reproduces R1, prefer one bounded list SQL statement containing
 candidate selection/filter/seek and the existing warehouse/cost/UOM enrichment,
@@ -131,7 +140,7 @@ scalar calls and HTTP authentication are not included. No EXPLAIN/50k or propose
 fix benchmark was run. HTTP login/token admission is outside these domain/read
 tests; the persisted capability/location queries and restricted RLS role are real.
 
-Conclusion: R1 is reproduced as a read inconsistency. The tested canonical
+Historical pre-fix conclusion: R1 was reproduced as a read inconsistency. The tested canonical
 movement path conserves physical custody and ledger/value evidence. The overall
 read-integrity gate FAILS and remains a release blocker. This proof branch does
 not implement a correction or authorize editing the lead-owned live_stock.py.
@@ -172,5 +181,115 @@ movement/costing batches in the disposable PostgreSQL runner. It captures actual
 emitted SQL, parameters, query counts and EXPLAIN (ANALYZE, BUFFERS) plans for
 1/50/200 pages, next/deep cursors, owner/restricted access, search and common
 filters. Artifacts retain raw plans. It is a synthetic hosted-runner measurement,
-not production capacity certification. Corrected-query acceptance remains OPEN
-until those jobs actually finish and their outputs are reviewed.
+not production capacity certification. The jobs subsequently finished successfully on SHA `8ed79adf`; their actual
+logs and raw plans were independently reviewed. Release and representative-load
+acceptance remain OPEN. See below.
+
+
+## Independent final code, CI, and EXPLAIN review — 2026-10-30
+
+**Verification target:** draft PR #607, original tested head
+`8ed79adff290a1c9aff014c2a4d007e211968f75`, based on
+`941847ac5d5bd6578d2070b4f947741d1420a677`.
+The baseline failing proof at `f8dc600c` and run
+[40984085495](https://github.com/MohHamdallah1/wanasah/actions/runs/40984085495)
+remains preserved, **historical FAIL**, never reclassified to a passing run.
+The corrected candidate's actual hosted
+[run 40986490709](https://github.com/MohHamdallah1/wanasah/actions/runs/40986490709)
+checked out `8ed79adf` (artifact names use GitHub's synthetic merge SHA).
+
+### Verified focused results — PASS, not unconditional release signoff
+
+| Scope | Exact job | Verified PostgreSQL 16 result |
+| --- | --- | --- |
+| Movement/ledger/FIFO+moving average | `123838863718` | 10 passed |
+| R1 snapshot/permissions/revocation/FIFO+moving average | `123838863712` | 16 passed |
+| CP7/F1 stock list/detail/holds/reservation | `123838863409` | 12 passed |
+| 50k SQL/EXPLAIN per costing method | `123838863654` | 2 passed |
+
+The source and seven-file diff were independently checked. Only
+`get_warehouse_inventory` in `wa_backend/api/warehouse/live_stock.py` changed
+at runtime; CI's merge-base AST scope guard passes, preserving all other
+runtime nodes including F1 batch detail. There are no schema, movement-engine,
+cost-engine, global isolation, UI, or permission-grant changes.
+
+The materialized candidate CTE selects **at most limit+1 identities**;
+its ordered detail-key CTE selects at most `limit <= 200`. The vehicle
+aggregate is scoped to those keys, filtered by the tenant, live persisted
+`inventory.read` grants, currently readable vehicle locations, and latest
+route source warehouse. Warehouse projection, product lifecycle/hold state,
+warehouse/vehicle quantities, purchase-cost and UOM enrichment all belong to
+**one PostgreSQL READ COMMITTED statement snapshot**. The initial
+warehouse authorization, projection-readiness check (which can repair and
+commit), and this final statement are distinct queries. The snapshot does
+**not** extend to separate cursor pages, other APIs, or concurrent revocation
+between the preliminary warehouse authorization and the statement.
+
+Before/after SQL barriers delegate to real DB statements without mocked data.
+An interleaved committed V->W transfer produces a coherent W=10,V=10 or
+W=20,V=0 response; not W=20,V=10. The original sellable-positive invariant
+remains asserted and additional before/after controls pass. Real ledger and
+balance cross-checks preserve physical total 20, cost quantity 20, inventory
+value 40, exactly one receipt cost event, rollback/idempotency and cross-tenant
+denial within the tested paths. No skip/xfail assertion dilution observed.
+
+### Independently inspected raw 50,000-stocked-variant SQL plan artifacts
+
+[Artifact 12947426937](https://github.com/MohHamdallah1/wanasah/actions/runs/40986490709/artifacts/12947426937)
+contains both `r1-query-plans-FIFO.json` and
+`r1-query-plans-MOVING_AVERAGE.json`: **128 recorded page scenarios each**
+(98 single-statement, 30 test-only repeatable-read legacy comparisons).
+Across all 196 new-query cases, SQL execution count is exactly **4** for
+page sizes 1/50/200 and search/filter/cursor cases; the corresponding
+legacy comparison uses 5 (owner) or 6 (restricted) statements. The maximum
+returned row count is 200. This proves bounded page results and measured
+statement counts, **not** that every predicate avoids scanning large tables.
+
+Selected actual FIFO plans; all durations in **milliseconds of SQL execution**
+(not browser time; single-run synthetic host, not p95):
+
+| Query (limit 50) | New full-query SQL total | Legacy RR full-query SQL total | New page statement |
+| --- | ---: | ---: | ---: |
+| Owner, unfiltered | 0.92 | 0.76 | 0.83 |
+| Restricted, unfiltered | 16.28 | 14.90 | 16.15 |
+| Owner, broad `Common` | 249.21 | 249.09 | 249.08 |
+| Restricted, broad `Common` | 348.92 | 338.99 | 348.77 |
+| Restricted, `has_vehicle` | 27.90 | 27.68 | 27.74 |
+
+Additional measured FIFO single-statement scenarios: restricted two-character
+`Co` search (50 results) **344.80 ms**, owner minimum-unset filter
+**263.46 ms**, restricted no-match out-of-stock **158.86 ms**, and restricted
+no-match unavailable **171.65 ms**. Moving-average repeats show the same
+scale (restricted `Common` 346.92 ms; `Co` 344.75 ms). Broad-search plans
+show about **300k–500k shared-buffer hits** on this warm synthetic database;
+many rows are inspected before the bounded page keys are returned.
+Sparse/negative filters also inspect many candidates to establish no match.
+No assertion or approved SLO bounds elapsed time, and no production-representative
+load/concurrency or HTTP/browser latency test was performed. The observed
+performance is comparable to, but not a blanket improvement over, legacy SQL.
+The repeatable-read comparison is test-only and does not introduce a runtime
+transaction-isolation change. No speculative indexes or unbounded loading
+are authorized by these findings alone.
+
+### Residual gates and independent recommendation
+
+- **PASS** focused R1 coherence, candidate/detail identity, expected cursor
+  order/keyset, bounded returned page, tested capability/location isolation,
+  read-revocation, RLS, cost conservation and F1 regressions on the original
+  tested SHA. Unverified real-world flows must not inherit this PASS.
+- **FAIL** unrelated `CP2 Batch Index` run
+  [40986490760](https://github.com/MohHamdallah1/wanasah/actions/runs/40986490760):
+  functional steps passed; the old exact-file ownership audit failed on
+  legitimate R1 changed files. Assign to CP2 owner; never hide, skip or relax
+  security/integrity checks to make the status green.
+- **OPEN** HTTP-level login/authentication admission and authorization across
+  the actual dependency chain; integration/browser behavior; external
+  concurrent grant-revocation timing; production-representative query mix,
+  p95/p99 and permitted latency budget; broader stocktake/settlement/offline
+  authority paths and Live Stock R2/other closure items.
+- **Recommendation:** the minimal R1 correction is **technically acceptable
+  for lead code review on the focused evidence**, but **NO-GO for merge/release
+  approval until the lead explicitly accepts the documented residual risk
+  and addresses blocking CI policy/required gates**. Leave PR DRAFT and
+  UNMERGED. This documentation-only commit does not replace or rerun the
+  PostgreSQL results cited for `8ed79adf`.
