@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -162,4 +163,22 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(css).toContain("max-width: 10.75rem");
     expect(css).toContain("width: 100%");
   });
+  it("keeps arrow/Home/End focus on the activated tab when its panel autofocuses an editor", () => {
+    function Harness() {
+      const [active, setActive] = useState("live");
+      return <>
+        <InventoryTopDock items={items} activeId={active} ariaLabel="Inventory workflows" onChange={setActive} />
+        {active === "ledger" && <input autoFocus aria-label="Panel editor" />}
+      </>;
+    }
+    render(<Harness />);
+    const tabs = screen.getAllByRole("tab");
+    tabs[0].focus();
+    fireEvent.keyDown(tabs[0], { key: "End" });
+    expect(tabs[2]).toHaveFocus();
+    expect(tabs[2]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(tabs[2], { key: "Home" });
+    expect(tabs[0]).toHaveFocus();
+  });
+
 });

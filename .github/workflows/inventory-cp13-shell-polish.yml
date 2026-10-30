@@ -112,16 +112,27 @@ jobs:
       - name: Exact bounded CP13 scope
         shell: bash
         env:
-          CP13_REPAIR_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          CP13_REPAIR_BASE=$(git merge-base "$CP13_REPAIR_BASE" HEAD)
-          export CP13_REPAIR_BASE
-          git cat-file -e "$CP13_REPAIR_BASE^{commit}"
           python - <<'PY'
           import os
           import subprocess
 
-          base = os.environ["CP13_REPAIR_BASE"]
+          import json, re, urllib.request
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          base_ref = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", head) and re.fullmatch(r"[0-9a-f]{40}", base_ref)
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/compare/{base_ref}...{head}",
+              headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              base = json.load(response)["merge_base_commit"]["sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write("CP13_DIFF_BASE=" + base + "\n")
           changed = set(
               subprocess.check_output(
                   ["git", "diff", "--name-only", base, "HEAD"], text=True
@@ -153,4 +164,4 @@ jobs:
         shell: bash
         env:
           CP13_REPAIR_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
-        run: git diff --check "$(git merge-base "$CP13_REPAIR_BASE" HEAD)" HEAD
+        run: git diff --check "$CP13_DIFF_BASE" HEAD

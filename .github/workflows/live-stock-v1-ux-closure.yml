@@ -96,6 +96,8 @@ jobs:
           test "$count" -ge 5
 
       - name: Verify isolated ownership scope
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.sha }}" python - <<'PY'
           import os
@@ -141,9 +143,18 @@ jobs:
               ".github/workflows/inventory-cp13-shell-polish.yml",
               "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
           }
-          base = subprocess.check_output(
-              ["git", "merge-base", os.environ["BASE"], "HEAD"], text=True,
-          ).strip()
+          import json, re, urllib.request
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          base_ref = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", head) and re.fullmatch(r"[0-9a-f]{40}", base_ref)
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/compare/{base_ref}...{head}",
+              headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              base = json.load(response)["merge_base_commit"]["sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           print(f"LIVE_STOCK_UX_SCOPE_BASE={base}", flush=True)
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           changed = set(subprocess.check_output(
