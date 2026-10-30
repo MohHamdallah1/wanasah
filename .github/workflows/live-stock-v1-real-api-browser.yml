@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
 
       - name: Install focused backend dependencies
-        run: python -m pip install -r wa_backend/requirements.txt alembic
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
 
       - name: Compile real-browser fixture
         run: python -m py_compile wa_backend/tests/live_stock_real_browser_support.py
