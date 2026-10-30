@@ -147,6 +147,7 @@ export interface WarehouseProduct {
   total_quantity: Quantity;
   damaged_quantity: Quantity;
   minimum_quantity: Quantity;
+  is_low_stock: boolean;
 }
 
 export interface WarehouseBatchProductOption {
@@ -442,6 +443,10 @@ export function parseLiveStockPage(
         "minimum_quantity",
         { allowZero: true },
       ),
+      is_low_stock: (() => {
+        if (typeof row.is_low_stock !== "boolean") return contractError(code);
+        return row.is_low_stock;
+      })(),
     };
   });
 
