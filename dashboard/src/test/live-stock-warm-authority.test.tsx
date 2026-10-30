@@ -6,6 +6,7 @@ import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 const state = vi.hoisted(() => ({
   authFetch: vi.fn(),
   stablePermission: vi.fn<(code: string) => boolean>(),
+  translate: (key: string) => key,
   scope: "1",
   principal: "75",
   actor: "75",
@@ -52,7 +53,7 @@ vi.mock("@/hooks/useInventoryAccess", () => ({
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: state.translate,
     i18n: { language: state.locale, resolvedLanguage: state.locale,
       dir: () => state.locale === "ar" ? "rtl" : "ltr" },
   }),
