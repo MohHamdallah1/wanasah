@@ -25,6 +25,7 @@ from models import (
     role_permissions,
     utc_now,
 )
+from services import apply_inventory_movements_batch
 from tests.test_inbound_no_lot_frozen_postgres import pg
 
 
@@ -270,6 +271,99 @@ async def test_cp7_exact_warehouse_company_rls_and_no_lot_isolation(pg):
                 InventoryBalance.location_id == b.location_id
             )
         ) is None
+
+
+async def test_cp7_list_and_batch_detail_share_product_sale_gate(pg):
+    """The visible batch partition must not promise saleable stock under a hold.
+
+    Explicit PostgreSQL-only gate; no mocks and no change to movement authority.
+    """
+    case = await _prepare_cp7(pg)
+    a = case.a
+    expected_physical = Decimal("3.750001")
+    expected_reserved = Decimal("0.5")
+
+    # Reserve a real fraction through the canonical movement engine, rather
+    # than modifying an InventoryBalance row or mocking reservation math.
+    async with pg.session() as db:
+        await apply_inventory_movements_batch(
+            db,
+            company_id=a.company_id,
+            performed_by=a.owner.driver_id,
+            movements=[{
+                "product_variant_id": a.variant_id,
+                "batch_id": case.a1_real_batch_id,
+                "quantity": expected_reserved,
+                "movement_kind": "RESERVATION",
+                "reservation_action": "RESERVE",
+                "source_location_id": a.location_id,
+                "destination_location_id": a.location_id,
+                "source_stock_status": "AVAILABLE",
+                "destination_stock_status": "AVAILABLE",
+                "reference_type": "CP7_R1_RESERVATION",
+                "reference_id": "CP7-BATCH-SELLABLE-FRACTION",
+                "idempotency_key": "CP7-BATCH-SELLABLE-FRACTION",
+            }],
+        )
+        await db.commit()
+
+    for lifecycle, hold, expected_sellable in (
+        ("ACTIVE", "NONE", expected_physical - expected_reserved),
+        ("ACTIVE", "SALES_HOLD", Decimal("0")),
+        ("ACTIVE", "RECALL", Decimal("0")),
+        ("RETIRING", "NONE", Decimal("0")),
+    ):
+        async with AsyncSession(pg.admin_engine, expire_on_commit=False) as seed:
+            await seed.execute(
+                text("SELECT set_config('app.current_tenant',:tenant,true)"),
+                {"tenant": str(a.company_id)},
+            )
+            variant = await seed.get(ProductVariant, a.variant_id)
+            assert variant is not None
+            variant.lifecycle_status = lifecycle
+            variant.operational_hold = hold
+            variant.retired_at = utc_now() if lifecycle == "RETIRING" else None
+            await seed.flush()
+            await rebuild_live_stock_company(seed, company_id=a.company_id)
+            await seed.commit()
+
+        async with pg.session() as db:
+            access = a.ordinary.access(db)
+            page = await live_stock.get_warehouse_inventory(
+                **_cursor_kwargs(a.location_id, db, access)
+            )
+            row = next(
+                item for item in page["items"] if item["id"] == a.variant_id
+            )
+            detail = await live_stock.get_warehouse_inventory_batches(
+                a.variant_id, a.location_id, None, 100, db, access
+            )
+            assert detail["batches"]
+            assert Decimal(row["on_hand_quantity"]) == expected_physical
+            assert Decimal(row["reserved_quantity"]) == expected_reserved
+            assert Decimal(row["available_for_sale_quantity"]) == expected_sellable
+            assert Decimal(row["unavailable_quantity"]) == (
+                expected_physical - expected_reserved - expected_sellable
+            )
+            assert sum(
+                (Decimal(b["reserved_quantity"]) for b in detail["batches"]),
+                Decimal("0"),
+            ) == expected_reserved
+            assert sum(
+                (Decimal(b["on_hand_quantity"]) for b in detail["batches"]),
+                Decimal("0"),
+            ) == expected_physical
+            assert sum(
+                (Decimal(b["available_for_sale_quantity"]) for b in detail["batches"]),
+                Decimal("0"),
+            ) == expected_sellable
+            for batch in detail["batches"]:
+                on_hand = Decimal(batch["on_hand_quantity"])
+                reserved = Decimal(batch["reserved_quantity"])
+                sellable = Decimal(batch["available_for_sale_quantity"])
+                unavailable = Decimal(batch["unavailable_quantity"])
+                assert on_hand == reserved + sellable + unavailable
+                assert sellable >= 0 and unavailable >= 0
 
 
 async def test_cp7_a2_exact_location_and_cross_company_overlap_are_structural(pg):
