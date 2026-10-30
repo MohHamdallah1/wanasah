@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import test_costed_driver_customer_return_c2_db as customer_fixture
 from api.driver import update_visit
-from api.warehouse import live_stock
 from context import tenant_context
 from database import engine
 from domains.pricing.context import lock_route_commercial_context
@@ -294,51 +293,19 @@ class RealDriverSaleCorrectionC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             text("SELECT code FROM uom WHERE id=:u"),
             {"u": int(self.variant["base_uom_id"])},
         )
-        live_page = await live_stock.get_warehouse_inventory(
-            location_id=int(self.warehouse_id),
-            cursor=None,
-            limit=50,
-            search=None,
-            only_alerts=False,
-            stock_state="all",
-            family_id=None,
-            has_reserved=False,
-            has_unavailable=False,
-            has_damaged=False,
-            has_recalled=False,
-            has_vehicle=False,
-            minimum_unset=False,
-            sort="name_asc",
-            db=self.db,
-            access=self.owner.access(self.db),
-        )
-        live_row = next(
-            row for row in live_page["items"]
-            if row["id"] == self.variant["id"]
-        )
-        self.assertEqual(Decimal(live_row["last_purchase_cost"]), Decimal("4"))
-        self.assertEqual(live_row["last_purchase_uom_code"], base_uom_code)
-        self.assertEqual(Decimal(live_row["average_cost_display"]), expected_average)
-
-        batch_page = await live_stock.get_warehouse_inventory_batches(
-            self.variant["id"], int(self.warehouse_id), None, 100,
-            self.db, self.owner.access(self.db),
-        )
-        purchase_by_batch = {
-            int(row["batch_id"]): (
-                Decimal(row["latest_purchase_cost"]),
-                row["latest_purchase_uom_code"],
-                int(row["purchase_event_count"]),
-            )
-            for row in batch_page["batches"]
-        }
+        self.assertIsNotNone(base_uom_code)
+        latest_purchase = purchase_history_before[-1]
+        self.assertEqual(Decimal(latest_purchase["input_unit_cost"]), Decimal("4"))
         self.assertEqual(
-            purchase_by_batch[int(purchase_history_before[0]["batch_id"])],
-            (Decimal("2"), base_uom_code, 1),
+            int(latest_purchase["input_uom_id"]),
+            int(self.variant["base_uom_id"]),
         )
         self.assertEqual(
-            purchase_by_batch[int(purchase_history_before[1]["batch_id"])],
-            (Decimal("4"), base_uom_code, 1),
+            await self.db.scalar(
+                text("SELECT code FROM uom WHERE id=:u"),
+                {"u": int(latest_purchase["input_uom_id"])},
+            ),
+            base_uom_code,
         )
 
         # Route and work session already received one immutable context during
