@@ -28,7 +28,7 @@ export function LiveStockWarehouseContext({
   const locale = resolveI18nLocale(i18n);
 
   return (
-    <div className="live-stock-context-panel" data-cp13-warehouse-context="true">
+    <div className="live-stock-context-panel" data-cp13-warehouse-context="true" dir={i18n.dir()}>
       <label className="live-stock-context-location">
         <span className="live-stock-context-label">
           {t("inventoryShell.warehouseSelectLabel")}
@@ -50,21 +50,24 @@ export function LiveStockWarehouseContext({
       <div className="live-stock-context-separator" aria-hidden="true" />
 
       <div className="live-stock-context-status">
-        <div className="live-stock-context-count">
+        <div className="live-stock-context-count" title={t("inventoryShell.summaryVariantCountHint")}>
           <span>{t("inventoryShell.liveStockCount")}</span>
-          <strong className="tabular-nums">
+          <strong className="tabular-nums" aria-label={stockTotal === null
+            ? t("inventoryShell.countNotVerified")
+            : undefined}>
             {stockTotal === null
               ? "—"
               : new Intl.NumberFormat(locale, {
                   numberingSystem: "latn",
                 }).format(stockTotal)}
           </strong>
+          <span className="sr-only">{t("inventoryShell.summaryVariantCountHint")}</span>
           {isAuditLocked ? (
             <span className="live-stock-lock-chip">{t("inventoryShell.locked")}</span>
           ) : null}
         </div>
         <div className="live-stock-context-sync">
-          <span>
+          <span title={t("inventoryShell.lastUpdated")}>
             {t("inventoryShell.lastUpdated")}: {" "}
             {lastSync
               ? new Intl.DateTimeFormat(locale, {
@@ -74,7 +77,7 @@ export function LiveStockWarehouseContext({
                   hour12: false,
                   numberingSystem: "latn",
                 }).format(lastSync)
-              : "—"}
+              : <span aria-label={t("inventoryShell.countNotVerified")}>—</span>}
           </span>
           <button
             type="button"
