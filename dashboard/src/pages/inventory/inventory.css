@@ -3574,13 +3574,15 @@
 }
 
 /* Live Stock uses the shared theme tokens so dark mode stays readable without
-   introducing a page-specific color authority. */
+   introducing a page-specific color authority. Radix popovers and the shared
+   modal can render through portals, so their unique Live Stock classes are
+   intentionally targeted without requiring the inventory-workspace ancestor. */
 .dark .inventory-workspace[data-live-view="true"] .live-stock-toolbar,
 .dark .inventory-workspace[data-live-view="true"] .live-stock-table thead,
 .dark .inventory-workspace[data-live-view="true"] .live-stock-row,
 .dark .inventory-workspace[data-live-view="true"] .live-stock-context-panel,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-filter-popover,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-family-popover {
+.dark .live-stock-filter-popover,
+.dark .live-stock-family-popover {
   color: hsl(var(--foreground));
   border-color: hsl(var(--border));
   background: hsl(var(--card));
@@ -3591,23 +3593,61 @@
 .dark .inventory-workspace[data-live-view="true"] .live-stock-family-button,
 .dark .inventory-workspace[data-live-view="true"] .live-stock-context-select,
 .dark .inventory-workspace[data-live-view="true"] .live-stock-context-refresh,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-family-search,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-family-option,
-.dark .inventory-workspace[data-live-view="true"] [data-cp13-stock-card="compact"] {
+.dark .inventory-workspace[data-live-view="true"] [data-cp13-stock-card="compact"],
+.dark .live-stock-family-search,
+.dark .live-stock-family-option,
+.dark .live-stock-filter-option,
+.dark .live-stock-filter-chip,
+.dark .live-stock-filter-reset {
   color: hsl(var(--foreground));
   border-color: hsl(var(--border));
   background: hsl(var(--card));
 }
 
+.dark .inventory-workspace[data-live-view="true"] .text-slate-900,
+.dark .inventory-workspace[data-live-view="true"] .text-slate-800,
+.dark .inventory-workspace[data-live-view="true"] .text-slate-700,
+.dark .live-stock-filter-popover .text-slate-900,
+.dark .live-stock-family-popover .text-slate-900,
+.dark [data-testid="live-stock-batch-detail"] .text-slate-900,
+.dark [data-testid="live-stock-batch-detail"] .text-slate-800,
+.dark [data-testid="live-stock-batch-detail"] .text-slate-700 {
+  color: hsl(var(--foreground));
+}
+
+.dark .inventory-workspace[data-live-view="true"] .text-slate-600,
+.dark .inventory-workspace[data-live-view="true"] .text-slate-500,
+.dark .inventory-workspace[data-live-view="true"] .text-slate-400,
+.dark .live-stock-filter-popover .text-slate-500,
+.dark .live-stock-family-popover .text-slate-500,
+.dark [data-testid="live-stock-batch-detail"] .text-slate-600,
+.dark [data-testid="live-stock-batch-detail"] .text-slate-500 {
+  color: hsl(var(--muted-foreground));
+}
+
+.dark .inventory-workspace[data-live-view="true"] .bg-white,
+.dark .inventory-workspace[data-live-view="true"] .bg-slate-50,
+.dark [data-testid="live-stock-batch-detail"] article,
+.dark [data-testid="live-stock-batch-detail"] .bg-white {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+}
+
+.dark [data-testid="live-stock-batch-detail"] .bg-slate-50 {
+  background: hsl(var(--muted));
+}
+
 .dark .inventory-workspace[data-live-view="true"] .live-stock-row:hover,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-family-option:hover,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-filter-option:hover:not(:disabled) {
+.dark .live-stock-family-option:hover,
+.dark .live-stock-filter-option:hover:not(:disabled) {
   background: hsl(var(--muted));
 }
 
 .dark .inventory-workspace[data-live-view="true"] .live-family-cell,
-.dark .inventory-workspace[data-live-view="true"] .live-stock-row > td:nth-last-child(-n+2) {
-  background: transparent;
+.dark .inventory-workspace[data-live-view="true"] .live-stock-row > td:nth-last-child(-n+2),
+.dark .inventory-workspace[data-live-view="true"] .live-stock-row > td:first-child,
+.dark .inventory-workspace[data-live-view="true"] .live-stock-row > td:nth-child(2) {
+  background: hsl(var(--card));
 }
 
 @media (min-width: 768px) and (max-width: 1100px) {
