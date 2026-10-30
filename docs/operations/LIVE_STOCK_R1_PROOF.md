@@ -293,3 +293,119 @@ are authorized by these findings alone.
   and addresses blocking CI policy/required gates**. Leave PR DRAFT and
   UNMERGED. This documentation-only commit does not replace or rerun the
   PostgreSQL results cited for `8ed79adf`.
+
+## Final HTTP bearer/RLS acceptance — 2026-10-30
+
+**Implemented only additional acceptance evidence**, not a production runtime fix.
+Branch `codex/live-stock-snapshot-integrity-proof`, existing draft PR #607.
+Exact **tested code + test head**:
+`1a2d6295b46cbaa8c14599cdc96ba6b3580bfe58`.
+[Full hosted PostgreSQL16 run 40990323097](https://github.com/MohHamdallah1/wanasah/actions/runs/40990323097):
+
+| Exact job | Result | Tested scope |
+| --- | --- | --- |
+| HTTP bearer/RLS `123850958430` | **4 PASS** | 2 HTTP tests x FIFO / MOVING_AVERAGE |
+| Movement `123850958380` | **10 PASS** | original movement/ledger/concurrency |
+| Snapshot `123850958195` | **16 PASS** | original read races/permissions |
+| CP7 `123850958585` | **12 PASS** | holds, fractional reservation, API read regressions |
+| SQL `123850958479` | **2 PASS** | 50,000-stocked-variant SQL plans (two cost methods) |
+
+**Full five-job R1 matrix: 44/44 tests PASS**, no test skip, xfail,
+replacement of the original assertions, or production/host access. Raw SQL
+EXPLAIN artifacts are retained by the workflow. SQL duration in this run
+was 223.29 seconds **for the entire test process**, including fixture
+generation/benchmarks; it is *not* per-request SQL latency.
+
+New `wa_backend/tests/test_live_stock_r1_http_postgres.py` uses the
+**actual registered `main.app` FastAPI route** and middleware, real
+`POST /login` with synthetic canonical Owner and Backoffice user credentials,
+real returned bearer access tokens, and untouched production dependency chain:
+`HTTPBearer -> get_authenticated_access_session -> persisted DashboardRequestContext
+-> resolve_backoffice_authorization_subject -> BackofficeCapabilityAccess
+-> _require_live_stock_warehouse_read -> live-stock SQL`.
+There are **no dependency overrides, hardcoded/minted fake bearer tokens,
+mocked authentication, or forged authorization subjects**. The existing
+PostgreSQL fixture enforces disposable database/address/port and distinct
+migration/runtime roles; `wanasah_app` has no superuser or BYPASSRLS,
+with FORCE RLS on inventory tables, and all stock is introduced via canonical
+inbound and movement APIs.
+
+Four real HTTP cases (two tests run under each accounting method) verify:
+
+- Invalid/missing bearer returns 401; authenticated inventory-only
+  Backoffice reader has exactly persisted `inventory.read` on W and V,
+  without owner/company-wide authority, and returns W=10,V=10,total=20.
+  Company Owner's authorized read also succeeds with the same correct stock
+  and actual purchase/average cost 2.
+- Another company-owned warehouse is 404 to both identities; same-company
+  ungranted warehouse is 403 to restricted reader. Foreign Owner can read
+  its own separate stocked variant (7 units, purchase cost 17) but gets 404
+  for the first company's warehouse. No forbidden variant or cost 17 appears
+  in the first company's successful list. Denied responses contain no items.
+- Committing deletion of the vehicle-only `UserLocationAccess` grant
+  immediately hides V=10 from the **original unchanged reader token**:
+  W=10,V=0,visible total=10, `has_vehicle=true` yields no items.
+  Deleting the remaining warehouse grant denies that same token with 403
+  while the canonical Owner remains authorized.
+- An HTTP list call is paused **after actual combined SQL execution**
+  without altering its result; a real separate concurrent V->W=10 movement
+  commits while it waits. The original HTTP response remains coherent
+  W=10,V=10,total=20 and a following real HTTP request returns
+  W=20,V=0,total=20. Ledger/cost physical assertions remain intact.
+  SQL-boundary instrumentation delegates directly to the original
+  `AsyncSession.execute`; it does not simulate the SQL, authentication,
+  transfer, or response.
+
+The first introduced HTTP run [40990197314](https://github.com/MohHamdallah1/wanasah/actions/runs/40990197314)
+was **RED** because a test-only string search accidentally matched a short
+foreign variant ID inside the request UUID, and because pooled asyncpg
+connections were reused across pytest's function-scoped event loops.
+Those errors were corrected *only in the test* by checking structured
+denial payloads and disposing the isolated application-engine pool between
+parameterized tests. The later **green 40990323097** proves the fix;
+do not count the initial run as successful.
+
+### Independent CP2 / cross-workflow status
+
+[CP2 run 40990322999](https://github.com/MohHamdallah1/wanasah/actions/runs/40990322999)
+remains **FAIL** in its scope/format checks, *not* in its functional PostgreSQL
+acceptance steps. The historical
+`.github/workflows/inventory-cp2-batch-index-acceptance.yml` maintains a
+hard-coded CP2-only file allowlist when invoked on **every** PR to main.
+The R1 test/workflow/docs and runtime files are therefore invalid by that
+CP2 ownership check irrespective of their security correctness. Its
+`Diff check` also reported trailing whitespace in
+`LIVE_STOCK_V1_CLOSURE_PLAN.md` at two unchanged lines, as GitHub compared
+the diverged PR branch with a newer main. The separately triggered
+[CP1 run 40990323073](https://github.com/MohHamdallah1/wanasah/actions/runs/40990323073)
+also failed a dashboard diff-whitespace gate while its backend functional
+and PostgreSQL jobs passed. Neither status is rewritten to PASS. The
+CP2/CP1 CI-policy owner, not this R1 worker, must determine required-check
+ownership/base and repair policy without relaxing functional/safety tests.
+
+### Final decision and retained boundaries
+
+- **PASS:** exact R1 PostgreSQL snapshot and financial/quantity cases;
+  real bearer HTTP login and canonical authorization, exact cross-tenant
+  warehouse denial and RLS, restricted vehicle-grant revocation with same
+  token, and coherent concurrent HTTP stock response.
+- **PASS:** all five R1 matrix jobs at code SHA `1a2d6295`, including the
+  original 10/16/12/2 acceptance gates. The additional test file and CI
+  allowlist/matrix are the only new test/CI changes in this wave.
+- **FAIL (separate):** CP2 historical scope and diff checks (and CP1
+  dashboard whitespace gate); their functional checks do not establish an
+  exception to the policy failure.
+- **OPEN:** representative production p95/p99, broad and zero-result
+  search budget/capacity, real browser journey, simultaneous **grant revoke
+  during** the original single request, and unrelated R2/F2–F5/stocktake/
+  settlement/offline V1 closure items. A revoked token on a **subsequent**
+  request was explicitly tested; no claim is made about all mid-request
+  revocation races or snapshots across independent cursor pages.
+- **Technical R1 correction and targeted HTTP security: PASS. Merge: NO-GO
+  until lead review/explicit approval and separate required-check policy
+  resolution. Production/V1 launch: NOT APPROVED.**
+
+Latest main stated by the lead at this handoff:
+`abe209cbfd444a521a6a7fa5c1ed87d25d72fbf0`. The existing branch
+has not been forcibly rebased or recreated; no cross-owner files were edited.
+This appended documentation-only commit itself is not a new runtime-test SHA.
