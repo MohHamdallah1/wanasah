@@ -51,11 +51,9 @@ from models import (
     PriceBookAssignment,
     PriceBookEntry,
     PricePublication,
-    ProductUomConversion,
     ProductVariant,
     SessionInventorySnapshot,
     Shop,
-    UOM,
     Visit,
     WorkSession,
     Zone,
@@ -137,30 +135,6 @@ async def _seed_mobile_uom_and_field(pg_gate, tenant):
             )
         )
         variant.packs_per_carton = int(CARTON_TO_BASE)
-
-        carton = await db.scalar(select(UOM).where(UOM.code == "CARTON"))
-        assert carton is not None
-        existing = await db.scalar(
-            select(ProductUomConversion).where(
-                ProductUomConversion.company_id == tenant.company_id,
-                ProductUomConversion.product_variant_id == tenant.variant_id,
-                ProductUomConversion.from_uom_id == int(carton.id),
-                ProductUomConversion.to_uom_id == tenant.uom_id,
-            )
-        )
-        if existing is None:
-            db.add(
-                ProductUomConversion(
-                    company_id=tenant.company_id,
-                    product_variant_id=tenant.variant_id,
-                    from_uom_id=int(carton.id),
-                    to_uom_id=tenant.uom_id,
-                    numerator=CARTON_TO_BASE,
-                    denominator=Decimal("1"),
-                    quantity_scale=0,
-                    version=1,
-                )
-            )
 
         field = await seed_field_fixture(db, tenant.company_id)
         field_access = FieldCapabilityAccess(db, field.context)
