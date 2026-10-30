@@ -241,6 +241,42 @@ export function BatchDetailPanel({
                             </span>
                           ) : null}
                         </div>
+                        {status.reservation_evidence.owners.length > 0 ? (
+                          <ul
+                            aria-label={copy.reservationOwners}
+                            className="mt-2 space-y-1.5"
+                          >
+                            {status.reservation_evidence.owners.map((owner) => {
+                              const amount = quantity(owner.quantity);
+                              return (
+                                <li
+                                  key={owner.transfer_id}
+                                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5"
+                                >
+                                  <span className="min-w-0 break-words font-semibold text-slate-700">
+                                    {copy.reservationReference}: <bdi>{owner.reference_number}</bdi>
+                                  </span>
+                                  <span
+                                    className="shrink-0 font-black tabular-nums text-slate-900"
+                                    dir="auto"
+                                    title={amount.secondary ?? undefined}
+                                  >
+                                    {amount.primary}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : status.reservation_evidence.coverage !== "NONE" ? (
+                          <p className="mt-2 text-[11px] font-semibold text-slate-500">
+                            {copy.noKnownReservationOwners}
+                          </p>
+                        ) : null}
+                        {status.reservation_evidence.owners_truncated ? (
+                          <p role="note" className="mt-2 rounded-md bg-amber-50 px-2.5 py-2 text-[11px] font-semibold text-amber-900">
+                            {copy.reservationOwnersTruncated}
+                          </p>
+                        ) : null}
                       </div>
                     ))}
                   </div>
