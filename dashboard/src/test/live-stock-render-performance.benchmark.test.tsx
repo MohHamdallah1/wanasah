@@ -108,7 +108,7 @@ function installMatchMedia(desktop: boolean) {
     configurable: true,
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: desktop && query.includes("min-width"),
+      matches: query.includes("max-width") ? !desktop : desktop,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
