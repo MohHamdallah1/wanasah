@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "wa_backend/domains/live_stock_projection/service.py"
+      - "wa_backend/alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py"
       - "wa_backend/scripts/gate_r2_live_stock_perf_50k.py"
       - ".github/workflows/live-stock-r2-performance-gate.yml"
   workflow_dispatch:
@@ -25,7 +27,7 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_r2_perf_50k
       DATABASE_URL_MIGRATION: postgresql+asyncpg://cp1_admin@127.0.0.1:55439/wanasah_r2_perf_50k
       MAIN_SHA: fc8be56c06a30a56570e74596c0808c5d32e8bdb
-      R2_SERVICE_SHA: a2b551990c84fb3c8a485c64ed1964460df7d827
+      R2_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -40,7 +42,10 @@ jobs:
         run: |
           git worktree add /tmp/wanasah-main "$MAIN_SHA"
           git worktree add /tmp/wanasah-r2 "$MAIN_SHA"
-          git show "$R2_SERVICE_SHA:wa_backend/domains/live_stock_projection/service.py"             > /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py
+          git show "$R2_HEAD_SHA:wa_backend/domains/live_stock_projection/service.py" \
+            > /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py
+          git show "$R2_HEAD_SHA:wa_backend/alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py" \
+            > /tmp/wanasah-r2/wa_backend/alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py
           cp wa_backend/scripts/gate_r2_live_stock_perf_50k.py /tmp/gate_r2_live_stock_perf_50k.py
 
       - name: Install focused dependencies
@@ -48,7 +53,13 @@ jobs:
 
       - name: Compile both code targets and benchmark
         run: |
-          python -m py_compile             /tmp/wanasah-main/wa_backend/domains/live_stock_projection/service.py             /tmp/wanasah-main/wa_backend/api/warehouse/live_stock.py             /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py             /tmp/wanasah-r2/wa_backend/api/warehouse/live_stock.py             /tmp/gate_r2_live_stock_perf_50k.py
+          python -m py_compile \
+            /tmp/wanasah-main/wa_backend/domains/live_stock_projection/service.py \
+            /tmp/wanasah-main/wa_backend/api/warehouse/live_stock.py \
+            /tmp/wanasah-r2/wa_backend/domains/live_stock_projection/service.py \
+            /tmp/wanasah-r2/wa_backend/api/warehouse/live_stock.py \
+            /tmp/wanasah-r2/wa_backend/alembic/versions/d5e8f2a4c731_live_stock_projection_write_guard.py \
+            /tmp/gate_r2_live_stock_perf_50k.py
 
       - name: Provision isolated PostgreSQL 16
         run: |
@@ -80,6 +91,10 @@ jobs:
 
       - name: Migrate exact current main
         working-directory: /tmp/wanasah-main/wa_backend
+        run: alembic upgrade head
+
+      - name: Apply R2 drift-guard migration
+        working-directory: /tmp/wanasah-r2/wa_backend
         run: alembic upgrade head
 
       - name: Grant restricted runtime access
