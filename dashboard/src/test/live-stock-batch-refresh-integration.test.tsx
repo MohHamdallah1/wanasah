@@ -147,6 +147,26 @@ describe("L-02 list/detail coupling without batch-wide eager reads", () => {
     expect(countDetailReads()).toBe(1);
   });
 
+
+  it("revalidates once when a newly refreshed list drops the selected product", async () => {
+    let count = 0;
+    mock.fetch.mockImplementation((url: string) =>
+      url.includes("/source?") ? Promise.resolve(source())
+        : Promise.resolve(batchPage(++count === 1 ? "2.500001" : "0")));
+    const first = selected();
+    const { rerender } = render(
+      <Tab1LiveStock {...defaults} products={[first]} lastSync={new Date(1000)} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open selected batch" }));
+    await waitFor(() => expect(screen.getByTestId("detail-quantity")).toHaveTextContent("2.500001"));
+
+    rerender(<Tab1LiveStock {...defaults} products={[]} lastSync={new Date(2000)} />);
+    await waitFor(() => expect(countDetailReads()).toBe(2));
+    expect(screen.getByTestId("detail-quantity")).toHaveTextContent("0");
+    rerender(<Tab1LiveStock {...defaults} products={[]} lastSync={new Date(3000)} />);
+    expect(countDetailReads()).toBe(2);
+  });
+
   it("does not present invalidated detail as verified after list refresh fails", async () => {
     mock.fetch.mockResolvedValue(batchPage("2.500001"));
     const first = selected();
