@@ -101,14 +101,15 @@ def _company_local_purchase_date(
     """Present the project's persisted naive-UTC timestamp on the company day."""
     if created_at is None:
         return None
-    if not company_timezone:
+    normalized_timezone = company_timezone.strip()
+    if not normalized_timezone:
         raise RuntimeError("Company timezone is unavailable.")
     utc_created_at = (
         created_at.replace(tzinfo=timezone.utc)
         if created_at.tzinfo is None
         else created_at.astimezone(timezone.utc)
     )
-    return utc_created_at.astimezone(ZoneInfo(company_timezone)).date()
+    return utc_created_at.astimezone(ZoneInfo(normalized_timezone)).date()
 
 
 # =================================================================================
