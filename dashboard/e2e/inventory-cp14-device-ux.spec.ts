@@ -562,14 +562,24 @@ test("direct tab navigation, Warehouse restoration and refresh are mutation-free
     routeState: createInventoryTabNavigationState("transfers", WAREHOUSE_B),
   });
   await gotoInventory(page);
+  const verifyRestoredWarehouse = async () => {
+    // Transfers is now company-wide and intentionally has no shared warehouse input.
+    // Verify persisted restoration and its real control in a warehouse-scoped tab.
+    expect(await page.evaluate(() => localStorage.getItem("inventory_selected_location:1"))).toBe(String(WAREHOUSE_B));
+    await page.getByRole("tab", { name: tabLabels.en.ledger, exact: true }).click();
+    await selectedTab(page, tabLabels.en.ledger);
+    await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+    await page.getByRole("tab", { name: tabLabels.en.transfers, exact: true }).click();
+    await selectedTab(page, tabLabels.en.transfers);
+  };
   await selectedTab(page, tabLabels.en.transfers);
-  await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+  await verifyRestoredWarehouse();
   expect(await page.evaluate(() => history.state.usr)).toBeNull();
   expect(api.mutationCalls).toEqual([]);
 
   await page.reload();
   await selectedTab(page, tabLabels.en.transfers);
-  await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+  await verifyRestoredWarehouse();
   expect(api.mutationCalls).toEqual([]);
 
   await page.evaluate(() => {
@@ -664,6 +674,13 @@ for (const locale of ["ar", "en"] as const) {
     const overflow = await inboundScroll.evaluate((node) => ({ client: node.clientWidth, scroll: node.scrollWidth }));
     expect(overflow.scroll).toBeGreaterThan(overflow.client);
     const table = inboundScroll.locator("table.inventory-inbound-table");
+    console.log("CP12_RENDERED_TABLE " + JSON.stringify(await table.evaluate(node => ({
+      html: node.outerHTML.slice(0, 4200),
+      headers: node.querySelectorAll("thead th").length,
+      tableStyle: { display: getComputedStyle(node).display, visibility: getComputedStyle(node).visibility },
+      headStyle: node.querySelector("thead") ? { display: getComputedStyle(node.querySelector("thead")!).display, visibility: getComputedStyle(node.querySelector("thead")!).visibility } : null,
+      ancestors: (() => { const out = []; let e: Element | null = node; while (e && out.length < 8) { out.push({ tag: e.tagName, class: e.className, ariaHidden: e.getAttribute("aria-hidden"), display: getComputedStyle(e).display, visibility: getComputedStyle(e).visibility }); e = e.parentElement; } return out; })(),
+    }))));
     await expect(table.getByRole("columnheader")).toHaveCount(7);
     const row = table.locator("tr[data-inbound-row-id]").first();
     await expect(row).toContainText("Device UX Product");
