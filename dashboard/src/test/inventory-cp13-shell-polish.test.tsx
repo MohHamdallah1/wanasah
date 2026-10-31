@@ -32,7 +32,7 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(shell).toContain('toast.info(t("inventoryShell.createWarehouseFirstNotice"))');
     expect(shell).toContain('setActiveTab("warehouses")');
     expect(live).toContain("<LiveStockWarehouseContext");
-    expect(live).toContain("onLocationChange={onLocationChange}");
+    expect(live).toMatch(/onLocationChange=\{\(value\) => \{\s*resetRenderWindow\(\);\s*onLocationChange\(value\);/);
   });
 
   it("marks the active workflow explicitly and keeps long translated labels intact", () => {

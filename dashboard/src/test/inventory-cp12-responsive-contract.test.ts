@@ -28,15 +28,26 @@ describe("CP12 Inventory responsive and RTL/LTR contracts", () => {
     expect(focusTrap).toContain("restore.focus()");
   });
 
-  it("keeps dense Inventory tables deliberately scrollable instead of squeezing required data", () => {
+  it("keeps dense inbound/branch tables scrollable and warehouse cards responsive without squeezing fields", () => {
     const inbound = read(inventoryFiles.inbound);
     const warehouses = read(inventoryFiles.warehouses);
     const branches = read("src/pages/inventory/warehouse-locations/BranchManagementModal.tsx");
 
-    expect(inbound).toContain("overflow-auto");
-    expect(inbound).toContain("min-w-[1120px]");
-    expect(warehouses).toContain("overflow-x-auto");
-    expect(warehouses).toContain("min-w-[760px]");
+    // Scrolling and column sizing moved from utility classes to Inventory CSS.
+    // Bind the real table to its real scroll owner, then check both width rules.
+    const css = read("src/pages/inventory/inventory.css");
+    expect(inbound).toMatch(/className="inventory-inbound-table-wrap"[\s\S]*?<table className="inventory-inbound-table">/);
+    expect(inbound.match(/<col className="inventory-inbound-col-/g)).toHaveLength(7);
+    expect(inbound.match(/<th scope="col"/g)).toHaveLength(7);
+    expect(css).toMatch(/\.inventory-inbound-table-wrap\s*\{[^}]*overflow:\s*auto;/);
+    expect(css).toMatch(/\.inventory-inbound-table\s*\{[^}]*min-width:\s*1120px;[^}]*table-layout:\s*fixed;/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*1100px\)\s*\{\s*\.inventory-inbound-table\s*\{\s*min-width:\s*1050px;/);
+    // Warehouses intentionally become stacked cards on phones; the desktop
+    // table keeps its minimum width inside the shared scroll container.
+    expect(warehouses).toMatch(/className="min-h-0 flex-1 overflow-auto" data-cp13-phone-list="true"[\s\S]*?<table className=\{\x60w-full min-w-0 text-sm md:min-w-\[760px\]/);
+    expect(warehouses).toContain('className="hidden bg-slate-50/95 md:table-header-group"');
+    expect(warehouses).toContain('className="grid gap-2 p-2 md:table-row-group');
+    expect(warehouses).toMatch(/className=\{\x60block rounded-xl border p-2 md:table-row/);
     expect(branches).toContain("overflow-x-auto");
     expect(branches).toContain("min-w-[620px]");
   });

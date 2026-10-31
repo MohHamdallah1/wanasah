@@ -569,7 +569,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
             }}
           />
           <div aria-hidden="true" className="pointer-events-none absolute inset-x-6 top-6 flex items-center justify-between text-[9px] font-black tracking-[0.22em] text-slate-300 sm:inset-x-9">
-            <span>WH / 001</span>
+            <span>{presentation.warehouseIllustrationCode}</span>
             <span>00°00′</span>
           </div>
           <div className="relative mx-auto flex w-full max-w-[680px] flex-col items-center text-center">
@@ -585,7 +585,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
                 <Building2 className="h-11 w-11 stroke-[1.35] text-slate-800" />
               </div>
               <span className="absolute start-0 top-7 border-s border-t border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">01</span>
-              <span className="absolute end-0 bottom-4 border-b border-e border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">START</span>
+              <span className="absolute end-0 bottom-4 border-b border-e border-slate-300 px-2 py-1 text-[9px] font-black tracking-[0.16em] text-slate-400">{presentation.setupStart}</span>
             </div>
             <h2 id="warehouse-first-empty-title" className="max-w-[620px] text-balance text-2xl font-black leading-tight text-slate-950 sm:text-[32px]">
               {copy.firstWarehouseTitle}
@@ -774,7 +774,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
             </label>
             <label className="mt-3 block text-xs font-bold text-slate-600">
               {copy.locationLink}
-              <input value={form.location_link} onChange={(event) => updateForm({ location_link: event.target.value })} maxLength={500} dir="ltr" className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} placeholder="https://maps.google.com/..." />
+              <input value={form.location_link} onChange={(event) => updateForm({ location_link: event.target.value })} maxLength={500} dir="ltr" className={`mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 ${focusRing}`} placeholder={presentation.locationLinkPlaceholder} />
             </label>
             <p className="mt-3 text-[10px] font-semibold leading-4 text-slate-500">{copy.coordinatesHint}</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">

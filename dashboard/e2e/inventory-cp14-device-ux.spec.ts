@@ -104,6 +104,7 @@ const liveProduct = {
   total_quantity: "1234.500",
   damaged_quantity: "0",
   minimum_quantity: "100.000",
+  is_low_stock: false,
 };
 
 const catalogVariant = {
@@ -267,8 +268,11 @@ async function installApi(page: Page, options: MockOptions = {}): Promise<MockSt
         locations: Object.fromEntries((body.location_ids ?? []).map((id) => [String(id), locationPermissions])),
       });
     }
-    if (path === "/warehouse/locations") {
-      return fulfill(route, { items: locations, next_cursor: null, has_more: false, total: locations.length });
+    if (path === "/warehouse/locations" || path === "/warehouse/locations/selection") {
+      return fulfill(route, {
+        items: locations, next_cursor: null, has_more: false, total: locations.length,
+        selected: locations.find(location => location.id === Number(url.searchParams.get("selected_location_id"))) ?? null,
+      });
     }
     if (path === "/warehouse/setup-status") {
       return fulfill(route, {
@@ -278,9 +282,11 @@ async function installApi(page: Page, options: MockOptions = {}): Promise<MockSt
         can_create: false,
       });
     }
-    if (path === "/warehouse/status") return fulfill(route, { status: "OPEN" });
+    if (path === "/warehouse/status") return fulfill(route, {
+      status: "ACTIVE", stocktake_session_id: null, stocktake_reference: null, stocktake_status: null,
+    });
     if (path === "/warehouse/inventory/summary") return fulfill(route, { stock_total: 1, alert_count: 0 });
-    if (path === "/warehouse/inventory/families") return fulfill(route, { items: [], has_more: false });
+    if (path === "/warehouse/inventory/families") return fulfill(route, { items: [], next_cursor: null, has_more: false });
     if (path === "/warehouse/inventory/cursor") {
       state.liveCalls += 1;
       if (options.failLiveOnce && state.liveCalls === 1) {
@@ -340,6 +346,7 @@ async function installApi(page: Page, options: MockOptions = {}): Promise<MockSt
     if (path === "/warehouse/inbound/options" && method === "POST") {
       return fulfill(route, {
         currency_code: "JOD",
+        as_of_date: "2026-10-31",
         items: [{
           product_variant_id: VARIANT_ID,
           base_uom_id: 7,
@@ -559,14 +566,24 @@ test("direct tab navigation, Warehouse restoration and refresh are mutation-free
     routeState: createInventoryTabNavigationState("transfers", WAREHOUSE_B),
   });
   await gotoInventory(page);
+  const verifyRestoredWarehouse = async () => {
+    // Transfers is now company-wide and intentionally has no shared warehouse input.
+    // Verify persisted restoration and its real control in a warehouse-scoped tab.
+    expect(await page.evaluate(() => localStorage.getItem("inventory_selected_location:1"))).toBe(String(WAREHOUSE_B));
+    await page.getByRole("tab", { name: tabLabels.en.ledger, exact: true }).click();
+    await selectedTab(page, tabLabels.en.ledger);
+    await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+    await page.getByRole("tab", { name: tabLabels.en.transfers, exact: true }).click();
+    await selectedTab(page, tabLabels.en.transfers);
+  };
   await selectedTab(page, tabLabels.en.transfers);
-  await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+  await verifyRestoredWarehouse();
   expect(await page.evaluate(() => history.state.usr)).toBeNull();
   expect(api.mutationCalls).toEqual([]);
 
   await page.reload();
   await selectedTab(page, tabLabels.en.transfers);
-  await expect(page.getByLabel("Selected warehouse")).toHaveValue(String(WAREHOUSE_B));
+  await verifyRestoredWarehouse();
   expect(api.mutationCalls).toEqual([]);
 
   await page.evaluate(() => {
@@ -656,10 +673,50 @@ for (const locale of ["ar", "en"] as const) {
 
     await page.getByRole("tab", { name: tabLabels[locale].inbound, exact: true }).click();
     await expect(page.locator(".inventory-inbound")).toBeVisible();
-    const inboundScroll = page.locator(".inventory-inbound .overflow-auto").first();
+    const inboundScroll = page.locator(".inventory-inbound-table-wrap");
     await expect(inboundScroll).toBeVisible();
     const overflow = await inboundScroll.evaluate((node) => ({ client: node.clientWidth, scroll: node.scrollWidth }));
     expect(overflow.scroll).toBeGreaterThan(overflow.client);
+    const table = inboundScroll.locator("table.inventory-inbound-table");
+    console.log("CP12_RENDERED_TABLE " + JSON.stringify(await table.evaluate(node => ({
+      headers: node.querySelectorAll("thead th").length,
+      scopes: Array.from(node.querySelectorAll("thead th"), th => th.getAttribute("scope")),
+      display: getComputedStyle(node).display,
+      visibility: getComputedStyle(node).visibility,
+    }))));
+    await expect(table.getByRole("columnheader")).toHaveCount(7);
+    const row = table.locator("tr[data-inbound-row-id]").first();
+    await expect(row).toContainText("Device UX Product");
+    await expect(row.locator(".inventory-inbound-quantity-controls select")).toBeEnabled();
+    await expect(row.locator(".inventory-inbound-quantity-controls select")).toHaveValue("7");
+    const geometry = await inboundScroll.evaluate((node) => {
+      const table = node.querySelector("table")!;
+      const box = node.getBoundingClientRect();
+      return { overflow: getComputedStyle(node).overflowX, direction: getComputedStyle(node).direction,
+        tableWidth: table.getBoundingClientRect().width, minWidth: getComputedStyle(table).minWidth,
+        columns: Array.from(table.querySelectorAll("thead th"), th => th.getBoundingClientRect().width),
+        left: box.left, right: box.right };
+    });
+    expect(geometry.overflow).toBe("auto");
+    expect(geometry.direction).toBe(locale === "ar" ? "rtl" : "ltr");
+    expect(geometry.minWidth).toBe("1050px");
+    expect(geometry.tableWidth).toBeGreaterThanOrEqual(1050);
+    expect(geometry.columns).toHaveLength(7);
+    expect(geometry.columns[2]).toBeGreaterThanOrEqual(180); // Purchase cost
+    expect(geometry.columns[3]).toBeGreaterThanOrEqual(180); // Quantity/UOM
+    expect(geometry.columns[5]).toBeGreaterThanOrEqual(120); // Expiry
+    expect(geometry.left).toBeGreaterThanOrEqual(-1);
+    expect(geometry.right).toBeLessThanOrEqual(391);
+    await inboundScroll.evaluate((node, rtl) => { node.scrollLeft = rtl ? -node.scrollWidth : node.scrollWidth; }, locale === "ar");
+    await expect.poll(() => inboundScroll.evaluate(node => Math.abs(node.scrollLeft))).toBeGreaterThan(100);
+    const lot = row.locator("td").last().locator("input");
+    await expect(lot).toBeInViewport({ ratio: 1 });
+    await lot.focus();
+    await expect(lot).toBeFocused();
+    await inboundScroll.evaluate(node => { node.scrollLeft = 0; });
+    await expect(row.locator("td").nth(1)).toBeInViewport({ ratio: 1 });
+    await page.screenshot({ path: test.info().outputPath(`cp12-inbound-${locale}.png`), fullPage: true });
+    console.log("CP12_INBOUND_SCROLL " + JSON.stringify({ locale, ...geometry, ...overflow }));
     expect(await page.evaluate(() => (document.scrollingElement?.scrollWidth ?? 0) <= innerWidth + 2)).toBe(true);
 
     const activeTab = page.getByRole("tab", { name: tabLabels[locale].inbound, exact: true });

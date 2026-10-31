@@ -1,5 +1,8 @@
 export interface WarehousePresentationCopy {
   setupEyebrow: string;
+  warehouseIllustrationCode: string;
+  setupStart: string;
+  locationLinkPlaceholder: string;
   identityTitle: string;
   locationTitle: string;
   listLoadFailed: string;
@@ -13,6 +16,9 @@ export interface WarehousePresentationCopy {
 
 const ar: WarehousePresentationCopy = {
   setupEyebrow: "إعداد المستودعات",
+  warehouseIllustrationCode: "مستودع / 001",
+  setupStart: "البداية",
+  locationLinkPlaceholder: "ألصق رابط الموقع أو خرائط Google",
   identityTitle: "هوية المستودع",
   locationTitle: "الموقع الفعلي",
   listLoadFailed: "تعذر تحميل المستودعات. يمكنك إعادة المحاولة دون فقدان إعداداتك.",
@@ -26,6 +32,9 @@ const ar: WarehousePresentationCopy = {
 
 const en: WarehousePresentationCopy = {
   setupEyebrow: "Warehouse setup",
+  warehouseIllustrationCode: "WH / 001",
+  setupStart: "START",
+  locationLinkPlaceholder: "Paste a location or Google Maps link",
   identityTitle: "Warehouse identity",
   locationTitle: "Physical location",
   listLoadFailed: "Warehouses could not be loaded. You can retry without losing setup changes.",
