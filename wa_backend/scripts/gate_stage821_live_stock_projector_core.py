@@ -160,7 +160,16 @@ def main() -> None:
         failures.append("DUPLICATE_BATCH_SELLABILITY_AUTHORITY")
 
     checks += 1
-    if "from domains.inventory_rules import batch_sellability_predicate" not in sources["services"]:
+    services_imports_shared_sellability = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "domains.inventory_rules"
+        and any(
+            alias.name == "batch_sellability_predicate"
+            for alias in node.names
+        )
+        for node in ast.walk(_tree(sources["services"]))
+    )
+    if not services_imports_shared_sellability:
         failures.append("SERVICES_SHARED_SELLABILITY_IMPORT_MISSING")
 
     expected_hooks = (
