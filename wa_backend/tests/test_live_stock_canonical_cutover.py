@@ -227,7 +227,12 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.grant(location_id=21)
         for owner in (False, True):
             response = await module.get_warehouse_inventory_families(
-                location_id=21, search=None, limit=2, db=self.db, access=self.access(owner=owner)
+                location_id=21,
+                search=None,
+                limit=2,
+                cursor=None,
+                db=self.db,
+                access=self.access(owner=owner),
             )
             self.assertEqual([item["name"] for item in response["items"]], ["Alpha", "Beta"])
             self.assertTrue(response["has_more"])
@@ -290,7 +295,12 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
                 "visible_inventory_candidates.id DESC"
             )
             self.assertIn("ORDER BY " + ordering, visible)
-            self.assertIn("live_stock_filter_variant.company_id = 7", filtered)
+            self.assertIn("live_stock_filter_projection.company_id = 7", filtered)
+            self.assertIn(
+                "live_stock_filter_variant.company_id = "
+                "live_stock_filter_projection.company_id",
+                filtered,
+            )
             self.assertIn("warehouse_location_id = 21", filtered)
             self.assertIn("warehouse_sellable_on_hand", filtered)
             self.assertIn("warehouse_reserved", filtered)
