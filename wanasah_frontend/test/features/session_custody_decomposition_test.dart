@@ -68,7 +68,10 @@ void main() {
         expect(bloc, contains('_custodyCoordinator.respond('));
         expect(bloc, contains('_custodyCoordinator.loadPendingTransfers()'));
         expect(custody, contains('loadPendingTransfers()'));
-        expect(custody, contains('loadNonSellableCustody({int? expectedSessionId})'));
+        expect(
+          custody,
+          contains('loadNonSellableCustody({int? expectedSessionId})'),
+        );
         expect(custody, contains('_transferGateway.respond('));
         expect(custody, isNot(contains('package:flutter/material.dart')));
       },
@@ -105,10 +108,7 @@ void main() {
         expect(transfer, contains("strings.t('title')"));
         expect(transfer, contains("strings.t('allRequired')"));
         expect(inventory, contains('l10n.stockVehicleTitle'));
-        expect(
-          inventory,
-          contains('l10n.stockEmptyVerified'),
-        );
+        expect(inventory, contains('l10n.stockEmptyVerified'));
       },
     );
   });
