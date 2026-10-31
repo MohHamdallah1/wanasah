@@ -136,7 +136,10 @@ def fixture(name):
     db.scalar.return_value = False
     session = SimpleNamespace(id=601, company_id=7, driver_id=303, end_time=None,
                               break_start_time=None, break_end_time=None, is_settled=False)
-    route = SimpleNamespace(id=701, vehicle_id=801, zone_id=901, work_session_id=None)
+    route = SimpleNamespace(
+        id=701, vehicle_id=801, zone_id=901, work_session_id=None,
+        adjustment_context_revision=1,
+    )
     if name == "start_work_session":
         db.scalar.side_effect = lambda statement: any(
             item.get("entity") is InventoryLocation
@@ -210,6 +213,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((session.start_latitude, session.start_longitude), (31.9, 35.9))
         self.assertFalse(session.is_authorized_to_sell)
         self.assertEqual(setup.route.work_session_id, 601)
+        self.assertEqual(setup.route.adjustment_context_revision, 2)
         self.assertTrue(all(isinstance(item, SessionInventorySnapshot) for item in added[1:]))
         self.assertEqual([(item.company_id, item.work_session_id, item.location_id,
                            item.product_variant_id, item.stock_status, item.starting_quantity)
