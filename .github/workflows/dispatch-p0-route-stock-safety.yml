@@ -226,10 +226,28 @@ jobs:
               "dashboard/src/lib/authStorage.ts",
               "dashboard/src/hooks/useDashboardSession.ts",
           }
+          live_stock_worker1_marker = ".github/workflows/live-stock-v1-operational-browser.yml"
+          live_stock_worker1_allowed = {
+              live_stock_worker1_marker,
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              "dashboard/e2e/live-stock-operational.support.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "wa_backend/tests/live_stock_operational_browser_support.py",
+          }
 
           def ownership_mode(candidate):
               if candidate <= p0_allowed:
                   return "P0_STRICT"
+              if live_stock_worker1_marker in candidate:
+                  unexpected = candidate - (p0_allowed | auth_session_allowed | live_stock_worker1_allowed)
+                  assert not unexpected, f"Forbidden P0/Live Stock Worker1 scope: {sorted(unexpected)}"
+                  return "LIVE_STOCK_WORKER1"
               unexpected = candidate - (p0_allowed | auth_session_allowed)
               assert not unexpected, f"Forbidden P0/auth-session scope: {sorted(unexpected)}"
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
