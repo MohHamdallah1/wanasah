@@ -91,9 +91,10 @@ const item: WarehouseProduct = {
   last_purchase_uom_code: "EA", last_purchase_date: "2026-10-15",
   quantity_scale: 6, quantity_step: "0.000001", on_hand_quantity: "10",
   reserved_quantity: "0", available_for_sale_quantity: "10",
-  unavailable_quantity: "0", vehicle_quantity: "0", recalled_quantity: "0",
-  available_quantity: "10", blocked_quantity: "0", total_quantity: "10",
+  unavailable_quantity: "0", vehicle_quantity_scope: "COMPANY_WIDE" as const, vehicle_quantity: "0", recalled_quantity: "0",
+  available_quantity: "10", blocked_quantity: "0", total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity: "10",
   damaged_quantity: "0", minimum_quantity: "0",
+  is_low_stock: false,
 };
 const loc = { id: 101, name: "Warehouse 101", code: "W101" };
 const shell = { locations: [loc], locationsTruncated: false,

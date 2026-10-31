@@ -1,3 +1,4 @@
+import { VehicleCustodyQuantity } from "./VehicleCustodyQuantity";
 import { AlertTriangle, Info } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useCallback } from "react";
@@ -150,7 +151,6 @@ export function LiveStockTable({
             [product.reserved_quantity, "text-amber-700", "reserved"],
             [product.available_for_sale_quantity, "text-emerald-700", "available"],
             [product.unavailable_quantity, "text-rose-700", "unavailable"],
-            [product.vehicle_quantity, "text-blue-700", "vehicle"],
           ] as const;
 
           const absolutePosition = startIndex + index + 1;
@@ -224,6 +224,9 @@ export function LiveStockTable({
                   </td>
                 );
               })}
+              <td className="px-3 py-2 text-center text-xs font-black text-blue-700" data-cp13-quantity="vehicle">
+                <VehicleCustodyQuantity product={product} />
+              </td>
               <td className="px-3 py-2 text-center text-xs">
                 {product.last_purchase_cost && lastPurchaseUom ? (
                   <div

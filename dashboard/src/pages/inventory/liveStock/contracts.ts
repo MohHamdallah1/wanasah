@@ -109,6 +109,8 @@ export interface LiveStockFamilyOption {
   code: string;
 }
 
+export type VehicleQuantityScope = "COMPANY_WIDE" | "AUTHORIZED_LOCATIONS" | "NO_ACCESS";
+
 export interface WarehouseProduct {
   id: number;
   name: string;
@@ -138,13 +140,15 @@ export interface WarehouseProduct {
   reserved_quantity: Quantity;
   available_for_sale_quantity: Quantity;
   unavailable_quantity: Quantity;
-  vehicle_quantity: Quantity;
+  vehicle_quantity: Quantity | null;
+  vehicle_quantity_scope: VehicleQuantityScope;
   recalled_quantity: Quantity;
 
   // Backward-compatible response fields kept while older consumers migrate.
   available_quantity: Quantity;
   blocked_quantity: Quantity;
   total_quantity: Quantity;
+  total_quantity_scope: "WAREHOUSE_PHYSICAL";
   damaged_quantity: Quantity;
   minimum_quantity: Quantity;
   is_low_stock: boolean;
@@ -331,11 +335,40 @@ export function parseLiveStockPage(
   }
 
   const ids = new Set<number>();
-  const items = page.items.map((rawItem) => {
+  const items = page.items.map((rawItem): WarehouseProduct => {
     const row = record(rawItem, code);
     const id = int(row.id, code, 1);
     if (ids.has(id)) return contractError(code);
     ids.add(id);
+
+    const scope = row.vehicle_quantity_scope;
+    if (scope !== "COMPANY_WIDE" && scope !== "AUTHORIZED_LOCATIONS" && scope !== "NO_ACCESS") {
+      return contractError(code);
+    }
+    if ((scope === "NO_ACCESS") !== (row.vehicle_quantity === null)) return contractError(code);
+    let vehicleQuantity: Quantity | null = null;
+    if (scope !== "NO_ACCESS") {
+      try {
+        vehicleQuantity = parseQuantity(row.vehicle_quantity, "vehicle_quantity", { allowZero: true });
+      } catch {
+        return contractError(code);
+      }
+    }
+    if (row.total_quantity_scope !== "WAREHOUSE_PHYSICAL") return contractError(code);
+
+    const onHandQuantity = parseQuantity(
+      row.on_hand_quantity,
+      "on_hand_quantity",
+      { allowZero: true },
+    );
+    const totalQuantity = parseQuantity(
+      row.total_quantity,
+      "total_quantity",
+      { allowZero: true },
+    );
+    if (compareQuantity(totalQuantity, onHandQuantity) !== 0) {
+      return contractError(code);
+    }
 
     const scale = int(row.quantity_scale, code);
     if (scale > 6) return contractError(code);
@@ -388,11 +421,7 @@ export function parseLiveStockPage(
         row.quantity_step,
         "quantity_step",
       ),
-      on_hand_quantity: parseQuantity(
-        row.on_hand_quantity,
-        "on_hand_quantity",
-        { allowZero: true },
-      ),
+      on_hand_quantity: onHandQuantity,
       reserved_quantity: parseQuantity(
         row.reserved_quantity,
         "reserved_quantity",
@@ -408,11 +437,8 @@ export function parseLiveStockPage(
         "unavailable_quantity",
         { allowZero: true },
       ),
-      vehicle_quantity: parseQuantity(
-        row.vehicle_quantity,
-        "vehicle_quantity",
-        { allowZero: true },
-      ),
+      vehicle_quantity: vehicleQuantity,
+      vehicle_quantity_scope: scope,
       recalled_quantity: parseQuantity(
         row.recalled_quantity,
         "recalled_quantity",
@@ -428,11 +454,8 @@ export function parseLiveStockPage(
         "blocked_quantity",
         { allowZero: true },
       ),
-      total_quantity: parseQuantity(
-        row.total_quantity,
-        "total_quantity",
-        { allowZero: true },
-      ),
+      total_quantity: totalQuantity,
+      total_quantity_scope: "WAREHOUSE_PHYSICAL" as const,
       damaged_quantity: parseQuantity(
         row.damaged_quantity,
         "damaged_quantity",

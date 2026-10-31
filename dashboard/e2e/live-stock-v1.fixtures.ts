@@ -33,9 +33,9 @@ export const item = (index: number, location = 11) => ({
   quantity_scale: 6, quantity_step: "0.000001",
   on_hand_quantity: "26", reserved_quantity: "10",
   available_for_sale_quantity: "16", unavailable_quantity: "0",
-  vehicle_quantity: "0", recalled_quantity: "0",
+  vehicle_quantity_scope: "COMPANY_WIDE" as const, vehicle_quantity: "0", recalled_quantity: "0",
   available_quantity: "16", blocked_quantity: "0",
-  total_quantity: "26", damaged_quantity: "0", minimum_quantity: "1",
+  total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity: "26", damaged_quantity: "0", minimum_quantity: "1",
   is_low_stock: false,
 });
 

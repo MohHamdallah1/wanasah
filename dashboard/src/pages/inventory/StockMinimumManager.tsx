@@ -86,6 +86,8 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<WarehouseProduct[]>([]);
   const [productLoading, setProductLoading] = useState(false);
+  const [productError, setProductError] = useState<string | null>(null);
+  const [productRetry, setProductRetry] = useState(0);
   const [productLoadingMore, setProductLoadingMore] = useState(false);
   const [productNextCursor, setProductNextCursor] = useState<string | null>(null);
   const [productIds, setProductIds] = useState<number[]>([]);
@@ -182,6 +184,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
 
     const controller = new AbortController();
     setProductLoading(true);
+    setProductError(null);
     setProducts([]);
     setProductNextCursor(null);
     const timer = window.setTimeout(() => {
@@ -216,6 +219,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
           ) {
             setProducts([]);
             setProductNextCursor(null);
+            setProductError(apiErrorMessage(error, t("inventoryMinimum.errors.products")));
           }
         })
         .finally(() => {
@@ -227,7 +231,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [authFetch, locationId, open, productSearch, scope, warehouseReady]);
+  }, [authFetch, locationId, open, productSearch, productRetry, scope, t, warehouseReady]);
 
   const loadMoreProducts = useCallback(async () => {
     if (
@@ -240,6 +244,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
     ) return;
 
     setProductLoadingMore(true);
+    setProductError(null);
     try {
       const clean = productSearch.trim();
       const params = new URLSearchParams({
@@ -258,8 +263,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
       });
       setProductNextCursor(parsed.next_cursor);
     } catch (error: unknown) {
-      toast.error(apiErrorMessage(error, t("inventoryMinimum.errors.products")));
-      setProductNextCursor(null);
+      setProductError(apiErrorMessage(error, t("inventoryMinimum.errors.products")));
     } finally {
       setProductLoadingMore(false);
     }
@@ -279,6 +283,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
   useEffect(() => {
     if (
       scope !== "PRODUCT" ||
+      productError !== null ||
       !productNextCursor ||
       productLoading ||
       productLoadingMore ||
@@ -295,6 +300,7 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
     return () => observer.disconnect();
   }, [
     loadMoreProducts,
+    productError,
     productLoading,
     productLoadingMore,
     productNextCursor,
@@ -623,12 +629,19 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
                         </button>
                       )}
                     </div>
+                    {productError ? <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs">
+                      <p>{productError}</p>
+                      <button type="button" className="mt-2 rounded border px-3 py-1 focus-visible:ring-2"
+                        onClick={() => { if (productNextCursor) void loadMoreProducts(); else setProductRetry((value) => value + 1); }}>
+                        {t("common.retry")}
+                      </button>
+                    </div> : null}
                     <div className="inventory-minimum-options inventory-minimum-product-grid custom-scrollbar">
                       {productLoading ? (
                         <div className="inventory-minimum-list-state">{t("common.loading")}</div>
                       ) : productSearch.trim().length === 1 ? (
                         <div className="inventory-minimum-list-state">{t("inventoryMinimum.searchMoreHint")}</div>
-                      ) : products.length === 0 ? (
+                      ) : productError && products.length === 0 ? null : products.length === 0 ? (
                         <div className="inventory-minimum-list-state">{t("inventoryMinimum.noResults")}</div>
                       ) : (
                         <>

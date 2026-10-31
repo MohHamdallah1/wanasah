@@ -121,8 +121,8 @@ describe('live stock response contract', () => {
     display_uom_id:1,display_uom_code:'EACH',display_uom_name:'حبة',display_factor_to_base:'1',
     currency_code:'JOD',average_cost_display:null,last_purchase_cost:null,last_purchase_uom_code:null,last_purchase_date:null,
     quantity_scale:3,quantity_step:'0.125',on_hand_quantity:'32.125',reserved_quantity:'3',
-    available_for_sale_quantity:'27.125',unavailable_quantity:'2',vehicle_quantity:'0',recalled_quantity:'0',
-    available_quantity:'27.125',blocked_quantity:'2',total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
+    available_for_sale_quantity:'27.125',unavailable_quantity:'2',vehicle_quantity_scope: "COMPANY_WIDE" as const, vehicle_quantity:'0',recalled_quantity:'0',
+    available_quantity:'27.125',blocked_quantity:'2',total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity:'32.125',damaged_quantity:'1',minimum_quantity:'10',
   is_low_stock: false,
   };
 
@@ -152,12 +152,46 @@ describe('live stock response contract', () => {
     {...item, available_quantity: '-1'},
     {...item, quantity_scale: 7},
     {...item, quantity_step: '0'},
-    {...item, total_quantity: 4.1},
+    {...item, total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity: 4.1},
   ])('rejects malformed stock quantities %#', malformed => {
     expect(() => parseLiveStockPage({
       items: [malformed], next_cursor: null, has_more: false,
       total: 1, alert_count: 0, alert_samples: [],
     })).toThrow();
+  });
+
+
+  const page = (changes: Record<string, unknown>) => ({
+    items: [{ ...item, ...changes }], next_cursor: null, has_more: false,
+    total: null, alert_count: null, alert_samples: [],
+  });
+
+  it.each([
+    ["COMPANY_WIDE", "0"], ["COMPANY_WIDE", "12.125"],
+    ["AUTHORIZED_LOCATIONS", "0"], ["AUTHORIZED_LOCATIONS", "12.125"],
+    ["NO_ACCESS", null],
+  ])("preserves physical warehouse quantity and %s vehicle disclosure %s", (scope, quantity) => {
+    const parsed = parseLiveStockPage(page({ vehicle_quantity_scope: scope, vehicle_quantity: quantity })).items[0];
+    expect(parsed.vehicle_quantity).toBe(quantity);
+    expect(parsed.vehicle_quantity_scope).toBe(scope);
+    expect(parsed.on_hand_quantity).toBe("32.125");
+    expect(parsed.total_quantity).toBe("32.125");
+    expect(parsed.total_quantity_scope).toBe("WAREHOUSE_PHYSICAL");
+  });
+
+  it.each([
+    { vehicle_quantity_scope: undefined }, { vehicle_quantity_scope: null },
+    { vehicle_quantity_scope: "LATEST_ROUTE" }, { vehicle_quantity_scope: "NO_ACCESS", vehicle_quantity: "0" },
+    { vehicle_quantity_scope: "NO_ACCESS", vehicle_quantity: "12" },
+    { vehicle_quantity_scope: "AUTHORIZED_LOCATIONS", vehicle_quantity: null },
+    { vehicle_quantity_scope: "COMPANY_WIDE", vehicle_quantity: null },
+    { vehicle_quantity: undefined }, { vehicle_quantity: 0 },
+    { vehicle_quantity: "-1" }, { vehicle_quantity: "0.0000001" },
+    { total_quantity_scope: undefined }, { total_quantity_scope: "COMPANY_WIDE" },
+    { total_quantity_scope: "LATEST_ROUTE" },
+    { total_quantity: "31.125" },
+  ])("rejects malformed or ambiguous physical-custody scope %#", (changes) => {
+    expect(() => parseLiveStockPage(page(changes))).toThrow("LIVE_STOCK_RESPONSE_INVALID");
   });
 
   it('rejects pagination and duplicate identity mismatches', () => {

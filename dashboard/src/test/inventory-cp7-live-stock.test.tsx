@@ -1,3 +1,4 @@
+import { resources } from "@/i18n/resources";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -16,6 +17,10 @@ const mocks = vi.hoisted(() => ({
   language: "en",
   t: (key: string, options?: { unit?: string; defaultValue?: string }) => {
     if (key.startsWith("uom.")) return key.slice(4);
+    if (key.startsWith("inventoryLive.vehicleScopes.")) {
+      const scope = key.split(".").at(-1) as "COMPANY_WIDE" | "AUTHORIZED_LOCATIONS" | "NO_ACCESS";
+      return resources[mocks.language === "ar" ? "ar" : "en"].translation.inventoryLive.vehicleScopes[scope];
+    }
     if (key === "inventoryLive.perUnit") {
       return `${mocks.language === "ar" ? "لكل" : "per"} ${options?.unit ?? ""}`;
     }
@@ -73,11 +78,11 @@ const product: WarehouseProduct = {
   reserved_quantity: "0.500001",
   available_for_sale_quantity: "2",
   unavailable_quantity: "0",
-  vehicle_quantity: "0",
+  vehicle_quantity_scope: "COMPANY_WIDE" as const, vehicle_quantity: "0",
   recalled_quantity: "0",
   available_quantity: "2",
   blocked_quantity: "0",
-  total_quantity: "2.500001",
+  total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity: "2.500001",
   damaged_quantity: "0",
   minimum_quantity: "1",
   is_low_stock: false,
@@ -642,5 +647,28 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     view.rerender(<BatchDetailPanel {...view.props} sourceByBatch={{}} sourceErrorId={71} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Source evidence could not be loaded");
     expect(screen.queryByText("ROUTE-701")).not.toBeInTheDocument();
+  });
+});
+
+describe.each(["en", "ar"])("physical vehicle disclosure in %s", (language) => {
+  it.each(["desktop", "mobile"])("renders all read scopes and preserves known zero in %s", (surface) => {
+    mocks.language = language;
+    const copy = resources[language === "ar" ? "ar" : "en"].translation.inventoryLive.vehicleScopes;
+    const node = (item: WarehouseProduct) => surface === "desktop"
+      ? <LiveStockTable products={[item]} loading={false} onOpen={vi.fn()} />
+      : <LiveStockMobileCards products={[item]} onOpen={vi.fn()} />;
+    const view = render(node({ ...product, vehicle_quantity: "8", vehicle_quantity_scope: "COMPANY_WIDE" }));
+    const cell = () => view.container.querySelector('[data-cp13-quantity="vehicle"]')!;
+    expect(cell()).toHaveTextContent("8 EA");
+    expect(cell()).toHaveTextContent(copy.COMPANY_WIDE);
+    view.rerender(node({ ...product, vehicle_quantity: "0", vehicle_quantity_scope: "AUTHORIZED_LOCATIONS" }));
+    expect(cell()).toHaveTextContent("0 EA");
+    expect(cell()).toHaveTextContent(copy.AUTHORIZED_LOCATIONS);
+    view.rerender(node({ ...product, vehicle_quantity: null, vehicle_quantity_scope: "NO_ACCESS" }));
+    expect(cell()).toHaveTextContent(copy.NO_ACCESS);
+    expect(cell()).not.toHaveTextContent("0 EA");
+    expect(cell()).not.toHaveTextContent("8 EA");
+    expect(view.container.querySelector('[data-cp13-quantity="on-hand"]')).toHaveTextContent("2.500001 EA");
+    expect(cell().querySelector('[data-vehicle-scope="NO_ACCESS"]')).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
   });
 });

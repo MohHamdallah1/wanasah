@@ -1785,9 +1785,14 @@ export const resources = {
         availableForSale: "المتاح للبيع",
         availableForSaleHint:
           "الكمية الموجودة داخل المستودع التي يسمح النظام بصرفها أو بيعها الآن بعد استبعاد الحجز والحالات غير القابلة للبيع.",
-        withVehicles: "مع المركبات",
+        withVehicles: "عهدة المركبات",
         withVehiclesHint:
-          "رصيد المركبات المرتبط وفق علاقة الخط/المصدر في نموذج القراءة الحالي. هو خارج إجمالي المستودع، ولا يعني ملكية دائمة أو حصرًا كاملًا لعهد المركبات لهذا المستودع.",
+          "رصيد مواقع المركبات الفعلية ضمن نطاق القراءة الموضح، مستقل عن المستودع المحدد ولا يُضاف إلى إجماليه.",
+        vehicleScopes: {
+          COMPANY_WIDE: "كل مركبات الشركة",
+          AUTHORIZED_LOCATIONS: "المركبات المصرح بقراءتها فقط",
+          NO_ACCESS: "رصيد المركبات غير مفصح عنه",
+        },
         companyCosts: "التكاليف",
         resultCount: "{{total}} منتج",
         costs: "التكلفة",
@@ -1845,7 +1850,7 @@ export const resources = {
         indicatorUnavailable: "فيه غير متاح للبيع",
         indicatorDamaged: "فيه تالف",
         indicatorRecalled: "فيه كمية مستبعدة من البيع",
-        indicatorVehicle: "له رصيد مع المركبات",
+        indicatorVehicle: "رصيد في مركبات مصرح بقراءتها (مستقل عن المستودع)",
         indicatorMinimumUnset: "الحد الأدنى غير محدد",
         familyTitle: "عائلة المنتج",
         selectedFamilyLabel: "العائلة المختارة: {{name}}",
@@ -4185,9 +4190,14 @@ export const resources = {
         availableForSale: "Available for sale",
         availableForSaleHint:
           "Stock inside the warehouse that the system can issue or sell now after excluding reservations and non-sellable states.",
-        withVehicles: "With vehicles",
+        withVehicles: "Vehicle custody",
         withVehiclesHint:
-          "Vehicle stock associated by the current read model's route/source link. It is outside the warehouse total and must not be read as permanent or complete vehicle ownership by this warehouse.",
+          "Stock at physical vehicle locations within the stated read scope, independent of the selected warehouse and excluded from its total.",
+        vehicleScopes: {
+          COMPANY_WIDE: "All company vehicles",
+          AUTHORIZED_LOCATIONS: "Authorized vehicles only",
+          NO_ACCESS: "Vehicle stock not disclosed",
+        },
         companyCosts: "Costs",
         resultCount: "Products: {{total}}",
         costs: "Cost",
@@ -4245,7 +4255,7 @@ export const resources = {
         indicatorUnavailable: "Has unavailable stock",
         indicatorDamaged: "Has damaged stock",
         indicatorRecalled: "Has stock excluded from sale",
-        indicatorVehicle: "Stock with vehicles",
+        indicatorVehicle: "Stock in readable vehicles (independent of warehouse)",
         indicatorMinimumUnset: "Minimum not set",
         familyTitle: "Product family",
         selectedFamilyLabel: "Selected family: {{name}}",

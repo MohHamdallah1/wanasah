@@ -12,6 +12,7 @@ const LOCATION = 55;
 
 const mocks = vi.hoisted(() => ({
   authFetch: vi.fn(),
+  translate: (key: string) => key,
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
@@ -26,7 +27,7 @@ vi.mock("react-i18next", async (importOriginal) => {
   return {
     ...actual,
     useTranslation: () => ({
-      t: (key: string) => key,
+      t: mocks.translate,
       i18n: {
         dir: () => "ltr",
         resolvedLanguage: "en",
@@ -301,5 +302,70 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     expect(manager).toContain("apiErrorMessage(");
     expect(warehouses).toContain('canAt(item.id, "inventory.minimum_stock.manage")');
     expect(warehouses).toContain('canAt(item.id, "inventory.read")');
+  });
+});
+describe("minimum picker physical-custody contract", () => {
+  const row = {
+    "id": 7,
+    "name": "Warehouse-only stock",
+    "sku": "PHYSICAL-7",
+    "product_id": 3,
+    "family_name": "Family",
+    "base_uom_id": 1,
+    "base_uom_code": "EA",
+    "base_uom_name": "Each",
+    "display_uom_id": 1,
+    "display_uom_code": "EA",
+    "display_uom_name": "Each",
+    "display_factor_to_base": "1",
+    "currency_code": "JOD",
+    "average_cost_display": null,
+    "last_purchase_cost": null,
+    "last_purchase_uom_code": null,
+    "last_purchase_date": null,
+    "quantity_scale": 0,
+    "quantity_step": "1",
+    "on_hand_quantity": "32",
+    "reserved_quantity": "3",
+    "available_for_sale_quantity": "27",
+    "unavailable_quantity": "2",
+    "vehicle_quantity_scope": "NO_ACCESS",
+    "vehicle_quantity": null,
+    "recalled_quantity": "0",
+    "available_quantity": "27",
+    "blocked_quantity": "2",
+    "total_quantity_scope": "WAREHOUSE_PHYSICAL",
+    "total_quantity": "32",
+    "damaged_quantity": "1",
+    "minimum_quantity": "10",
+    "is_low_stock": false
+  };
+  const renderPicker = async () => {
+    render(<StockMinimumManager locations={[{ id: LOCATION, name: "Main warehouse", code: "MAIN" }]}
+      preferredLocationId={LOCATION} onApplied={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.button" }));
+    fireEvent.click(await screen.findByRole("button", { name: "inventoryMinimum.scopeProduct" }));
+  };
+  it("keeps warehouse-only product selection available with NO_ACCESS/null", async () => {
+    mocks.authFetch.mockResolvedValue({ items: [row], has_more: false, next_cursor: null, total: 1, alert_count: 0, alert_samples: [] });
+    await renderPicker();
+    const option = await screen.findByRole("button", { name: /Warehouse-only stock/ });
+    fireEvent.click(option);
+    expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("shows a real contract error instead of no-results and recovers on explicit retry", async () => {
+    let malformed = true;
+    mocks.authFetch.mockImplementation(async () => ({
+      items: [{ ...row, vehicle_quantity: malformed ? "0" : null }],
+      has_more: false, next_cursor: null, total: 1, alert_count: 0, alert_samples: [],
+    }));
+    await renderPicker();
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(screen.queryByText("inventoryMinimum.noResults")).toBeNull();
+    malformed = false;
+    fireEvent.click(screen.getByRole("button", { name: "common.retry" }));
+    expect(await screen.findByRole("button", { name: /Warehouse-only stock/ })).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

@@ -1,6 +1,14 @@
 name: Live Stock V1 operational browser closure
 
 on:
+  workflow_call:
+    inputs:
+      backend_ref:
+        type: string
+        default: ""
+      scenario:
+        type: string
+        default: operational
   pull_request:
     branches: [main]
     paths:
@@ -16,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: live-stock-operational-browser-${{ github.event.pull_request.number || github.ref }}
+  group: live-stock-operational-browser-${{ github.event.pull_request.number || github.ref }}-${{ inputs.scenario || 'operational' }}
   cancel-in-progress: true
 
 jobs:
@@ -36,12 +44,31 @@ jobs:
       WANASAH_REAL_BROWSER_STATE: /tmp/live-stock-real-browser-state.json
       WANASAH_OPERATIONAL_BROWSER_STATE: /tmp/live-stock-operational-state.json
       PYTHON: python
+      R3_BACKEND_ROOT: ${{ github.workspace }}/backend-under-test/wa_backend
+      SCENARIO: ${{ inputs.scenario || 'operational' }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Validate bounded acceptance scenario
+        env:
+          BACKEND_REF: ${{ inputs.backend_ref }}
+        run: |
+          python - <<'PY'
+          import os, re
+          assert os.environ["SCENARIO"] in ("operational", "physical-custody")
+          assert not os.environ["BACKEND_REF"] or re.fullmatch(r"[0-9a-f]{40}", os.environ["BACKEND_REF"])
+          PY
+
+      - name: Checkout backend under test separately
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.backend_ref || github.event.pull_request.head.sha || github.sha }}
+          path: backend-under-test
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -54,10 +81,15 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
 
       - name: Install focused backend dependencies
-        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
+        run: python -m pip install -r backend-under-test/wa_backend/requirements.txt alembic pytest pytest-asyncio
 
       - name: Compile real-browser fixture
-        run: python -m py_compile wa_backend/tests/live_stock_operational_browser_support.py
+        run: |
+          if [ ! -f backend-under-test/wa_backend/tests/live_stock_operational_browser_support.py ]; then
+            cp wa_backend/tests/live_stock_operational_browser_support.py \
+              backend-under-test/wa_backend/tests/live_stock_operational_browser_support.py
+          fi
+          python -m py_compile backend-under-test/wa_backend/tests/live_stock_operational_browser_support.py
 
       - name: Start disposable PostgreSQL 16
         run: |
@@ -95,7 +127,7 @@ jobs:
           PY
 
       - name: Migrate only disposable database
-        working-directory: wa_backend
+        working-directory: backend-under-test/wa_backend
         run: alembic upgrade head
 
       - name: Grant restricted runtime fixture permissions
@@ -125,13 +157,17 @@ jobs:
           PY
 
       - name: Seed canonical inbound and exact expected truth
-        working-directory: wa_backend
+        working-directory: backend-under-test/wa_backend
         run: >-
           python -B -m pytest -p no:cacheprovider -q -s
           tests/live_stock_operational_browser_support.py::test_prepare_operational_browser
 
+      - name: Prepare canonical physical Vehicle custody
+        if: inputs.scenario == 'physical-custody'
+        run: python dashboard/e2e/live-stock-physical-custody.fixture.py setup
+
       - name: Start actual FastAPI server
-        working-directory: wa_backend
+        working-directory: backend-under-test/wa_backend
         run: |
           python -m uvicorn main:app --host 127.0.0.1 --port 4174 \
             > /tmp/live-stock-real-api.log 2>&1 &
@@ -160,6 +196,9 @@ jobs:
           src/test/live-stock-batch-refresh-integration.test.tsx
           src/test/live-stock-warm-authority.test.tsx
           src/test/inventory-cp13-shell-polish.test.tsx
+          src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-cp7-live-stock-parity.test.tsx
 
       - name: Lint operational frontend changes
         working-directory: dashboard
@@ -171,6 +210,12 @@ jobs:
           e2e/live-stock-operational.support.ts
           e2e/live-stock-ux-closure.fixtures.ts
           e2e/live-stock-ux-closure.spec.ts
+          src/pages/inventory/liveStock/contracts.ts
+          src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx
+          src/pages/inventory/liveStock/LiveStockTable.tsx
+          src/pages/inventory/liveStock/LiveStockMobileCards.tsx
+          src/pages/inventory/StockMinimumManager.tsx
+          src/i18n/resources.ts
           src/pages/inventory/InventoryTopDock.tsx
           src/pages/inventory/MainInventory.tsx
           src/pages/inventory/Tab1LiveStock.tsx
@@ -187,7 +232,8 @@ jobs:
           npx tsc --noEmit --skipLibCheck --target es2022 --module esnext \
             --moduleResolution bundler --types node --lib es2022,dom \
             e2e/live-stock-operational.config.ts e2e/live-stock-operational.spec.ts \
-            e2e/live-stock-operational.journey.ts e2e/live-stock-operational.support.ts
+            e2e/live-stock-operational.journey.ts e2e/live-stock-operational.support.ts \
+            e2e/live-stock-physical-custody.config.ts e2e/live-stock-physical-custody.spec.ts
 
       - name: Build actual Dashboard against actual FastAPI
         working-directory: dashboard
@@ -212,7 +258,12 @@ jobs:
 
       - name: Run real Chromium through FastAPI and PostgreSQL
         working-directory: dashboard
-        run: npx playwright test --config e2e/live-stock-operational.config.ts
+        run: |
+          if [ "$SCENARIO" = "physical-custody" ]; then
+            npx playwright test --config e2e/live-stock-physical-custody.config.ts
+          else
+            npx playwright test --config e2e/live-stock-operational.config.ts
+          fi
 
       - name: Verify ownership and real screenshots
         env:
@@ -220,7 +271,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.sha }}" python - <<'PY'
           import os, subprocess
-          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
+          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-physical-custody-consumers.yml",".github/workflows/live-stock-v1-browser-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/inventory-cp14-device-ux.spec.ts","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-physical-custody.config.ts","dashboard/e2e/live-stock-physical-custody.fixture.py","dashboard/e2e/live-stock-physical-custody.spec.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/e2e/live-stock-v1.fixtures.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/i18n/resources.ts","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx","dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx","dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx","dashboard/src/pages/inventory/liveStock/contracts.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/test/inventory-access.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx","dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx","dashboard/src/test/inventory-cp7-live-stock.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","dashboard/src/test/live-stock-local-failure.test.tsx","dashboard/src/test/live-stock-render-performance.benchmark.test.tsx","dashboard/src/test/live-stock-render-windowing.test.tsx","dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx","dashboard/src/test/live-stock-warm-authority.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
           import json, re, urllib.request
           head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           base_ref = os.environ["BASE"]
@@ -238,9 +289,23 @@ jobs:
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           print("OPERATIONAL_BROWSER_OWNERSHIP PASS")
           PY
-          count=$(find dashboard/node_modules/.cache/live-stock-operational -name '*.png' | wc -l)
+          if [ "$SCENARIO" = "physical-custody" ]; then
+            count=$(find dashboard/node_modules/.cache/live-stock-physical-custody -name '*.png' | wc -l)
+            test "$count" -ge 5
+          else
+            count=$(find dashboard/node_modules/.cache/live-stock-operational -name '*.png' | wc -l)
+            test "$count" -ge 9
+          fi
           echo "OPERATIONAL_SCREENSHOTS=$count"
-          test "$count" -ge 9
+
+      # P2 consumer audit: keep the legacy Live Stock parser contract enforced
+      # here without importing unrelated Inbound/Ledger suites owned by their
+      # dedicated acceptance gates.
+      - name: Strict Live Stock legacy consumer contract
+        working-directory: dashboard
+        run: >-
+          npx vitest run src/test/inventory-access.test.ts
+          -t "live stock response contract"
 
       - name: Upload operational visual and server evidence
         if: always()
@@ -249,6 +314,7 @@ jobs:
           name: live-stock-operational-browser-${{ github.sha }}
           path: |
             dashboard/node_modules/.cache/live-stock-operational
+            dashboard/node_modules/.cache/live-stock-physical-custody
             /tmp/live-stock-real-api.log
             /tmp/live-stock-real-dashboard.log
 
