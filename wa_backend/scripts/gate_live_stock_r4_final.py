@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -24,7 +25,13 @@ from scripts.live_stock_r4_final_metrics import (
 from scripts.live_stock_r4_final_profile import (
     LIST, implementations, login, measure, specifications,
 )
-from tests.test_live_stock_r4_selective_search_postgres import snapshot_controls, negative_authority
+from tests.test_live_stock_r4_selective_search_postgres import (
+    PausedStatement,
+    access_for,
+    kwargs as r4_kwargs,
+    negative_authority,
+    set_reservation,
+)
 
 
 def save(root, report):
@@ -93,6 +100,71 @@ async def http_controls(engine, fixture, tokens, report):
                 walks.append({"actor": actor, "sort": sort, "unique_rows": len(found), "pages": 9})
         report["http_denials"] = records
         report["http_cursor_walks"] = walks
+
+
+async def current_snapshot_controls(engine, admin, fixture, report):
+    """Keep the real R1 race proof without pinning an obsolete CTE name."""
+    async with r4.session(engine, fixture["company_id"]) as db:
+        variant_id = await db.scalar(
+            select(ProductVariant.id).where(
+                ProductVariant.company_id == fixture["company_id"],
+                ProductVariant.sku == "R2-50K-000001",
+            )
+        )
+    records = []
+    for actor in ("owner", "restricted"):
+        for timing in ("before", "after"):
+            await set_reservation(admin, fixture, variant_id, "0.25")
+            async with r4.session(engine, fixture["company_id"]) as db:
+                access = await access_for(db, fixture, actor)
+                paused = PausedStatement(db, timing)
+                values = r4_kwargs(
+                    paused,
+                    fixture,
+                    access,
+                    search="R2-50K-000001",
+                    limit=1,
+                    stock_state="sellable",
+                )
+                task = asyncio.create_task(
+                    r4.n1.capture_endpoint_call(
+                        engine,
+                        lambda: __import__(
+                            "api.warehouse.live_stock",
+                            fromlist=["get_warehouse_inventory"],
+                        ).get_warehouse_inventory(**values),
+                    )
+                )
+                try:
+                    await asyncio.wait_for(paused.reached.wait(), 20)
+                    await set_reservation(admin, fixture, variant_id, "1")
+                finally:
+                    paused.release.set()
+                payload, _, sql = await asyncio.wait_for(task, 20)
+                assert len(sql) == 4
+                combined = [
+                    statement
+                    for statement in sql
+                    if "inventory_page_candidates" in statement["statement"]
+                ]
+                assert len(combined) == 1
+                assert "inventory_detail_keys" in combined[0]["statement"]
+                if timing == "before":
+                    assert payload["items"] == []
+                else:
+                    assert [row["id"] for row in payload["items"]] == [variant_id]
+                    assert Decimal(
+                        payload["items"][0]["available_for_sale_quantity"]
+                    ) == Decimal("0.75")
+                records.append({
+                    "actor": actor,
+                    "timing": timing,
+                    "sql_count": len(sql),
+                    "single_candidate_detail_statement": True,
+                })
+    await set_reservation(admin, fixture, variant_id, "0.25")
+    report["r1_snapshot_controls"] = records
+    print("R4_CURRENT_SNAPSHOT " + json.dumps(records), flush=True)
 
 
 def assert_counts_and_selective(report, fixture):
@@ -373,7 +445,7 @@ async def acceptance():
         await http_controls(engine, fixture, tokens, report)
         await concurrent_controls(fixture, tokens, specs, report)
         # Reuse unchanged R4 real R1 race controls and least-privilege SQL checks.
-        await snapshot_controls(engine, admin, fixture, report)
+        await current_snapshot_controls(engine, admin, fixture, report)
         await negative_authority(engine, admin, fixture, report)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
                                     base_url="http://r4-revocation.test") as client:
