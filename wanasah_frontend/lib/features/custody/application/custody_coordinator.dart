@@ -43,8 +43,30 @@ class CustodyCoordinator {
       _pendingTransfers.load();
 
   Future<List<NonSellableCustodyItem>> loadNonSellableCustody() async {
-    final page = await _custodyClient.custody();
-    return page.items;
+    // Cursor is opaque and session-bound. Never return partial pages.
+    final items = <NonSellableCustodyItem>[];
+    final seenCursors = <String>{};
+    int? sessionId;
+    String? cursor;
+    var pages = 0;
+    do {
+      if (++pages > 10000) {
+        throw const FormatException('Custody pagination limit exceeded');
+      }
+      final page = await _custodyClient.custody(
+        query: CustodyQuery(limit: 100, cursor: cursor),
+      );
+      if (sessionId != null && sessionId != page.sessionId) {
+        throw const FormatException('Custody session changed between pages');
+      }
+      sessionId = page.sessionId;
+      items.addAll(page.items);
+      cursor = page.nextCursor;
+      if (cursor != null && !seenCursors.add(cursor)) {
+        throw const FormatException('Repeated custody cursor');
+      }
+    } while (cursor != null);
+    return List.unmodifiable(items);
   }
 
   Future<List<PendingReturnCustodyItem>> loadPendingReturnCustody() =>
