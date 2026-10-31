@@ -286,6 +286,35 @@ def without_load_plan_reconciliation(node):
     return node
 
 
+def without_adjust_load_context_revision(node):
+    """Allow only the approved session-binding ABA revision increment."""
+    node = copy.deepcopy(node)
+    if node.name != "start_work_session":
+        return node
+    assignment = ast.dump(
+        ast.parse("active_route.work_session_id = new_session.id").body[0],
+        include_attributes=False,
+    )
+    increment = ast.dump(
+        ast.parse("active_route.adjustment_context_revision += 1").body[0],
+        include_attributes=False,
+    )
+    locations = [
+        (block, index)
+        for block in ast.walk(node)
+        if isinstance(block, (ast.Try, ast.If, ast.AsyncWith, ast.With))
+        for index, statement in enumerate(getattr(block, "body", ()))
+        if ast.dump(statement, include_attributes=False) == increment
+    ]
+    assert len(locations) == 1, "Adjust Load context revision increment must occur exactly once"
+    block, index = locations[0]
+    assert index > 0 and ast.dump(block.body[index - 1], include_attributes=False) == assignment, (
+        "Context revision must increment immediately after binding the WorkSession"
+    )
+    block.body.pop(index)
+    return node
+
+
 def without_canonical_projection_source(source):
     """Whitelist exact owner-approved read adaptations; fingerprint everything else."""
     replacements = (
@@ -467,6 +496,7 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                 expected = digest(self.baseline_functions[name].body)
             with self.subTest(endpoint=name):
                 normalized = without_load_plan_reconciliation(self.functions[name])
+                normalized = without_adjust_load_context_revision(normalized)
                 actual = normalized.body if approved_batch else without_field_additions(normalized)
                 self.assertEqual(digest(actual), expected)
                 self.assertEqual([ast.unparse(item) for item in without_capability_decorator(self.functions[name]).decorator_list],

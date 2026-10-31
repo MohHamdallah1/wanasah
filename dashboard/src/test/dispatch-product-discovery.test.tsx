@@ -123,26 +123,20 @@ describe("Dispatch cursor pickers", () => {
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&vehicle_id=17&warehouse_id=21");
   });
 
-  it("Route Management searches route/source context and retains selected target outside the window", async () => {
-    const changed = vi.fn();
-    function Management() {
-      const [targets, setTargets] = useState<Record<string, number>>({});
-      return <RouteManagementModal isOpen onClose={vi.fn()} routeModalType="follow_up" activeRoute={route} drivers={[]}
-        transferDriverId="" onTransferDriverChange={vi.fn()} vehicles={[]} selectedVehicleId="17" onVehicleChange={vi.fn()}
-        productScope="1:3" productNames={{}} preloadQuantities={targets} onPreloadQuantitiesChange={(value) => { setTargets(value); changed(value); }}
-        onClearInventory={vi.fn()} onConfirmAction={vi.fn()} />;
-    }
-    render(<Management />);
-    await lastPage();
-    const row = screen.getByText("Matching 200").closest("tr")!;
-    const input = within(row).getByRole("textbox");
-    fireEvent.change(input, { target: { value: "2" } }); fireEvent.blur(input);
-    expect(changed).toHaveBeenLastCalledWith({ "1199": 2 });
-    fireEvent.click(screen.getByRole("button", { name: "Previous results" }));
-    await screen.findByText("Matching 160");
-    expect(within(screen.getByText("Matching 200").closest("tr")!).getByRole("textbox")).toHaveValue("2");
-    expect(screen.getAllByRole("row")).toHaveLength(82);
-    expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&route_id=9&vehicle_id=17");
+  it("Route Management never silently edits physical quantities; use explicit Adjust Load", () => {
+    const adjust = vi.fn();
+    const confirm = vi.fn();
+    render(<RouteManagementModal isOpen onClose={vi.fn()} routeModalType="follow_up"
+      activeRoute={{ ...route, can_execute: true }} drivers={[]}
+      transferDriverId="" onTransferDriverChange={vi.fn()}
+      vehicles={[{ id: "17", label: "Vehicle" }]} selectedVehicleId="17"
+      onVehicleChange={vi.fn()} onAdjustLoad={adjust} onConfirmAction={confirm} />);
+    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Search products" })).not.toBeInTheDocument();
+    expect(fake.fetch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Adjust route load" }));
+    expect(adjust).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
   });
 
   it("Shortages reach result 200 without stock metadata and pin selected plus drafted choices", async () => {
@@ -181,20 +175,15 @@ describe("Dispatch cursor pickers", () => {
     expect(fake.fetch.mock.calls[3][0]).not.toContain("cursor=");
   });
 
-  it.each(["launch", "management"])("%s pins custody and drafts before stock rows, retaining them after stock disappears without duplicates", async (kind) => {
+  it("Route Launch pins custody and drafts before stock rows, retaining them after stock disappears without duplicates", async () => {
     const current = { id: "521", name: "Vehicle A with zero source stock", load: { ...products[0].load, product_id: "521", product_name: "Vehicle A with zero source stock", current_base_quantity: "25" } };
     fake.fetch.mockImplementation(async (url: string) => ({ items: new URL(url, "http://test").searchParams.get("search") ? [current] : [products[0]], has_more: false, next_cursor: null }));
     function Pinned() {
-      const [quantities, setQuantities] = useState<Record<string, number>>({});
       const [targets, setTargets] = useState<Record<string, string>>({});
       const [names, setNames] = useState<Record<string, string>>({ "521": current.name });
-      return kind === "launch" ? <RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3"
+      return <RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3"
         current={{ "521": "25" }} targets={targets} units={{ "521": unit, "1000": unit }} names={names}
-        onClear={() => setTargets({})} onTargetChange={(id, name, metadata, value) => { setTargets((q) => ({ ...q, [id]: value })); setNames((n) => ({ ...n, [id]: name })); }} />
-        : <RouteManagementModal isOpen onClose={vi.fn()} routeModalType="follow_up" activeRoute={route} drivers={[]}
-          transferDriverId="" onTransferDriverChange={vi.fn()} vehicles={[]} selectedVehicleId="17" onVehicleChange={vi.fn()}
-          productScope="1:3" productNames={names} custodyProductIds={["521"]} preloadQuantities={quantities}
-          onPreloadQuantitiesChange={setQuantities} onClearInventory={() => setQuantities({})} onConfirmAction={vi.fn()} />;
+        onClear={() => setTargets({})} onTargetChange={(id, name, metadata, value) => { setTargets((q) => ({ ...q, [id]: value })); setNames((n) => ({ ...n, [id]: name })); }} />;
     }
     render(<Pinned />);
     await screen.findByText("Matching 1");
@@ -204,9 +193,9 @@ describe("Dispatch cursor pickers", () => {
     fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
-    await waitFor(() => expect(screen.getByText(kind === "launch"
-      ? "Scroll naturally; nearby results load automatically without retaining the full catalog in memory."
-      : "End of results. Selected products stay visible when searching or changing pages.")).toBeVisible());
+    await waitFor(() => expect(screen.getByText(
+      "Scroll naturally; nearby results load automatically without retaining the full catalog in memory."
+    )).toBeVisible());
     expect(screen.getAllByText(current.name)).toHaveLength(1);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);

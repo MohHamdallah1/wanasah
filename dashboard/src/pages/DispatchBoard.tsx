@@ -2,6 +2,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useDispatchOwnerNavigation } from "@/features/dispatch/useOwnerNavigation";
+import { buildRouteStatusOnlyPayload } from "@/features/dispatch/routeStatusPayload";
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -52,7 +53,7 @@ interface DispatchInitPayload {
 
 interface VehicleInventoryPayload {
   product_id: string;
-  current_quantity: number;
+  product_name?: string;
 }
 
 interface ArchivedZonePayload {
@@ -296,7 +297,6 @@ function DispatchSession() {
     localStorage.setItem("wanasah_route_driver", selectedDriverId);
     localStorage.setItem("wanasah_route_vehicle", selectedVehicleId);
   }, [selectedZoneId, selectedDriverId, selectedVehicleId]);
-  const [preloadQuantities, setPreloadQuantities] = useState<Record<string, number>>({});
   const [routeLoadCurrent, setRouteLoadCurrent] = useState<Record<string, Quantity>>({});
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
@@ -674,7 +674,7 @@ function DispatchSession() {
 
   useEffect(() => {
     if (!selectedVehicleId) {
-      setPreloadQuantities({});
+
       setRouteLoadCurrent({});
       setRouteLoadTargets({});
       setRouteLoadUnits({});
@@ -683,7 +683,7 @@ function DispatchSession() {
       return;
     }
 
-    setPreloadQuantities({});
+
     setRouteLoadCurrent({});
     setRouteLoadTargets({});
     setRouteLoadUnits({});
@@ -700,14 +700,8 @@ function DispatchSession() {
         if (!Array.isArray(data)) {
           throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
-        // The legacy carton fields are used only for older Route Management actions.
-        const inventory: Record<string, number> = {};
-        data.forEach((raw) => {
-          const item = raw as VehicleInventoryPayload;
-          inventory[String(item.product_id)] = Number(item.current_quantity) || 0;
-        });
+        // Only canonical base-unit evidence feeds the explicit Load editor.
         const precise = parseRouteLoadVehicleInventory(data);
-        setPreloadQuantities(inventory);
         setRouteLoadCurrent(precise.current);
         setRouteLoadTargets({ ...precise.current });
         setRouteLoadUnits(precise.units);
@@ -907,7 +901,7 @@ function DispatchSession() {
     })
       .then(() => {
         toast.success("تم إطلاق خط السير بنجاح");
-        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setPreloadQuantities({}); setRouteLoadTargets({});
+        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setRouteLoadTargets({});
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
         authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
       })
@@ -929,11 +923,7 @@ function DispatchSession() {
       toast.error("⚠️ اختر السيارة.");
       return;
     }
-    if (!vehicleCustodyReady) {
-      toast.info("جاري تحميل مخزون السيارة. انتظر اكتمال القراءة قبل الاعتماد.");
-      return;
-    }
-
+    // Route status does not depend on a stock snapshot.
     const newDriverId =
       routeModalType === "transfer" ? transferDriverId : activeRoute.driverId;
 
@@ -956,12 +946,7 @@ function DispatchSession() {
     try {
       await authenticatedFetch(`/dispatch/route/${activeRoute.id}/status`, {
         method: "PUT",
-        body: JSON.stringify({
-          status: "active",
-          driverId: newDriverId,
-          vehicleId: selectedVehicleId,
-          inventory: preloadQuantities
-        })
+        body: JSON.stringify(buildRouteStatusOnlyPayload("active", newDriverId, selectedVehicleId))
       });
 
       const freshRoutes = await authenticatedFetch("/dispatch/active_routes");
@@ -1549,7 +1534,7 @@ function DispatchSession() {
                       setActiveRoute(r);
                       setRouteModalType(t);
                       setTransferDriverId(r.driverId);
-                      setPreloadQuantities({});
+
                       setVehicleInventoryLoadedForContext(null);
                       setSelectedVehicleId(r.vehicleId);
                       setVehicleInventoryReloadKey((key) => key + 1);
@@ -1826,23 +1811,12 @@ function DispatchSession() {
         vehicles={vehicles}
         selectedVehicleId={selectedVehicleId}
         onVehicleChange={setSelectedVehicleId}
-        productScope={productScope}
-        productNames={vehicleCustodyReady ? routeLoadNames : {}}
-        preloadQuantities={vehicleCustodyReady ? preloadQuantities : {}}
-        custodyProductIds={vehicleCustodyReady ? Object.keys(routeLoadCurrent) : []}
-        custodyReady={vehicleCustodyReady}
-        onPreloadQuantitiesChange={setPreloadQuantities}
-        onClearInventory={() => setConfirmDialog({
-          isOpen: true,
-          title: "تأكيد تصفير هدف الحمولة",
-          message: "هل تريد جعل الكمية المستهدفة صفراً لكل أصناف الحمولة الحالية؟",
-          onConfirm: () => {
-            setPreloadQuantities((current) =>
-              Object.fromEntries(Object.keys(current).map((id) => [id, 0]))
-            );
-            setConfirmDialog(d => ({ ...d, isOpen: false }));
-          }
-        })}
+        onAdjustLoad={() => {
+          if (!activeRouteContext) return;
+          setInventoryRoute(activeRouteContext);
+          setIsRouteModalOpen(false);
+          setIsInventoryModalOpen(true);
+        }}
         onConfirmAction={handleConfirmRouteAction}
       />
       )}

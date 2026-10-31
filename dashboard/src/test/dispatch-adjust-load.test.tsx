@@ -10,6 +10,7 @@ import { adjustmentReview, buildAdjustmentPayload, parseAdjustLoadInventory } fr
 import { parseRouteTransfers, formatTransferQuantity, transferIsAddition } from "@/features/dispatch/routeTransfers";
 import { formatRouteLoadQuantity } from "@/features/dispatch/routeLoadUom";
 import { useAdjustLoadCommand } from "@/features/dispatch/useAdjustLoadCommand";
+import { durableScope, getOrCreateDurableCommand } from "@/lib/durableOperations";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn(), online: true, error: vi.fn(), success: vi.fn(), info: vi.fn() }));
 let observedBoundaries: { node: Element; callback: IntersectionObserverCallback; observer: IntersectionObserver }[] = [];
@@ -52,6 +53,7 @@ const page = (rows: typeof inventory[], next_cursor: string | null = null) => ({
   items: rows.map((load) => ({ id: load.product_id, name: load.product_name, load })), next_cursor, has_more: !!next_cursor,
 });
 const route: PendingRoute = { id: "9", zoneId: "1", zoneName: "Zone", driverId: "31", driverName: "Rep", vehicleId: "17",
+  sourceWarehouseId: "21", workSessionId: null, adjustmentContextRevision: 1,
   shopsRemaining: 2, status: "active", sessionEnded: false, sessionBound: false, can_execute: true, commercial_context: null };
 
 beforeEach(async () => {
@@ -327,7 +329,7 @@ describe("Bounded Adjust Load discovery", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "source" } });
     await screen.findByText(extra.product_name);
     fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "5" } });
-    await waitFor(() => expect(localStorage.getItem(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find((key) => key.endsWith(":draft"))!)).toContain('"900":"5"'));
+    await waitFor(() => expect(localStorage.getItem(Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)!).find((key) => key.includes(":draft:"))!)).toContain('"900":"5"'));
     first.unmount(); fake.fetch.mockClear();
     open();
     await screen.findByText(extra.product_name);
@@ -363,35 +365,128 @@ describe("Bounded Adjust Load discovery", () => {
     expect(screen.getAllByRole("spinbutton")).toHaveLength(1);
   });
 
-  it("same-route Warehouse change clears search/deltas/pages, reloads custody and ignores old search responses", async () => {
+  it.each(["en", "ar"] as const)("keeps a physically scoped unsent draft when Warehouse changes in %s; never submits old stock", async (language) => {
+    await setAppLanguage(language);
     let changedWarehouse = false;
     let finishOld: (value: unknown) => void = () => {};
     fake.fetch.mockImplementation(async (url: string) => {
       if (url.endsWith("live_inventory")) return [loaded];
+      if (url.includes("?product_ids=")) {
+        // The strict canonical detail endpoint returns a bare item array, not
+        // the paginated discovery wrapper. It is required for saved drafts.
+        expect(url).toContain("product_ids=900");
+        return [extra];
+      }
       if (url.includes("search=old")) return new Promise((resolve) => { finishOld = resolve; });
       return page(changedWarehouse ? [{ ...extra, product_id: "901", product_name: "New source stock" }] : [extra]);
     });
-    const view = render(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, sourceWarehouseId: "21" }} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    const oldRoute = { ...route, sourceWarehouseId: "21" };
+    const newRoute = { ...route, sourceWarehouseId: "22" };
+    const onClose = vi.fn();
+    const view = render(<AdjustInventoryModal isOpen onClose={onClose} route={oldRoute} onSuccess={vi.fn()} companyId={1} principalId={3} />);
     await screen.findByText(extra.product_name);
+    await waitFor(() => expect(screen.getAllByRole("spinbutton")[0]).not.toBeDisabled());
     fireEvent.change(screen.getAllByRole("spinbutton")[0], { target: { value: "-5" } });
     fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "5" } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "old" } });
+    fireEvent.change(screen.getByRole("textbox", { name: i18n.t("dispatchAdjustLoad.search") }), { target: { value: "old" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=old"))).toBe(true));
     changedWarehouse = true;
-    view.rerender(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, sourceWarehouseId: "22" }} onSuccess={vi.fn()} companyId={1} principalId={3} />);
-    expect(screen.getByRole("textbox", { name: "Search products" })).toHaveValue("");
+    view.rerender(<AdjustInventoryModal isOpen onClose={onClose} route={newRoute} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    const prompt = await screen.findByRole("alertdialog", { name: i18n.t("dispatchAdjustLoad.contextChangedTitle") });
+    expect(prompt).toBeVisible();
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.reviewPrevious") }));
+    expect(within(prompt).getByText("521: -5")).toBeVisible();
+    expect(within(prompt).getByText("900: 5")).toBeVisible();
+    expect(screen.getByRole("button", { name: i18n.t("dispatchAdjustLoad.review") })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: i18n.t("dispatchAdjustLoad.search") })).toHaveValue("");
     await screen.findByText("New source stock");
     await act(async () => finishOld(page([extra])));
     expect(screen.queryByText(extra.product_name)).not.toBeInTheDocument();
-    expect(screen.getAllByRole("spinbutton")).toHaveLength(2);
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.keepPrevious") }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(screen.getAllByRole("spinbutton")[0]).toHaveValue(null);
-    expect(fake.fetch.mock.calls.filter(([url]) => url.endsWith("live_inventory"))).toHaveLength(2);
-    expect(fake.fetch.mock.calls.filter(([url]) => url.includes("search=&"))).toHaveLength(2);
+    expect(fake.fetch.mock.calls.some(([url]) => url.endsWith("adjust_inventory"))).toBe(false);
+    changedWarehouse = false;
+    view.rerender(<AdjustInventoryModal isOpen onClose={onClose} route={oldRoute} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    await screen.findByText(extra.product_name);
+    await waitFor(() => expect(screen.getAllByRole("spinbutton")[0]).toHaveValue(-5));
+    expect(fake.fetch.mock.calls.some(([url]) => url.includes("product_ids=900"))).toBe(true);
+    expect(screen.getAllByRole("spinbutton")[1]).toHaveValue(5);
     view.unmount();
-    // The durable draft companion context also prevents old-source drafts on reopen.
-    open();
-    await screen.findByText("New source stock");
-    expect(screen.getAllByRole("spinbutton")[0]).toHaveValue(null);
+    render(<AdjustInventoryModal isOpen onClose={onClose} route={oldRoute} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    await waitFor(() => expect(screen.getAllByRole("spinbutton")[0]).toHaveValue(-5));
+  });
+
+  it.each(["en", "ar"] as const)("asks explicitly on cancel; keep and discard are separate in %s/mobile", async (language) => {
+    await setAppLanguage(language);
+    window.innerWidth = 390;
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?") ? page([]) : [loaded]);
+    const close = vi.fn();
+    const props = { isOpen: true, onClose: close, route, onSuccess: vi.fn(), companyId: 1, principalId: 3 };
+    const first = render(<AdjustInventoryModal {...props} />);
+    await screen.findByRole("spinbutton");
+    await waitFor(() => expect(screen.getByRole("spinbutton")).not.toBeDisabled());
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("common.cancel") }));
+    const prompt = screen.getByRole("alertdialog", { name: i18n.t("dispatchAdjustLoad.closeTitle") });
+    expect(prompt).toBeVisible();
+    expect(close).not.toHaveBeenCalled();
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.continueEditing") }));
+    expect(screen.getByRole("spinbutton")).toHaveValue(5);
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("common.cancel") }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("dispatchAdjustLoad.keepAndClose") }));
+    expect(close).toHaveBeenCalledOnce();
+    first.unmount();
+    const second = render(<AdjustInventoryModal {...props} />);
+    await waitFor(() => expect(screen.getByRole("spinbutton")).toHaveValue(5));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("common.cancel") }));
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("dispatchAdjustLoad.discardAndClose") }));
+    expect(close).toHaveBeenCalledTimes(2);
+    second.unmount();
+    render(<AdjustInventoryModal {...props} />);
+    await waitFor(() => expect(screen.getByRole("spinbutton")).not.toBeDisabled());
+    expect(screen.getByRole("spinbutton")).toHaveValue(null);
+    expect(fake.fetch.mock.calls.every(([, options]) => options?.method !== "PUT")).toBe(true);
+    window.innerWidth = 1024;
+  });
+
+  it("migrates a pre-fix legacy unsent draft into the original physical custody without losing it", async () => {
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    localStorage.setItem(`${legacy}:draft`, JSON.stringify({ "521": "-5" }));
+    localStorage.setItem(`${legacy}:draft-context`, JSON.stringify(["9", "17", "21"]));
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?") ? page([]) : [loaded]);
+    const initial = render(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, sourceWarehouseId: "22" }}
+      onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    const prompt = await screen.findByRole("alertdialog", { name: i18n.t("dispatchAdjustLoad.contextChangedTitle") });
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.reviewPrevious") }));
+    expect(within(prompt).getByText("521: -5")).toBeVisible();
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.keepPrevious") }));
+    expect(screen.getByRole("spinbutton")).toHaveValue(null);
+    expect(localStorage.getItem(`${legacy}:draft`)).toBeNull();
+    initial.unmount();
+    render(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, sourceWarehouseId: "21" }}
+      onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    await waitFor(() => expect(screen.getByRole("spinbutton")).toHaveValue(-5));
+    expect(fake.fetch.mock.calls.some(([url]) => url.endsWith("adjust_inventory"))).toBe(false);
+  });
+
+  it("quarantines prior draft details when company or principal changes", async () => {
+    fake.fetch.mockImplementation(async (url: string) => url.includes("?") ? page([]) : [loaded]);
+    const oldProps = { isOpen: true, onClose: vi.fn(), route, onSuccess: vi.fn(), companyId: 1, principalId: 3 };
+    const first = render(<AdjustInventoryModal {...oldProps} />);
+    await screen.findByRole("spinbutton");
+    await waitFor(() => expect(screen.getByRole("spinbutton")).not.toBeDisabled());
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "5" } });
+    first.rerender(<AdjustInventoryModal {...oldProps} companyId={2} principalId={4} />);
+    const prompt = await screen.findByRole("alertdialog", { name: i18n.t("dispatchAdjustLoad.contextChangedTitle") });
+    expect(within(prompt).queryByRole("button", { name: i18n.t("dispatchAdjustLoad.reviewPrevious") })).toBeNull();
+    expect(within(prompt).queryByRole("button", { name: i18n.t("dispatchAdjustLoad.discardPrevious") })).toBeNull();
+    expect(within(prompt).queryByText("701: 5")).toBeNull();
+    fireEvent.click(within(prompt).getByRole("button", { name: i18n.t("dispatchAdjustLoad.keepPrevious") }));
+    expect(screen.getByRole("spinbutton")).toHaveValue(null);
+    expect(fake.fetch.mock.calls.some(([url]) => url.endsWith("adjust_inventory"))).toBe(false);
+    first.rerender(<AdjustInventoryModal {...oldProps} />);
+    await waitFor(() => expect(screen.getByRole("spinbutton")).toHaveValue(5));
   });
 
   it("cannot carry searched rows or drafts into another route", async () => {
@@ -403,6 +498,8 @@ describe("Bounded Adjust Load discovery", () => {
     await screen.findByText(extra.product_name);
     fireEvent.change(screen.getAllByRole("spinbutton")[1], { target: { value: "5" } });
     view.rerender(<AdjustInventoryModal isOpen onClose={vi.fn()} route={{ ...route, id: "10" }} onSuccess={vi.fn()} companyId={1} principalId={3} />);
+    expect(await screen.findByRole("alertdialog", { name: i18n.t("dispatchAdjustLoad.contextChangedTitle") })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("dispatchAdjustLoad.keepPrevious") }));
     await screen.findByText("Other route custody");
     expect(screen.queryByText(extra.product_name)).not.toBeInTheDocument();
     expect(screen.getByRole("spinbutton")).toHaveValue(null);
@@ -490,6 +587,142 @@ describe("Durable adjustment command", () => {
     expect(fake.fetch.mock.calls[1][1].body).toBe(firstWire);
     expect(resumed.result.current.pending).toBeNull();
     expect(resumed.result.current.recoveryRequired).toBe(false);
+  });
+
+  it("does not replay a pending durable command after the same route moves to another vehicle or Warehouse", async () => {
+    fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE", status: 0 }));
+    const first = renderHook(({ physical }) => useAdjustLoadCommand("9", 1, 3, physical),
+      { initialProps: { physical: '["9","17","21",null,1]' } });
+    await waitFor(() => expect(first.result.current.ready).toBe(true));
+    await act(async () => { await expect(first.result.current.execute(body)).rejects.toBeDefined(); });
+    expect(first.result.current.recoveryRequired).toBe(true);
+    const originalScope = first.result.current.scope;
+    const originalWire = fake.fetch.mock.calls[0][1].body;
+    first.rerender({ physical: '["9","18","22",null,2]' });
+    await waitFor(() => expect(first.result.current.ready).toBe(true));
+    expect(first.result.current.scope).not.toBe(originalScope);
+    expect(first.result.current.recoveryRequired).toBe(false);
+    expect(first.result.current.pending).toBeNull();
+    expect(localStorage.getItem(originalScope!)).not.toBeNull();
+    expect(fake.fetch).toHaveBeenCalledOnce();
+    first.rerender({ physical: '["9","17","21",null,1]' });
+    await waitFor(() => expect(first.result.current.recoveryRequired).toBe(true));
+    fake.fetch.mockResolvedValue({ mode: "DIRECT" });
+    await act(async () => { expect(await first.result.current.execute()).toBe("DIRECT"); });
+    expect(fake.fetch.mock.calls[1][1].body).toBe(originalWire);
+  });
+
+  it("does not hide or replay an unresolved legacy route-only durable request during physical-context cutover", async () => {
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    await getOrCreateDurableCommand(legacy, body);
+    const view = renderHook(() => useAdjustLoadCommand("9", 1, 3, '["9","17","21",null,1]'));
+    await waitFor(() => expect(view.result.current.recoveryError).toMatchObject({
+      code: "DISPATCH_LEGACY_RECOVERY_REQUIRED",
+    }));
+    expect(view.result.current.recoveryRequired).toBe(true);
+    expect(view.result.current.ready).toBe(false);
+    expect(fake.fetch).not.toHaveBeenCalled();
+    await act(async () => { await expect(view.result.current.execute(body)).rejects.toBeDefined(); });
+    expect(localStorage.getItem(legacy)).not.toBeNull();
+    expect(fake.fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["en", "ar"] as const)("explicit legacy recovery in %s verifies the original UUID without replay or lost evidence", async (language) => {
+    await setAppLanguage(language);
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    const original = await getOrCreateDurableCommand(legacy, body);
+    const physical = '["9","17","21",null,1]';
+    const view = renderHook(() => useAdjustLoadCommand("9", 1, 3, physical));
+    await waitFor(() => expect(view.result.current.legacyPending?.requestId).toBe(original.requestId));
+    expect(view.result.current.ready).toBe(false);
+    fake.fetch.mockResolvedValueOnce({ state: "NOT_CONFIRMED", request_id: original.requestId });
+    await act(async () => { await view.result.current.inspectLegacy(); });
+    expect(view.result.current.legacyOutcome).toBe("NOT_CONFIRMED");
+    act(() => view.result.current.acknowledgeCommittedLegacy());
+    expect(localStorage.getItem(legacy)).not.toBeNull();
+    expect(view.result.current.ready).toBe(false);
+    fake.fetch.mockResolvedValueOnce({ state: "COMMITTED", request_id: original.requestId, response: { mode: "DIRECT" } });
+    await act(async () => { await view.result.current.inspectLegacy(); });
+    expect(view.result.current.legacyOutcome).toBe("COMMITTED");
+    const requests = fake.fetch.mock.calls;
+    expect(requests).toHaveLength(2);
+    expect(requests.every(([url, options]) => url === "/dispatch/route/9/adjust_inventory/recovery" &&
+      options.method === "POST" && JSON.parse(options.body).request_id === original.requestId &&
+      JSON.parse(options.body).deltas[0].delta_base === "5")).toBe(true);
+    act(() => view.result.current.acknowledgeCommittedLegacy());
+    expect(localStorage.getItem(legacy)).toBeNull();
+    expect(view.result.current.ready).toBe(true);
+    expect(fake.fetch).toHaveBeenCalledTimes(2); // Read-only; no Adjust Load POST/PUT replay
+  });
+
+  it.each(["en", "ar"] as const)("permanently cancels only a server-verified NOT_CONFIRMED legacy request in %s", async (language) => {
+    await setAppLanguage(language);
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    const original = await getOrCreateDurableCommand(legacy, body);
+    const view = renderHook(() => useAdjustLoadCommand("9", 1, 3, '["9","17","21",null,1]'));
+    await waitFor(() => expect(view.result.current.legacyPending?.requestId).toBe(original.requestId));
+
+    fake.fetch.mockResolvedValueOnce({ state: "NOT_CONFIRMED", request_id: original.requestId });
+    await act(async () => { await view.result.current.inspectLegacy(); });
+    expect(view.result.current.legacyOutcome).toBe("NOT_CONFIRMED");
+
+    fake.fetch.mockResolvedValueOnce({ state: "CANCELLED", request_id: original.requestId });
+    await act(async () => { await view.result.current.cancelLegacy(); });
+    expect(localStorage.getItem(legacy)).toBeNull();
+    expect(view.result.current.legacyPending).toBeNull();
+    expect(view.result.current.ready).toBe(true);
+    expect(fake.fetch.mock.calls.map(([url]) => url)).toEqual([
+      "/dispatch/route/9/adjust_inventory/recovery",
+      "/dispatch/route/9/adjust_inventory/recovery/cancel",
+    ]);
+  });
+
+  it("keeps the original legacy command when cancellation response is lost, then safely retries the same cancellation", async () => {
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    const original = await getOrCreateDurableCommand(legacy, body);
+    const view = renderHook(() => useAdjustLoadCommand("9", 1, 3, '["9","17","21",null,1]'));
+    await waitFor(() => expect(view.result.current.legacyPending).not.toBeNull());
+
+    fake.fetch.mockResolvedValueOnce({ state: "NOT_CONFIRMED", request_id: original.requestId });
+    await act(async () => { await view.result.current.inspectLegacy(); });
+    fake.fetch.mockRejectedValueOnce(Object.assign(new Error("lost"), { code: "NETWORK_UNAVAILABLE", status: 0 }));
+    await act(async () => { await expect(view.result.current.cancelLegacy()).rejects.toBeDefined(); });
+    expect(localStorage.getItem(legacy)).toContain(original.requestId);
+    expect(view.result.current.legacyPending?.requestId).toBe(original.requestId);
+
+    fake.fetch.mockResolvedValueOnce({ state: "CANCELLED", request_id: original.requestId });
+    await act(async () => { await view.result.current.cancelLegacy(); });
+    expect(localStorage.getItem(legacy)).toBeNull();
+    expect(view.result.current.ready).toBe(true);
+  });
+
+  it("does not reuse a durable command after an ABA assignment returns to the same visible vehicle and warehouse", async () => {
+    fake.fetch.mockRejectedValue(Object.assign(new Error(), { code: "NETWORK_UNAVAILABLE", status: 0 }));
+    const view = renderHook(({ physical }) => useAdjustLoadCommand("9", 1, 3, physical),
+      { initialProps: { physical: '["9","17","21",null,1]' } });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    await act(async () => { await expect(view.result.current.execute(body)).rejects.toBeDefined(); });
+    const originalScope = view.result.current.scope;
+    view.rerender({ physical: '["9","17","21",null,3]' });
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    expect(view.result.current.scope).not.toBe(originalScope);
+    expect(view.result.current.pending).toBeNull();
+    expect(localStorage.getItem(originalScope!)).not.toBeNull();
+    expect(fake.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a mismatched legacy UUID/result and preserves the original command", async () => {
+    const legacy = durableScope(1, 3, "dispatch-adjust-base", "9");
+    const original = await getOrCreateDurableCommand(legacy, body);
+    const view = renderHook(() => useAdjustLoadCommand("9", 1, 3, '["9","17","21",null,1]'));
+    await waitFor(() => expect(view.result.current.legacyPending).not.toBeNull());
+    fake.fetch.mockResolvedValue({ state: "COMMITTED", request_id: crypto.randomUUID(), response: { mode: "DIRECT" } });
+    await act(async () => { await expect(view.result.current.inspectLegacy()).rejects.toMatchObject({
+      code: "DISPATCH_RECOVERY_RESPONSE_INVALID",
+    }); });
+    expect(view.result.current.legacyOutcome).toBeNull();
+    expect(localStorage.getItem(legacy)).toContain(original.requestId);
+    expect(view.result.current.ready).toBe(false);
   });
 
   it("clears only confirmed 4xx rejection and keeps drafts scoped by actor", async () => {

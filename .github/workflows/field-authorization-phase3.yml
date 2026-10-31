@@ -103,6 +103,13 @@ jobs:
               assert not list(root.iter("failure")) and not list(root.iter("error")),name
               print(name+" EXECUTED="+str(len(cases))+" SKIPPED=0")
           PY
+      - name: Retrieve immutable approved return-cost baseline for historical FIELD parity
+        if: ${{ !cancelled() }}
+        working-directory: .
+        run: |
+          git fetch --no-tags origin 51a0810cee5e7c13fe7222822e4f68972a6350ba
+          git cat-file -e '51a0810cee5e7c13fe7222822e4f68972a6350ba:wa_backend/api/driver.py'
+          echo "FIELD_PHASE3_RETURN_COST_SOURCE=AVAILABLE"
       - name: Changed-surface historical regressions compared with exact base
         if: ${{ !cancelled() }}
         run: |
