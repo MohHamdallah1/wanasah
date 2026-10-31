@@ -166,10 +166,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       if (previous != null) {
         emit(previous.copyWith(
           isOffline: true,
-          sellableStockDisclosure: previous.sellableStockDisclosure == StockDisclosure.denied
-              ? StockDisclosure.denied : StockDisclosure.stale,
-          nonSellableStockDisclosure: previous.nonSellableStockDisclosure == StockDisclosure.denied
-              ? StockDisclosure.denied : StockDisclosure.stale,
+          sellableStockDisclosure: stockDisclosureAfterFailure(
+            previous.sellableStockDisclosure, denied: false),
+          nonSellableStockDisclosure: stockDisclosureAfterFailure(
+            previous.nonSellableStockDisclosure, denied: false),
         ));
       } else {
         emit(const DashboardInitial());
@@ -632,12 +632,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         nonSellableCustody = const <NonSellableCustodyItem>[];
         nonSellableDisclosure = StockDisclosure.denied;
       } else {
-        nonSellableDisclosure =
-            snapshot.nonSellableStockDisclosure == StockDisclosure.denied
-                ? StockDisclosure.denied
-                : (snapshot.nonSellableStockDisclosure == StockDisclosure.verified ||
-                   snapshot.nonSellableStockDisclosure == StockDisclosure.stale)
-                    ? StockDisclosure.stale : StockDisclosure.unavailable;
+        nonSellableDisclosure = stockDisclosureAfterFailure(
+          snapshot.nonSellableStockDisclosure, denied: false);
       }
       developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
     }
