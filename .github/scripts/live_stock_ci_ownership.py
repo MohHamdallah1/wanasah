@@ -148,6 +148,16 @@ OP_ALLOWED = {
 }
 
 # Issue #706: a bounded auth repair also retains the original Live Stock evidence.
+# Worker 1 may intentionally combine the Live Stock consumer/copy correction with
+# the existing operational Chromium proof in one PR. Keep this crossover gated
+# by an actual OP_WORKFLOW change and limited to these frontend/test files.
+WORKER1_COMBINED_CLOSURE = {
+    "dashboard/e2e/live-stock-operational.journey.ts",
+    "dashboard/e2e/live-stock-operational.spec.ts",
+    "dashboard/e2e/live-stock-operational.support.ts",
+    "dashboard/src/pages/inventory/liveStock/i18n.ts",
+}
+
 SESSION_ISOLATION_ALLOWED = {
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
@@ -449,6 +459,8 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
     if not owned:
         return "not-applicable", []
     effective_allowed = set(allowed)
+    if OP_WORKFLOW in changed and mode in {"ux", "operational"}:
+        effective_allowed |= WORKER1_COMBINED_CLOSURE
     for path in shared:
         if path not in relevant_shared:
             effective_allowed.discard(path)
@@ -478,6 +490,14 @@ def selftest() -> None:
         "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py",
     }
     none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    combined_worker1 = {
+        OP_WORKFLOW,
+        "dashboard/e2e/live-stock-operational.spec.ts",
+        "dashboard/src/pages/inventory/liveStock/i18n.ts",
+    }
+    assert classify("ux", combined_worker1, none)[0] == "owned"
+    assert classify("operational", combined_worker1, none)[0] == "owned"
+
     for mode in ("ux", "r3", "operational"):
         state, messages = classify(mode, false_positive, none)
         assert state == "not-applicable" and not messages, (mode, state, messages)
