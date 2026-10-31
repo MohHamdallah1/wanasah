@@ -72,7 +72,10 @@ async def _vehicle(pg_gate, tenant):
 
 
 async def _physical(pg_gate, tenant):
-    async with pg_gate.session() as db:
+    # The fixture's runtime session enforces FORCE RLS at its selected tenant.
+    party = next(i for i, item in enumerate(pg_gate.tenants)
+                 if item.company_id == tenant.company_id)
+    async with pg_gate.session(party) as db:
         rows = (await db.execute(
             select(InventoryLocation.location_type, InventoryLocation.id,
                    func.sum(InventoryBalance.on_hand_quantity))
