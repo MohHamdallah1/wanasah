@@ -181,7 +181,7 @@ jobs:
           }
           cp2_workflow = ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
           shared_schema = "wa_backend/schemas.py"
-          cp2_schema_symbols = {
+          cp2_schema_roots = {
               "BatchIndexTrackingMode",
               "BatchIndexDisposition",
               "BatchIndexSellabilityState",
@@ -193,26 +193,43 @@ jobs:
 
           def cp2_schema_contract_from_source(source):
               tree = ast.parse(source)
-              owned = {}
+              definitions = {}
               for node in tree.body:
-                  if isinstance(node, ast.ClassDef) and node.name in cp2_schema_symbols:
-                      owned[node.name] = ast.dump(node, include_attributes=False)
+                  if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                      definitions[node.name] = node
                   elif isinstance(node, ast.Assign):
                       for target in node.targets:
-                          if isinstance(target, ast.Name) and target.id in cp2_schema_symbols:
-                              owned[target.id] = ast.dump(node, include_attributes=False)
-                  elif (
-                      isinstance(node, ast.AnnAssign)
-                      and isinstance(node.target, ast.Name)
-                      and node.target.id in cp2_schema_symbols
-                  ):
-                      owned[node.target.id] = ast.dump(node, include_attributes=False)
-              missing = cp2_schema_symbols - set(owned)
+                          if isinstance(target, ast.Name):
+                              definitions[target.id] = node
+                  elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                      definitions[node.target.id] = node
+
+              missing = cp2_schema_roots - set(definitions)
               if missing:
                   raise ValueError(
                       "CP2_SCOPE=FAIL CP2 schema contract symbols missing\n"
                       f"missing={sorted(missing)}"
                   )
+
+              # Follow local symbol dependencies recursively so a shared
+              # primitive/validator that changes CP2 behavior is still owned.
+              pending = list(cp2_schema_roots)
+              owned = {}
+              while pending:
+                  name = pending.pop()
+                  if name in owned:
+                      continue
+                  node = definitions[name]
+                  owned[name] = ast.dump(node, include_attributes=False)
+                  referenced = {
+                      child.id
+                      for child in ast.walk(node)
+                      if isinstance(child, ast.Name)
+                      and isinstance(child.ctx, ast.Load)
+                      and child.id in definitions
+                  }
+                  pending.extend(sorted(referenced - set(owned)))
+
               return tuple((name, owned[name]) for name in sorted(owned))
 
           def cp2_schema_contract(ref):
@@ -269,9 +286,10 @@ jobs:
               'BatchIndexDisposition = Literal["RELEASED"]',
               'BatchIndexSellabilityState = Literal["SELLABLE"]',
               'BatchIndexSellabilityReason = Literal["EXPIRED"]',
+              "PositiveDbInt = int",
               "unrelated = 1",
               "class WarehouseInventoryBatchIndexItem(BaseModel):",
-              "    batch_id: int",
+              "    batch_id: PositiveDbInt",
               "class WarehouseInventoryBatchIndexCursorPage(BaseModel):",
               "    items: list[WarehouseInventoryBatchIndexItem]",
               "class WarehouseInventoryBatchIndexSummaryResponse(BaseModel):",
@@ -279,7 +297,7 @@ jobs:
               "",
           ))
           synthetic_unrelated = synthetic.replace("unrelated = 1", "unrelated = 2")
-          synthetic_cp2 = synthetic.replace("batch_id: int", "batch_id: str")
+          synthetic_cp2 = synthetic.replace("PositiveDbInt = int", "PositiveDbInt = str")
           assert (
               cp2_schema_contract_from_source(synthetic)
               == cp2_schema_contract_from_source(synthetic_unrelated)
