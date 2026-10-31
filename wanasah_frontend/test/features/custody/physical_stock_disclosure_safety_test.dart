@@ -47,7 +47,7 @@ CustodyCoordinator _coordinator(CustodyClient client) => CustodyCoordinator(
     remoteFetch: () async => [],
     localFetch: () async => <Map<String, dynamic>>[],
   ),
-  transferGateway: CustodyTransferGateway(),
+  transferGateway: _UnusedTransferGateway(),
 );
 
 Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
@@ -68,6 +68,7 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
   ),
 );
 
+class _UnusedTransferGateway extends Fake implements TransferDispatchGateway {}
 class _UnusedVisitBloc extends Fake implements VisitBloc {}
 class _UnusedSyncRepository extends Fake implements SyncRepository {}
 class _UnusedCustodyCoordinator extends Fake implements CustodyCoordinator {}
