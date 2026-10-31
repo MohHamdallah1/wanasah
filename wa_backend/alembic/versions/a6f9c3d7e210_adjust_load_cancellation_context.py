@@ -16,7 +16,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "operation_idempotency",
-        sa.Column("state", sa.String(length=16), nullable=False, server_default="PENDING"),
+        sa.Column("state", sa.String(length=16), nullable=True),
     )
     op.add_column(
         "operation_idempotency",
@@ -47,12 +47,14 @@ def upgrade() -> None:
     op.create_check_constraint(
         "chk_operation_idempotency_state",
         "operation_idempotency",
-        "state IN ('PENDING', 'COMMITTED', 'CANCELLED')",
+        "state IS NULL OR state IN ('PENDING', 'COMMITTED', 'CANCELLED')",
     )
     op.create_check_constraint(
         "chk_operation_idempotency_lifecycle",
         "operation_idempotency",
         """
+        (state IS NULL AND cancelled_at IS NULL AND cancelled_by IS NULL)
+        OR
         (state = 'PENDING' AND response_json IS NULL AND completed_at IS NULL
             AND cancelled_at IS NULL AND cancelled_by IS NULL)
         OR
