@@ -163,6 +163,7 @@ SESSION_ISOLATION_ALLOWED = {
     "dashboard/src/lib/authStorage.ts",
     "dashboard/src/pages/Login.tsx",
     "dashboard/src/test/auth-session-isolation.test.tsx",
+    "dashboard/src/test/auth-session-page-boundary.test.tsx",
     "wa_backend/tests/live_stock_inflight_security_probe.py",
     ".github/scripts/live_stock_ci_ownership.py",
     "dashboard/src/components/operations/TopBar.tsx",
