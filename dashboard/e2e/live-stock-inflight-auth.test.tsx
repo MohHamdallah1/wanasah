@@ -20,6 +20,7 @@ type Session = {
   principal_id: number; backoffice_user_id: number;
 };
 const wire = globalThis.fetch.bind(globalThis);
+const originalAny = Object.getOwnPropertyDescriptor(AbortSignal, "any");
 const evidence: Record<string, unknown>[] = [];
 const output = resolve("node_modules/.cache/live-stock-inflight");
 mkdirSync(output, { recursive: true });
@@ -53,7 +54,11 @@ function install(session: Session) {
   localStorage.setItem("backoffice_user_id", String(session.backoffice_user_id));
 }
 const headers = (token: string) => ({ Authorization: "Bearer " + token });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); localStorage.clear(); persist(); });
+afterEach(() => {
+  cleanup(); vi.unstubAllGlobals(); localStorage.clear(); persist();
+  if (originalAny) Object.defineProperty(AbortSignal, "any", originalAny);
+  else Reflect.deleteProperty(AbortSignal, "any");
+});
 
 it("real same-bearer warehouse revocation denies all four readers after previously authorized snapshots", async () => {
   const reader = await login("reader");
@@ -108,6 +113,28 @@ it("an aborted old inventory refresh must not overwrite a genuinely logged-in di
     }
     return response;
   });
+  // jsdom lacks this standard API; production Chromium supplies it natively.
+  // This shim changes cancellation composition only, never HTTP/auth responses.
+  if (typeof AbortSignal.any !== "function") {
+    Object.defineProperty(AbortSignal, "any", { configurable: true, value: (signals: AbortSignal[]) => {
+      const combined = new AbortController();
+      const listeners = new Map<AbortSignal, () => void>();
+      const cancel = (signal: AbortSignal) => {
+        combined.abort(signal.reason);
+        for (const [source, listener] of listeners) source.removeEventListener("abort", listener);
+      };
+      for (const signal of signals) {
+        if (signal.aborted) { cancel(signal); break; }
+        const listener = () => cancel(signal);
+        listeners.set(signal, listener);
+        signal.addEventListener("abort", listener, { once: true });
+      }
+      return combined.signal;
+    } });
+  }
+  const probe = new AbortController(), combinedProbe = AbortSignal.any([probe.signal]);
+  probe.abort();
+  expect(combinedProbe.aborted, "test DOM must propagate real cancellation").toBe(true);
   const controller = new AbortController();
   const { result } = renderHook(() => useAuthFetch(), { wrapper });
   const pending = result.current("/warehouse/inventory/cursor?location_id=" + fixture.warehouse,
