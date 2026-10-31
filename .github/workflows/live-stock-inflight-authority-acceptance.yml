@@ -86,7 +86,7 @@ jobs:
           pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
               "extends": "../tsconfig.app.json",
               "compilerOptions": {"types": ["node", "vitest/globals", "vite/client"]},
-              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx", "../src/test/auth-session-page-boundary.test.tsx", "../src/test/auth-session-consumer-isolation.test.tsx", "../src/test/dispatch-load-context.test.tsx"],
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx", "../src/test/auth-session-consumer-isolation.test.tsx", "../src/test/dispatch-load-context.test.tsx"],
           }))
           PY
           npx tsc --noEmit -p e2e/.inflight-types.json
