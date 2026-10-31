@@ -1506,7 +1506,7 @@ export const resources = {
         loadingVerification: "جارٍ التحقق من صلاحيات الوصول إلى الرصيد الحي. البيانات السابقة غير معروضة.",
         accessRefreshFailed: "تعذر إعادة التحقق من صلاحيات الوصول. بيانات المخزون السابقة محجوبة حتى تنجح المحاولة من جديد.",
         warmUnverified: "هذه بيانات محفوظة من تحديث سابق وليست رصيداً مؤكداً الآن. يجري التحقق والتحديث.",
-        verifiedFresh: "تم جلب الرصيد الحي من الخادم بعد التحقق من الصلاحيات.",
+        verifiedFresh: "تم قبول أحدث قراءتي القائمة والملخص بعد التحقق من الصلاحيات؛ هما قراءتان مستقلتان وليستا لقطة مخزون ذرية واحدة.",
         refreshFailed: "تعذر تحديث الرصيد. الأرقام الظاهرة من آخر تحميل ناجح وقد تكون قديمة؛ أعد المحاولة.",
         noWarehouseCreated:
           "لم تُنشئ الشركة مستودعاً فعالاً بعد. أنشئ المستودع من شاشة إدارة المستودعات أولاً.",
@@ -1777,7 +1777,7 @@ export const resources = {
         searchPlaceholder: "ابحث عن منتج أو SKU...",
         warehouseBalance: "داخل المستودع",
         warehouseBalanceHint:
-          "هذا التقسيم يخص البضاعة الموجودة داخل المستودع المحدد فقط. إجمالي الموجود = محجوز لعملية + متاح للبيع + غير متاح للبيع. بضاعة المركبات منفصلة.",
+          "هذا التقسيم يخص البضاعة الموجودة داخل المستودع المحدد فقط. إجمالي الموجود = محجوز لعملية + متاح للبيع + غير متاح للبيع. عهدة المركبات منفصلة، ومخزون النقل الجاري والإتلاف ليس ضمن إجمالي المستودع ولا يعني عدم عرضه هنا أنه صفر.",
         onHand: "إجمالي الموجود",
         onHandHint:
           "كل البضاعة الموجودة فعليًا داخل المستودع المحدد بجميع حالاتها. تشمل المحجوز لعملية وغير المتاح للبيع، ولا تشمل بضاعة المركبات.",
@@ -1789,7 +1789,7 @@ export const resources = {
           "الكمية الموجودة داخل المستودع التي يسمح النظام بصرفها أو بيعها الآن بعد استبعاد الحجز والحالات غير القابلة للبيع.",
         withVehicles: "عهدة المركبات",
         withVehiclesHint:
-          "رصيد مواقع المركبات الفعلية ضمن نطاق القراءة الموضح، مستقل عن المستودع المحدد ولا يُضاف إلى إجماليه.",
+          "رصيد مواقع المركبات الفعلية ضمن نطاق القراءة الموضح، مستقل عن المستودع المحدد ولا يُضاف إلى إجماليه. مخزون النقل الجاري والإتلاف ليس جزءاً من هذا الرقم ولا يُفترض أنه صفر.",
         vehicleScopes: {
           COMPANY_WIDE: "كل مركبات الشركة",
           AUTHORIZED_LOCATIONS: "المركبات المصرح بقراءتها فقط",
@@ -3918,7 +3918,7 @@ export const resources = {
         loadingVerification: "Checking Live Stock access. Previous inventory data is hidden.",
         accessRefreshFailed: "Access revalidation failed. Previous inventory is hidden until verification succeeds. Retry.",
         warmUnverified: "Previously loaded inventory is not verified as current. Access and stock are being checked.",
-        verifiedFresh: "Live stock loaded from the server after access verification.",
+        verifiedFresh: "The latest list and summary reads were admitted after access verification; they are independent reads, not one atomic inventory snapshot.",
         refreshFailed: "Refresh failed. Displayed figures are from the last successful load and may be outdated. Retry.",
         noWarehouseCreated:
           "The company has no active warehouse yet. Create one in Warehouse Management first.",
@@ -4189,7 +4189,7 @@ export const resources = {
         searchPlaceholder: "Search by product or SKU...",
         warehouseBalance: "Inside warehouse",
         warehouseBalanceHint:
-          "This split covers stock physically inside the selected warehouse only. Total in warehouse = reserved for an operation + available for sale + unavailable for sale. Vehicle stock is separate.",
+          "This split covers stock physically inside the selected warehouse only. Total in warehouse = reserved for an operation + available for sale + unavailable for sale. Vehicle custody is separate; IN_TRANSIT and SCRAP are outside the Warehouse total and are not implied to be zero.",
         onHand: "Total in warehouse",
         onHandHint:
           "All stock physically inside the selected warehouse in every status. It includes quantities reserved for an operation and quantities unavailable for sale, but excludes vehicle stock.",
@@ -4201,7 +4201,7 @@ export const resources = {
           "Stock inside the warehouse that the system can issue or sell now after excluding reservations and non-sellable states.",
         withVehicles: "Vehicle custody",
         withVehiclesHint:
-          "Stock at physical vehicle locations within the stated read scope, independent of the selected warehouse and excluded from its total.",
+          "Stock at physical Vehicle locations within the stated read scope, independent of the selected Warehouse and excluded from its total. IN_TRANSIT and SCRAP are outside this number and are not implied to be zero.",
         vehicleScopes: {
           COMPANY_WIDE: "All company vehicles",
           AUTHORIZED_LOCATIONS: "Authorized vehicles only",
