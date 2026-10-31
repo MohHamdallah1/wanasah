@@ -129,6 +129,32 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(getCalls("/source?")).toHaveLength(2);
   });
 
+  it("clears source evidence on a 5xx without inventing an authority revocation", async () => {
+    const denied = vi.fn();
+    let sourceReads = 0;
+    mocks.authFetch.mockImplementation((url: string) => {
+      if (!url.includes("/source?")) return Promise.resolve(batchPage());
+      sourceReads += 1;
+      return sourceReads === 1
+        ? Promise.resolve(sourcePayload())
+        : Promise.reject(Object.assign(new Error("server failure"), { status: 500 }));
+    });
+    const { result } = renderHook(() => useLiveStockBatchDetail(
+      11, "Batch load failed", "Stale", denied));
+
+    act(() => result.current.open(product));
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(result.current.sourceByBatch[71]).toBeTruthy());
+
+    act(() => result.current.loadSource(71));
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(result.current.sourceErrorId).toBe(71));
+    expect(result.current.sourceByBatch).toEqual({});
+    expect(result.current.page).not.toBeNull();
+    expect(denied).not.toHaveBeenCalled();
+  });
+
   it("keeps retry available after a source failure and requires a new successful read", async () => {
     mocks.authFetch.mockImplementation((url: string) => {
       if (url.includes("/source?")) {
