@@ -3080,16 +3080,21 @@ async def validate_vehicle_recon_work_session(
     return work_session
 
 
-# حجز request_id للعملية داخل Tenant واحد وإرجاع النتيجة السابقة عند retry مطابق.
-async def begin_idempotent_operation(
-    db_session: AsyncSession,
+# سلطة idempotency الواحدة: القفل والهوية والحالة النهائية تعيش في نفس السجل.
+class OperationIdempotencyError(InventoryMutationError):
+    def __init__(self, code: str, message: str) -> None:
+        self.code = str(code)
+        super().__init__(message)
+
+
+def _canonical_idempotency_identity(
     *,
     company_id: int,
     actor_id: int,
     operation: str,
     request_id: str,
     request_hash: str,
-) -> Tuple[OperationIdempotency, Optional[Dict[str, Any]]]:
+) -> tuple[int, int, str, str, str]:
     try:
         company_id = _strict_int(company_id, "company_id", minimum=1)
         actor_id = _strict_int(actor_id, "actor_id", minimum=1)
@@ -3107,7 +3112,27 @@ async def begin_idempotent_operation(
         or any(ch not in "0123456789abcdef" for ch in request_hash)
     ):
         raise InventoryMutationError("request_hash غير صالح لـ idempotency.")
+    return company_id, actor_id, operation, canonical_request_id, request_hash
 
+
+async def lock_idempotent_operation_record(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    operation: str,
+    request_id: str,
+    request_hash: str,
+) -> tuple[str, Optional[OperationIdempotency]]:
+    company_id, actor_id, operation, canonical_request_id, request_hash = (
+        _canonical_idempotency_identity(
+            company_id=company_id,
+            actor_id=actor_id,
+            operation=operation,
+            request_id=request_id,
+            request_hash=request_hash,
+        )
+    )
     await db_session.execute(
         select(
             func.pg_advisory_xact_lock(
@@ -3118,7 +3143,6 @@ async def begin_idempotent_operation(
             )
         )
     )
-
     existing = (
         await db_session.execute(
             select(OperationIdempotency)
@@ -3131,36 +3155,123 @@ async def begin_idempotent_operation(
             .with_for_update()
         )
     ).scalar_one_or_none()
-
     if existing is not None:
         if existing.created_by != actor_id:
-            raise InventoryMutationError(
-                "request_id مستخدم مسبقاً بواسطة مستخدم آخر داخل الشركة."
+            raise OperationIdempotencyError(
+                "IDEMPOTENCY_ACTOR_CONFLICT",
+                "request_id مستخدم مسبقاً بواسطة مستخدم آخر داخل الشركة.",
             )
-
         if existing.request_hash != request_hash:
-            raise InventoryMutationError(
-                "request_id مستخدم مسبقاً لطلب مختلف؛ استخدم request_id جديداً."
+            raise OperationIdempotencyError(
+                "IDEMPOTENCY_PAYLOAD_CONFLICT",
+                "request_id مستخدم مسبقاً لطلب مختلف؛ استخدم request_id جديداً.",
             )
+    return canonical_request_id, existing
 
+
+async def recover_idempotent_operation(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    operation: str,
+    request_id: str,
+    request_hash: str,
+    cancel_if_absent: bool = False,
+) -> tuple[str, Optional[Dict[str, Any]]]:
+    canonical_request_id, existing = await lock_idempotent_operation_record(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        operation=operation,
+        request_id=request_id,
+        request_hash=request_hash,
+    )
+    if existing is None:
+        if not cancel_if_absent:
+            return "NOT_CONFIRMED", None
+        record = OperationIdempotency(
+            company_id=company_id,
+            operation=str(operation).strip(),
+            request_id=canonical_request_id,
+            request_hash=str(request_hash).strip().lower(),
+            created_by=actor_id,
+            state="CANCELLED",
+            cancelled_at=utc_now(),
+            cancelled_by=actor_id,
+        )
+        db_session.add(record)
+        await db_session.flush()
+        return "CANCELLED", None
+
+    state = str(existing.state or "").upper()
+    if state == "CANCELLED":
+        if (
+            existing.response_json is not None
+            or existing.completed_at is not None
+            or existing.cancelled_at is None
+            or existing.cancelled_by is None
+        ):
+            raise RuntimeError("Idempotency invariant violated: invalid CANCELLED record.")
+        return "CANCELLED", None
+    if state == "PENDING":
+        return "INDETERMINATE", None
+    if state != "COMMITTED":
+        raise RuntimeError("Idempotency invariant violated: unknown state.")
+    if existing.completed_at is None or not isinstance(existing.response_json, dict):
+        raise RuntimeError("Idempotency invariant violated: invalid COMMITTED record.")
+    if existing.cancelled_at is not None or existing.cancelled_by is not None:
+        raise RuntimeError("Idempotency invariant violated: committed record is cancelled.")
+    return "COMMITTED", dict(existing.response_json)
+
+
+# حجز request_id للعملية داخل Tenant واحد وإرجاع النتيجة السابقة عند retry مطابق.
+async def begin_idempotent_operation(
+    db_session: AsyncSession,
+    *,
+    company_id: int,
+    actor_id: int,
+    operation: str,
+    request_id: str,
+    request_hash: str,
+) -> Tuple[OperationIdempotency, Optional[Dict[str, Any]]]:
+    canonical_request_id, existing = await lock_idempotent_operation_record(
+        db_session,
+        company_id=company_id,
+        actor_id=actor_id,
+        operation=operation,
+        request_id=request_id,
+        request_hash=request_hash,
+    )
+    if existing is not None:
+        state = str(existing.state or "").upper()
+        if state == "CANCELLED":
+            raise OperationIdempotencyError(
+                "IDEMPOTENCY_CANCELLED",
+                "هذا الطلب أُلغي نهائياً ولا يجوز تنفيذه أو إعادة تشغيله.",
+            )
+        if state != "COMMITTED":
+            raise OperationIdempotencyError(
+                "IDEMPOTENCY_INDETERMINATE",
+                "هذا الطلب يحمل دليلاً غير مكتمل ويجب عزله للمراجعة.",
+            )
         if existing.completed_at is None or existing.response_json is None:
             raise RuntimeError(
                 "Idempotency invariant violated: committed request is incomplete."
             )
-
         if not isinstance(existing.response_json, dict):
             raise RuntimeError(
                 "Idempotency invariant violated: stored response is not an object."
             )
-
         return existing, dict(existing.response_json)
 
     record = OperationIdempotency(
         company_id=company_id,
-        operation=operation,
+        operation=str(operation).strip(),
         request_id=canonical_request_id,
-        request_hash=request_hash,
+        request_hash=str(request_hash).strip().lower(),
         created_by=actor_id,
+        state="PENDING",
     )
     db_session.add(record)
     await db_session.flush()
@@ -3172,13 +3283,20 @@ def complete_idempotent_operation(
     record: OperationIdempotency,
     response_payload: Dict[str, Any],
 ) -> None:
-    if record.completed_at is not None or record.response_json is not None:
-        raise RuntimeError("Idempotency record already completed.")
+    if (
+        str(record.state or "").upper() != "PENDING"
+        or record.completed_at is not None
+        or record.response_json is not None
+        or record.cancelled_at is not None
+        or record.cancelled_by is not None
+    ):
+        raise RuntimeError("Idempotency record is not pending.")
     if not isinstance(response_payload, dict):
         raise TypeError("response_payload يجب أن يكون dict.")
 
     record.response_json = dict(response_payload)
     record.completed_at = utc_now()
+    record.state = "COMMITTED"
 
 
 # إنشاء صف رصيد صفري عند الوجهة فقط؛ الرصيد الحي يبقى حصرياً في InventoryBalance.
