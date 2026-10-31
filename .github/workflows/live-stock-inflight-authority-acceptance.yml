@@ -44,6 +44,36 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard and existing focused peer
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps @testing-library/dom@10.4.1
+      - name: Deterministic admission, stale response, batch and locale regressions
+        working-directory: dashboard
+        run: >-
+          npx vitest run
+          src/test/live-stock-warm-authority.test.tsx
+          src/test/live-stock-batch-detail-freshness.test.tsx
+          src/test/live-stock-batch-refresh-integration.test.tsx
+          src/test/inventory-cp7-live-stock.test.tsx
+          src/test/inventory-session-cache.test.ts
+          src/test/auth-session-refresh.test.tsx
+          --reporter=default --reporter=junit --outputFile=node_modules/.cache/live-stock-inflight-unit.xml
+      - name: Typecheck and lint evidence changes
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          python - <<'PY'
+          import json, pathlib
+          pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
+              "extends": "../tsconfig.app.json",
+              "compilerOptions": {"types": ["node", "vitest/globals", "vite/client"]},
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts"],
+          }))
+          PY
+          npx tsc --noEmit -p e2e/.inflight-types.json
+          npx eslint e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
       - name: Install existing backend dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
       - name: Start disposable PG16 and restricted role
@@ -99,36 +129,6 @@ jobs:
           done
           cat /tmp/live-stock-inflight-api.log
           exit 1
-      - name: Install locked Dashboard and existing focused peer
-        working-directory: dashboard
-        run: |
-          npm ci --no-audit --no-fund
-          npm install --no-save --package-lock=false --legacy-peer-deps @testing-library/dom@10.4.1
-      - name: Deterministic admission, stale response, batch and locale regressions
-        working-directory: dashboard
-        run: >-
-          npx vitest run
-          src/test/live-stock-warm-authority.test.tsx
-          src/test/live-stock-batch-detail-freshness.test.tsx
-          src/test/live-stock-batch-refresh-integration.test.tsx
-          src/test/inventory-cp7-live-stock.test.tsx
-          src/test/inventory-session-cache.test.ts
-          src/test/auth-session-refresh.test.tsx
-          --reporter=default --reporter=junit --outputFile=node_modules/.cache/live-stock-inflight-unit.xml
-      - name: Typecheck and lint evidence changes
-        working-directory: dashboard
-        run: |
-          npx tsc --noEmit
-          python - <<'PY'
-          import json, pathlib
-          pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
-              "extends": "../tsconfig.app.json",
-              "compilerOptions": {"types": ["node", "vitest/globals"]},
-              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts"],
-          }))
-          PY
-          npx tsc --noEmit -p e2e/.inflight-types.json
-          npx eslint e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
       - name: Genuine bearer revocation and delayed refresh security invariants
         working-directory: dashboard
         run: >-
