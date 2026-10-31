@@ -34,6 +34,13 @@ class CustodyCoordinator {
   static const int transferBatchMaximum =
       ApiTransferResponseClient.runtimeBatchMaximum;
 
+  // Mobile rendering bound (not a business cap). At most 50 bounded HTTP
+  // pages / 5,000 in-memory records; an over-limit response fails closed and
+  // never returns a truncated list as complete custody.
+  static const int custodyPageSize = 100;
+  static const int maximumCustodyPages = 50;
+  static const int maximumCustodyRows = 5000;
+
   final PendingTransferSource _pendingTransfers;
   final CustodyClient _custodyClient;
   final TransferDispatchGateway _transferGateway;
@@ -50,16 +57,23 @@ class CustodyCoordinator {
     String? cursor;
     var pages = 0;
     do {
-      if (++pages > 10000) {
-        throw const FormatException('Custody pagination limit exceeded');
+      if (++pages > maximumCustodyPages) {
+        throw const FormatException('Custody read exceeds mobile page bound');
       }
       final page = await _custodyClient.custody(
-        query: CustodyQuery(limit: 100, cursor: cursor),
+        query: CustodyQuery(limit: custodyPageSize, cursor: cursor),
       );
       if (sessionId != null && sessionId != page.sessionId) {
         throw const FormatException('Custody session changed between pages');
       }
       sessionId = page.sessionId;
+      if (page.items.length > custodyPageSize ||
+          items.length + page.items.length > maximumCustodyRows ||
+          (page.nextCursor != null && pages == maximumCustodyPages) ||
+          (page.nextCursor != null && page.items.isEmpty)) {
+        // The list is all-or-nothing: do not publish a partial custody total.
+        throw const FormatException('Custody read exceeds mobile safety bound');
+      }
       items.addAll(page.items);
       cursor = page.nextCursor;
       if (cursor != null && !seenCursors.add(cursor)) {
