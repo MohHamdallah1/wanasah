@@ -39,7 +39,7 @@ def inventory_archive_target_query(access, variant_id, samples):
         # Archive navigation must preserve the actual physical InventoryLocation.
         # The current batch workspace can open Warehouse custody only; Vehicle
         # custody therefore remains explicit evidence and fails closed as a
-        # navigation capability gap instead of inventing a Warehouse shell.
+        # navigation capability gap instead of inventing another location identity.
         warehouse_supported = and_(
             location.is_active.is_(True),
             location.location_type == "WAREHOUSE",
