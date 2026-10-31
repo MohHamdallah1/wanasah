@@ -75,7 +75,7 @@ reported on #706; focused deterministic tests exercise the shared finalization.
 The server remains the sole bearer/capability/RLS authority.
 
 The dedicated gate retains the original 76 assertions and IF-01, adds 14 focused
-auth cases, and requires exactly six genuine HTTP cases plus the one canonical
+auth cases, and requires exactly seven genuine HTTP cases plus the one canonical
 fixture, without skips. New genuine cases exercise rejected old refresh,
 overlapping company refresh/retry, same-session coalescing/rotation and foreign
 read/mutation rejection. A read-only restricted-role PG digest compares both
@@ -86,3 +86,13 @@ and limitations belong in the PR/CI; this text does not presume their outcome.
 Still outside this bounded proof: a full multi-tab browser scheduling certificate,
 the full remaining Live Stock movement-vs-reader freshness matrix, production
 load certification, and independent Worker 2/lead security sign-off.
+
+Adjacent finding ADJ-02: Login's successful response callback also crossed an
+awaited boundary without session admission. Holding an older valid A login200
+until after B login allowed A to replace credentials/metadata. Login now
+captures before sending and checks after JSON, before any storage mutation;
+stale failures also leave the newer session alone. The seventh genuine HTTP
+case renders the production Login component, submits actual fixture credentials,
+holds its unmodified real200, installs/verifies genuine B login, then releases A
+and requires B's exact credentials and canonical identity to survive. Source
+reproducer was reported immediately on #706. Runtime outcome is in exact-head CI.

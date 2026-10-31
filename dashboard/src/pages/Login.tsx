@@ -2,6 +2,8 @@ import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 import {
   beginDashboardSession,
+  captureDashboardSession,
+  isDashboardSessionCurrent,
   migrateLegacyBackofficeIdentityStorage,
   readLastCompanyCode,
   rememberLastCompanyCode,
@@ -77,6 +79,7 @@ export default function Login() {
     }
     setError('');
     setIsSubmitting(true);
+    const loginSession = captureDashboardSession();
 
     try {
       // 1. الاتصال الحقيقي بالسيرفر
@@ -95,6 +98,7 @@ export default function Login() {
       });
 
       const data = await response.json() as Partial<LoginResponsePayload>;
+      if (!isDashboardSessionCurrent(loginSession)) return;
 
       // 2. التحقق من الرد
       if (!response.ok) {
@@ -157,6 +161,7 @@ export default function Login() {
       navigate(data.is_company_owner ? '/' : '/inventory');
 
     } catch (err: unknown) {
+      if (!isDashboardSessionCurrent(loginSession)) return;
       setError(
         err instanceof Error
           ? err.message

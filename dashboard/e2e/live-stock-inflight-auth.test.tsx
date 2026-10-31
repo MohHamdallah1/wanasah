@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { beginDashboardSession } from "@/lib/authStorage";
+import Login from "@/pages/Login";
 
 const API = import.meta.env.VITE_API_URL;
 if (API !== "http://127.0.0.1:4174" || process.env.WANASAH_INFLIGHT_AUTH_GATE !== "1") {
@@ -356,4 +357,40 @@ it("real company A bearer denies company B readers and mutation with unchanged i
   expect(after).toEqual(before);
   evidence.push({ case: "real-cross-company-reads-and-mutation", readerStatuses: denied,
     mutationStatus: res.status, before, after, inventoryAndCostUnchanged: true });
+});
+
+it("an older real production Login response cannot overwrite a newer successful company login", async () => {
+  localStorage.clear();
+  const held = deferred<Response>(), release = deferred<void>();
+  const a = fixture.credentials.owner;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await wire(input, init);
+    if (new URL(String(input)).pathname === "/login" &&
+        JSON.parse(String(init?.body)).company_code === a.code) {
+      held.resolve(response); await release.promise;
+    }
+    return response;
+  });
+  const view = render(<Login />, { wrapper });
+  const company = view.container.querySelector<HTMLInputElement>("#company-code")!;
+  const user = view.container.querySelector<HTMLInputElement>("#username")!;
+  const password = view.container.querySelector<HTMLInputElement>("#password")!;
+  const submit = view.container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+  fireEvent.change(company, { target: { value: a.code } });
+  fireEvent.change(user, { target: { value: a.username } });
+  fireEvent.change(password, { target: { value: a.password } });
+  fireEvent.submit(view.container.querySelector("form")!);
+  try {
+    expect((await held.promise).status).toBe(200);
+    expect(submit.disabled).toBe(true);
+    const b = await login("foreign"); install(b);
+    release.resolve();
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    await verifyCurrent(b);
+    evidence.push({ case: "real-stale-production-login", newCompany: b.company_id,
+      newPrincipal: b.principal_id, credentialsAndIdentityPreserved: true });
+  } finally {
+    release.resolve();
+    await waitFor(() => expect(submit.disabled).toBe(false));
+  }
 });
