@@ -426,6 +426,50 @@ void main() {
     });
   }
 
+  test('offline fallback after a new session never exposes old SQLite stock',
+      () async {
+    final repo = _HeldDashboardRepository();
+    final bloc = _SeededDashboardBloc(
+      repository: repo,
+      session: _SuccessfulSessionChange(ending: false),
+      db: _StockLocalDb(),
+      recovery: _EmptyRecoveryReader(),
+      sync: _NoSyncRepository(),
+    );
+    addTearDown(bloc.close);
+    bloc.seed(DashboardLoaded(
+      visits: const [],
+      products: [ProductModel.fromJson(_product(cartons: 7))],
+      totalVisits: 0,
+      completedVisits: 0,
+      pendingVisits: 0,
+      offlineVisits: 0,
+      sellableStockDisclosure: StockDisclosure.verified,
+    ));
+    bloc.add(FetchDashboardData(driverId: 17));
+    await repo.firstStarted.future;
+    final transition = bloc.stream.firstWhere((s) =>
+        s is DashboardLoaded && s.actionSuccessMessage != null);
+    bloc.add(const StartSessionEvent(driverId: 17));
+    await transition;
+    repo.firstResponse.complete(
+      _authorizedDashboardResponse(cartons: 7, active: true));
+    await repo.secondStarted.future;
+    final offline = bloc.stream.firstWhere((s) =>
+        s is DashboardLoaded && s.refreshIssue?.kind ==
+            DashboardRefreshIssueKind.connectivity);
+    final request = RequestOptions(path: '/driver/dashboard');
+    repo.secondResponse.completeError(DioException(
+      requestOptions: request,
+      type: DioExceptionType.connectionError,
+    ));
+    final current = await offline as DashboardLoaded;
+    expect(current.isOffline, isTrue);
+    expect(current.products, isEmpty);
+    expect(current.sellableStockDisclosure, StockDisclosure.unavailable);
+    expect(repo.cacheWrites, 0);
+  });
+
   test('bounded custody aggregation is complete at 5000 and rejects overflow',
       () async {
     for (final overflow in const [false, true]) {
