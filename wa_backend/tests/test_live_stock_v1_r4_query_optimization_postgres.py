@@ -141,6 +141,39 @@ def _kwargs(db, fixture, access, *, limit, search, cursor=None, **filters):
     return values
 
 
+def _r3_stable_payload(payload):
+    """Compare every response field except the owner-approved R3 scope break."""
+    normalized = {
+        **payload,
+        "items": [
+            {
+                key: value
+                for key, value in row.items()
+                if key not in {
+                    "vehicle_quantity",
+                    "vehicle_quantity_scope",
+                    "total_quantity",
+                    "total_quantity_scope",
+                }
+            }
+            for row in payload["items"]
+        ],
+    }
+    return normalized
+
+
+def _assert_r3_location_contract(payload):
+    for row in payload["items"]:
+        assert row["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
+        assert Decimal(row["total_quantity"]) == Decimal(row["on_hand_quantity"])
+        scope = row["vehicle_quantity_scope"]
+        assert scope in {"COMPANY_WIDE", "AUTHORIZED_LOCATIONS", "NO_ACCESS"}
+        if scope == "NO_ACCESS":
+            assert row["vehicle_quantity"] is None
+        else:
+            assert row["vehicle_quantity"] is not None
+
+
 def _summary(values):
     ordered = sorted(values)
     return {
@@ -500,7 +533,10 @@ async def _acceptance():
             after, fixture, "owner", head_function,
             limit=50, search="Common",
         )
-        assert report["cold"]["before"]["payload"] == report["cold"]["after"]["payload"]
+        _assert_r3_location_contract(report["cold"]["after"]["payload"])
+        assert _r3_stable_payload(
+            report["cold"]["before"]["payload"]
+        ) == _r3_stable_payload(report["cold"]["after"]["payload"])
         report["cold"]["before"].pop("payload")
         report["cold"]["after"].pop("payload")
 
@@ -554,9 +590,10 @@ async def _acceptance():
                 after, fixture, actor, head_function,
                 limit=limit, search=search, **filters,
             )
-            assert head_result["payload"] == base_result["payload"], (
-                actor, name
-            )
+            _assert_r3_location_contract(head_result["payload"])
+            assert _r3_stable_payload(
+                head_result["payload"]
+            ) == _r3_stable_payload(base_result["payload"]), (actor, name)
             assert head_result["sql_count"] == base_result["sql_count"], (
                 actor, name, base_result["sql_count"], head_result["sql_count"]
             )
@@ -687,7 +724,11 @@ async def _acceptance():
             head_deep = await _deep_cursor(
                 after, fixture, actor, head_function
             )
-            assert head_deep == base_deep
+            _assert_r3_location_contract(head_deep["payload"])
+            assert head_deep["anchor"] == base_deep["anchor"]
+            assert _r3_stable_payload(
+                head_deep["payload"]
+            ) == _r3_stable_payload(base_deep["payload"])
             expected = await _independent_expected(
                 source,
                 fixture,
