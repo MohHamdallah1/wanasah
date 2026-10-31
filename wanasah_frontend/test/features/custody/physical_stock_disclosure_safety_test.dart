@@ -275,6 +275,13 @@ void main() {
           ? 'لا توجد صلاحية لعرض العهدة الحالية.'
           : 'You do not have access to current custody.'), findsOneWidget);
 
+      await tester.pumpWidget(_stockWidget(locale, StockDisclosure.unavailable,
+        products: [product]));
+      expect(find.text('Physical stock'), findsNothing);
+      expect(find.text(locale.languageCode == 'ar'
+          ? 'تعذر التحقق من مخزون السيارة؛ الرصيد غير معروف.'
+          : 'Vehicle stock could not be verified; balance is unknown.'), findsOneWidget);
+
       await tester.pumpWidget(_stockWidget(locale, StockDisclosure.stale,
         products: [product]));
       expect(find.text('Physical stock'), findsOneWidget);
