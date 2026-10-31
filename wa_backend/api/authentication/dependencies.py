@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import Config
@@ -40,6 +41,18 @@ def _authentication_rejected() -> HTTPException:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=_AUTH_REJECTION_DETAIL,
         headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _authentication_backend_unavailable() -> HTTPException:
+    """Keep infrastructure failure distinct from invalid credentials."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "code": "AUTHENTICATION_BACKEND_UNAVAILABLE",
+            "message": "Authentication service is temporarily unavailable.",
+            "context": {},
+        },
     )
 
 
@@ -96,8 +109,12 @@ async def _resolve_authenticated_access_session(
         raise
     except RequestContextRejected:
         raise _authentication_rejected() from None
+    except SQLAlchemyError:
+        # A database/pool outage is not evidence that a valid bearer became
+        # invalid. Fail closed without triggering credential-loss semantics.
+        raise _authentication_backend_unavailable() from None
     except Exception:
-        # Persistence/RLS failures remain fail-closed and do not expose internals.
+        # Non-persistence resolution failures remain opaque and fail closed.
         raise _authentication_rejected() from None
 
 
