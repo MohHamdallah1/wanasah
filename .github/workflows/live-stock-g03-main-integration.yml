@@ -1,0 +1,303 @@
+name: Live Stock G03 exact-main integration acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/live-stock-g03-main-integration.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/live-stock-g03-main-integration.yml"
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: "Optional exact commit SHA; empty means the selected ref SHA"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: live-stock-g03-main-integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  exact-main-five-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Resolve immutable target SHA
+        id: target
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MANUAL_TARGET_SHA: ${{ inputs.target_sha }}
+        run: |
+          python - <<'PY'
+          import os, re
+
+          event = os.environ["GITHUB_EVENT_NAME"]
+          if event == "pull_request":
+              target = os.environ["PR_BASE_SHA"]
+          elif os.environ.get("MANUAL_TARGET_SHA"):
+              target = os.environ["MANUAL_TARGET_SHA"]
+          else:
+              target = os.environ["GITHUB_SHA"]
+
+          assert re.fullmatch(r"[0-9a-f]{40}", target), target
+          temp_ref = f"g03-exact-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
+              out.write(f"target={target}\n")
+              out.write(f"temp_ref={temp_ref}\n")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as out:
+              out.write(f"TARGET_SHA={target}\n")
+              out.write(f"TEMP_REF={temp_ref}\n")
+          print(f"G03_TARGET_SHA={target}")
+          print(f"G03_TEMP_REF={temp_ref}")
+          PY
+
+      - name: Checkout and verify exact accepted main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.target.outputs.target }}
+
+      - name: Prove actual checkout SHA
+        run: |
+          actual="$(git rev-parse HEAD)"
+          test "$actual" = "$TARGET_SHA"
+          echo "G03_CHECKOUT_SHA=$actual"
+
+      - name: Create temporary immutable dispatch ref
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          target = os.environ["TARGET_SHA"]
+          temp_ref = os.environ["TEMP_REF"]
+          url = f"https://api.github.com/repos/{repo}/git/refs"
+          body = json.dumps({"ref": f"refs/heads/{temp_ref}", "sha": target}).encode()
+          req = urllib.request.Request(
+              url,
+              data=body,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(req) as response:
+              payload = json.load(response)
+          assert payload["object"]["sha"] == target, payload
+          print(f"G03_DISPATCH_REF={payload['ref']} sha={payload['object']['sha']}")
+          PY
+
+      - name: Dispatch exact-main focused gates and require success
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          target = os.environ["TARGET_SHA"]
+          ref = os.environ["TEMP_REF"]
+          base = f"https://api.github.com/repos/{repo}"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json",
+          }
+
+          def api(path, *, method="GET", body=None):
+              data = None if body is None else json.dumps(body).encode()
+              req = urllib.request.Request(base + path, data=data, method=method, headers=headers)
+              with urllib.request.urlopen(req) as response:
+                  if response.status == 204:
+                      return None
+                  return json.load(response)
+
+          def list_runs(workflow):
+              query = urllib.parse.urlencode({
+                  "event": "workflow_dispatch",
+                  "branch": ref,
+                  "per_page": "20",
+              })
+              return api(f"/actions/workflows/{workflow}/runs?{query}")["workflow_runs"]
+
+          def dispatch_and_capture(label, workflow, inputs=None):
+              before = {run["id"] for run in list_runs(workflow)}
+              body = {"ref": ref}
+              if inputs:
+                  body["inputs"] = inputs
+              api(f"/actions/workflows/{workflow}/dispatches", method="POST", body=body)
+              deadline = time.time() + 180
+              while time.time() < deadline:
+                  matches = [
+                      run for run in list_runs(workflow)
+                      if run["id"] not in before
+                      and run["event"] == "workflow_dispatch"
+                      and run["head_sha"] == target
+                  ]
+                  if matches:
+                      run = max(matches, key=lambda item: item["id"])
+                      print(f"G03_DISPATCHED {label} run={run['id']} sha={run['head_sha']} url={run['html_url']}")
+                      return {
+                          "label": label,
+                          "workflow": workflow,
+                          "run_id": run["id"],
+                          "url": run["html_url"],
+                          "head_sha": run["head_sha"],
+                      }
+                  time.sleep(3)
+              raise RuntimeError(f"Timed out locating exact-SHA run for {label}")
+
+          specs = [
+              (
+                  "in-flight authority",
+                  "live-stock-inflight-authority-acceptance.yml",
+                  None,
+              ),
+              (
+                  "operational browser",
+                  "live-stock-v1-operational-browser.yml",
+                  {
+                      "accepted_main_ref": target,
+                      "backend_ref": target,
+                      "scenario": "operational",
+                  },
+              ),
+              (
+                  "physical-custody browser",
+                  "live-stock-v1-operational-browser.yml",
+                  {
+                      "accepted_main_ref": target,
+                      "backend_ref": target,
+                      "scenario": "physical-custody",
+                  },
+              ),
+              (
+                  "dispatch route stock safety",
+                  "dispatch-p0-route-stock-safety.yml",
+                  None,
+              ),
+              (
+                  "flutter session route authority",
+                  "flutter-v1-session-route-authority-closure.yml",
+                  None,
+              ),
+          ]
+
+          records = [
+              dispatch_and_capture(label, workflow, inputs)
+              for label, workflow, inputs in specs
+          ]
+          evidence_path = Path("/tmp/g03-exact-main-runs.json")
+
+          deadline = time.time() + 60 * 55
+          pending = {record["run_id"]: record for record in records}
+          failure = None
+          while pending and time.time() < deadline:
+              for run_id in list(pending):
+                  payload = api(f"/actions/runs/{run_id}")
+                  record = pending[run_id]
+                  record.update({
+                      "status": payload["status"],
+                      "conclusion": payload["conclusion"],
+                      "head_sha": payload["head_sha"],
+                      "event": payload["event"],
+                  })
+                  if payload["head_sha"] != target:
+                      failure = f"{record['label']} ran on {payload['head_sha']} instead of {target}"
+                      pending.clear()
+                      break
+                  if payload["event"] != "workflow_dispatch":
+                      failure = f"{record['label']} unexpected event {payload['event']}"
+                      pending.clear()
+                      break
+                  if payload["status"] == "completed":
+                      if payload["conclusion"] != "success":
+                          failure = f"{record['label']} conclusion={payload['conclusion']}"
+                          pending.clear()
+                          break
+                      print(f"G03_GATE_PASS {record['label']} run={run_id} sha={payload['head_sha']}")
+                      pending.pop(run_id)
+              evidence_path.write_text(
+                  json.dumps({"target_sha": target, "temporary_ref": ref, "runs": records}, indent=2),
+                  encoding="utf-8",
+              )
+              if pending:
+                  time.sleep(10)
+
+          if pending and failure is None:
+              failure = "Timed out waiting for G03 focused workflows"
+
+          evidence_path.write_text(
+              json.dumps({"target_sha": target, "temporary_ref": ref, "runs": records}, indent=2),
+              encoding="utf-8",
+          )
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"## G03 exact-main acceptance — {target}\n\n")
+              summary.write("| Gate | Run | SHA | Result |\n|---|---|---|---|\n")
+              for record in records:
+                  summary.write(
+                      f"| {record['label']} | [run {record['run_id']}]({record['url']}) | "
+                      f"`{record['head_sha']}` | {record.get('conclusion') or record.get('status', 'queued')} |\n"
+                  )
+
+          if failure:
+              raise SystemExit(failure)
+          print(f"G03_FIVE_GATES=PASS target={target} count={len(records)}")
+          PY
+
+      - name: Retain exact-SHA gate index
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g03-exact-main-${{ steps.target.outputs.target }}
+          path: /tmp/g03-exact-main-runs.json
+          if-no-files-found: warn
+
+      - name: Remove temporary dispatch ref
+        if: always()
+        run: |
+          python - <<'PY'
+          import os, urllib.error, urllib.request
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+          temp_ref = os.environ.get("TEMP_REF")
+          if not temp_ref:
+              raise SystemExit(0)
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/git/refs/heads/{temp_ref}",
+              method="DELETE",
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              urllib.request.urlopen(req).read()
+              print(f"G03_TEMP_REF_REMOVED={temp_ref}")
+          except urllib.error.HTTPError as exc:
+              if exc.code != 404:
+                  raise
+          PY
