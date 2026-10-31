@@ -155,6 +155,7 @@ jobs:
               ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"], text=True,
           ).splitlines())
           allowed = {
+              ".github/scripts/live_stock_ci_ownership.py",
               "wa_backend/api/warehouse/live_stock.py",
               "wa_backend/domains/live_stock_projection/service.py",
               "wa_backend/scripts/live_stock_r4_final_fixture.py",
