@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -6,6 +8,9 @@ import 'package:wanasah_frontend/features/custody/data/custody_client.dart';
 import 'package:wanasah_frontend/features/custody/data/pending_transfer_source.dart';
 import 'package:wanasah_frontend/features/custody/data/transfer_response_gateway.dart';
 import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
+import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
+import 'package:wanasah_frontend/features/custody/domain/pending_transfer.dart';
+import 'package:wanasah_frontend/features/custody/domain/pending_return_custody.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
@@ -67,6 +72,31 @@ class _UnusedVisitBloc extends Fake implements VisitBloc {}
 class _UnusedSyncRepository extends Fake implements SyncRepository {}
 class _UnusedCustodyCoordinator extends Fake implements CustodyCoordinator {}
 
+/// Controlled production DashboardBloc custody path: request begins before
+/// HTTP denial and is released only after the denied state was emitted.
+class _BlockedCustodyCoordinator extends Fake implements CustodyCoordinator {
+  final started = Completer<void>();
+  final releasedThroughLocalRead = Completer<void>();
+  final inFlight = Completer<List<NonSellableCustodyItem>>();
+
+  @override
+  Future<PendingTransferBatch?> loadPendingTransfers() async => null;
+
+  @override
+  Future<List<NonSellableCustodyItem>> loadNonSellableCustody() {
+    if (!started.isCompleted) started.complete();
+    return inFlight.future;
+  }
+
+  @override
+  Future<List<PendingReturnCustodyItem>> loadPendingReturnCustody() async {
+    if (!releasedThroughLocalRead.isCompleted) {
+      releasedThroughLocalRead.complete();
+    }
+    return const <PendingReturnCustodyItem>[];
+  }
+}
+
 class _DeniedDashboardRepo extends Fake implements DashboardRepository {
   _DeniedDashboardRepo(this.status);
   final int status;
@@ -93,11 +123,12 @@ class _SeededDashboardBloc extends DashboardBloc {
   _SeededDashboardBloc({
     required DashboardRepository repository,
     required WorkSessionCoordinator session,
+    CustodyCoordinator? custody,
   }) : super(
     dashboardRepo: repository,
     workSessionCoordinator: session,
     syncRepository: _UnusedSyncRepository(),
-    custodyCoordinator: _UnusedCustodyCoordinator(),
+    custodyCoordinator: custody ?? _UnusedCustodyCoordinator(),
   );
 
   void seed(DashboardLoaded value) => emit(value);
@@ -152,6 +183,74 @@ void main() {
       expect(latest.nonSellableStockDisclosure, StockDisclosure.denied);
     });
   }
+
+  for (final status in const [401, 403]) {
+    test('in-flight custody cannot revive verified stock after $status', () async {
+      final custody = _BlockedCustodyCoordinator();
+      final bloc = _SeededDashboardBloc(
+        repository: _DeniedDashboardRepo(status),
+        session: _InactiveWorkSession(),
+        custody: custody,
+      );
+      addTearDown(bloc.close);
+      bloc.seed(DashboardLoaded(
+        visits: const [],
+        products: [ProductModel.fromJson(_product(cartons: 9))],
+        totalVisits: 0,
+        completedVisits: 0,
+        pendingVisits: 0,
+        offlineVisits: 0,
+        sellableStockDisclosure: StockDisclosure.verified,
+        nonSellableStockDisclosure: StockDisclosure.verified,
+      ));
+
+      bloc.add(CheckPendingTransfers());
+      await custody.started.future; // Request actually in flight before denial.
+      final deniedState = bloc.stream.firstWhere((state) =>
+          state is DashboardLoaded &&
+          state.sellableStockDisclosure == StockDisclosure.denied);
+      bloc.add(FetchDashboardData(driverId: 17));
+      await deniedState;
+      custody.inFlight.complete([
+        NonSellableCustodyItem.fromJson(_custodyItem(555)),
+      ]);
+      await custody.releasedThroughLocalRead.future;
+      await Future<void>.delayed(Duration.zero);
+
+      final current = bloc.state as DashboardLoaded;
+      expect(current.sellableStockDisclosure, StockDisclosure.denied);
+      expect(current.nonSellableStockDisclosure, StockDisclosure.denied);
+      expect(current.products, isEmpty);
+      expect(current.nonSellableCustody, isEmpty);
+    });
+  }
+
+  test('bounded custody aggregation is complete at 5000 and rejects overflow',
+      () async {
+    for (final overflow in const [false, true]) {
+      var requests = 0;
+      final client = CustodyClient(get: (_, {queryParameters}) async {
+        requests++;
+        final start = (requests - 1) * 100;
+        final continuing = requests < CustodyCoordinator.maximumCustodyPages ||
+            overflow;
+        return {
+          'session_id': 17,
+          'items': List.generate(100, (i) => _custodyItem(start + i + 1)),
+          'next_cursor': continuing ? 'page-$requests' : null,
+        };
+      });
+      final read = _coordinator(client).loadNonSellableCustody();
+      if (overflow) {
+        await expectLater(read, throwsFormatException);
+      } else {
+        final items = await read;
+        expect(items.length, CustodyCoordinator.maximumCustodyRows);
+        expect(items.last.productVariantId, 5000);
+      }
+      expect(requests, CustodyCoordinator.maximumCustodyPages);
+    }
+  });
 
   test('revoked data stays denied; transient data becomes visibly stale', () {
     expect(stockDisclosureAfterFailure(StockDisclosure.verified, denied: false),
