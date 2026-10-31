@@ -17,6 +17,7 @@ on:
       - "wa_backend/tests/test_live_stock_canonical_cutover.py"
       - "wa_backend/tests/test_live_stock_r4_negative_filter_contract.py"
       - "wa_backend/tests/test_live_stock_r4_query_contract.py"
+      - "wa_backend/tests/test_live_stock_v1_r4_query_optimization_postgres.py"
       - "wa_backend/scripts/gate_stage821_live_stock_projector_core.py"
       - "wa_backend/scripts/gate_r2_live_stock_perf_50k.py"
       - "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md"
@@ -231,6 +232,7 @@ jobs:
               "wa_backend/tests/test_live_stock_canonical_cutover.py",
               "wa_backend/tests/test_live_stock_r4_negative_filter_contract.py",
               "wa_backend/tests/test_live_stock_r4_query_contract.py",
+              "wa_backend/tests/test_live_stock_v1_r4_query_optimization_postgres.py",
               "wa_backend/tests/test_live_stock_r1_http_postgres.py",
               "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
               "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py",
