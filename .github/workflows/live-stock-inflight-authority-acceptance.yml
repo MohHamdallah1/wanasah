@@ -210,6 +210,18 @@ jobs:
               "dashboard/src/pages/products/import/useImportProductPolling.ts",
               "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
               "dashboard/src/test/dispatch-load-context.test.tsx",
+              ".github/workflows/live-stock-v1-operational-browser.yml",
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              "dashboard/e2e/live-stock-operational.support.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "wa_backend/tests/live_stock_operational_browser_support.py",
           }
           assert files <= owned, sorted(files - owned)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
