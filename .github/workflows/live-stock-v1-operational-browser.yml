@@ -6,6 +6,9 @@ on:
       backend_ref:
         type: string
         default: ""
+      accepted_main_ref:
+        type: string
+        default: ""
       scenario:
         type: string
         default: operational
@@ -46,6 +49,8 @@ jobs:
       PYTHON: python
       R3_BACKEND_ROOT: ${{ github.workspace }}/backend-under-test/wa_backend
       SCENARIO: ${{ inputs.scenario || 'operational' }}
+      ACCEPTED_MAIN_REF: ${{ inputs.accepted_main_ref }}
+      PR_BASE_REF: ${{ github.event.pull_request.base.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v4
@@ -61,6 +66,7 @@ jobs:
           import os, re
           assert os.environ["SCENARIO"] in ("operational", "physical-custody")
           assert not os.environ["BACKEND_REF"] or re.fullmatch(r"[0-9a-f]{40}", os.environ["BACKEND_REF"])
+          assert not os.environ["ACCEPTED_MAIN_REF"] or re.fullmatch(r"[0-9a-f]{40}", os.environ["ACCEPTED_MAIN_REF"])
           PY
 
       - name: Checkout backend under test separately
@@ -69,6 +75,35 @@ jobs:
           ref: ${{ inputs.backend_ref || github.event.pull_request.head.sha || github.sha }}
           path: backend-under-test
           fetch-depth: 1
+
+      - name: Prove integrated-main runtime and historical contract mismatch
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          historical = "6232face36982207fc923068b4f7a7081c62b661"
+          def git(*args):
+              return subprocess.check_output(["git", *args], text=True).strip()
+          frontend = git("rev-parse", "HEAD")
+          accepted = os.environ["ACCEPTED_MAIN_REF"] or git("merge-base", os.environ["PR_BASE_REF"], frontend)
+          backend = git("-C", "backend-under-test", "rev-parse", "HEAD")
+          runtime_matches = subprocess.run(["git", "diff", "--quiet", accepted, frontend, "--",
+                          "wa_backend", "dashboard/src", ":!dashboard/src/test"]).returncode == 0
+          runtime_matches = runtime_matches and git("rev-parse", backend + ":wa_backend") == git("rev-parse", accepted + ":wa_backend")
+          # Explicit final-main proofs require identical production trees. Ordinary
+          # future PRs retain their normal runtime-change acceptance behavior.
+          if os.environ["ACCEPTED_MAIN_REF"]:
+              assert runtime_matches, "Explicit main proof must exercise unchanged accepted runtime"
+          old = git("show", historical + ":wa_backend/api/warehouse/live_stock.py")
+          current = pathlib.Path("backend-under-test/wa_backend/api/warehouse/live_stock.py").read_text()
+          keys = ('"vehicle_quantity_scope"', '"total_quantity_scope"')
+          assert all(key not in old and key in current for key in keys)
+          assert '"vehicle_quantity": canonical_quantity(vehicle_total)' in old
+          evidence = dict(accepted_main=accepted, frontend=frontend, backend=backend,
+                          runtime_matches_main=runtime_matches, historical_backend=historical,
+                          historical_missing_scope_keys=list(keys))
+          pathlib.Path("/tmp/live-stock-sha-provenance.json").write_text(json.dumps(evidence, indent=2))
+          print("INTEGRATED_MAIN_RUNTIME_AND_HISTORICAL_MISMATCH PASS " + json.dumps(evidence))
+          PY
 
       - uses: actions/setup-python@v5
         with:
@@ -298,14 +333,25 @@ jobs:
           fi
           echo "OPERATIONAL_SCREENSHOTS=$count"
 
-      # P2 consumer audit: keep the legacy Live Stock parser contract enforced
-      # here without importing unrelated Inbound/Ledger suites owned by their
-      # dedicated acceptance gates.
-      - name: Strict Live Stock legacy consumer contract
+      - name: Complete consumer contracts including both inherited concerns
         working-directory: dashboard
         run: >-
           npx vitest run src/test/inventory-access.test.ts
-          -t "live stock response contract"
+          --reporter=default --reporter=junit
+          --outputFile=node_modules/.cache/live-stock-contracts.xml
+
+      - name: Reject incomplete or skipped consumer-contract execution
+        if: always()
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("dashboard/node_modules/.cache/live-stock-contracts.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 50, f"Expected all 50 contract cases, got {len(cases)}"
+          assert not list(root.iter("skipped")), "Consumer contracts must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error"))
+          print("COMPLETE_CONSUMER_CONTRACTS PASS 50; skipped=0")
+          PY
 
       - name: Upload operational visual and server evidence
         if: always()
@@ -315,6 +361,8 @@ jobs:
           path: |
             dashboard/node_modules/.cache/live-stock-operational
             dashboard/node_modules/.cache/live-stock-physical-custody
+            dashboard/node_modules/.cache/live-stock-contracts.xml
+            /tmp/live-stock-sha-provenance.json
             /tmp/live-stock-real-api.log
             /tmp/live-stock-real-dashboard.log
 

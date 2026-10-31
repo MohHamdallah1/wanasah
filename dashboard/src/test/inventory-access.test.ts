@@ -109,7 +109,13 @@ describe('inbound contract and draft isolation', () => {
 
   it('fails closed for malformed persisted drafts and missing fresh product metadata', () => {
     expect(parseInboundDrafts('{bad')).toEqual({});
-    expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], quantity:'1.0000001'}]}))).toEqual({});
+    const unfinished = {'7': [{...JSON.parse(draft)['7'][0], quantity:'1.0000001'}]};
+    // Persistence preserves the operator's unfinished input; posting must reject
+    // the invalid quantity using fresh product scale/step authority.
+    const restored = parseInboundDrafts(JSON.stringify(unfinished));
+    expect(restored).toEqual(unfinished);
+    expect(() => buildInboundItems(restored, new Map([['7', product]]), inboundOptions))
+      .toThrow('INBOUND_QUANTITY_CONVERSION_INVALID');
     expect(parseInboundDrafts(JSON.stringify({'7': [{...JSON.parse(draft)['7'][0], uom_id: 1}]}))).toEqual({});
     expect(() => buildInboundItems(parseInboundDrafts(draft), new Map(), inboundOptions)).toThrow();
   });
@@ -194,6 +200,18 @@ describe('live stock response contract', () => {
     expect(() => parseLiveStockPage(page(changes))).toThrow("LIVE_STOCK_RESPONSE_INVALID");
   });
 
+  it('rejects the pre-687 numeric response that hid the operational product row', () => {
+    const historical = {...item};
+    Reflect.deleteProperty(historical, 'vehicle_quantity_scope');
+    Reflect.deleteProperty(historical, 'total_quantity_scope');
+    // #693's failed job checked out 6232face for both trees, where the backend
+    // serializer still omitted these keys. Numeric zero cannot imply access.
+    expect(() => parseLiveStockPage({
+      items: [historical], next_cursor: null, has_more: false,
+      total: 1, alert_count: 0, alert_samples: [],
+    })).toThrow('LIVE_STOCK_RESPONSE_INVALID');
+  });
+
   it('rejects pagination and duplicate identity mismatches', () => {
     expect(() => parseLiveStockPage({
       items: [item, item], next_cursor: null, has_more: true,
@@ -217,7 +235,14 @@ describe('unified ledger response contract', () => {
       items: [entry], next_cursor: null, has_more: false,
       total: 1, available_types: ['INBOUND_SUPPLIER'],
     })).toEqual({
-      items: [entry], next_cursor: null, has_more: false,
+      items: [{
+        ...entry,
+        reference_type: 'INBOUND_SUPPLIER', movement_kind: null, batch_id: null,
+        source_location_id: null, source_location_name: null,
+        destination_location_id: null, destination_location_name: null,
+        source_stock_status: null, destination_stock_status: null,
+        supplier_id: null, supplier_name: null, supplier_code: null,
+      }], next_cursor: null, has_more: false,
       total: 1, available_types: ['INBOUND_SUPPLIER'],
     });
   });
