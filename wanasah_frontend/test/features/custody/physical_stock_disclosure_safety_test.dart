@@ -9,6 +9,8 @@ import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
+import 'package:wanasah_frontend/blocs/visit/visit_bloc.dart';
+import 'package:wanasah_frontend/features/visits/presentation/visit_catalog.dart';
 
 Map<String, dynamic> _product({Object? cartons = 0, Object? packs = 0}) => {
   'id': 17,
@@ -135,6 +137,36 @@ void main() {
     await expectLater(_coordinator(client).loadNonSellableCustody(), throwsException);
     expect(pages, 2);
   });
+
+  for (final locale in const [Locale('ar'), Locale('en')]) {
+    testWidgets('visit catalog AR/EN stock amounts stay unchanged: ${locale.languageCode}', (tester) async {
+      final bloc = VisitBloc();
+      addTearDown(bloc.close);
+      await tester.pumpWidget(MaterialApp(
+        locale: locale,
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        home: Scaffold(
+          body: Column(children: [
+            VisitCatalog(
+              catalog: [ProductModel.fromJson(_product(cartons: 4, packs: 2))],
+              cart: const [],
+              visitBloc: bloc,
+              onCartUpdated: () {},
+              onClose: () {},
+            ),
+          ]),
+        ),
+      ));
+      expect(find.text('Physical stock'), findsOneWidget);
+      expect(find.textContaining(locale.languageCode == 'ar'
+          ? 'المتوفر محلياً (غير مؤكد حالياً): 4'
+          : 'Locally available (not currently verified): 4'), findsOneWidget);
+      expect(find.text(locale.languageCode == 'ar'
+          ? 'اعتماد الكميات والعودة للفاتورة'
+          : 'Confirm quantities and return to invoice'), findsOneWidget);
+    });
+  }
 
   for (final locale in const [Locale('ar'), Locale('en')]) {
     testWidgets('verified zero and AR/EN stock labels: ${locale.languageCode}', (tester) async {
