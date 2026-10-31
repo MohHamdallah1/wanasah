@@ -383,10 +383,10 @@ async def _acceptance():
     base_function = _compile_endpoint(base_source, "exact-base")
     head_function = live_stock.get_warehouse_inventory
 
-    # The unchanged query families keep #661 as their accepted before/after
-    # evidence; this PR does not secretly rewrite them.
+    # R3 intentionally changes only the Vehicle-custody portion of the
+    # inventory summary. Keep every non-Vehicle query family byte-structural
+    # against the accepted R4 base so this performance gate cannot hide drift.
     unchanged = (
-        "get_warehouse_inventory_summary",
         "get_warehouse_inventory_alert_summary",
         "get_warehouse_inventory_families",
         "get_warehouse_inventory_batches",
@@ -396,6 +396,20 @@ async def _acceptance():
         assert _function_ast(base_source, name) == _function_ast(
             current_source, name
         ), name
+
+    summary_body = ast.unparse(
+        next(
+            node
+            for node in ast.parse(current_source).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "get_warehouse_inventory_summary"
+        )
+    )
+    assert "_readable_vehicle_locations_subquery" in summary_body
+    assert "InventoryBalance.on_hand_quantity > 0" in summary_body
+    assert "_latest_readable_vehicle_sources_subquery" not in summary_body
+    assert "DispatchRoute" not in summary_body
+    assert "has_vehicle_presence" not in summary_body
 
     await _clone_fixture_databases()
     before = await _runtime_engine(BEFORE_DB)
