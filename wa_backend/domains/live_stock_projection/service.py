@@ -18,7 +18,6 @@ from domains.inventory_rules import (
 )
 from models import (
     Company,
-    DispatchRoute,
     InventoryBalance,
     InventoryLiveStockCompanySummary,
     InventoryLiveStockProjection,
@@ -31,7 +30,7 @@ from models import (
 )
 
 
-PROJECTION_VERSION = 1
+PROJECTION_VERSION = 2
 _MAX_PROJECTOR_KEYS = 10_000
 _COARSE_GUARD_THRESHOLD = 256
 _ZERO = Decimal("0")
@@ -277,41 +276,6 @@ async def _company_local_date(db: AsyncSession, company_id: int) -> date:
     return value
 
 
-async def get_live_stock_vehicle_sources(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    vehicle_ids: Iterable[int],
-) -> dict[int, int]:
-    company_id = _positive_int(company_id, "company_id")
-    ids = _normalize_ids(vehicle_ids, "vehicle_id")
-    if not ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(
-                DispatchRoute.vehicle_id,
-                DispatchRoute.source_location_id,
-            )
-            .where(
-                DispatchRoute.company_id == company_id,
-                _array_membership(
-                    DispatchRoute.vehicle_id,
-                    ids,
-                    "live_stock_vehicle_source_ids",
-                ),
-            )
-            .distinct(DispatchRoute.vehicle_id)
-            .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
-        )
-    ).all()
-    return {
-        int(vehicle_id): int(source_location_id)
-        for vehicle_id, source_location_id in rows
-        if vehicle_id is not None and source_location_id is not None
-    }
-
-
 async def _ensure_warehouse_summaries(
     db: AsyncSession,
     *,
@@ -400,13 +364,8 @@ async def _ensure_warehouse_summaries(
                                 and_(
                                     InventoryLiveStockProjection.lifecycle_status
                                     != "ACTIVE",
-                                    or_(
-                                        InventoryLiveStockProjection.has_warehouse_presence.is_(
-                                            True
-                                        ),
-                                        InventoryLiveStockProjection.has_vehicle_presence.is_(
-                                            True
-                                        ),
+                                    InventoryLiveStockProjection.has_warehouse_presence.is_(
+                                        True
                                     ),
                                 ),
                                 1,
@@ -468,18 +427,12 @@ async def _ensure_warehouse_summaries(
 def _nonactive_visible_from_values(values: Mapping[str, object]) -> bool:
     return (
         str(values["lifecycle_status"]) != "ACTIVE"
-        and (
-            bool(values["has_warehouse_presence"])
-            or bool(values["has_vehicle_presence"])
-        )
+        and bool(values["has_warehouse_presence"])
     )
 
 
 def _nonactive_visible_from_row(row: InventoryLiveStockProjection) -> bool:
-    return (
-        row.lifecycle_status != "ACTIVE"
-        and (bool(row.has_warehouse_presence) or bool(row.has_vehicle_presence))
-    )
+    return row.lifecycle_status != "ACTIVE" and bool(row.has_warehouse_presence)
 
 
 async def _apply_warehouse_summary_deltas(
@@ -734,67 +687,17 @@ def _live_stock_fact_subqueries(
         .subquery("live_stock_direct_agg")
     )
 
-    latest_route = (
-        select(
-            DispatchRoute.vehicle_id.label("vehicle_id"),
-            DispatchRoute.source_location_id.label("source_location_id"),
-        )
-        .where(
-            DispatchRoute.company_id == company_id,
-            DispatchRoute.vehicle_id.is_not(None),
-        )
-        .distinct(DispatchRoute.vehicle_id)
-        .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
-        .subquery("live_stock_latest_vehicle_route")
-    )
-
+    # Warehouse projection is physical-Warehouse-only. Vehicle custody is read
+    # directly from canonical VEHICLE InventoryLocations by authorized consumers;
+    # these compatibility projection columns are deliberately neutral.
     vehicle_agg = (
         select(
-            latest_route.c.source_location_id.label(
-                "warehouse_location_id"
-            ),
-            InventoryBalance.product_variant_id.label(
-                "product_variant_id"
-            ),
-            func.coalesce(
-                func.sum(InventoryBalance.on_hand_quantity),
-                _ZERO,
-            ).label("vehicle_packs"),
+            key_scope.c.warehouse_location_id,
+            key_scope.c.product_variant_id,
+            func.coalesce(_ZERO, _ZERO).label("vehicle_packs"),
         )
-        .select_from(InventoryBalance)
-        .join(
-            InventoryLocation,
-            and_(
-                InventoryLocation.company_id == InventoryBalance.company_id,
-                InventoryLocation.id == InventoryBalance.location_id,
-                InventoryLocation.location_type == "VEHICLE",
-                InventoryLocation.is_active.is_(True),
-                InventoryLocation.vehicle_id.is_not(None),
-                _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
-            ),
-        )
-        .join(
-            latest_route,
-            latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
-        )
-        .join(
-            key_scope,
-            and_(
-                key_scope.c.warehouse_location_id
-                == latest_route.c.source_location_id,
-                key_scope.c.product_variant_id
-                == InventoryBalance.product_variant_id,
-            ),
-        )
-        .where(
-            InventoryBalance.company_id == company_id,
-            InventoryBalance.stock_status != "DAMAGED",
-        )
-        .group_by(
-            latest_route.c.source_location_id,
-            InventoryBalance.product_variant_id,
-        )
-        .subquery("live_stock_vehicle_agg")
+        .select_from(key_scope)
+        .subquery("live_stock_vehicle_compat_zero")
     )
 
     return direct_agg, vehicle_agg
@@ -1103,12 +1006,8 @@ async def refresh_live_stock_keys(
                 or blocked_status_packs > 0
                 or damaged_packs > 0
             )
-            has_vehicle_presence = vehicle_packs > 0
-            sparse = (
-                has_active_policy
-                or has_warehouse_presence
-                or has_vehicle_presence
-            )
+            has_vehicle_presence = False
+            sparse = has_active_policy or has_warehouse_presence
             if not sparse:
                 new_values = None
             else:
@@ -1316,59 +1215,6 @@ async def _candidate_keys_for_variants(
         for row in direct_rows
     )
 
-    latest_route = (
-        select(
-            DispatchRoute.vehicle_id.label("vehicle_id"),
-            DispatchRoute.source_location_id.label("source_location_id"),
-        )
-        .where(
-            DispatchRoute.company_id == company_id,
-            DispatchRoute.vehicle_id.is_not(None),
-        )
-        .distinct(DispatchRoute.vehicle_id)
-        .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
-        .subquery("live_stock_candidate_latest_route")
-    )
-    vehicle_rows = (
-        await db.execute(
-            select(
-                latest_route.c.source_location_id,
-                InventoryBalance.product_variant_id,
-            )
-            .select_from(InventoryBalance)
-            .join(
-                InventoryLocation,
-                and_(
-                    InventoryLocation.company_id == InventoryBalance.company_id,
-                    InventoryLocation.id == InventoryBalance.location_id,
-                    InventoryLocation.location_type == "VEHICLE",
-                    InventoryLocation.is_active.is_(True),
-                    InventoryLocation.vehicle_id.is_not(None),
-                    _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
-                ),
-            )
-            .join(
-                latest_route,
-                latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-                _array_membership(
-                    InventoryBalance.product_variant_id,
-                    variant_ids,
-                    "live_stock_candidate_vehicle_variant_ids",
-                ),
-                InventoryBalance.stock_status != "DAMAGED",
-                InventoryBalance.on_hand_quantity > 0,
-            )
-            .distinct()
-        )
-    ).all()
-    keys.update(
-        (int(row.source_location_id), int(row.product_variant_id))
-        for row in vehicle_rows
-        if row.source_location_id is not None
-    )
     return _normalize_keys(keys)
 
 
@@ -1515,7 +1361,6 @@ async def apply_live_stock_balance_impacts(
         return
 
     normalized_impacts: list[dict[str, object]] = []
-    vehicle_ids: set[int] = set()
     for raw in impacts:
         location_id = _positive_int(raw.get("location_id"), "location_id")
         variant_id = _positive_int(
@@ -1535,12 +1380,10 @@ async def apply_live_stock_balance_impacts(
         vehicle_id = raw.get("vehicle_id")
         if vehicle_id is not None:
             vehicle_id = _positive_int(vehicle_id, "vehicle_id")
-        if location_type == "VEHICLE":
-            if vehicle_id is None:
-                raise LiveStockProjectionError(
-                    "Vehicle inventory impact is missing vehicle_id."
-                )
-            vehicle_ids.add(int(vehicle_id))
+        if location_type == "VEHICLE" and vehicle_id is None:
+            raise LiveStockProjectionError(
+                "Vehicle inventory impact is missing vehicle_id."
+            )
 
         normalized = dict(raw)
         normalized["location_id"] = location_id
@@ -1552,18 +1395,6 @@ async def apply_live_stock_balance_impacts(
         ).upper()
         normalized_impacts.append(normalized)
 
-    if vehicle_ids:
-        await acquire_live_stock_vehicle_guards(
-            db,
-            company_id=company_id,
-            vehicle_ids=sorted(vehicle_ids),
-        )
-    vehicle_sources = await get_live_stock_vehicle_sources(
-        db,
-        company_id=company_id,
-        vehicle_ids=sorted(vehicle_ids),
-    )
-
     impacts_by_key: dict[
         tuple[int, int],
         list[dict[str, object]],
@@ -1571,17 +1402,11 @@ async def apply_live_stock_balance_impacts(
     for impact in normalized_impacts:
         location_type = str(impact["location_type"])
         variant_id = int(impact["product_variant_id"])
-        if location_type == "WAREHOUSE":
-            key = (int(impact["location_id"]), variant_id)
-        elif location_type == "VEHICLE":
-            source = vehicle_sources.get(int(impact["vehicle_id"]))
-            if source is None:
-                continue
-            key = (int(source), variant_id)
-        else:
-            # IN_TRANSIT and SCRAP are valid inventory locations but are
-            # intentionally outside the warehouse-centric Live Stock read model.
+        if location_type != "WAREHOUSE":
+            # VEHICLE, IN_TRANSIT and SCRAP custody are independent physical
+            # locations. They must never be projected into a Warehouse key.
             continue
+        key = (int(impact["location_id"]), variant_id)
         impacts_by_key[key].append(impact)
 
     keys = _normalize_keys(impacts_by_key)
@@ -1737,12 +1562,6 @@ async def apply_live_stock_balance_impacts(
             if location_type == "WAREHOUSE":
                 if before_on_hand > 0 or before_reserved > 0:
                     had_presence_before = True
-            elif (
-                location_type == "VEHICLE"
-                and status != "DAMAGED"
-                and before_on_hand > 0
-            ):
-                had_presence_before = True
 
             if (
                 old is not None
@@ -1865,11 +1684,9 @@ async def apply_live_stock_balance_impacts(
                 if old is not None
                 else _ZERO
             ),
-            "vehicle_packs": (
-                _impact_decimal(old.vehicle_packs)
-                if old is not None
-                else _ZERO
-            ),
+            # Compatibility storage only. Warehouse projection never owns
+            # or attributes physical Vehicle custody.
+            "vehicle_packs": _ZERO,
             "minimum_quantity": minimum_quantity,
             "has_active_policy": row.minimum_quantity is not None,
             "next_transition_date": (
@@ -1889,14 +1706,6 @@ async def apply_live_stock_balance_impacts(
             )
             location_type = str(impact["location_type"])
             status = str(impact["stock_status"])
-
-            if location_type == "VEHICLE":
-                if status != "DAMAGED":
-                    values["vehicle_packs"] = (
-                        _impact_decimal(values["vehicle_packs"])
-                        + delta_on_hand
-                    )
-                continue
 
             if status == "AVAILABLE":
                 values["warehouse_on_hand"] = (
@@ -1993,9 +1802,7 @@ async def apply_live_stock_balance_impacts(
             or _impact_decimal(values["blocked_status_packs"]) > 0
             or _impact_decimal(values["damaged_packs"]) > 0
         )
-        values["has_vehicle_presence"] = (
-            _impact_decimal(values["vehicle_packs"]) > 0
-        )
+        values["has_vehicle_presence"] = False
         values["is_low_stock"] = (
             bool(values["has_active_policy"])
             and minimum_quantity > 0
@@ -2013,7 +1820,6 @@ async def apply_live_stock_balance_impacts(
         sparse = (
             bool(values["has_active_policy"])
             or bool(values["has_warehouse_presence"])
-            or bool(values["has_vehicle_presence"])
         )
         new_values = values if sparse else None
 
@@ -2096,6 +1902,11 @@ async def refresh_live_stock_from_movement_specs(
     company_id: int,
     movement_specs: Sequence[Mapping[str, object]],
 ) -> None:
+    """Refresh only physical Warehouse keys touched by canonical movements.
+
+    Vehicle custody is intentionally excluded: a VEHICLE InventoryLocation is
+    its own physical authority and is never mapped back to a Warehouse/Route.
+    """
     company_id = _positive_int(company_id, "company_id")
     if not movement_specs:
         return
@@ -2128,7 +1939,6 @@ async def refresh_live_stock_from_movement_specs(
             select(
                 InventoryLocation.id,
                 InventoryLocation.location_type,
-                InventoryLocation.vehicle_id,
             ).where(
                 InventoryLocation.company_id == company_id,
                 _array_membership(
@@ -2139,145 +1949,22 @@ async def refresh_live_stock_from_movement_specs(
             )
         )
     ).all()
-    location_map = {
-        int(row.id): (str(row.location_type), row.vehicle_id)
+    warehouse_ids = {
+        int(row.id)
         for row in location_rows
+        if str(row.location_type) == "WAREHOUSE"
     }
-
-    vehicle_ids = sorted(
-        {
-            int(vehicle_id)
-            for location_type, vehicle_id in location_map.values()
-            if location_type == "VEHICLE" and vehicle_id is not None
-        }
-    )
-    if vehicle_ids:
-        await acquire_live_stock_vehicle_guards(
-            db,
-            company_id=company_id,
-            vehicle_ids=vehicle_ids,
-        )
-    coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
-    if coarse_guard:
-        await _acquire_company_projection_guard(
-            db,
-            company_id=company_id,
-            exclusive=True,
-        )
-    vehicle_sources = await get_live_stock_vehicle_sources(
-        db,
-        company_id=company_id,
-        vehicle_ids=vehicle_ids,
-    )
-
-    keys: set[tuple[int, int]] = set()
-    for spec in movement_specs:
-        variant_id = int(spec["product_variant_id"])
-        for raw_location_id in (
+    keys = {
+        (int(location_id), int(spec["product_variant_id"]))
+        for spec in movement_specs
+        if spec.get("product_variant_id") is not None
+        for location_id in (
             spec.get("source_location_id"),
             spec.get("destination_location_id"),
-        ):
-            if raw_location_id is None:
-                continue
-            location_id = int(raw_location_id)
-            location = location_map.get(location_id)
-            if location is None:
-                continue
-            location_type, vehicle_id = location
-            if location_type == "WAREHOUSE":
-                keys.add((location_id, variant_id))
-            elif location_type == "VEHICLE" and vehicle_id is not None:
-                source = vehicle_sources.get(int(vehicle_id))
-                if source is not None:
-                    keys.add((source, variant_id))
-
-    if keys:
-        await refresh_live_stock_keys(
-            db,
-            company_id=company_id,
-            keys=keys,
-            _company_guard_held=coarse_guard,
-            _force_coarse_guard=coarse_guard,
         )
-
-
-async def refresh_live_stock_vehicle_attribution(
-    db: AsyncSession,
-    *,
-    company_id: int,
-    vehicle_ids: Iterable[int],
-    previous_sources: Mapping[int, int],
-) -> None:
-    company_id = _positive_int(company_id, "company_id")
-    ids = _normalize_ids(vehicle_ids, "vehicle_id")
-    if not ids:
-        return
-
-    await acquire_live_stock_vehicle_guards(
-        db,
-        company_id=company_id,
-        vehicle_ids=ids,
-    )
-
-    vehicle_locations = (
-        await db.execute(
-            select(
-                InventoryLocation.id,
-                InventoryLocation.vehicle_id,
-            ).where(
-                InventoryLocation.company_id == company_id,
-                InventoryLocation.location_type == "VEHICLE",
-                _array_membership(
-                    InventoryLocation.vehicle_id,
-                    ids,
-                    "live_stock_attribution_vehicle_ids",
-                ),
-                InventoryLocation.is_active.is_(True),
-                _strict_vehicle_custody_count(company_id, InventoryLocation.vehicle_id) == 1,
-            )
-        )
-    ).all()
-    location_to_vehicle = {
-        int(row.id): int(row.vehicle_id)
-        for row in vehicle_locations
-        if row.vehicle_id is not None
+        if location_id is not None and int(location_id) in warehouse_ids
     }
-    if not location_to_vehicle:
-        return
-
-    stock_rows = (
-        await db.execute(
-            select(
-                InventoryBalance.location_id,
-                InventoryBalance.product_variant_id,
-            )
-            .where(
-                InventoryBalance.company_id == company_id,
-                _array_membership(
-                    InventoryBalance.location_id,
-                    sorted(location_to_vehicle),
-                    "live_stock_attribution_location_ids",
-                ),
-                InventoryBalance.stock_status != "DAMAGED",
-                InventoryBalance.on_hand_quantity > 0,
-            )
-            .distinct()
-        )
-    ).all()
-    variants_by_vehicle: dict[int, set[int]] = defaultdict(set)
-    for row in stock_rows:
-        vehicle_id = location_to_vehicle.get(int(row.location_id))
-        if vehicle_id is not None:
-            variants_by_vehicle[vehicle_id].add(int(row.product_variant_id))
-
-    variant_ids = sorted(
-        {
-            variant_id
-            for values in variants_by_vehicle.values()
-            for variant_id in values
-        }
-    )
-    if not variant_ids:
+    if not keys:
         return
 
     coarse_guard = len(variant_ids) >= _COARSE_GUARD_THRESHOLD
@@ -2287,34 +1974,13 @@ async def refresh_live_stock_vehicle_attribution(
             company_id=company_id,
             exclusive=True,
         )
-    current_sources = await get_live_stock_vehicle_sources(
+    await refresh_live_stock_keys(
         db,
         company_id=company_id,
-        vehicle_ids=ids,
+        keys=sorted(keys),
+        _company_guard_held=coarse_guard,
+        _force_coarse_guard=coarse_guard,
     )
-
-    keys: set[tuple[int, int]] = set()
-    for vehicle_id in ids:
-        sources = {
-            int(source)
-            for source in (
-                previous_sources.get(vehicle_id),
-                current_sources.get(vehicle_id),
-            )
-            if source is not None
-        }
-        for source in sources:
-            for variant_id in variants_by_vehicle.get(vehicle_id, set()):
-                keys.add((source, variant_id))
-
-    if keys:
-        await refresh_live_stock_keys(
-            db,
-            company_id=company_id,
-            keys=keys,
-            _company_guard_held=coarse_guard,
-            _force_coarse_guard=coarse_guard,
-        )
 
 
 async def apply_live_stock_active_variant_delta(
@@ -2532,49 +2198,7 @@ def _warehouse_authoritative_candidate_variant_query(
     company_id: int,
     warehouse_location_id: int,
 ):
-    """Return sparse keys justified by current inputs, excluding projection rows."""
-    latest_route = (
-        select(
-            DispatchRoute.vehicle_id.label("vehicle_id"),
-            DispatchRoute.source_location_id.label("source_location_id"),
-        )
-        .where(
-            DispatchRoute.company_id == company_id,
-            DispatchRoute.vehicle_id.is_not(None),
-        )
-        .distinct(DispatchRoute.vehicle_id)
-        .order_by(DispatchRoute.vehicle_id, DispatchRoute.id.desc())
-        .subquery("live_stock_truth_latest_route")
-    )
-    vehicle_variants = (
-        select(InventoryBalance.product_variant_id)
-        .select_from(InventoryBalance)
-        .join(
-            InventoryLocation,
-            and_(
-                InventoryLocation.company_id == InventoryBalance.company_id,
-                InventoryLocation.id == InventoryBalance.location_id,
-                InventoryLocation.location_type == "VEHICLE",
-                InventoryLocation.is_active.is_(True),
-                InventoryLocation.vehicle_id.is_not(None),
-                _strict_vehicle_custody_count(
-                    company_id,
-                    InventoryLocation.vehicle_id,
-                )
-                == 1,
-            ),
-        )
-        .join(
-            latest_route,
-            latest_route.c.vehicle_id == InventoryLocation.vehicle_id,
-        )
-        .where(
-            InventoryBalance.company_id == company_id,
-            latest_route.c.source_location_id == warehouse_location_id,
-            InventoryBalance.stock_status != "DAMAGED",
-            InventoryBalance.on_hand_quantity > 0,
-        )
-    )
+    """Sparse keys justified only by the selected physical Warehouse."""
     return union(
         select(InventoryStockPolicy.product_variant_id).where(
             InventoryStockPolicy.company_id == company_id,
@@ -2589,7 +2213,6 @@ def _warehouse_authoritative_candidate_variant_query(
                 InventoryBalance.reserved_quantity > 0,
             ),
         ),
-        vehicle_variants,
     )
 
 
