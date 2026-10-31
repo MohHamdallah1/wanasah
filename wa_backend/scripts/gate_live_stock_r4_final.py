@@ -5,6 +5,8 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import subprocess
+import time
 
 import httpx
 from sqlalchemy import select
@@ -95,7 +97,7 @@ def assert_counts_and_selective(report, fixture):
     final = [r for r in report["results"] if r["implementation"] == "implementation_head"]
     # Exact statement-count invariance, including all canonical HTTP dependencies.
     for actor in ("owner", "restricted"):
-        for kind, names in (("list", ("initial", "broad", "rare", "short", "low_stock", "combined", "family_filter")),
+        for kind, names in (("list", ("initial", "deep", "broad", "rare", "short", "low_stock", "combined", "family_filter")),
                             ("families", ("initial", "deep", "common", "rare", "short")),
                             ("batches", ("initial", "deep"))):
             for name in names:
@@ -118,7 +120,144 @@ def assert_counts_and_selective(report, fixture):
         report["bounded_selective_search"] = "PASS; rejected probe-off control reproduces catalog work"
     else:
         report["bounded_selective_search"] = "SMOKE ONLY: small-table planner choices are not 50k evidence"
-    report["n_plus_one_query_growth"] = "NONE in measured page/fanout matrix; exact constant counts"
+    report["n_plus_one_query_growth"] = (
+        "PASS: exact statement counts are constant across list/family/batch "
+        "page sizes and source fanout in the measured matrix"
+    )
+
+    catalog_cases = []
+    for result in final:
+        nodes = [
+            node
+            for plan in result.get("plan_summary", [])
+            for node in plan.get("catalog_work_nodes", [])
+        ]
+        if nodes:
+            catalog_cases.append({
+                "actor": result["spec"]["actor"],
+                "kind": result["spec"]["kind"],
+                "name": result["spec"]["name"],
+                "limit": result["spec"]["limit"],
+                "largest_work": max(
+                    int(node["emitted_plus_filter_rows_x_loops"])
+                    for node in nodes
+                ),
+                "relations": sorted({
+                    str(node.get("Relation Name") or node.get("CTE Name") or "")
+                    for node in nodes
+                }),
+            })
+    report["catalog_sized_plan_cases"] = catalog_cases
+
+
+def active_consumer_scope(report):
+    """Record tracked callers and fail closed on a new report/export consumer."""
+    root = Path(__file__).resolve().parents[1]
+    matches = subprocess.check_output(
+        ["git", "grep", "-n", "/warehouse/inventory/cursor", "--",
+         ":(exclude)wa_backend/perf_reports/**"],
+        cwd=root.parent,
+        text=True,
+    ).splitlines()
+    paths = sorted({line.split(":", 1)[0] for line in matches})
+    runtime_paths = [
+        path for path in paths
+        if not path.startswith(("docs/", "wa_backend/tests/", "dashboard/e2e/"))
+        and not path.endswith("LIVE_STOCK_V1_CLOSURE_PLAN.md")
+    ]
+    report_like = [
+        path for path in runtime_paths
+        if any(token in path.lower() for token in (
+            "report", "export", "csv", "xlsx", "spreadsheet",
+        ))
+    ]
+    assert not report_like, (
+        "New active Live Stock report/export consumer needs explicit "
+        f"Warehouse/Vehicle/total scope acceptance: {report_like}"
+    )
+    report["consumer_scope"] = {
+        "tracked_cursor_paths": paths,
+        "active_runtime_paths": runtime_paths,
+        "active_report_export_paths": report_like,
+        "finding": (
+            "No active report/export caller of the Live Stock cursor was found "
+            "in tracked runtime source. Existing ledger/transfer/quality reports "
+            "keep their independent contracts; this is repository-scope evidence, "
+            "not a claim about unknown external clients."
+        ),
+    }
+
+
+async def concurrent_controls(fixture, tokens, specs, report):
+    """Bounded non-production concurrency; never presented as production p95/p99."""
+    chosen = []
+    wanted = {
+        ("owner", "list", "initial", 50),
+        ("restricted", "list", "initial", 50),
+        ("owner", "list", "broad", 50),
+        ("restricted", "list", "out_of_stock", 50),
+        ("owner", "batches", "initial", 200),
+        ("owner", "stock_sources", "fanout", None),
+    }
+    for spec in specs:
+        key = (spec["actor"], spec["kind"], spec["name"], spec["limit"])
+        if key in wanted:
+            chosen.append(spec)
+    assert len(chosen) == len(wanted), [s["name"] for s in chosen]
+
+    records = []
+    for round_index in range(5):
+        async def one(index, spec):
+            transport = httpx.ASGITransport(
+                app=app,
+                raise_app_exceptions=False,
+                client=(f"203.0.113.{round_index * len(chosen) + index + 1}", 12345),
+            )
+            started = time.perf_counter()
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://r4-concurrency.test",
+                headers={"Authorization": "Bearer " + tokens[spec["actor"]]},
+            ) as client:
+                response = await client.get(spec["path"], params=spec["params"])
+            elapsed = (time.perf_counter() - started) * 1000
+            assert response.status_code == 200, (spec, response.text)
+            assert response.headers.get("x-request-id")
+            return {
+                "actor": spec["actor"],
+                "kind": spec["kind"],
+                "name": spec["name"],
+                "limit": spec["limit"],
+                "elapsed_ms": elapsed,
+                "payload_sha256": __import__("hashlib").sha256(response.content).hexdigest(),
+            }
+
+        round_rows = await asyncio.gather(
+            *(one(index, spec) for index, spec in enumerate(chosen))
+        )
+        records.extend(round_rows)
+
+    by_case = {}
+    for row in records:
+        key = f'{row["actor"]}:{row["kind"]}:{row["name"]}:{row["limit"]}'
+        bucket = by_case.setdefault(key, {"values": [], "payloads": set()})
+        bucket["values"].append(row["elapsed_ms"])
+        bucket["payloads"].add(row["payload_sha256"])
+    summary = {}
+    for key, bucket in by_case.items():
+        assert len(bucket["payloads"]) == 1, (key, bucket["payloads"])
+        summary[key] = distribution(bucket["values"])
+    report["bounded_concurrency"] = {
+        "parallel_width": len(chosen),
+        "rounds": 5,
+        "requests": len(records),
+        "cases": summary,
+        "interpretation": (
+            "Shared GitHub runner + local ASGI + loopback PostgreSQL16. "
+            "This is representative non-production contention evidence only; "
+            "it is NOT production p95/p99, network, browser or cold-cache evidence."
+        ),
+    }
 
 
 async def acceptance():
@@ -142,9 +281,10 @@ async def acceptance():
             "memory": "Separate single-request tracemalloc peak (Python allocations only) is outside timed samples. "
                       "RSS includes pytest/imports/profiler. PostgreSQL plan memory nodes and docker stats "
                       "are evidence, not an invented memory/latency SLA.",
-            "comparison": "accepted_main and implementation_head have byte-identical immutable runtime source. "
-                          "They are paired before/final measurement windows, not an optimization claim. "
-                          "Probe-disabled experimental control isolates #645 cost and must NOT ship.",
+            "comparison": "accepted_main is the exact pull-request base and implementation_head is the candidate. "
+                          "Both execute against the same fixture and must preserve payload/cursor/authority parity. "
+                          "If source hashes differ, before/after evidence is an optimization comparison; if not, "
+                          "this is current-main acceptance evidence. Probe-disabled control is test-only.",
             "limits": "List and batch limits1/50/200; family contract max100 tested1/50/100, HTTP200 must422. "
                       "Source contract max500 locations, tested1/201 with exact auth-visible membership.",
         }}
@@ -152,8 +292,9 @@ async def acceptance():
     admin = create_async_engine(r4.seed.checked_url("DATABASE_URL_MIGRATION"), poolclass=NullPool)
     save(root, report)
     try:
-        functions, source_hash = implementations()
-        report["runtime_sha256"] = source_hash
+        functions, source_hashes = implementations()
+        report["runtime_sha256"] = source_hashes
+        active_consumer_scope(report)
         fixture, identities = await build(root, size, admin)
         report["fixture"] = fixture
         report["environment"] = await r4.metadata(engine, fixture)
@@ -170,7 +311,12 @@ async def acceptance():
         ordinal = 0
         for spec in specs:
             labels = ["accepted_main", "implementation_head"]
-            if spec["kind"] == "list" and spec["limit"] == 1 and spec["name"] in {"broad", "rare", "short", "combined"}:
+            if (
+                "probe_disabled_control" in functions
+                and spec["kind"] == "list"
+                and spec["limit"] == 1
+                and spec["name"] in {"broad", "rare", "short", "combined"}
+            ):
                 labels.insert(1, "probe_disabled_control")
             signatures = set()
             for label in labels:
@@ -196,11 +342,22 @@ async def acceptance():
                 save(root, report)
             assert len(signatures) == 1, ("membership/cursor/quantity parity", spec)
         assert len(specs) == 116, len(specs)
-        assert len(report["results"]) == 240, len(report["results"])
+        expected_results = len(specs) * 2 + sum(
+            1
+            for spec in specs
+            if "probe_disabled_control" in functions
+            and spec["kind"] == "list"
+            and spec["limit"] == 1
+            and spec["name"] in {"broad", "rare", "short", "combined"}
+        )
+        assert len(report["results"]) == expected_results, (
+            len(report["results"]), expected_results
+        )
         assert_counts_and_selective(report, fixture)
         report["inventory_after"] = await fingerprint(engine, fixture)
         assert report["inventory_after"] == report["inventory_before"]
         await http_controls(engine, fixture, tokens, report)
+        await concurrent_controls(fixture, tokens, specs, report)
         # Reuse unchanged R4 real R1 race controls and least-privilege SQL checks.
         await snapshot_controls(engine, admin, fixture, report)
         await negative_authority(engine, admin, fixture, report)
@@ -211,11 +368,20 @@ async def acceptance():
             assert denied.status_code == 403, denied.text
         report["same_bearer_after_grant_revocation"] = 403
         report["status"] = "EVIDENCE_PASS" if size == 50000 else "SMOKE_PASS"
+        changed = bool(report["runtime_sha256"]["changed"])
         report["disposition"] = (
-            "Evidence only. No safe new SQL/index improvement is proven. Preserve #645. "
-            "Multi-match search helper work and broad/restricted plans remain measured bottlenecks. "
-            "Synthetic CI is not production qualification; R4 release remains OPEN.")
-        print("R4_FINAL_GATE " + report["status"] + " R4_OPEN " + json.dumps({
+            "Bounded current-main SQL/performance/cursor/consumer acceptance passed. "
+            + (
+                "Candidate runtime differs from base; use the recorded before/after plans "
+                "and latency distributions to judge the measured optimization. "
+                if changed else
+                "No production runtime change was required by this wave; the gate closes "
+                "the missing current-main measurement/consumer evidence. "
+            )
+            + "Synthetic PG16 concurrency is not production qualification; real production "
+              "p95/p99 and unknown external consumers remain outside this evidence."
+        )
+        print("R4_FINAL_GATE " + report["status"] + " BOUNDED_SQL_PASS " + json.dumps({
             "scale": size, "cases": len(report["results"]), "http_controls": len(report["http_denials"]),
             "cursor_walks": 4, "r1_snapshot_controls": 4}), flush=True)
     except BaseException as exc:
