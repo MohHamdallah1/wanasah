@@ -24,7 +24,8 @@ from sqlalchemy.pool import NullPool
 
 from api.warehouse import live_stock
 from api.warehouse._shared import _encode_variant_cursor
-from models import ProductVariant
+from domains.live_stock_projection.service import rebuild_live_stock_company
+from models import DispatchRoute, ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from scripts import profile_live_stock_explain as n1
 
@@ -45,17 +46,37 @@ AFTER_DB = "wanasah_r4_after"
 
 
 def _compile_endpoint(source: str, label: str):
-    node = next(
+    tree = ast.parse(source)
+    endpoint = next(
         node
-        for node in ast.parse(source).body
+        for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef)
         and node.name == "get_warehouse_inventory"
     )
-    node.decorator_list = []
+    endpoint.decorator_list = []
+
+    # Compile historical helper dependencies from the same source snapshot.
+    # The P0 R3 head intentionally removes latest-Route Vehicle attribution;
+    # executing an accepted-base endpoint against the head module namespace
+    # would otherwise fail before any before/after comparison is measured.
+    dependency_names = {
+        "_readable_vehicle_locations_subquery",
+        "_latest_readable_vehicle_sources_subquery",
+    }
+    dependencies = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in dependency_names
+    ]
+
     namespace = vars(live_stock).copy()
+    # DispatchRoute is absent from the corrected runtime module by design, but
+    # the accepted historical helper being benchmarked still references it.
+    namespace["DispatchRoute"] = DispatchRoute
     exec(
         compile(
-            ast.Module(body=[node], type_ignores=[]),
+            ast.Module(body=[*dependencies, endpoint], type_ignores=[]),
             f"<R4-query-opt-{label}>",
             "exec",
         ),
@@ -138,6 +159,39 @@ def _kwargs(db, fixture, access, *, limit, search, cursor=None, **filters):
     )
     values.update(filters)
     return values
+
+
+def _r3_stable_payload(payload):
+    """Compare every response field except the owner-approved R3 scope break."""
+    normalized = {
+        **payload,
+        "items": [
+            {
+                key: value
+                for key, value in row.items()
+                if key not in {
+                    "vehicle_quantity",
+                    "vehicle_quantity_scope",
+                    "total_quantity",
+                    "total_quantity_scope",
+                }
+            }
+            for row in payload["items"]
+        ],
+    }
+    return normalized
+
+
+def _assert_r3_location_contract(payload):
+    for row in payload["items"]:
+        assert row["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
+        assert Decimal(row["total_quantity"]) == Decimal(row["on_hand_quantity"])
+        scope = row["vehicle_quantity_scope"]
+        assert scope in {"COMPANY_WIDE", "AUTHORIZED_LOCATIONS", "NO_ACCESS"}
+        if scope == "NO_ACCESS":
+            assert row["vehicle_quantity"] is None
+        else:
+            assert row["vehicle_quantity"] is not None
 
 
 def _summary(values):
@@ -383,10 +437,10 @@ async def _acceptance():
     base_function = _compile_endpoint(base_source, "exact-base")
     head_function = live_stock.get_warehouse_inventory
 
-    # The unchanged query families keep #661 as their accepted before/after
-    # evidence; this PR does not secretly rewrite them.
+    # R3 intentionally changes only the Vehicle-custody portion of the
+    # inventory summary. Keep every non-Vehicle query family byte-structural
+    # against the accepted R4 base so this performance gate cannot hide drift.
     unchanged = (
-        "get_warehouse_inventory_summary",
         "get_warehouse_inventory_alert_summary",
         "get_warehouse_inventory_families",
         "get_warehouse_inventory_batches",
@@ -397,6 +451,20 @@ async def _acceptance():
             current_source, name
         ), name
 
+    summary_body = ast.unparse(
+        next(
+            node
+            for node in ast.parse(current_source).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "get_warehouse_inventory_summary"
+        )
+    )
+    assert "_readable_vehicle_locations_subquery" in summary_body
+    assert "InventoryBalance.on_hand_quantity > 0" in summary_body
+    assert "_latest_readable_vehicle_sources_subquery" not in summary_body
+    assert "DispatchRoute" not in summary_body
+    assert "has_vehicle_presence" not in summary_body
+
     await _clone_fixture_databases()
     before = await _runtime_engine(BEFORE_DB)
     after = await _runtime_engine(AFTER_DB)
@@ -404,6 +472,23 @@ async def _acceptance():
         r4.seed.checked_url("DATABASE_URL"),
         poolclass=NullPool,
     )
+
+    # Projection v2 intentionally rejects stale v1 persisted state.
+    # Rebuild each physical clone before any timed/list observation so
+    # before/after compare identical READY projection data. This preparation is
+    # outside all measured calls.
+    for engine in (before, after):
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            await db.begin()
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(fixture["company_id"])},
+            )
+            await rebuild_live_stock_company(
+                db,
+                company_id=int(fixture["company_id"]),
+            )
+            await db.commit()
 
     report = {
         "base_sha": BASE_SHA,
@@ -468,7 +553,10 @@ async def _acceptance():
             after, fixture, "owner", head_function,
             limit=50, search="Common",
         )
-        assert report["cold"]["before"]["payload"] == report["cold"]["after"]["payload"]
+        _assert_r3_location_contract(report["cold"]["after"]["payload"])
+        assert _r3_stable_payload(
+            report["cold"]["before"]["payload"]
+        ) == _r3_stable_payload(report["cold"]["after"]["payload"])
         report["cold"]["before"].pop("payload")
         report["cold"]["after"].pop("payload")
 
@@ -522,9 +610,10 @@ async def _acceptance():
                 after, fixture, actor, head_function,
                 limit=limit, search=search, **filters,
             )
-            assert head_result["payload"] == base_result["payload"], (
-                actor, name
-            )
+            _assert_r3_location_contract(head_result["payload"])
+            assert _r3_stable_payload(
+                head_result["payload"]
+            ) == _r3_stable_payload(base_result["payload"]), (actor, name)
             assert head_result["sql_count"] == base_result["sql_count"], (
                 actor, name, base_result["sql_count"], head_result["sql_count"]
             )
@@ -569,13 +658,13 @@ async def _acceptance():
                     actor, name, head_result["plan"]
                 )
 
-            # These exact-base empty filters are independently known from #661
-            # to suffer the catalog-correlated projection lookup. Require the
-            # focused comparison to reproduce that cause before calling it fixed.
-            if (
-                name == "empty_recalled"
-                or (name == "empty_vehicle" and actor == "owner")
-            ):
+            # The recalled path is still the exact #661/#675 projection
+            # optimization seam, so require its historical correlated cause.
+            # R3 intentionally replaces the Vehicle path's old latest-Route
+            # attribution with canonical physical VEHICLE-location custody;
+            # requiring that superseded baseline plan shape would test the
+            # rejected Route semantic rather than preserve R4 behavior.
+            if name == "empty_recalled":
                 old_correlated = [
                     row for row in base_result["plan"]["relations"]
                     if row["catalog_correlated"]
@@ -655,7 +744,11 @@ async def _acceptance():
             head_deep = await _deep_cursor(
                 after, fixture, actor, head_function
             )
-            assert head_deep == base_deep
+            _assert_r3_location_contract(head_deep["payload"])
+            assert head_deep["anchor"] == base_deep["anchor"]
+            assert _r3_stable_payload(
+                head_deep["payload"]
+            ) == _r3_stable_payload(base_deep["payload"])
             expected = await _independent_expected(
                 source,
                 fixture,

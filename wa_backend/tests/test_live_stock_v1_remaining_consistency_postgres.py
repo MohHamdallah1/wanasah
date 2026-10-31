@@ -288,10 +288,9 @@ async def test_restricted_location_vehicle_and_foreign_disclosure_revoke_immedia
             **cursor_kwargs(case, db)
         )
         hidden_row = _list_item(case, hidden_list)
-        assert (
-            D(hidden_row["on_hand_quantity"]),
-            D(hidden_row["vehicle_quantity"]),
-        ) == (D("10"), D("0"))
+        assert D(hidden_row["on_hand_quantity"]) == D("10")
+        assert hidden_row["vehicle_quantity"] is None
+        assert hidden_row["vehicle_quantity_scope"] == "NO_ACCESS"
         vehicle_filter = await live_stock.get_warehouse_inventory(
             **cursor_kwargs(case, db, has_vehicle=True)
         )

@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 
 from api.warehouse import live_stock
 from api.warehouse._shared import _encode_variant_cursor
+from domains.live_stock_projection.service import rebuild_live_stock_company
 from models import ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from tests import test_live_stock_v1_r4_query_optimization_postgres as accepted
@@ -325,6 +326,23 @@ async def _run():
         await _runtime_identity(before, fixture)
         await _runtime_identity(after, fixture)
 
+        # R3 projection v2 deliberately rejects persisted v1 state. Prepare
+        # both cloned comparison databases identically before measurements.
+        # Use a write-capable transaction here; r4.session is intentionally
+        # READ ONLY and is reserved for measurements.
+        for engine in (before, after):
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                await db.begin()
+                await db.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                    {"tenant": str(fixture["company_id"])},
+                )
+                await rebuild_live_stock_company(
+                    db,
+                    company_id=int(fixture["company_id"]),
+                )
+                await db.commit()
+
         # First compare exactly the two remaining #675 negative-filter families
         # on the accepted 50k fixture before adding semantic edge rows.
         measured = [
@@ -342,7 +360,10 @@ async def _run():
                 after, fixture, actor, head_function,
                 limit=50, search=None, **filters,
             )
-            assert new["payload"] == old["payload"], (actor, name)
+            accepted._assert_r3_location_contract(new["payload"])
+            assert accepted._r3_stable_payload(
+                new["payload"]
+            ) == accepted._r3_stable_payload(old["payload"]), (actor, name)
             assert new["sql_count"] == old["sql_count"], (actor, name)
 
             old_relations = old["plan"]["relations"]
@@ -399,7 +420,10 @@ async def _run():
                 limit=50, search=None, stock_state="out_of_stock",
                 warmups=1, samples=2,
             )
-            assert out_new["payload"] == out_old["payload"]
+            accepted._assert_r3_location_contract(out_new["payload"])
+            assert accepted._r3_stable_payload(
+                out_new["payload"]
+            ) == accepted._r3_stable_payload(out_old["payload"])
             out_ids = _ids(out_new["payload"])
             assert special["missing_early"] in out_ids
             assert special["missing_deep"] in out_ids
@@ -418,7 +442,10 @@ async def _run():
                 limit=50, search=None, minimum_unset=True,
                 warmups=1, samples=2,
             )
-            assert min_new["payload"] == min_old["payload"]
+            accepted._assert_r3_location_contract(min_new["payload"])
+            assert accepted._r3_stable_payload(
+                min_new["payload"]
+            ) == accepted._r3_stable_payload(min_old["payload"])
             min_ids = _ids(min_new["payload"])
             assert special["missing_early"] in min_ids
             assert special["unset_positive"] in min_ids
@@ -481,7 +508,12 @@ async def _run():
                     limit=50, search=None, cursor=cursor,
                     warmups=1, samples=2, **filters,
                 )
-                assert new["payload"] == old["payload"], (actor, name)
+                accepted._assert_r3_location_contract(new["payload"])
+                assert accepted._r3_stable_payload(
+                    new["payload"]
+                ) == accepted._r3_stable_payload(
+                    old["payload"]
+                ), (actor, name)
                 keys = [
                     (row["name"], int(row["id"]))
                     for row in new["payload"]["items"]

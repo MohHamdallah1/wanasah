@@ -160,7 +160,16 @@ def main() -> None:
         failures.append("DUPLICATE_BATCH_SELLABILITY_AUTHORITY")
 
     checks += 1
-    if "from domains.inventory_rules import batch_sellability_predicate" not in sources["services"]:
+    services_imports_shared_sellability = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == "domains.inventory_rules"
+        and any(
+            alias.name == "batch_sellability_predicate"
+            for alias in node.names
+        )
+        for node in ast.walk(_tree(sources["services"]))
+    )
+    if not services_imports_shared_sellability:
         failures.append("SERVICES_SHARED_SELLABILITY_IMPORT_MISSING")
 
     expected_hooks = (
@@ -169,8 +178,6 @@ def main() -> None:
         ("catalog", "_run_variant_state_command", "refresh_live_stock_variants", "LIFECYCLE_PROJECTOR_HOOK_MISSING"),
         ("catalog", "_run_variant_state_command", "apply_live_stock_active_variant_delta", "ACTIVE_VARIANT_SUMMARY_HOOK_MISSING"),
         ("simple_products", "create_product_structures", "apply_live_stock_active_variant_delta", "SIMPLE_PRODUCT_ACTIVE_SUMMARY_HOOK_MISSING"),
-        ("dispatch", "dispatch_route", "refresh_live_stock_vehicle_attribution", "DISPATCH_CREATE_ATTRIBUTION_HOOK_MISSING"),
-        ("dispatch", "update_route_status", "refresh_live_stock_vehicle_attribution", "DISPATCH_UPDATE_ATTRIBUTION_HOOK_MISSING"),
     )
     for source_name, function_name, callee_name, failure in expected_hooks:
         checks += 1
@@ -232,7 +239,6 @@ def main() -> None:
         "refresh_live_stock_variants",
         "apply_live_stock_balance_impacts",
         "refresh_live_stock_from_movement_specs",
-        "refresh_live_stock_vehicle_attribution",
         "refresh_due_live_stock_transitions",
         "apply_live_stock_active_variant_delta",
     }
@@ -308,8 +314,11 @@ def main() -> None:
     delta_block = movement_source[delta_start:delta_end]
     if "_acquire_variant_guards(" in delta_block:
         failures.append("REDUNDANT_MOVEMENT_VARIANT_GUARD_PRESENT")
-    if "acquire_live_stock_vehicle_guards(" not in delta_block:
-        failures.append("MOVEMENT_VEHICLE_GUARD_MISSING")
+    if (
+        "get_live_stock_vehicle_sources(" in delta_block
+        or "refresh_live_stock_vehicle_attribution(" in delta_block
+    ):
+        failures.append("MOVEMENT_ROUTE_ATTRIBUTION_PRESENT")
     if (
         "batch_metadata_is_sellable(" not in delta_block
         or "batch_next_transition_date(" not in delta_block
@@ -335,15 +344,21 @@ def main() -> None:
         failures.append("MOVEMENT_IMPACT_SNAPSHOTS_NOT_PROJECTED")
 
     checks += 1
-    attribution_source = movement_source[
-        movement_source.find("async def refresh_live_stock_vehicle_attribution"):
-        movement_source.find("async def apply_live_stock_active_variant_delta")
-    ]
-    if "_acquire_variant_guards(" in attribution_source:
-        failures.append("REDUNDANT_ATTRIBUTION_VARIANT_GUARD_PRESENT")
-    if "acquire_live_stock_vehicle_guards(" not in attribution_source:
-        failures.append("ATTRIBUTION_VEHICLE_GUARD_MISSING")
+    if (
+        "DispatchRoute" in projector_source
+        or "get_live_stock_vehicle_sources" in projector_source
+        or "refresh_live_stock_vehicle_attribution" in projector_source
+        or "live_stock_latest_vehicle_route" in projector_source
+    ):
+        failures.append("PROJECTOR_ROUTE_DEPENDENT_PHYSICAL_ATTRIBUTION_PRESENT")
 
+    checks += 1
+    dispatch_source = sources["dispatch"]
+    if (
+        "get_live_stock_vehicle_sources" in dispatch_source
+        or "refresh_live_stock_vehicle_attribution" in dispatch_source
+    ):
+        failures.append("DISPATCH_ROUTE_MUTATES_PHYSICAL_LIVE_STOCK_ATTRIBUTION")
     checks += 1
     variant_refresh_source = projector_source[
         projector_source.find("async def refresh_live_stock_variants"):

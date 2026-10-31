@@ -455,7 +455,9 @@ async def test_supplier_inbound_then_direct_vehicle_load_reconciles_exact_base_t
         live_row = next(row for row in page["items"] if row["id"] == tenant.variant_id)
         assert Decimal(live_row["on_hand_quantity"]) == EXPECTED_WAREHOUSE_BASE
         assert Decimal(live_row["vehicle_quantity"]) == EXPECTED_VEHICLE_BASE
-        assert Decimal(live_row["total_quantity"]) == EXPECTED_COMBINED_BASE
+        assert Decimal(live_row["total_quantity"]) == EXPECTED_WAREHOUSE_BASE
+        assert live_row["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
+        assert live_row["vehicle_quantity_scope"] == "COMPANY_WIDE"
         assert Decimal(live_row["display_factor_to_base"]) == CARTON_TO_BASE
 
     # Insufficient source stock is rejected and the whole attempt rolls back.

@@ -135,12 +135,6 @@ from domains.dispatch_adjust_load_read import read_adjust_load_inventory
 from domains.dispatch_load_plan import lock_session_load_plan, lock_route_adjustment_context, pending_handshake_base_net, synchronize_session_load_plans
 from domains.inventory_vehicle_load.return_safety import safe_unload_terminal_statuses
 from domains.dispatch_transfer_quantity import CANONICAL_BASE_V1, is_canonical_base_handshake, canonical_field_base_quantity
-from domains.live_stock_projection.service import (
-    get_live_stock_vehicle_sources,
-    refresh_live_stock_vehicle_attribution,
-)
-
-
 from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDriverResponse,
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
 DispatchRouteRequest, VehicleInventoryItemResponse, RouteLiveInventoryItemResponse, AdjustRouteInventoryRequest,
@@ -1564,11 +1558,6 @@ async def dispatch_route(
             company_id=company_id,
             vehicle_id=payload.vehicle_id,
         )
-        previous_vehicle_sources = await get_live_stock_vehicle_sources(
-            db,
-            company_id=company_id,
-            vehicle_ids=[payload.vehicle_id],
-        )
         await require_location(access, 'dispatch.execute', int(source_location.id))
         await _dispatch_assert_vehicle_custody_reconciled(
             db,
@@ -1933,12 +1922,6 @@ async def dispatch_route(
                 elif existing is not None and is_emergency:
                     existing.is_emergency = True
 
-        await refresh_live_stock_vehicle_attribution(
-            db,
-            company_id=company_id,
-            vehicle_ids=[payload.vehicle_id],
-            previous_sources=previous_vehicle_sources,
-        )
         await db.commit()
         asyncio.create_task(
             dispatch_manager.broadcast(
@@ -4091,19 +4074,6 @@ async def update_route_status(
         old_driver_id = route.driver_id
         old_vehicle_id = route.vehicle_id
 
-        attribution_vehicle_ids = sorted({
-            int(vehicle_id)
-            for vehicle_id in (old_vehicle_id, target_vehicle_id)
-            if vehicle_id is not None
-        })
-        previous_vehicle_sources = {}
-        if vehicle_changed and attribution_vehicle_ids:
-            previous_vehicle_sources = await get_live_stock_vehicle_sources(
-                db,
-                company_id=company_id,
-                vehicle_ids=attribution_vehicle_ids,
-            )
-
         if (
             bound_session is not None
             and bound_session.end_time is not None
@@ -4460,14 +4430,6 @@ async def update_route_status(
                         f"inventory={inventory_mode}"
                     ),
                 )
-            )
-
-        if vehicle_changed and attribution_vehicle_ids:
-            await refresh_live_stock_vehicle_attribution(
-                db,
-                company_id=company_id,
-                vehicle_ids=attribution_vehicle_ids,
-                previous_sources=previous_vehicle_sources,
             )
 
         await db.commit()

@@ -27,7 +27,10 @@ from sqlalchemy.pool import NullPool
 from api.warehouse import live_stock
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
-from domains.live_stock_projection.service import assert_live_stock_projection_ready
+from domains.live_stock_projection.service import (
+    assert_live_stock_projection_ready,
+    rebuild_live_stock_company,
+)
 from models import Permission, Role, UserLocationAccess, role_permissions
 from tests.canonical_actor_fixtures import (
     load_company_owner_fixture,
@@ -575,6 +578,25 @@ async def benchmark(label: str, fixture_path: Path, output: Path) -> None:
     ]
     results = {}
     try:
+        # R3 raises the semantic projection version so stale v1 Route-attributed
+        # rows fail closed. The R2 comparison intentionally reuses one seeded DB;
+        # prepare the candidate code's canonical projection outside timed samples.
+        if label == "r2":
+            async with runtime_session(
+                engine, int(fixture["company_id"])
+            ) as db:
+                # Projection-v2 deployment preparation is outside every timed
+                # sample. The 50k rebuild can legitimately exceed the normal
+                # 60s read-query ceiling, so widen only this one transaction;
+                # measured Live Stock calls continue to use the original limit.
+                await db.execute(
+                    text("SET LOCAL statement_timeout='300000ms'")
+                )
+                await rebuild_live_stock_company(
+                    db,
+                    company_id=int(fixture["company_id"]),
+                )
+                await db.commit()
         for name, kind, actor, search, runs in scenarios:
             for _ in range(3):
                 await invoke(engine, fixture, kind, actor, search=search)

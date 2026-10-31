@@ -410,7 +410,9 @@ async def _assert_inventory_truth(
         row = next(item for item in page["items"] if item["id"] == tenant.variant_id)
         assert Decimal(row["on_hand_quantity"]) == warehouse
         assert Decimal(row["vehicle_quantity"]) == vehicle
-        assert Decimal(row["total_quantity"]) == warehouse + vehicle
+        assert Decimal(row["total_quantity"]) == warehouse
+        assert row["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
+        assert row["vehicle_quantity_scope"] == "COMPANY_WIDE"
         assert Decimal(row["display_factor_to_base"]) == CARTON_TO_BASE
 
         detail = await live_stock.get_warehouse_inventory_batches(

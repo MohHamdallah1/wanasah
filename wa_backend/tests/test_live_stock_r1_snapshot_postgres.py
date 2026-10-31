@@ -117,7 +117,8 @@ async def test_exact_warehouse_vehicle_and_company_read_permissions(r1case):
         # Reuse the same persisted capability subject/session after committed revoke.
         hidden = item(case, await live_stock.get_warehouse_inventory(**cursor_kwargs(case, db)))
         assert D(hidden["on_hand_quantity"]) == D("10")
-        assert D(hidden["vehicle_quantity"]) == D("0")
+        assert hidden["vehicle_quantity"] is None
+        assert hidden["vehicle_quantity_scope"] == "NO_ACCESS"
         filtered = await live_stock.get_warehouse_inventory(
             **cursor_kwargs(case, db, has_vehicle=True))
         assert filtered["items"] == []
