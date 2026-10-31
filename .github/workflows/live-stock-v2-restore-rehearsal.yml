@@ -437,60 +437,66 @@ jobs:
           python - <<'PY'
           import os
           from pathlib import Path
-          success = all(os.environ[k] == "success" for k in (
-              "RESTORE_RESULT", "ROLLOUT_RESULT", "COMPAT_RESULT"
-          ))
-          prep = "YES" if success else "NO"
+
+          results = {
+              "restore": os.environ["RESTORE_RESULT"],
+              "rollout": os.environ["ROLLOUT_RESULT"],
+              "compatibility": os.environ["COMPAT_RESULT"],
+          }
+          prep = "YES" if all(value == "success" for value in results.values()) else "NO"
           sha = os.environ["TESTED_SHA"]
-          report = f"""# WANASAH Live Stock G07 release-readiness package
-
-Tested SHA: `{sha}`
-Starting main: `96c5ba374995e99b57aa7a004f0c8bf642e10e3b`
-
-## Executed non-production evidence
-- Real PostgreSQL16 backup -> separate restored database -> v1 readiness rejection -> interrupted rebuild rollback -> canonical one-company rebuild -> fresh authorized bearer readback -> second idempotent rebuild: {os.environ['RESTORE_RESULT']}.
-- Canonical FIFO + MOVING_AVERAGE v1->v2 rollout acceptance with restricted NOBYPASSRLS role and FORCE RLS: {os.environ['ROLLOUT_RESULT']}.
-- Tracked Dashboard and FIELD Vehicle-custody compatibility: {os.environ['COMPAT_RESULT']}.
-- External clients not present in this repository and production deployment topology are UNAVAILABLE evidence; they are not certified by CI.
-
-## Authorized per-company sequence
-1. Require explicit release/change approval; record exact release SHA, approved company id, active Warehouse ids, operator, maintenance window and rollback owner.
-2. Take the production-approved consistent backup/snapshot and verify source identity, completion, checksum/catalog evidence, credentials and a restore rehearsal on an approved non-production target.
-3. Deploy only mutually compatible API/Dashboard/mobile clients. Persisted v1 summaries must fail closed with 503 LIVE_STOCK_PROJECTION_NOT_READY, request id and no items.
-4. With only the approved restricted NOBYPASSRLS application role, open ONE company-scoped transaction, establish canonical tenant context and call only rebuild_live_stock_company(company_id=approved_company_id, batch_size=1000).
-5. Before commit, assert readiness for every active Warehouse. Timeout, mismatch, unexpected scope, lock-budget breach or verification failure => ROLLBACK and NO-GO.
-6. Commit only after all checks pass. From a fresh transaction and real bearer verify v2 READY, Warehouse-only quantities, independent Vehicle/IN_TRANSIT custody, denial paths, and unchanged movement/cost/idempotency evidence.
-7. A second acceptance rebuild, if used, must report drifted_keys=0 and summary_repairs=0 without authoritative stock/cost changes.
-
-## Rollback and NO-GO criteria
-- Before commit: exception, timeout, killed connection, readiness/source mismatch or authorization uncertainty => rollback; v1 remains unavailable rather than empty.
-- After commit: DEGRADED/not-ready state, scope mismatch, Route-based attribution, quantity mismatch, unexpected movement/cost event or revoked-access disclosure => stop Live Stock and investigate; never force READY or replay movements.
-- A database restore is a separate incident/change action and requires reconciliation of post-backup inventory and financial events.
-- Never roll back to a reader that treats legacy Vehicle projection as Warehouse stock.
-
-## Production p95/p99 procedure — NOT executed in CI
-1. Define owner/SRE-approved latency, error-rate and lock/timeout budgets before measuring. Undefined budgets => NO-GO.
-2. In the approved environment exercise representative Warehouse sizes, owner/restricted readers, 1/50/200 limits, deep cursors, search/family/negative filters, batch/source reads and realistic concurrency.
-3. Measure end-to-end API p50/p95/p99 and error rate separately for warm and controlled cold-cache windows; capture PostgreSQL query latency, rows, buffers, lock waits, statement timeouts, CPU/IO and pool saturation.
-4. Record release SHA, company/sample scope, request ids, observation window and workload. Synthetic CI timing is never production evidence.
-5. Any p95/p99 above the approved budget, material error increase, lock/timeout breach, readiness failure or authority discrepancy => NO-GO/rollback decision.
-
-## Environment-specific blockers still required
-- Explicit owner/change approval.
-- Production-approved backup method, credentials, restore target and verified restore rehearsal.
-- Actual production DB size plus dump/restore duration and maintenance/lock budget.
-- Deployed API/Dashboard/mobile/external-client version compatibility.
-- Approved per-company restricted execution authority.
-- Real production p95/p99/error/lock evidence under representative load.
-- Post-backup inventory/financial reconciliation plan.
-- Any external client evidence unavailable from this repository.
-
-TECHNICAL PREP READY: {prep}
-PRODUCTION G07 CLOSED: NO
-"""
+          lines = [
+              "# WANASAH Live Stock G07 release-readiness package",
+              "",
+              f"Tested SHA: `{sha}`",
+              "Starting main: `96c5ba374995e99b57aa7a004f0c8bf642e10e3b`",
+              "",
+              "## Executed non-production evidence",
+              f"- Real PostgreSQL16 backup -> separate restore -> v1 rejection -> rollback -> one-company rebuild -> fresh bearer readback -> idempotent second rebuild: {results['restore']}.",
+              f"- Canonical FIFO + MOVING_AVERAGE v1->v2 rollout with restricted NOBYPASSRLS role and FORCE RLS: {results['rollout']}.",
+              f"- Tracked Dashboard and FIELD Vehicle-custody compatibility: {results['compatibility']}.",
+              "- External clients outside this repository and production deployment topology are UNAVAILABLE evidence and are not certified by CI.",
+              "",
+              "## Authorized per-company sequence",
+              "1. Require explicit owner/change approval; record exact release SHA, approved company id, active Warehouse ids, operator, maintenance window and rollback owner.",
+              "2. Take and verify the production-approved backup/snapshot: source identity, completion, checksum/catalog evidence, credentials and restore rehearsal on an approved non-production target.",
+              "3. Deploy only mutually compatible API/Dashboard/mobile clients. Persisted v1 summaries must fail closed with 503 LIVE_STOCK_PROJECTION_NOT_READY, request id and no items.",
+              "4. Using only the approved restricted NOBYPASSRLS application role, open ONE company-scoped transaction, establish canonical tenant context and call only rebuild_live_stock_company(company_id=approved_company_id, batch_size=1000).",
+              "5. Before commit, assert readiness for every active Warehouse. Timeout, mismatch, unexpected scope, lock-budget breach or verification failure means ROLLBACK and NO-GO.",
+              "6. Commit only after all checks pass. From a fresh transaction and real bearer verify v2 READY, Warehouse-only quantities, independent Vehicle/IN_TRANSIT custody, denial paths and unchanged movement/cost/idempotency evidence.",
+              "7. If a second acceptance rebuild is used, require drifted_keys=0 and summary_repairs=0 without authoritative stock/cost changes.",
+              "",
+              "## Rollback and NO-GO criteria",
+              "- Before commit: exception, timeout, killed connection, readiness/source mismatch or authorization uncertainty => rollback; v1 stays unavailable rather than empty.",
+              "- After commit: DEGRADED/not-ready, scope mismatch, Route attribution, quantity mismatch, unexpected movement/cost event or revoked-access disclosure => stop Live Stock and investigate; never force READY or replay movements.",
+              "- Database restore is a separate incident/change action and requires reconciliation of post-backup inventory and financial events.",
+              "- Never roll back to a reader that treats legacy Vehicle projection as Warehouse stock.",
+              "",
+              "## Production p95/p99 procedure — NOT executed in CI",
+              "1. Define owner/SRE-approved latency, error-rate and lock/timeout budgets before measurement. Undefined budgets => NO-GO.",
+              "2. In the approved environment exercise representative Warehouse sizes, owner/restricted readers, limits 1/50/200, deep cursors, search/family/negative filters, batch/source reads and realistic concurrency.",
+              "3. Measure end-to-end API p50/p95/p99 and error rate separately for warm and controlled cold-cache windows; capture PostgreSQL query latency, rows, buffers, lock waits, statement timeouts, CPU/IO and pool saturation.",
+              "4. Record release SHA, company/sample scope, request ids, observation window and workload. Synthetic CI timing is never production evidence.",
+              "5. Any p95/p99 above the approved budget, material error increase, lock/timeout breach, readiness failure or authority discrepancy => NO-GO/rollback.",
+              "",
+              "## Environment-specific blockers still required",
+              "- Explicit owner/change approval.",
+              "- Production-approved backup method, credentials, restore target and verified restore rehearsal.",
+              "- Actual production DB size plus dump/restore duration and maintenance/lock budget.",
+              "- Deployed API/Dashboard/mobile/external-client version compatibility.",
+              "- Approved per-company restricted execution authority.",
+              "- Real production p95/p99/error/lock evidence under representative load.",
+              "- Post-backup inventory/financial reconciliation plan.",
+              "- External client evidence unavailable from this repository.",
+              "",
+              f"TECHNICAL PREP READY: {prep}",
+              "PRODUCTION G07 CLOSED: NO",
+              "",
+          ]
+          report = "\n".join(lines)
           Path("/tmp/live-stock-g07-release-readiness.md").write_text(report, encoding="utf-8")
           print(report)
-          if not success:
+          if prep != "YES":
               raise SystemExit("G07 technical preflight failed; package remains NO-GO")
           PY
 
