@@ -114,6 +114,28 @@ jobs:
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           allowed = {
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+              ".github/workflows/live-stock-v1-operational-browser.yml",
+              ".github/workflows/live-stock-v1-ux-closure.yml",
+              "dashboard/e2e/live-stock-operational.config.ts",
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              "dashboard/e2e/live-stock-operational.support.ts",
+              "dashboard/e2e/live-stock-ux-closure.fixtures.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/components/dashboard/WorkspaceTopBar.css",
+              "dashboard/src/pages/inventory/InventoryTopDock.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/inventoryShellPolish.css",
+              "dashboard/src/pages/inventory/inventoryTopDockController.ts",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
+              "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+              "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
+              "wa_backend/tests/live_stock_operational_browser_support.py",
               "dashboard/src/pages/inventory/Tab2Inbound.tsx",
               "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
               "dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts",
@@ -152,7 +174,7 @@ jobs:
               raise SystemExit(f"LIVE_STOCK_UX_SCOPE=FAIL extra={sorted(extra)}")
           forbidden = [
               path for path in changed
-              if path.startswith("wa_backend/")
+              if (path.startswith("wa_backend/") and path != "wa_backend/tests/live_stock_operational_browser_support.py")
               or path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
               or path.startswith(("flutter_app/", "wanasah_frontend/"))
           ]

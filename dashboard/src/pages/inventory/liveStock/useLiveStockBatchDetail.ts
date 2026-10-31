@@ -23,6 +23,7 @@ export function useLiveStockBatchDetail(
   locationId: number,
   fallbackMessage: string,
   staleMessage: string,
+  onReadDenied?: () => void,
 ) {
   const authFetch = useAuthFetch();
   const [product, setProduct] = useState<WarehouseProduct | null>(null);
@@ -118,6 +119,7 @@ export function useLiveStockBatchDetail(
         if (sequence !== requestSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
         if (apiErrorStatus(error) === 403) {
+          onReadDenied?.();
           // A revoked read must not leave formerly authorized evidence visible.
           sourceSeq.current += 1;
           sourceAbort.current?.abort();
@@ -136,7 +138,7 @@ export function useLiveStockBatchDetail(
         if (sequence === requestSeq.current) setLoading(false);
       }
     },
-    [authFetch, fallbackMessage, locationId],
+    [authFetch, fallbackMessage, locationId, onReadDenied],
   );
 
   const refresh = useCallback(
@@ -234,6 +236,7 @@ export function useLiveStockBatchDetail(
         if (sequence !== sourceSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
         if (apiErrorStatus(error) === 403) {
+          onReadDenied?.();
           // Source revocation invalidates the entire displayed batch evidence.
           stopRequests();
           setPage(null);
@@ -251,7 +254,7 @@ export function useLiveStockBatchDetail(
         if (sequence === sourceSeq.current) setSourceLoadingId(null);
       }
     },
-    [authFetch, fallbackMessage, locationId, stopRequests],
+    [authFetch, fallbackMessage, locationId, onReadDenied, stopRequests],
   );
 
   const loadSource = useCallback(

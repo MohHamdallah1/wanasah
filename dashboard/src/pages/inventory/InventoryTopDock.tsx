@@ -74,6 +74,17 @@ export function InventoryTopDock({
   onChange,
 }: InventoryTopDockProps) {
   const rootRef = useInventoryDockController();
+  const keyboardFocusId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const selected = rootRef.current?.querySelector<HTMLElement>("[aria-selected='true']");
+    selected?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Automatic tab activation keeps keyboard focus in the tablist even when
+    // a newly mounted panel has an autofocus editor. Pointer activation keeps
+    // the panel's existing focus behavior.
+    if (keyboardFocusId.current === activeId) selected?.focus({ preventScroll: true });
+    keyboardFocusId.current = null;
+  }, [activeId, rootRef]);
 
   const moveFocus = (
     event: KeyboardEvent<HTMLButtonElement>,
@@ -103,6 +114,7 @@ export function InventoryTopDock({
     event.preventDefault();
     const normalized = (nextIndex + items.length) % items.length;
     const nextItem = items[normalized];
+    keyboardFocusId.current = nextItem.id;
     const tabs = root.querySelectorAll<HTMLButtonElement>("[role='tab']");
     const nextTab = tabs[normalized];
     nextTab?.focus();

@@ -1,9 +1,8 @@
 import { expect, test, type Page, type TestInfo } from "playwright/test";
 import {
   installUxApi,
+  visualCases,
   seedUx,
-  type Locale,
-  type Theme,
   type UxFixture,
 } from "./live-stock-ux-closure.fixtures";
 
@@ -36,20 +35,6 @@ const capture = async (page: Page, testInfo: TestInfo, name: string) => {
   });
 };
 
-const visualCases: Array<{
-  name: string;
-  locale: Locale;
-  theme: Theme;
-  width: number;
-  height: number;
-  mobile: boolean;
-}> = [
-  { name: "desktop-en-light", locale: "en", theme: "light", width: 1440, height: 900, mobile: false },
-  { name: "desktop-ar-dark", locale: "ar", theme: "dark", width: 1440, height: 900, mobile: false },
-  { name: "mobile-en-dark", locale: "en", theme: "dark", width: 390, height: 844, mobile: true },
-  { name: "mobile-ar-light", locale: "ar", theme: "light", width: 390, height: 844, mobile: true },
-  { name: "tablet-en-light", locale: "en", theme: "light", width: 900, height: 760, mobile: false },
-];
 
 for (const entry of visualCases) {
   test(`visual/accessibility ${entry.name}`, async ({ page }, testInfo) => {

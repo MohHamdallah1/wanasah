@@ -27,6 +27,8 @@ type Props = {
   sourceErrorId: number | null;
   onClose: () => void;
   onRetry: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
   onLoadMore: () => void;
   onLoadSource: (batchId: number) => void;
   onRetrySource?: (batchId: number) => void;
@@ -59,6 +61,8 @@ export function BatchDetailPanel({
   sourceErrorId,
   onClose,
   onRetry,
+  onRefresh,
+  refreshing = false,
   onLoadMore,
   onLoadSource,
   onRetrySource,
@@ -100,6 +104,16 @@ export function BatchDetailPanel({
       bodyClassName="p-3 sm:p-5"
     >
       <div className="space-y-3" data-testid="live-stock-batch-detail">
+        {onRefresh ? (
+          <div className="flex justify-end">
+            <button type="button" onClick={onRefresh} disabled={refreshing}
+              aria-label={t("inventoryShell.refreshNow")}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60">
+              <RefreshCcw className="h-4 w-4" aria-hidden="true" />
+              {t("inventoryShell.refreshNow")}
+            </button>
+          </div>
+        ) : null}
         {loading && batches.length === 0 ? (
           <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-bold text-slate-500">
             <RefreshCcw className="h-4 w-4 animate-spin" aria-hidden="true" />
