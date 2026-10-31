@@ -72,6 +72,7 @@ jobs:
           src/test/inventory-session-cache.test.ts
           src/test/auth-session-refresh.test.tsx
           src/test/auth-session-isolation.test.tsx
+          src/test/auth-session-page-boundary.test.tsx
           src/test/auth-session-consumer-isolation.test.tsx
           src/test/dispatch-load-context.test.tsx
           src/test/product-import-realtime-lifecycle-j.test.tsx
@@ -85,11 +86,11 @@ jobs:
           pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
               "extends": "../tsconfig.app.json",
               "compilerOptions": {"types": ["node", "vitest/globals", "vite/client"]},
-              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx", "../src/test/auth-session-consumer-isolation.test.tsx", "../src/test/dispatch-load-context.test.tsx"],
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx", "../src/test/auth-session-page-boundary.test.tsx", "../src/test/auth-session-consumer-isolation.test.tsx", "../src/test/dispatch-load-context.test.tsx"],
           }))
           PY
           npx tsc --noEmit -p e2e/.inflight-types.json
-          npx eslint src/App.tsx src/components/operations/DashboardLayout.tsx src/hooks/useInventoryAccess.ts src/hooks/useDashboardSession.ts src/features/tenantIdentity/useTenantIdentity.ts src/pages/DispatchBoard.tsx src/pages/products/import/useImportProductPolling.ts src/test/auth-session-consumer-isolation.test.tsx src/test/dispatch-load-context.test.tsx src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
+          npx eslint src/App.tsx src/components/operations/DashboardLayout.tsx src/hooks/useInventoryAccess.ts src/hooks/useDashboardSession.ts src/features/tenantIdentity/useTenantIdentity.ts src/pages/DispatchBoard.tsx src/pages/products/import/useImportProductPolling.ts src/test/auth-session-consumer-isolation.test.tsx src/test/auth-session-page-boundary.test.tsx src/test/dispatch-load-context.test.tsx src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
           npm run build
           node --test src/pages/Login.contract.test.mjs
       - name: Install existing backend dependencies
@@ -193,6 +194,7 @@ jobs:
               "dashboard/src/lib/authStorage.ts",
               "dashboard/src/pages/Login.tsx",
               "dashboard/src/test/auth-session-isolation.test.tsx",
+              "dashboard/src/test/auth-session-page-boundary.test.tsx",
               "wa_backend/tests/live_stock_inflight_security_probe.py",
               ".github/scripts/live_stock_ci_ownership.py",
               "dashboard/src/components/operations/TopBar.tsx",
