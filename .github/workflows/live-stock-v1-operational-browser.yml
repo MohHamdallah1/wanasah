@@ -285,9 +285,11 @@ jobs:
           src/pages/inventory/Tab1LiveStock.tsx
           src/pages/inventory/inventoryTopDockController.ts
           src/pages/inventory/liveStock/BatchDetailPanel.tsx
+          src/pages/inventory/liveStock/i18n.ts
           src/pages/inventory/liveStock/useLiveStockBatchDetail.ts
           src/test/inventory-cp13-shell-polish.test.tsx
           src/test/live-stock-batch-detail-freshness.test.tsx
+          src/test/live-stock-local-failure.test.tsx
 
       - name: Typecheck app and focused browser proof
         working-directory: dashboard
