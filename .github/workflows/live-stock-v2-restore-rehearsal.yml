@@ -202,10 +202,17 @@ jobs:
               "docs/operations/LIVE_STOCK_V2_ROLLOUT_READINESS_RUNBOOK.md",
               "wa_backend/tests/test_live_stock_v2_restore_rehearsal_postgres.py",
           }
-          unexpected = files - owned
-          assert not unexpected, f"Unowned V2 restore changes: {sorted(unexpected)}"
+          def check_scope(candidate):
+              unexpected = candidate - owned
+              assert not unexpected, f"Unowned V2 restore changes: {sorted(unexpected)}"
+          check_scope(files)
           for probe in ("wa_backend/services.py", "wa_backend/domains/inventory/services.py"):
-              assert probe not in owned and files | {probe} - owned, "Unprotected V2 restore boundary"
+              try:
+                  check_scope(files | {probe})
+              except AssertionError as exc:
+                  assert probe in str(exc)
+              else:
+                  raise AssertionError("Unexpected V2 restore ownership bypass: " + probe)
           print("LIVE_STOCK_V2_RESTORE_SCOPE=PASS negative_probes=2")
           PY
 
