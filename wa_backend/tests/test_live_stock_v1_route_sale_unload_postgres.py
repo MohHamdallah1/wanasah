@@ -705,19 +705,8 @@ async def test_route_sale_and_receiver_unload_preserve_quantity_and_cost_truth(p
 
     # 4) Active-session +80 is a HANDSHAKE reservation first; physical stock
     # must remain 560/240 until the assigned representative accepts it.
-    async with pg.session() as db:
-        route = await db.get(DispatchRoute, route_id)
-        assert route is not None
-        adjust_context = {
-            "version": "ADJUST_LOAD_CONTEXT_V2",
-            "vehicle_id": int(route.vehicle_id),
-            "source_warehouse_id": int(route.source_location_id),
-            "work_session_id": int(route.work_session_id) if route.work_session_id is not None else None,
-            "route_context_revision": int(route.adjustment_context_revision),
-        }
     adjust = AdjustRouteInventoryRequest(
         request_id=uuid4(),
-        context=adjust_context,
         deltas=[{"product_id": tenant.variant_id, "delta_base": ACTIVE_ROUTE_DELTA}],
     )
     async with pg.session() as db:
