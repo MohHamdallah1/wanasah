@@ -13,6 +13,7 @@ import '../../repositories/sync_repository.dart';
 import 'dashboard_event.dart';
 import 'dashboard_state.dart';
 import 'package:dio/dio.dart';
+import '../../core/errors/api_failure_exception.dart';
 import '../../services/location_service.dart';
 import '../../repositories/dashboard_repository.dart';
 import '../../features/work_session/application/work_session_coordinator.dart';
@@ -40,6 +41,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final RecoverySyncCoordinator _recoverySyncCoordinator;
   final CustodyCoordinator _custodyCoordinator;
   bool _workSessionRecoveryCompleted = false;
+  // A confirmed denial must not be bypassed by an offline SQLite reload.
+  bool _sellableAccessDenied = false;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
   EventTransformer<T> _sequential<T>() {
@@ -159,7 +162,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         '[DashboardBloc] Local reload after recovery sync failed: $error',
       );
       if (previous != null) {
-        emit(previous.copyWith(isOffline: true));
+        emit(previous.copyWith(
+          isOffline: true,
+          sellableStockDisclosure: previous.sellableStockDisclosure == StockDisclosure.denied
+              ? StockDisclosure.denied : StockDisclosure.stale,
+          nonSellableStockDisclosure: previous.nonSellableStockDisclosure == StockDisclosure.denied
+              ? StockDisclosure.denied : StockDisclosure.stale,
+        ));
       } else {
         emit(const DashboardInitial());
       }
@@ -252,7 +261,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     return DashboardLoaded(
       visits: visits,
-      products: products,
+      products: _sellableAccessDenied ? const <ProductModel>[] : products,
+      sellableStockDisclosure: _sellableAccessDenied
+          ? StockDisclosure.denied : StockDisclosure.stale,
       totalVisits: total,
       completedVisits: completed,
       pendingVisits: pending,
@@ -315,22 +326,26 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final bool isOnBreak = sessionSnapshot.isOnBreak ?? false;
       final String? startTimeStr = sessionSnapshot.startTime;
       List<ProductModel> apiProducts = [];
+      var sellableDisclosure = StockDisclosure.unavailable;
 
       if (sessionData != null) {
         isAuthorized = sessionData['is_authorized_to_sell'] == true;
 
         // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
         final dynamic rawInv = sessionData['inventory'];
-        final List<dynamic> inventoryList = rawInv is List ? rawInv : [];
-        apiProducts =
-            inventoryList
-                .map(
-                  (p) => ProductModel.fromJson(
-                    p is Map ? Map<String, dynamic>.from(p) : {},
-                  ),
-                )
-                .toList();
+        if (rawInv is! List) {
+          throw const FormatException('Missing or malformed vehicle inventory');
+        }
+        apiProducts = rawInv
+            .map((p) => ProductModel.fromJson(
+                  Map<String, dynamic>.from(p as Map),
+                ))
+            .toList();
+        sellableDisclosure = StockDisclosure.verified;
       }
+
+      // Only a successfully disclosed, parsed snapshot can clear denial.
+      _sellableAccessDenied = false;
 
       final financials =
           data['financials'] is Map
@@ -391,7 +406,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       emit(
         DashboardLoaded(
           visits: localData.visits,
-          products: apiProducts.isNotEmpty ? apiProducts : localData.products,
+          products: apiProducts,
+          sellableStockDisclosure: sellableDisclosure,
           // +++  لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
           totalVisits:
               countsData != null
@@ -465,7 +481,22 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         add(CheckPendingTransfers());
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return;
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        _sellableAccessDenied = true;
+        if (state is DashboardLoaded) {
+          emit((state as DashboardLoaded).copyWith(
+            products: const <ProductModel>[],
+            nonSellableCustody: const <NonSellableCustodyItem>[],
+            sellableStockDisclosure: StockDisclosure.denied,
+            nonSellableStockDisclosure: StockDisclosure.denied,
+            clearPendingTransfer: true,
+            clearRefreshIssue: true,
+          ));
+        } else {
+          emit(DashboardError(message: 'dashboard_access_denied'));
+        }
+        return;
+      }
 
       final status = e.response?.statusCode;
       final isConnectivityFailure =
@@ -561,17 +592,35 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     var nonSellableCustody = snapshot.nonSellableCustody;
     var pendingReturnCustody = snapshot.pendingReturnCustody;
     var pendingReadCompleted = false;
+    var nonSellableDisclosure = snapshot.nonSellableStockDisclosure;
+    var pendingDenied = false;
 
     try {
       pendingTransfer = await _custodyCoordinator.loadPendingTransfers();
       pendingReadCompleted = true;
     } catch (e) {
+      if (_isCustodyDenied(e)) {
+        pendingTransfer = null;
+        pendingDenied = true;
+      }
       developer.log('[DashboardBloc] Custody pending-transfer read failed: $e');
     }
 
     try {
       nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody();
+      nonSellableDisclosure = StockDisclosure.verified;
     } catch (e) {
+      if (_isCustodyDenied(e)) {
+        nonSellableCustody = const <NonSellableCustodyItem>[];
+        nonSellableDisclosure = StockDisclosure.denied;
+      } else {
+        nonSellableDisclosure =
+            snapshot.nonSellableStockDisclosure == StockDisclosure.denied
+                ? StockDisclosure.denied
+                : (snapshot.nonSellableStockDisclosure == StockDisclosure.verified ||
+                   snapshot.nonSellableStockDisclosure == StockDisclosure.stale)
+                    ? StockDisclosure.stale : StockDisclosure.unavailable;
+      }
       developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
     }
 
@@ -586,11 +635,19 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     emit(
       (state as DashboardLoaded).copyWith(
         pendingTransfer: pendingTransfer,
-        clearPendingTransfer: pendingReadCompleted && pendingTransfer == null,
+        clearPendingTransfer: pendingDenied || (pendingReadCompleted && pendingTransfer == null),
         nonSellableCustody: nonSellableCustody,
+        nonSellableStockDisclosure: nonSellableDisclosure,
         pendingReturnCustody: pendingReturnCustody,
       ),
     );
+  }
+
+  bool _isCustodyDenied(Object error) {
+    final status = error is ApiFailureException
+        ? error.apiFailure.status
+        : error is DioException ? error.response?.statusCode : null;
+    return status == 401 || status == 403;
   }
 
   Future<void> _onRespondToTransfer(
@@ -774,6 +831,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     return DashboardLoaded(
       visits: current.visits,
       products: current.products,
+      sellableStockDisclosure: current.sellableStockDisclosure,
+      nonSellableStockDisclosure: current.nonSellableStockDisclosure,
       totalVisits: current.totalVisits,
       completedVisits: current.completedVisits,
       pendingVisits: current.pendingVisits,
