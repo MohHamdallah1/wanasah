@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "wa_backend/domains/inventory_archive_navigation.py"
-      - "wa_backend/tests/test_archive_owner_navigation.py"
+      - "wa_backend/tests/test_archive_physical_location_truth.py"
       - ".github/workflows/p1-archive-physical-location-truth.yml"
   workflow_dispatch:
 
@@ -41,7 +41,7 @@ jobs:
           PYTHONPATH: .:tests
         run: >-
           python -B -m pytest -p no:cacheprovider -q
-          tests/test_archive_owner_navigation.py
+          tests/test_archive_physical_location_truth.py
           tests/test_archive_navigation_canonical_access.py
           tests/test_catalog_canonical_boundary.py
           tests/test_catalog_canonical_cutover.py
@@ -66,7 +66,7 @@ jobs:
           allowed = {
               ".github/workflows/p1-archive-physical-location-truth.yml",
               "wa_backend/domains/inventory_archive_navigation.py",
-              "wa_backend/tests/test_archive_owner_navigation.py",
+              "wa_backend/tests/test_archive_physical_location_truth.py",
           }
           assert changed <= allowed, sorted(changed - allowed)
 
