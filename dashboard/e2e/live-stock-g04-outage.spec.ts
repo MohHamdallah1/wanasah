@@ -235,7 +235,9 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
         await route.continue();
       };
       await reader.route(API + "/warehouse/inventory/*/batches/*/source*", sourceHandler);
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      const sourceButton = first.locator('button[aria-expanded]').first();
+      await expect(sourceButton).toBeVisible();
+      await sourceButton.click();
       await captured;
 
       support("revoke");
