@@ -1785,9 +1785,14 @@ export const resources = {
         availableForSale: "المتاح للبيع",
         availableForSaleHint:
           "الكمية الموجودة داخل المستودع التي يسمح النظام بصرفها أو بيعها الآن بعد استبعاد الحجز والحالات غير القابلة للبيع.",
-        withVehicles: "مع المركبات",
+        withVehicles: "عهدة المركبات",
+        withVehiclesVisibleNote: "آخر خط · منفصلة عن المستودع",
         withVehiclesHint:
-          "رصيد المركبات المرتبط وفق علاقة الخط/المصدر في نموذج القراءة الحالي. هو خارج إجمالي المستودع، ولا يعني ملكية دائمة أو حصرًا كاملًا لعهد المركبات لهذا المستودع.",
+          "كمية عهدة المركبات التي ينسبها الرصيد الحي لهذا المستودع وفق مصدر آخر خط مؤهل لكل مركبة. هي منفصلة عن الرصيد الفعلي داخل المستودع، وقد تشمل عهدة حُمّلت فعليًا من مستودع آخر. العهدة المباشرة بلا خط مؤهل قد لا تظهر هنا. الصفر يعني صفر كمية منسوبة لهذا المستودع، وليس بالضرورة عدم وجود عهدة فعلية في المركبات.",
+        withVehiclesMobileDisclosure:
+          "عهدة المركبات هنا منسوبة عبر آخر خط وليست رصيد المستودع أو مصدر التحميل. قد تظهر عهدة حُمّلت من مستودع آخر، والعهدة بلا خط مؤهل قد لا تظهر؛ الصفر يعني صفر كمية منسوبة فقط.",
+        withVehiclesValueA11y:
+          "الكمية {{quantity}}. عهدة مركبات منسوبة عبر آخر خط، منفصلة عن رصيد المستودع. الصفر يعني صفر كمية منسوبة فقط ولا ينفي وجود عهدة فعلية بالمركبات.",
         companyCosts: "التكاليف",
         resultCount: "{{total}} منتج",
         costs: "التكلفة",
@@ -1845,7 +1850,7 @@ export const resources = {
         indicatorUnavailable: "فيه غير متاح للبيع",
         indicatorDamaged: "فيه تالف",
         indicatorRecalled: "فيه كمية مستبعدة من البيع",
-        indicatorVehicle: "له رصيد مع المركبات",
+        indicatorVehicle: "عهدة عبر آخر خط",
         indicatorMinimumUnset: "الحد الأدنى غير محدد",
         familyTitle: "عائلة المنتج",
         selectedFamilyLabel: "العائلة المختارة: {{name}}",
@@ -4185,9 +4190,14 @@ export const resources = {
         availableForSale: "Available for sale",
         availableForSaleHint:
           "Stock inside the warehouse that the system can issue or sell now after excluding reservations and non-sellable states.",
-        withVehicles: "With vehicles",
+        withVehicles: "Vehicle custody",
+        withVehiclesVisibleNote: "Latest route · separate from warehouse",
         withVehiclesHint:
-          "Vehicle stock associated by the current read model's route/source link. It is outside the warehouse total and must not be read as permanent or complete vehicle ownership by this warehouse.",
+          "Vehicle custody attributed to this warehouse from each vehicle's latest qualifying route source. It is separate from physical warehouse on-hand stock and can include custody actually loaded from another warehouse. Direct vehicle custody without a qualifying route may not appear here. Zero means zero attributed quantity for this warehouse, not necessarily zero physical vehicle custody.",
+        withVehiclesMobileDisclosure:
+          "Vehicle custody here is attributed via the latest route, not warehouse stock or load origin. Custody loaded elsewhere can appear here; no-route custody may not. Zero means zero attributed quantity only.",
+        withVehiclesValueA11y:
+          "{{quantity}}. Vehicle custody attributed via the latest route, separate from warehouse stock. Zero means zero attributed quantity only and does not prove zero physical vehicle custody.",
         companyCosts: "Costs",
         resultCount: "Products: {{total}}",
         costs: "Cost",
@@ -4245,7 +4255,7 @@ export const resources = {
         indicatorUnavailable: "Has unavailable stock",
         indicatorDamaged: "Has damaged stock",
         indicatorRecalled: "Has stock excluded from sale",
-        indicatorVehicle: "Stock with vehicles",
+        indicatorVehicle: "Vehicle via latest route",
         indicatorMinimumUnset: "Minimum not set",
         familyTitle: "Product family",
         selectedFamilyLabel: "Selected family: {{name}}",
