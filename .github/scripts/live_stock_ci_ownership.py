@@ -176,7 +176,7 @@ def _object_sections(source: str, key: str) -> tuple[str, ...]:
     inventoryLive.vehicleScopes remain part of the same owned signature.
     """
     sections: list[str] = []
-    pattern = re.compile(rf"\\b{re.escape(key)}\\s*:\\s*{{")
+    pattern = re.compile(rf"\b{re.escape(key)}\s*:\s*{{")
     for match in pattern.finditer(source):
         start = source.find("{", match.start(), match.end())
         depth = 0
@@ -189,7 +189,7 @@ def _object_sections(source: str, key: str) -> tuple[str, ...]:
             char = source[index]
             nxt = source[index + 1] if index + 1 < len(source) else ""
             if line_comment:
-                if char == "\\n":
+                if char == "\n":
                     line_comment = False
                 index += 1
                 continue
@@ -209,7 +209,7 @@ def _object_sections(source: str, key: str) -> tuple[str, ...]:
                     quote = None
                 index += 1
                 continue
-            if char in ('"', "'", "`"):
+            if char in ('"', "'", chr(96)):
                 quote = char
                 index += 1
                 continue
@@ -227,7 +227,7 @@ def _object_sections(source: str, key: str) -> tuple[str, ...]:
                 depth -= 1
                 if depth == 0:
                     section = source[start:index + 1]
-                    sections.append(re.sub(r"\\s+", " ", section.strip()))
+                    sections.append(re.sub(r"\s+", " ", section.strip()))
                     break
             index += 1
         else:
@@ -238,10 +238,10 @@ def _object_sections(source: str, key: str) -> tuple[str, ...]:
 def _resource_signature(source: str) -> tuple[str, ...]:
     entries: list[str] = []
     for line in source.splitlines():
-        stripped = re.sub(r"\\s+", " ", line.strip())
-        if re.search(r"\\bLIVE_STOCK_[A-Z0-9_]+\\s*:", stripped):
+        stripped = re.sub(r"\s+", " ", line.strip())
+        if re.search(r"\bLIVE_STOCK_[A-Z0-9_]+\s*:", stripped):
             entries.append(stripped)
-        elif re.search(r"\\bliveStockCount\\s*:", stripped):
+        elif re.search(r"\bliveStockCount\s*:", stripped):
             entries.append(stripped)
     entries.extend(
         f"inventoryLive[{index}]={section}"
@@ -450,12 +450,12 @@ def selftest() -> None:
     _expect_fail("operational", {"dashboard/e2e/live-stock-physical-custody.spec.ts", "dashboard/src/pages/DispatchBoard.tsx"}, none)
 
     base_resources = (
-        'dispatchRouteSafety: { confirm: "old" },\\n'
+        'dispatchRouteSafety: { confirm: "old" },\n'
         'inventoryLive: { warehouseBalanceHint: "AR warehouse", '
-        'withVehiclesHint: "AR vehicle", vehicleScopes: { NO_ACCESS: "AR hidden" } },\\n'
-        'x: "x",\\nLIVE_STOCK_RESPONSE_INVALID: "old",\\nliveStockCount: "old",\\n'
+        'withVehiclesHint: "AR vehicle", vehicleScopes: { NO_ACCESS: "AR hidden" } },\n'
+        'x: "x",\nLIVE_STOCK_RESPONSE_INVALID: "old",\nliveStockCount: "old",\n'
         'inventoryLive: { warehouseBalanceHint: "EN warehouse", '
-        'withVehiclesHint: "EN vehicle", vehicleScopes: { NO_ACCESS: "EN hidden" } },\\n'
+        'withVehiclesHint: "EN vehicle", vehicleScopes: { NO_ACCESS: "EN hidden" } },\n'
     )
     unrelated_resources = base_resources.replace(
         'dispatchRouteSafety: { confirm: "old" }',
@@ -480,30 +480,30 @@ def selftest() -> None:
     assert classify("operational", {SHARED_RESOURCES}, live_sem)[0] == "owned"
 
     base_dispatch = (
-        "from models import DispatchRoute, InventoryBalance\\n"
-        "from sqlalchemy import select, func\\n"
-        "async def update_route_status(db, route_id):\\n"
-        "    route = await db.scalar(select(DispatchRoute).where(DispatchRoute.id == route_id))\\n"
-        "    return route.status\\n"
+        "from models import DispatchRoute, InventoryBalance\n"
+        "from sqlalchemy import select, func\n"
+        "async def update_route_status(db, route_id):\n"
+        "    route = await db.scalar(select(DispatchRoute).where(DispatchRoute.id == route_id))\n"
+        "    return route.status\n"
     )
     unrelated_dispatch = base_dispatch.replace(
         "return route.status",
-        "route.status = 'active'\\n    return route.status",
+        "route.status = 'active'\n    return route.status",
     )
     bad_dispatch = (
         base_dispatch +
-        "from domains.live_stock_projection.service import refresh_live_stock_vehicle_attribution\\n"
-        "async def refresh_old_attribution():\\n"
-        "    return await refresh_live_stock_vehicle_attribution()\\n"
+        "from domains.live_stock_projection.service import refresh_live_stock_vehicle_attribution\n"
+        "async def refresh_old_attribution():\n"
+        "    return await refresh_live_stock_vehicle_attribution()\n"
     )
     direct_sql_dispatch = (
-        "from models import DispatchRoute as Route, InventoryBalance as Balance\\n"
-        "from sqlalchemy import select, func\\n"
-        "async def route_source_vehicle_stock(db):\\n"
-        "    stmt = select(Route.source_location_id, func.sum(Balance.quantity)).join(\\n"
-        "        Balance, Balance.location_id == Route.vehicle_id\\n"
-        "    ).group_by(Route.source_location_id)\\n"
-        "    return await db.execute(stmt)\\n"
+        "from models import DispatchRoute as Route, InventoryBalance as Balance\n"
+        "from sqlalchemy import select, func\n"
+        "async def route_source_vehicle_stock(db):\n"
+        "    stmt = select(Route.source_location_id, func.sum(Balance.quantity)).join(\n"
+        "        Balance, Balance.location_id == Route.vehicle_id\n"
+        "    ).group_by(Route.source_location_id)\n"
+        "    return await db.execute(stmt)\n"
     )
     assert _dispatch_r3_signature(base_dispatch) == _dispatch_r3_signature(unrelated_dispatch)
     assert _dispatch_r3_signature(base_dispatch) != _dispatch_r3_signature(bad_dispatch)
