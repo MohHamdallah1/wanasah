@@ -346,6 +346,29 @@ jobs:
           fi
           echo "OPERATIONAL_SCREENSHOTS=$count"
 
+      - name: Verify compact G06 owner sign-off package
+        run: |
+          package_dir=$(find dashboard/node_modules/.cache/live-stock-operational -type d -name owner-package -print -quit)
+          test -n "$package_dir"
+          for file in \
+            01-desktop-ar-light.png \
+            02-desktop-en-dark.png \
+            03-mobile-ar-dark.png \
+            04-mobile-en-light.png \
+            05-desktop-en-batch-dialog.png \
+            06-desktop-en-source-error-retry.png \
+            AX-01-main-desktop-en-dark.json \
+            AX-02-batch-dialog.json \
+            AX-03-source-error-retry.json \
+            G06_OWNER_SIGNOFF_AR.md
+          do
+            test -s "$package_dir/$file"
+          done
+          test "$(find "$package_dir" -maxdepth 1 -name '*.png' | wc -l)" -eq 6
+          test "$(find "$package_dir" -maxdepth 1 -name 'AX-*.json' | wc -l)" -eq 3
+          grep -F "$(git rev-parse HEAD)" "$package_dir/G06_OWNER_SIGNOFF_AR.md"
+          echo "G06_OWNER_PACKAGE=PASS screenshots=6 ax_trees=3 checklist=1"
+
       - name: Complete consumer contracts including both inherited concerns
         working-directory: dashboard
         run: >-
