@@ -3169,6 +3169,29 @@ async def lock_idempotent_operation_record(
     return canonical_request_id, existing
 
 
+def _idempotency_record_state(record: OperationIdempotency) -> str:
+    raw = record.state
+    if raw is None:
+        # Rolling/backward compatibility for legacy direct writers that know
+        # only the original response_json/completed_at completion pair.
+        if (
+            record.response_json is None
+            and record.completed_at is None
+            and record.cancelled_at is None
+            and record.cancelled_by is None
+        ):
+            return "PENDING"
+        if (
+            isinstance(record.response_json, dict)
+            and record.completed_at is not None
+            and record.cancelled_at is None
+            and record.cancelled_by is None
+        ):
+            return "COMMITTED"
+        raise RuntimeError("Idempotency invariant violated: invalid legacy NULL state.")
+    return str(raw).upper()
+
+
 async def recover_idempotent_operation(
     db_session: AsyncSession,
     *,
@@ -3204,7 +3227,7 @@ async def recover_idempotent_operation(
         await db_session.flush()
         return "CANCELLED", None
 
-    state = str(existing.state or "").upper()
+    state = _idempotency_record_state(existing)
     if state == "CANCELLED":
         if (
             existing.response_json is not None
@@ -3244,7 +3267,7 @@ async def begin_idempotent_operation(
         request_hash=request_hash,
     )
     if existing is not None:
-        state = str(existing.state or "").upper()
+        state = _idempotency_record_state(existing)
         if state == "CANCELLED":
             raise OperationIdempotencyError(
                 "IDEMPOTENCY_CANCELLED",
