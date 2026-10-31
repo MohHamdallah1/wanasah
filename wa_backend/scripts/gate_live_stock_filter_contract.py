@@ -11,7 +11,11 @@ WAREHOUSE = BACKEND / "api" / "warehouse" / "live_stock.py"
 SCHEMAS = BACKEND / "schemas.py"
 LIVE = ROOT / "dashboard" / "src" / "pages" / "inventory" / "Tab1LiveStock.tsx"
 MAIN = ROOT / "dashboard" / "src" / "pages" / "inventory" / "MainInventory.tsx"
-CONTRACTS = ROOT / "dashboard" / "src" / "pages" / "inventory" / "liveStock" / "contracts.ts"
+LIVE_STOCK_DIR = ROOT / "dashboard" / "src" / "pages" / "inventory" / "liveStock"
+FILTERS = LIVE_STOCK_DIR / "LiveStockFilters.tsx"
+TABLE = LIVE_STOCK_DIR / "LiveStockTable.tsx"
+MOBILE = LIVE_STOCK_DIR / "LiveStockMobileCards.tsx"
+CONTRACTS = LIVE_STOCK_DIR / "contracts.ts"
 
 checks = 0
 failures: list[str] = []
@@ -24,10 +28,54 @@ def check(condition: bool, label: str) -> None:
         failures.append(label)
 
 
+def function_source(source: str, name: str) -> str:
+    tree = ast.parse(source)
+    for node in tree.body:
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == name
+        ):
+            return ast.unparse(node)
+    raise AssertionError(f"Missing function: {name}")
+
+
+def vehicle_filter_v2_contract(filter_source: str, scope_source: str) -> bool:
+    required_filter = (
+        "if has_vehicle:",
+        "_readable_vehicle_locations_subquery(",
+        "InventoryBalance.product_variant_id",
+        "InventoryBalance.location_id",
+        "InventoryBalance.company_id == company_id",
+        "InventoryBalance.on_hand_quantity > 0",
+        "readable_vehicle_variants",
+    )
+    required_scope = (
+        "InventoryLocation.company_id == company_id",
+        "InventoryLocation.location_type == 'VEHICLE'",
+        "InventoryLocation.is_active.is_(True)",
+        "InventoryLocation.vehicle_id.isnot(None)",
+        "access.location_filter('inventory.read')",
+    )
+    forbidden = (
+        "DispatchRoute",
+        "_latest_readable_vehicle_sources_subquery",
+        "projection.vehicle_packs",
+    )
+    return (
+        all(token in filter_source for token in required_filter)
+        and all(token in scope_source for token in required_scope)
+        and not any(token in filter_source for token in forbidden)
+        and not any(token in scope_source for token in forbidden)
+    )
+
+
 warehouse = WAREHOUSE.read_text(encoding="utf-8")
 schemas = SCHEMAS.read_text(encoding="utf-8")
 live = LIVE.read_text(encoding="utf-8")
 main = MAIN.read_text(encoding="utf-8")
+filters = FILTERS.read_text(encoding="utf-8")
+table = TABLE.read_text(encoding="utf-8")
+mobile = MOBILE.read_text(encoding="utf-8")
 contracts = CONTRACTS.read_text(encoding="utf-8")
 SEARCH_MIGRATION = (
     BACKEND
@@ -36,6 +84,15 @@ SEARCH_MIGRATION = (
     / "d4a7c9e2f1b5_live_stock_native_trgm_search.py"
 )
 search_migration = SEARCH_MIGRATION.read_text(encoding="utf-8")
+
+filter_contract = function_source(
+    warehouse,
+    "_live_stock_filtered_variant_ids_stmt",
+)
+vehicle_scope_contract = function_source(
+    warehouse,
+    "_readable_vehicle_locations_subquery",
+)
 
 for path, source in (
     (WAREHOUSE, warehouse),
@@ -71,17 +128,29 @@ check(
     "filters are applied in SQL before page LIMIT",
 )
 check(
-    "projection.warehouse_reserved" in warehouse
-    and "projection.damaged_packs" in warehouse
-    and "projection.recalled_packs" in warehouse
-    and "projection.vehicle_packs" in warehouse,
-    "filters reuse projection facts instead of reaggregating ledger rows",
+    "projection.warehouse_on_hand" in filter_contract
+    and "projection.warehouse_reserved" in filter_contract
+    and "projection.warehouse_sellable_on_hand" in filter_contract
+    and "projection.warehouse_sellable_reserved" in filter_contract
+    and "projection.damaged_packs" in filter_contract
+    and "projection.recalled_packs" in filter_contract
+    and "projection.vehicle_packs" not in filter_contract,
+    "Warehouse filters reuse selected-warehouse physical projection facts only",
 )
 check(
-    "if company_wide_inventory_read:" in warehouse
-    and "_readable_vehicle_locations_subquery(" in warehouse
-    and "variant.id.in_(readable_vehicle_variants)" in warehouse,
-    "vehicle filter remains permission-aware for restricted actors",
+    vehicle_filter_v2_contract(filter_contract, vehicle_scope_contract),
+    "Vehicle filter uses authorized physical VEHICLE InventoryBalance, never route attribution",
+)
+
+# Minimal gate selftests: current v2 source is the positive case; mutating the
+# exact filter back toward the superseded route-source design must be rejected.
+route_regression = filter_contract.replace(
+    "_readable_vehicle_locations_subquery(",
+    "_latest_readable_vehicle_sources_subquery(",
+) + "\nDispatchRoute.source_location_id"
+check(
+    not vehicle_filter_v2_contract(route_regression, vehicle_scope_contract),
+    "gate selftest rejects restored route-based Vehicle attribution",
 )
 check(
     '"/warehouse/inventory/families"' in warehouse
@@ -110,26 +179,26 @@ check(
     "Dashboard sends filters to the backend rather than filtering the current 50 rows",
 )
 check(
-    'className="live-stock-number-cell"' in live
-    and 'className="live-family-cell' in live
-    and 't("inventoryLive.family")' in live,
+    'className="live-stock-number-cell' in table
+    and 'className="live-family-cell' in table
+    and 't("inventoryLive.family")' in table,
     "number and family render as independent table columns",
 )
 check(
-    "activeFilterCount" in live
-    and "alertCount" in live
-    and "filterLowStockCount" in live,
-    "filter button count is active-filter count while low-stock count stays inside the menu",
+    "const activeFilterCount =" in filters
+    and 'className="live-stock-filter-count tabular-nums">{activeFilterCount}' in filters
+    and 'disabled={value === "low_stock" && alertCount === 0}' in filters,
+    "filter button badge counts active filters while alert count only gates low-stock selection",
 )
 check(
-    "live-stock-filter-popover--compact" in live
-    and "live-stock-family-popover" in live
-    and live.index("live-stock-family-popover")
-        > live.index("live-stock-filter-popover--compact"),
+    "live-stock-filter-popover--compact" in filters
+    and "live-stock-family-popover" in filters
+    and filters.index("live-stock-family-popover")
+        > filters.index("live-stock-filter-popover--compact"),
     "family selection is a separate compact control outside the stock filter menu",
 )
 check(
-    "loadMoreSentinelRef" in live
+    "sentinelRef" in live
     and "IntersectionObserver" in live
     and "onLoadMore()" in live
     and "handleStockLoadMore" in main
@@ -138,16 +207,15 @@ check(
 )
 check(
     "if (value === stockSearch) return;" in main
-    and 'const emittedSearchRef = useRef("");' in live
-    and "if (nextSearch === emittedSearchRef.current) return;" in live,
+    and 'const emittedSearch = useRef("");' in filters
+    and "if (next === emittedSearch.current) return;" in filters,
     "unchanged empty search cannot clear a freshly loaded Live Stock page",
 )
 check(
-    "const nextLocationId = savedIsValid" in main
-    and ": currentIsValid" in main
-    and ": page.items[0]?.id ?? null;" in main
-    and "setSelectedLocationId(nextLocationId);" in main,
-    "Live Stock automatically selects the first accessible warehouse when no valid preference exists",
+    "const nextLocationId = selected?.id ?? page.items[0]?.id ?? null;" in main
+    and "setSelectedLocationId(nextLocationId);" in main
+    and "setServerVerifiedLocationId(nextLocationId);" in main,
+    "Live Stock automatically selects the server-verified warehouse or first accessible warehouse",
 )
 check(
     'search_patterns = [' in warehouse
@@ -184,8 +252,9 @@ check(
     "Live Stock validation errors use stable localizable error codes",
 )
 check(
-    'className="live-stock-sellable-chip"' in live,
-    "available-for-sale quantity has a dedicated visual emphasis hook",
+    '[product.available_for_sale_quantity, "text-emerald-700", "available"]' in table
+    and '["availableForSale", product.available_for_sale_quantity, "text-emerald-700", "available"]' in mobile,
+    "available-for-sale quantity keeps explicit desktop/mobile visual emphasis",
 )
 check(
     "parseLiveStockFamilies" in contracts
