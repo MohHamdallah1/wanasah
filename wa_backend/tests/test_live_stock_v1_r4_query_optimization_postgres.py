@@ -25,7 +25,7 @@ from sqlalchemy.pool import NullPool
 from api.warehouse import live_stock
 from api.warehouse._shared import _encode_variant_cursor
 from domains.live_stock_projection.service import rebuild_live_stock_company
-from models import ProductVariant
+from models import DispatchRoute, ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from scripts import profile_live_stock_explain as n1
 
@@ -71,6 +71,9 @@ def _compile_endpoint(source: str, label: str):
     ]
 
     namespace = vars(live_stock).copy()
+    # DispatchRoute is absent from the corrected runtime module by design, but
+    # the accepted historical helper being benchmarked still references it.
+    namespace["DispatchRoute"] = DispatchRoute
     exec(
         compile(
             ast.Module(body=[*dependencies, endpoint], type_ignores=[]),
