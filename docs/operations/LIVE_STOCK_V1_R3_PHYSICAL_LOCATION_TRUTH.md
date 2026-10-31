@@ -110,4 +110,13 @@ Before overall closure/merge to production, the Dashboard consumer owned by #673
 6. keep `has_vehicle` semantics as physical readable Vehicle custody independent of selected Warehouse;
 7. re-run Arabic/English, desktop/mobile and real-browser acceptance against this API.
 
+The concrete Dashboard consumers that must be coordinated are:
+
+- `dashboard/src/pages/inventory/liveStock/contracts.ts`: accept nullable Vehicle custody plus both scope fields.
+- `dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx`: stop presenting the Vehicle value as Warehouse-attributed quantity.
+- `dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx`: same physical-custody disclosure on mobile.
+- `dashboard/src/pages/inventory/MainInventory.tsx`: keep the `has_vehicle` filter wording/behavior explicitly cross-vehicle-scope rather than selected-Warehouse ownership.
+- Live Stock fixtures/tests that still encode `total_quantity = warehouse + vehicle` or always-numeric `vehicle_quantity`.
+- #673's real-browser support/journey must be rerun against the corrected API after those consumer changes; this PR deliberately does not edit its owned files.
+
 Until that dependency passes, backend truth can be reviewed independently but **overall Live Stock R3 closure is not merge-ready**.
