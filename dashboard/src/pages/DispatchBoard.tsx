@@ -30,6 +30,7 @@ import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTab
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession } from "@/lib/authStorage";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { type Quantity } from "@/lib/quantity";
@@ -215,6 +216,11 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
+  const session = useDashboardSession();
+  return session ? <DispatchSession key={JSON.stringify(session)} /> : null;
+}
+
+function DispatchSession() {
   const { t, i18n } = useTranslation();
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();

@@ -168,6 +168,7 @@ SESSION_ISOLATION_ALLOWED = {
     "dashboard/src/pages/DispatchBoard.tsx",
     "dashboard/src/pages/products/import/useImportProductPolling.ts",
     "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+    "dashboard/src/test/dispatch-load-context.test.tsx",
 }
 SESSION_ISOLATION_ROOTS = {
     "dashboard/src/hooks/useAuthFetch.ts",
@@ -607,6 +608,14 @@ def main() -> int:
         after = _git_show(head, "dashboard/src/pages/DispatchBoard.tsx")
         def without_socket(source: str) -> str:
             source = re.sub(r'^import .* from "@/lib/authStorage";\n', "", source, flags=re.M)
+            source = source.replace('import { useDashboardSession } from "@/hooks/useDashboardSession";\n', "")
+            boundary = """export default function DispatchBoard() {
+  const session = useDashboardSession();
+  return session ? <DispatchSession key={JSON.stringify(session)} /> : null;
+}
+
+function DispatchSession() {"""
+            source = source.replace(boundary, "export default function DispatchBoard() {")
             start = source.index("  // Realtime dispatch updates:")
             end = source.index("\n  useEffect(() => {\n    if (!selectedVehicleId)", start)
             return source[:start] + source[end:]
