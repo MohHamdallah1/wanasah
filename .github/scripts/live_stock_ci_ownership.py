@@ -164,6 +164,7 @@ SESSION_ISOLATION_ALLOWED = {
     "dashboard/src/pages/Login.tsx",
     "dashboard/src/test/auth-session-isolation.test.tsx",
     "dashboard/src/test/auth-session-page-boundary.test.tsx",
+    "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
     "wa_backend/tests/live_stock_inflight_security_probe.py",
     ".github/scripts/live_stock_ci_ownership.py",
     "dashboard/src/components/operations/TopBar.tsx",
