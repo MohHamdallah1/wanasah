@@ -1,0 +1,238 @@
+name: P0 R3 physical-location inventory truth
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/domains/live_stock_projection/service.py"
+      - "wa_backend/api/warehouse/live_stock.py"
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/tests/test_live_stock_v1_r3_physical_location_truth_postgres.py"
+      - "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py"
+      - "wa_backend/tests/test_live_stock_r1_http_postgres.py"
+      - "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py"
+      - "wa_backend/tests/test_live_stock_v1_route_sale_unload_postgres.py"
+      - "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py"
+      - "wa_backend/tests/test_live_stock_canonical_cutover.py"
+      - "wa_backend/scripts/gate_stage821_live_stock_projector_core.py"
+      - "wa_backend/scripts/gate_live_stock_filter_contract.py"
+      - "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md"
+      - ".github/workflows/live-stock-v1-r3-physical-location-truth.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: p0-r3-physical-location-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: P0R3PhysicalLocationTruthKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_r3_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_R1_PG_GATE: "1"
+      WANASAH_CP7_PG_GATE: "1"
+      WANASAH_REMAINING_CONSISTENCY_PG_GATE: "1"
+      WANASAH_R3_PHYSICAL_LOCATION_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_r3_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile correction and focused acceptance
+        working-directory: wa_backend
+        run: |
+          python -m py_compile \
+            domains/live_stock_projection/service.py \
+            api/warehouse/live_stock.py \
+            api/dispatch.py \
+            schemas.py \
+            scripts/gate_stage821_live_stock_projector_core.py \
+            scripts/gate_live_stock_filter_contract.py \
+            tests/test_live_stock_v1_r3_physical_location_truth_postgres.py \
+            tests/test_live_stock_r1_snapshot_postgres.py \
+            tests/test_live_stock_r1_http_postgres.py \
+            tests/test_live_stock_v1_quantity_reconciliation_postgres.py \
+            tests/test_live_stock_v1_route_sale_unload_postgres.py \
+            tests/test_live_stock_v1_remaining_consistency_postgres.py \
+            tests/test_live_stock_canonical_cutover.py
+
+      - name: Run static physical-location contract gates
+        working-directory: wa_backend
+        run: |
+          python scripts/gate_stage821_live_stock_projector_core.py
+          python scripts/gate_live_stock_filter_contract.py
+          python -B -m pytest -p no:cacheprovider -q tests/test_live_stock_canonical_cutover.py
+
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name p0-r3-postgres \
+            --env POSTGRES_USER=p0_r3_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec p0-r3-postgres pg_isready \
+              -U p0_r3_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs p0-r3-postgres
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh Alembic schema and parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Run focused PostgreSQL 16 physical-location acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_r3_physical_location_truth_postgres.py
+          tests/test_live_stock_r1_snapshot_postgres.py
+          tests/test_live_stock_r1_http_postgres.py
+          tests/test_live_stock_v1_quantity_reconciliation_postgres.py
+          tests/test_live_stock_v1_route_sale_unload_postgres.py
+          tests/test_live_stock_v1_remaining_consistency_postgres.py
+          --junitxml=p0-r3-physical-location.xml
+
+      - name: Reject skips failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("p0-r3-physical-location.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert cases, "P0 R3 acceptance executed no tests"
+          assert not list(root.iter("skipped")), "P0 R3 acceptance must not skip"
+          assert not list(root.iter("failure")), "P0 R3 acceptance has failures"
+          assert not list(root.iter("error")), "P0 R3 acceptance has errors"
+          print(f"P0_R3_PHYSICAL_LOCATION_EXECUTED={len(cases)}")
+          PY
+
+      - name: Exact-base and ownership gate
+        if: always()
+        run: |
+          base="ae858c10f04832aaf99df55db15507571986b53e"
+          test "$(git merge-base "$base" HEAD)" = "$base"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          allowed = {
+              ".github/workflows/live-stock-v1-r3-physical-location-truth.yml",
+              "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/domains/live_stock_projection/service.py",
+              "wa_backend/schemas.py",
+              "wa_backend/scripts/gate_live_stock_filter_contract.py",
+              "wa_backend/scripts/gate_stage821_live_stock_projector_core.py",
+              "wa_backend/tests/test_live_stock_canonical_cutover.py",
+              "wa_backend/tests/test_live_stock_r1_http_postgres.py",
+              "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_route_sale_unload_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_r3_physical_location_truth_postgres.py",
+          }
+          extra = changed - allowed
+          if extra:
+              raise SystemExit(f"P0_R3_SCOPE=FAIL extra={sorted(extra)}")
+          forbidden = [
+              path
+              for path in changed
+              if path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
+              or path.startswith("dashboard/")
+              or path.startswith("wanasah_frontend/")
+          ]
+          if forbidden:
+              raise SystemExit(f"P0_R3_SCOPE=FAIL forbidden={sorted(forbidden)}")
+          print(f"P0_R3_SCOPE=PASS files={len(changed)}")
+          PY
+
+      - name: Retain focused evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: p0-r3-physical-location-${{ github.sha }}
+          path: wa_backend/p0-r3-physical-location.xml
+          if-no-files-found: error
