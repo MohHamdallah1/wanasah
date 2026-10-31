@@ -9,6 +9,7 @@ on:
       - "dashboard/e2e/live-stock-g04-outage.*"
       - ".github/workflows/live-stock-g04-outage-recovery.yml"
       - "wa_backend/main.py"
+      - "wa_backend/api/authentication/dependencies.py"
   workflow_dispatch:
 
 permissions:
@@ -209,6 +210,7 @@ jobs:
               "dashboard/e2e/live-stock-g04-outage.config.ts",
               "dashboard/e2e/live-stock-g04-outage.spec.ts",
               "wa_backend/main.py",
+              "wa_backend/api/authentication/dependencies.py",
           }
           assert files <= allowed, sorted(files - allowed)
           forbidden = [
