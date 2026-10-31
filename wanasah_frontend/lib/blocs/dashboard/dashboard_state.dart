@@ -6,6 +6,7 @@ import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../../features/custody/domain/pending_transfer.dart';
 import '../../features/custody/domain/non_sellable_custody.dart';
+import '../../features/custody/domain/stock_disclosure.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
 import '../../features/work_session/application/work_session_action_issue.dart';
 
@@ -40,9 +41,6 @@ class DashboardRefreshIssue extends Equatable {
   @override
   List<Object?> get props => [kind, statusCode, requestId];
 }
-
-/// Only a verified disclosure may assert current physical zero.
-enum StockDisclosure { verified, stale, unavailable, denied }
 
 class DashboardLoaded extends DashboardState {
   final List<VisitModel> visits;
