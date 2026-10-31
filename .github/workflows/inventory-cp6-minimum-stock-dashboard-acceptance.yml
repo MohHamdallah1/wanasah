@@ -87,7 +87,57 @@ jobs:
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
           allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-physical-custody-consumers.yml",".github/workflows/live-stock-v1-browser-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/inventory-cp14-device-ux.spec.ts","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-physical-custody.config.ts","dashboard/e2e/live-stock-physical-custody.fixture.py","dashboard/e2e/live-stock-physical-custody.spec.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/e2e/live-stock-v1.fixtures.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/i18n/resources.ts","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/Tab2Inbound.tsx","dashboard/src/pages/inventory/TabWarehouseLocations.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx","dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx","dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx","dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx","dashboard/src/pages/inventory/liveStock/contracts.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts","dashboard/src/test/inventory-access.test.ts","dashboard/src/test/inventory-cp12-responsive-contract.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx","dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx","dashboard/src/test/inventory-cp7-live-stock.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","dashboard/src/test/live-stock-family-cursor.test.tsx","dashboard/src/test/live-stock-local-failure.test.tsx","dashboard/src/test/live-stock-render-performance.benchmark.test.tsx","dashboard/src/test/live-stock-render-windowing.test.tsx","dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx","dashboard/src/test/live-stock-warm-authority.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
           changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
-          assert changed <= set(allowed), sorted(changed - set(allowed))
+          cp6_allowed = set(allowed)
+          auth_session_allowed = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/e2e/live-stock-inflight-auth.test.tsx",
+              "dashboard/e2e/live-stock-inflight.config.ts",
+              "dashboard/src/App.tsx",
+              "dashboard/src/components/operations/DashboardLayout.tsx",
+              "dashboard/src/components/operations/OperationsSidebar.tsx",
+              "dashboard/src/components/operations/TopBar.tsx",
+              "dashboard/src/features/tenantIdentity/useTenantIdentity.ts",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/hooks/useDashboardSession.ts",
+              "dashboard/src/hooks/useInventoryAccess.ts",
+              "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/pages/Login.tsx",
+              "dashboard/src/pages/products/import/useImportProductPolling.ts",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/auth-session-isolation.test.tsx",
+              "dashboard/src/test/auth-session-page-boundary.test.tsx",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+              "docs/operations/LIVE_STOCK_INFLIGHT_AUTHORITY_FINDINGS.md",
+              "wa_backend/tests/live_stock_inflight_security_probe.py",
+          }
+          auth_session_roots = {
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/hooks/useDashboardSession.ts",
+          }
+
+          def ownership_mode(candidate):
+              if candidate <= cp6_allowed:
+                  return "CP6_STRICT"
+              unexpected = candidate - (cp6_allowed | auth_session_allowed)
+              assert not unexpected, sorted(unexpected)
+              assert auth_session_roots <= candidate, "Auth-session compatibility requires canonical session roots"
+              assert "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in candidate
+              return "AUTH_SESSION_COMPAT"
+
+          mode = ownership_mode(changed)
+          unexpected_probe = "wa_backend/domains/inventory/services.py"
+          try:
+              ownership_mode(changed | {unexpected_probe})
+          except AssertionError as exc:
+              assert unexpected_probe in str(exc)
+          else:
+              raise AssertionError("CP6 negative ownership probe unexpectedly passed")
           # Prove the unchanged Git whitespace validator still rejects real trailing whitespace.
           from pathlib import Path
           from tempfile import TemporaryDirectory
@@ -97,6 +147,6 @@ jobs:
               after.write_text("after \n", encoding="utf-8")
               result = subprocess.run(["git", "diff", "--no-index", "--check", str(before), str(after)], text=True, capture_output=True)
               assert result.returncode != 0 and "trailing whitespace" in result.stdout + result.stderr
-          print("CP6_PR_SCOPE_AND_WHITESPACE PASS", base, len(changed))
+          print("CP6_PR_SCOPE_AND_WHITESPACE PASS", base, len(changed), mode)
           print("CP6_WHITESPACE_NEGATIVE_CONTROL PASS")
           PY

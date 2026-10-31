@@ -147,6 +147,41 @@ OP_ALLOWED = {
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
+# Issue #706: a bounded auth repair also retains the original Live Stock evidence.
+SESSION_ISOLATION_ALLOWED = {
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+    "dashboard/src/App.tsx",
+    "dashboard/src/components/operations/DashboardLayout.tsx",
+    "dashboard/src/hooks/useInventoryAccess.ts",
+    "dashboard/src/test/live-stock-warm-authority.test.tsx",
+    "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+    "dashboard/e2e/live-stock-inflight.config.ts",
+    "dashboard/e2e/live-stock-inflight-auth.test.tsx",
+    "docs/operations/LIVE_STOCK_INFLIGHT_AUTHORITY_FINDINGS.md",
+    "dashboard/src/hooks/useAuthFetch.ts",
+    "dashboard/src/lib/authStorage.ts",
+    "dashboard/src/pages/Login.tsx",
+    "dashboard/src/test/auth-session-isolation.test.tsx",
+    "dashboard/src/test/auth-session-page-boundary.test.tsx",
+    "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+    "wa_backend/tests/live_stock_inflight_security_probe.py",
+    ".github/scripts/live_stock_ci_ownership.py",
+    "dashboard/src/components/operations/TopBar.tsx",
+    "dashboard/src/components/operations/OperationsSidebar.tsx",
+    "dashboard/src/hooks/useDashboardSession.ts",
+    "dashboard/src/features/tenantIdentity/useTenantIdentity.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/pages/products/import/useImportProductPolling.ts",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+    "dashboard/src/test/dispatch-load-context.test.tsx",
+}
+SESSION_ISOLATION_ROOTS = {
+    "dashboard/src/hooks/useAuthFetch.ts",
+    "dashboard/src/lib/authStorage.ts",
+}
+
 LIVE_STOCK_SCHEMA_ROOTS = {
     "WarehouseAlertItem",
     "WarehouseInventoryItem",
@@ -401,6 +436,11 @@ def _spec(mode: str):
     return allowed, shared, hard_owned, forbidden, label
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed & SESSION_ISOLATION_ROOTS:
+        extra = sorted(changed - SESSION_ISOLATION_ALLOWED)
+        if extra:
+            return "fail", [f"AUTH_SESSION_SCOPE=FAIL extra={extra}"]
+        return "session-isolation-repair", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
@@ -543,6 +583,11 @@ def selftest() -> None:
     for mode in ("ux", "r3", "operational"):
         state, messages = classify(mode, set(POLICY_FILES), none)
         assert state == "policy-maintenance" and not messages
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, set(SESSION_ISOLATION_ALLOWED), none)[0] == "session-isolation-repair"
+        for foreign in ("wa_backend/api/dispatch.py", "wa_backend/services.py",
+                        "wanasah_frontend/lib/main.dart", "LIVE_STOCK_V1_CLOSURE_PLAN.md"):
+            _expect_fail(mode, set(SESSION_ISOLATION_ALLOWED) | {foreign}, none)
     print("LIVE_STOCK_OWNERSHIP_SELFTEST=PASS")
 
 def main() -> int:
@@ -565,6 +610,24 @@ def main() -> int:
     base = _git("merge-base", base_ref, head)
     subprocess.run(["git", "diff", "--check", base, head], check=True)
     changed = _changed(base, head)
+    if changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed:
+        before = _git_show(base, "dashboard/src/pages/DispatchBoard.tsx")
+        after = _git_show(head, "dashboard/src/pages/DispatchBoard.tsx")
+        def without_socket(source: str) -> str:
+            source = re.sub(r'^import .* from "@/lib/authStorage";\n', "", source, flags=re.M)
+            source = source.replace('import { useDashboardSession } from "@/hooks/useDashboardSession";\n', "")
+            boundary = """export default function DispatchBoard() {
+  const session = useDashboardSession();
+  return session ? <DispatchSession key={JSON.stringify(session)} /> : null;
+}
+
+function DispatchSession() {"""
+            source = source.replace(boundary, "export default function DispatchBoard() {")
+            start = source.index("  // Realtime dispatch updates:")
+            end = source.index("\n  useEffect(() => {\n    if (!selectedVehicleId)", start)
+            return source[:start] + source[end:]
+        if without_socket(before) != without_socket(after):
+            raise SystemExit("AUTH_SESSION_SCOPE=FAIL Dispatch outside socket lifetime")
     semantic = _shared_semantics(base, head, changed)
     state, messages = classify(args.mode, changed, semantic)
     if messages:

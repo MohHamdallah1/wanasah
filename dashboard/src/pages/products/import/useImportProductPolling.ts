@@ -12,6 +12,7 @@ import type {
   TFunction,
 } from "i18next";
 import { toast } from "sonner";
+import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession } from "@/lib/authStorage";
 
 import {
   apiErrorMessage,
@@ -142,7 +143,9 @@ export function useImportProductPolling({
       return;
     }
 
+    const session = captureDashboardSession();
     let disposed = false;
+    const current = () => !disposed && isDashboardSessionCurrent(session);
     let settled = false;
     let realtimeOpen = false;
     let completionHandled =
@@ -221,12 +224,31 @@ export function useImportProductPolling({
         closeRealtime();
       };
 
+    let unsubscribe = () => {};
+    const stopSession = () => {
+      disposed = true;
+      unsubscribe();
+      finishTransport();
+      if (completionToastId !== undefined) toast.dismiss(completionToastId);
+      completionToastId = undefined;
+      setImportStatus(null);
+      setImportPollError(null);
+      setImportLotControlMode(null);
+      setImportExpiryControlMode(null);
+      setMapping({});
+    };
+    const live = () => {
+      if (current()) return true;
+      if (!disposed) stopSession();
+      return false;
+    };
+
     const applyStatus = async (
       status:
         ProductImportState,
     ) => {
       // Late HTTP responses must never replace an already-terminal snapshot.
-      if (disposed || settled) {
+      if (!live() || settled) {
         return true;
       }
 
@@ -327,7 +349,7 @@ export function useImportProductPolling({
     const refreshStatus =
       async (): Promise<boolean> => {
         if (
-          disposed ||
+          !live() ||
           settled
         ) {
           return true;
@@ -352,7 +374,7 @@ export function useImportProductPolling({
         } catch (error) {
           // An obsolete request may fail after another request has already
           // completed the import. Do not resurrect the error banner.
-          if (!disposed && !settled) {
+          if (live() && !settled) {
             setImportPollError(
               apiErrorMessage(
                 error,
@@ -375,7 +397,7 @@ export function useImportProductPolling({
         }
 
         if (
-          disposed ||
+          !live() ||
           settled ||
           realtimeOpen ||
           document.visibilityState !==
@@ -399,7 +421,7 @@ export function useImportProductPolling({
                 .finally(
                   () => {
                     if (
-                      !disposed &&
+                      live() &&
                       !settled &&
                       !realtimeOpen
                     ) {
@@ -414,6 +436,7 @@ export function useImportProductPolling({
 
     const scheduleRealtimeRefresh =
       () => {
+        if (!live() || settled) return;
         clearTimer(
           refreshTimer,
         );
@@ -436,7 +459,7 @@ export function useImportProductPolling({
         reconnectTimer =
           undefined;
         if (
-          disposed ||
+          !live() ||
           settled ||
           document.visibilityState !==
             "visible"
@@ -465,7 +488,7 @@ export function useImportProductPolling({
     const connectRealtime =
       () => {
         if (
-          disposed ||
+          !live() ||
           settled ||
           document.visibilityState !==
             "visible"
@@ -531,7 +554,7 @@ export function useImportProductPolling({
         nextSocket.onopen =
           () => {
             if (
-              disposed ||
+              !live() ||
               settled ||
               websocket !==
                 nextSocket
@@ -561,7 +584,7 @@ export function useImportProductPolling({
         nextSocket.onmessage =
           (message) => {
             if (
-              disposed ||
+              !live() ||
               settled ||
               websocket !==
                 nextSocket
@@ -618,7 +641,7 @@ export function useImportProductPolling({
             websocket = undefined;
             realtimeOpen = false;
             if (
-              disposed ||
+              !live() ||
               settled
             ) {
               return;
@@ -635,6 +658,7 @@ export function useImportProductPolling({
 
     const handleVisibility =
       () => {
+        if (!live()) return;
         if (
           document.visibilityState ===
           "hidden"
@@ -650,6 +674,7 @@ export function useImportProductPolling({
         connectRealtime();
       };
 
+    unsubscribe = subscribeDashboardSession(() => { if (!current()) stopSession(); });
     document.addEventListener(
       "visibilitychange",
       handleVisibility,
@@ -660,6 +685,7 @@ export function useImportProductPolling({
     scheduleFallback();
 
     return () => {
+      unsubscribe();
       disposed = true;
       // Completion notifications belong to this job view, not a later tenant.
       if (completionToastId !== undefined) toast.dismiss(completionToastId);

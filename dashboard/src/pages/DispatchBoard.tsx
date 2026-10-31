@@ -31,6 +31,8 @@ import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTab
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
+import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession } from "@/lib/authStorage";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { type Quantity } from "@/lib/quantity";
 import {
@@ -215,6 +217,11 @@ const sortZones = (zones: Zone[]) => {
 };
 
 export default function DispatchBoard() {
+  const session = useDashboardSession();
+  return session ? <DispatchSession key={JSON.stringify(session)} /> : null;
+}
+
+function DispatchSession() {
   const { t, i18n } = useTranslation();
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();
@@ -486,17 +493,25 @@ export default function DispatchBoard() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
+    const session = captureDashboardSession();
+    let disposed = false;
+    const current = () => !disposed && isDashboardSessionCurrent(session);
     const controller = fetchInitialData();
     if (!isCompanyOwner) {
       // Company-wide websocket events remain admin-only. Scoped readers refresh
       // through authorized HTTP queries without joining the company event stream.
       let pending: AbortController | undefined;
       const timer = window.setInterval(() => {
-        if (document.visibilityState !== 'visible') return;
+        if (!current() || document.visibilityState !== 'visible') return;
         pending?.abort();
         pending = fetchInitialData();
       }, 30000);
-      return () => { controller.abort(); pending?.abort(); window.clearInterval(timer); };
+      const stop = () => {
+        disposed = true;
+        controller.abort(); pending?.abort(); window.clearInterval(timer);
+      };
+      const unsubscribe = subscribeDashboardSession(() => { if (!current()) stop(); });
+      return () => { unsubscribe(); stop(); };
     }
     const apiUrl = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
@@ -506,23 +521,52 @@ export default function DispatchBoard() {
     let realtimeRefreshController: AbortController | null = null;
     let retryCount = 0;
     let workerAlertTimer: ReturnType<typeof setTimeout> | undefined;
+    const displayedAlerts = new Set<string | number>();
     const workerAlerts = new Map<
       string,
       { count: number; message: string; severity: "warning" | "error" }
     >();
 
+    let unsubscribe = () => {};
+    const stop = () => {
+      disposed = true;
+      unsubscribe();
+      controller.abort();
+      realtimeRefreshController?.abort();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (refreshTimer) clearTimeout(refreshTimer);
+      if (workerAlertTimer) clearTimeout(workerAlertTimer);
+      workerAlerts.clear();
+      displayedAlerts.forEach((id) => toast.dismiss(id));
+      displayedAlerts.clear();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = undefined;
+      }
+    };
+    const live = () => {
+      if (current()) return true;
+      stop();
+      return false;
+    };
+
     const flushWorkerAlerts = () => {
-      workerAlerts.forEach(({ count, message, severity }) => {
+      if (!live()) return;
+      workerAlerts.forEach(({ count, message, severity }, eventName) => {
         const rendered =
           count > 1 ? `${message} (+${count - 1} تنبيهات أخرى)` : message;
-        if (severity === "warning") toast.warning(rendered);
-        else toast.error(rendered);
+        const id = `dispatch-worker-${session.generation}-${eventName}`;
+        displayedAlerts.add(id);
+        if (severity === "warning") toast.warning(rendered, { id });
+        else toast.error(rendered, { id });
       });
       workerAlerts.clear();
       workerAlertTimer = undefined;
     };
 
     const queueWorkerAlert = (eventName: string, message: string) => {
+      if (!live()) return;
       const severity: "warning" | "error" =
         eventName === "STALE_HANDSHAKE_WARNING" ||
         eventName === "STALE_SESSION_WARNING"
@@ -539,23 +583,29 @@ export default function DispatchBoard() {
     };
 
     const scheduleRealtimeRefresh = () => {
+      if (!live()) return;
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {
+        if (!live()) return;
         realtimeRefreshController?.abort();
         realtimeRefreshController = fetchInitialData();
       }, 300);
     };
 
     const connectWS = () => {
+      if (!live()) return;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       const token = localStorage.getItem("admin_token");
       if (!apiUrl || !token) return;
 
       const wsUrl =
         apiUrl.replace(/^http/, "ws") +
         `/ws/dispatch`;
-      ws = new WebSocket(wsUrl);
+      const socket = new WebSocket(wsUrl);
+      ws = socket;
 
-      ws.onmessage = (event) => {
+      socket.onmessage = (event) => {
+        if (!live() || ws !== socket) return;
         try {
           const parsed: unknown = JSON.parse(event.data);
           if (typeof parsed !== "object" || parsed === null) return;
@@ -579,27 +629,32 @@ export default function DispatchBoard() {
         }
       };
 
-      ws.onclose = () => {
+      socket.onclose = () => {
+        if (!live() || ws !== socket) return;
+        ws = undefined;
         if (document.visibilityState === "hidden") return;
         const backoff = Math.min(1000 * Math.pow(2, retryCount), 30000);
         retryCount += 1;
         reconnectTimer = setTimeout(connectWS, backoff);
       };
-      ws.onopen = () => {
+      socket.onopen = () => {
+        if (!live() || ws !== socket) { socket.close(); return; }
         const liveToken = localStorage.getItem("admin_token");
         if (!liveToken) {
-          ws?.close();
+          socket.close();
           return;
         }
-        ws?.send(JSON.stringify({ type: "auth", token: liveToken }));
+        socket.send(JSON.stringify({ type: "auth", token: liveToken }));
         retryCount = 0;
       };
-      ws.onerror = () => {};
+      socket.onerror = () => { if (!current()) stop(); };
     };
 
+    unsubscribe = subscribeDashboardSession(() => { if (!current()) stop(); });
     connectWS();
 
     const handleVisChange = () => {
+      if (!live()) return;
       if (
         document.visibilityState === "visible" &&
         (!ws || ws.readyState === WebSocket.CLOSED)
@@ -611,17 +666,9 @@ export default function DispatchBoard() {
     document.addEventListener("visibilitychange", handleVisChange);
 
     return () => {
-      controller.abort();
-      realtimeRefreshController?.abort();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (refreshTimer) clearTimeout(refreshTimer);
-      if (workerAlertTimer) clearTimeout(workerAlertTimer);
-      workerAlerts.clear();
+      unsubscribe();
+      stop();
       document.removeEventListener("visibilitychange", handleVisChange);
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
     };
   }, [fetchInitialData, isCompanyOwner]);
 

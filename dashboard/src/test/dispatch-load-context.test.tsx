@@ -1,5 +1,6 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { setAppLanguage } from "@/i18n";
 import DispatchBoard from "@/pages/DispatchBoard";
@@ -22,9 +23,21 @@ const page = (id: string, name: string) => ({ items: [{ id, name, load: { ...uni
   current_base_quantity: "0", reserved_base_quantity: "0", pending_base_quantity: "0" } }], next_cursor: null, has_more: false });
 
 beforeEach(async () => {
-  localStorage.clear(); localStorage.setItem("activeTab", "launch"); localStorage.setItem("wanasah_route_vehicle", "17");
+  vi.stubGlobal("WebSocket", class {
+    static OPEN = 1; static CONNECTING = 0; static CLOSED = 3;
+    readyState = 0;
+    send() {}
+    close() { this.readyState = 3; }
+  });
+  localStorage.clear();
+  localStorage.setItem("admin_token", "synthetic-load-context-only");
+  localStorage.setItem("company_id", "1"); localStorage.setItem("principal_id", "3");
+  localStorage.setItem("backoffice_user_id", "13");
+  localStorage.setItem("activeTab", "launch"); localStorage.setItem("wanasah_route_vehicle", "17");
   await setAppLanguage("en"); fake.fetch.mockReset();
 });
+
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clearing drafts and ignoring late custody", async () => {
   let custodyReads = 0;

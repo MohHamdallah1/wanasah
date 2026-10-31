@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense } from "react";
+import { Component, Fragment, lazy, Suspense } from "react";
 // +++ الكي الجراحي: إزالة Toaster الميتة والإبقاء على Sonner فقط لتخفيف حجم المشروع +++
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import { readPlatformSession } from "@/features/platform/session";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import {
   loadCommercialRulesDashboard,
   loadDispatchBoard,
@@ -100,8 +101,13 @@ const isTokenValid = (): boolean => {
 
 // حارس: يمنع غير المسجلين من دخول اللوحة
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
-  if (!isTokenValid()) return <Navigate to="/login" replace />;
-  return children;
+  const session = useDashboardSession();
+  if (!session || !isTokenValid()) return <Navigate to="/login" replace />;
+  return (
+    <Fragment key={`${session.generation}:${session.identity}`}>
+      {children}
+    </Fragment>
+  );
 };
 
 // حارس: يمنع المسجلين من العودة لصفحة الدخول

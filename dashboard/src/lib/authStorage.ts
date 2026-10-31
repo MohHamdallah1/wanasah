@@ -70,6 +70,65 @@ export const migrateLegacyBackofficeIdentityStorage = (): void => {
   );
 };
 
+// A login generation fences asynchronous work, including same-principal re-login.
+// This is client response admission only; the server still authorizes every bearer.
+const SESSION_GENERATION_KEY = "wanasah:auth-session:generation";
+export const beginDashboardSession = (): void => {
+  localStorage.setItem(SESSION_GENERATION_KEY, crypto.randomUUID());
+};
+
+export type DashboardSession = { generation: string; identity: string };
+const dashboardIdentity = (): string => JSON.stringify([
+  localStorage.getItem("company_id"),
+  localStorage.getItem("principal_id"),
+  localStorage.getItem("backoffice_user_id"),
+  readRefreshIdentity(localStorage.getItem("refresh_token") || ""),
+]);
+
+export const captureDashboardSession = (): DashboardSession => {
+  if (!localStorage.getItem(SESSION_GENERATION_KEY)) beginDashboardSession();
+  return {
+    generation: localStorage.getItem(SESSION_GENERATION_KEY)!,
+    identity: dashboardIdentity(),
+  };
+};
+
+export const isDashboardSessionCurrent = (session: DashboardSession): boolean =>
+  localStorage.getItem(SESSION_GENERATION_KEY) === session.generation &&
+  dashboardIdentity() === session.identity;
+
+export const invalidateDashboardSession = (): void => {
+  localStorage.removeItem(SESSION_GENERATION_KEY);
+};
+
+const SESSION_CHANGED_EVENT = "dashboard-session-changed";
+const SESSION_STORAGE_KEYS = new Set([
+  SESSION_GENERATION_KEY, "admin_token", "refresh_token", "company_id",
+  "principal_id", "backoffice_user_id",
+]);
+
+// Native storage events cover other tabs; this event follows a complete local
+// login/logout commit. Token rotation retains the same session snapshot.
+export const notifyDashboardSessionChange = (): void => {
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
+};
+
+export const subscribeDashboardSession = (listener: () => void): (() => void) => {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || SESSION_STORAGE_KEYS.has(event.key)) listener();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener(SESSION_CHANGED_EVENT, listener);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener(SESSION_CHANGED_EVENT, listener);
+  };
+};
+
+export const readDashboardSessionSnapshot = (): string =>
+  localStorage.getItem("admin_token") ? JSON.stringify(captureDashboardSession()) : "";
+
+
 type RefreshIdentity = {
   sub: string;
   companyId: string;
@@ -166,7 +225,8 @@ export const readAccessTokenIfRefreshAdvanced = (
 };
 
 export const clearLocalStoragePreservingLoginHintsAndPreferences =
-  (): void => {
+  (expectedSession?: DashboardSession): boolean => {
+    if (expectedSession && !isDashboardSessionCurrent(expectedSession)) return false;
     const lastCompanyCode =
       readLastCompanyCode();
 
@@ -222,4 +282,6 @@ export const clearLocalStoragePreservingLoginHintsAndPreferences =
         value,
       );
     }
+    notifyDashboardSessionChange();
+    return true;
   };

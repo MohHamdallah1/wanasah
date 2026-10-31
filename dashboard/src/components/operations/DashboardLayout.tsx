@@ -12,6 +12,7 @@ import {
 } from "react-router-dom";
 
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 import "./dashboard.css";
@@ -38,6 +39,8 @@ const DashboardLayout = () => {
   );
   const location =
     useLocation();
+  const session =
+    useDashboardSession();
   const access =
     useInventoryAccess();
   const isOnline =
@@ -51,6 +54,10 @@ const DashboardLayout = () => {
         : "0",
     );
   }, [sidebarCollapsed]);
+
+  if (!session) {
+    return <Navigate to="/login" replace />;
+  }
 
   if (access.isPending) {
     return (
@@ -223,7 +230,7 @@ const DashboardLayout = () => {
               </div>
             }
           >
-            <Outlet />
+            <Outlet key={`${session.generation}:${session.identity}`} />
           </Suspense>
         </main>
       </div>

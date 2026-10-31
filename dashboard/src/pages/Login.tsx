@@ -1,6 +1,10 @@
 import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 import {
+  beginDashboardSession,
+  notifyDashboardSessionChange,
+  captureDashboardSession,
+  isDashboardSessionCurrent,
   migrateLegacyBackofficeIdentityStorage,
   readLastCompanyCode,
   rememberLastCompanyCode,
@@ -76,6 +80,7 @@ export default function Login() {
     }
     setError('');
     setIsSubmitting(true);
+    const loginSession = captureDashboardSession();
 
     try {
       // 1. الاتصال الحقيقي بالسيرفر
@@ -94,6 +99,7 @@ export default function Login() {
       });
 
       const data = await response.json() as Partial<LoginResponsePayload>;
+      if (!isDashboardSessionCurrent(loginSession)) return;
 
       // 2. التحقق من الرد
       if (!response.ok) {
@@ -141,6 +147,7 @@ export default function Login() {
       }
 
       // 6. حفظ هوية Backoffice canonical فقط. driver_id القديم لا يمثل هوية اللوحة.
+      beginDashboardSession();
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
       localStorage.setItem('company_id', nextCompanyId);
@@ -150,11 +157,13 @@ export default function Login() {
       localStorage.setItem('company_code', data.company_code);
       rememberLastCompanyCode(data.company_code);
       localStorage.setItem('admin_name', data.display_name);
+      notifyDashboardSessionChange();
 
       // 7. التوجيه من حالة Owner canonical فقط
       navigate(data.is_company_owner ? '/' : '/inventory');
 
     } catch (err: unknown) {
+      if (!isDashboardSessionCurrent(loginSession)) return;
       setError(
         err instanceof Error
           ? err.message

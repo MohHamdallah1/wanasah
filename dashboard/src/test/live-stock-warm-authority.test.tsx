@@ -63,8 +63,15 @@ vi.mock("@/pages/inventory/InventoryTopDock", () => ({
   InventoryTopDock: () => <div data-testid="dock" />,
 }));
 vi.mock("@/pages/inventory/Tab1LiveStock", () => ({
-  Tab1LiveStock: ({ products, stockTotal }: { products: WarehouseProduct[]; stockTotal: number | null }) =>
-    <div data-testid="live-stock">{products.map(p => <span key={p.id}>{p.name}:{p.average_cost_display}</span>)}<span>total={stockTotal ?? "hidden"}</span></div>,
+  Tab1LiveStock: ({ products, stockTotal, onRefresh, onLocationChange }: {
+    products: WarehouseProduct[]; stockTotal: number | null;
+    onRefresh: () => void; onLocationChange: (id: string) => void;
+  }) => <div data-testid="live-stock">
+    {products.map(p => <span key={p.id}>{p.name}:{p.average_cost_display}</span>)}
+    <span>total={stockTotal ?? "hidden"}</span>
+    <button onClick={onRefresh}>Refresh witness</button>
+    <button onClick={() => onLocationChange("102")}>Switch warehouse witness</button>
+  </div>,
 }));
 vi.mock("@/pages/inventory/TabBatches", () => ({ TabBatches: () => null }));
 vi.mock("@/pages/inventory/Tab2Inbound", () => ({ Tab2Inbound: () => null }));
@@ -122,12 +129,12 @@ const grant = () => {
   state.locationFetching = false;
   state.locationSuccess = true;
 };
-const fakeServer = (options: { page?: Promise<unknown>; selection?: Promise<unknown> } = {}) => {
+const fakeServer = (options: { page?: Promise<unknown>; summary?: Promise<unknown>; selection?: Promise<unknown> } = {}) => {
   state.authFetch.mockImplementation((url: string) => {
     const path = new URL(url, "https://localhost").pathname;
     if (path === "/warehouse/locations/selection") return options.selection ?? Promise.resolve(warehousePage);
     if (path === "/warehouse/inventory/cursor") return options.page ?? Promise.resolve(resultPage);
-    if (path === "/warehouse/inventory/summary") return Promise.resolve({ stock_total: 0, alert_count: 0 });
+    if (path === "/warehouse/inventory/summary") return options.summary ?? Promise.resolve({ stock_total: 0, alert_count: 0 });
     throw Error("Unexpected " + path);
   });
 };
@@ -224,5 +231,104 @@ describe("UI-04: cache is never its own access authority", () => {
     await act(async () => response.resolve({ ...resultPage, items: [item] }));
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(readLiveStockWarmSnapshot(inventoryWarmScopeKey("1","75","75"),101)?.items.some(p=>p.id===41)).not.toBe(true);
+  });
+});
+
+
+describe("in-flight admission and independent response ordering", () => {
+  it.each(["page", "summary"])("rejects delayed %s and cache writes after known warehouse revocation", async (reader) => {
+    const old = deferred<unknown>();
+    fakeServer(reader === "page" ? { page: old.promise } : { summary: old.promise });
+    grant(); const view = mount();
+    const path = reader === "page" ? "/cursor?" : "/summary?";
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([u]) => String(u).includes(path))).toBe(true));
+    state.permission = false; state.locationError = true; state.locationSuccess = false;
+    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    await act(async () => old.resolve(reader === "page"
+      ? { ...resultPage, items: [item] } : { stock_total: 123, alert_count: 2 }));
+    expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();
+    expect(readLiveStockWarmSnapshot("1:75:75", 101)).toBeNull();
+  });
+
+  it.each(["company_id", "principal_id", "backoffice_user_id"])("discards both outstanding readers after %s storage switch", async (key) => {
+    seed(); grant();
+    const page = deferred<unknown>(), summary = deferred<unknown>();
+    fakeServer({ page: page.promise, summary: summary.promise }); mount();
+    await waitFor(() => expect(state.authFetch.mock.calls.filter(([u]) => String(u).includes("/inventory/")).length).toBeGreaterThanOrEqual(2));
+    act(() => {
+      localStorage.setItem(key, "999");
+      window.dispatchEvent(new StorageEvent("storage", { key, newValue: "999" }));
+    });
+    await act(async () => {
+      page.resolve({ ...resultPage, items: [item] });
+      summary.resolve({ stock_total: 123, alert_count: 2 });
+    });
+    expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();
+    expect(readLiveStockWarmSnapshot("1:75:75", 101)).toBeNull();
+    expect(localStorage.getItem(key)).toBe("999");
+  });
+
+  it("keeps the new warehouse after late old-warehouse page and summary completions", async () => {
+    grant(); const page = deferred<unknown>(), summary = deferred<unknown>();
+    const second = { id: 102, name: "Warehouse 102", code: "W102" };
+    state.authFetch.mockImplementation((url: string) => {
+      const u = new URL(url, "https://localhost");
+      if (u.pathname === "/warehouse/locations/selection") return Promise.resolve({
+        ...warehousePage, items: [loc, second], total: 2,
+      });
+      if (u.pathname === "/warehouse/inventory/cursor") return u.searchParams.get("location_id") === "101"
+        ? page.promise : Promise.resolve({ ...resultPage, items: [{ ...item, id: 42, name: "WAREHOUSE_102" }] });
+      if (u.pathname === "/warehouse/inventory/summary") return u.searchParams.get("location_id") === "101"
+        ? summary.promise : Promise.resolve({ stock_total: 7, alert_count: 0 });
+      throw Error("unexpected " + url);
+    });
+    mount();
+    await screen.findByRole("button", { name: "Switch warehouse witness" });
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([u]) => String(u).includes("/summary?"))).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Switch warehouse witness" }));
+    await screen.findByText(/WAREHOUSE_102/);
+    await screen.findByText("total=7");
+    await act(async () => { page.resolve({ ...resultPage, items: [item] }); summary.resolve({ stock_total: 123, alert_count: 2 }); });
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(screen.getByText("total=7")).toBeInTheDocument();
+    expect(readLiveStockWarmSnapshot("1:75:75", 102)?.items[0].id).toBe(42);
+  });
+
+  it.each(["en", "ar"])("does not label a warm page fresh when the independent summary resolves first (%s)", async (locale) => {
+    state.locale = locale; seed(); grant();
+    const page = deferred<unknown>();
+    fakeServer({ page: page.promise }); mount();
+    await screen.findByText(/PRIVATE_STOCK_ROW/);
+    await screen.findByText("total=0");
+    const banner = document.querySelector("[data-live-authority]")!;
+    expect(banner).toHaveAttribute("data-live-authority", "warmUnverified");
+    expect(banner).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+    await act(async () => page.resolve(resultPage));
+    await waitFor(() => expect(banner).toHaveAttribute("data-live-authority", "verifiedFresh"));
+  });
+
+  it("never lets a delayed pre-revocation Vehicle value replace a newer NO_ACCESS/null page", async () => {
+    grant(); let reads = 0;
+    const old = deferred<unknown>();
+    state.authFetch.mockImplementation((url: string) => {
+      const path = new URL(url, "https://localhost").pathname;
+      if (path === "/warehouse/locations/selection") return Promise.resolve(warehousePage);
+      if (path === "/warehouse/inventory/summary") return Promise.resolve({ stock_total: 1, alert_count: 0 });
+      if (path === "/warehouse/inventory/cursor") return ++reads === 1 ? old.promise : Promise.resolve({
+        ...resultPage, items: [{ ...item, name: "WAREHOUSE_NO_VEHICLE_READ", vehicle_quantity_scope: "NO_ACCESS", vehicle_quantity: null }],
+      });
+      throw Error("unexpected " + url);
+    });
+    mount();
+    await screen.findByRole("button", { name: "Refresh witness" });
+    await waitFor(() => expect(reads).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh witness" }));
+    await screen.findByText(/WAREHOUSE_NO_VEHICLE_READ/);
+    await act(async () => old.resolve({ ...resultPage, items: [{ ...item, vehicle_quantity: "32" }] }));
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    const current = readLiveStockWarmSnapshot("1:75:75", 101)!.items[0];
+    expect(current.vehicle_quantity_scope).toBe("NO_ACCESS");
+    expect(current.vehicle_quantity).toBeNull();
+    expect(current.on_hand_quantity).toBe("10");
   });
 });
