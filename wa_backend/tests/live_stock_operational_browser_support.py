@@ -213,6 +213,25 @@ async def command(action):
                 assert D(q) == D("24")
                 cost = await db.scalar(select(InventoryCostState).where(InventoryCostState.product_variant_id == a.variant_id))
                 assert (D(cost.quantity), D(cost.inventory_value)) == (D("1000"), D("2200"))
+            elif action == "race-threshold":
+                uom_id = await db.scalar(select(ProductVariant.base_uom_id).where(
+                    ProductVariant.company_id == a.company_id,
+                    ProductVariant.id == a.variant_id,
+                ))
+                configured = await update_minimum_stock(
+                    a.variant_id,
+                    MinimumStockUpdateRequest(
+                        request_id=uuid4(),
+                        location_id=a.location_id,
+                        uom_id=int(uom_id),
+                        minimum_quantity=D("950"),
+                        expected_minimum_quantity=D("1000"),
+                    ),
+                    db,
+                    a.owner.access(db),
+                    a.owner.operational_driver,
+                )
+                assert D(configured["minimum_quantity"]) == D("950")
             elif action == "revoke":
                 result = await db.execute(delete(UserLocationAccess).where(
                     UserLocationAccess.company_id == a.company_id,
