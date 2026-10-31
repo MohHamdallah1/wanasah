@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+import pytest_asyncio
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +47,16 @@ pytestmark = [
     pytest.mark.asyncio(loop_scope="function"),
 ]
 PATH = "/warehouse/inventory/cursor"
+
+
+@pytest_asyncio.fixture(autouse=True, loop_scope="function")
+async def _release_http_connections_between_case_event_loops():
+    # The global FastAPI app engine pools asyncpg connections. The fixture runs
+    # FIFO and MOVING_AVERAGE on separate pytest-asyncio event loops.
+    try:
+        yield
+    finally:
+        await http_runtime_engine.dispose()
 
 
 async def _vehicle(pg_gate, tenant):
@@ -259,7 +270,7 @@ async def test_v1_to_v2_fail_closed_interruption_rebuild_and_physical_rls(pg, ro
             for warehouse in (w1, w2):
                 denied = await _read(client, token, warehouse)
                 assert denied.status_code == 503, denied.text
-                assert denied.json()["detail"]["code"] == "LIVE_STOCK_PROJECTION_NOT_READY"
+                assert denied.json()["error"]["code"] == "LIVE_STOCK_PROJECTION_NOT_READY", denied.text
                 assert denied.headers.get("x-request-id")
                 assert "items" not in denied.json()
         # Other-company readiness does not regress while A is stale.
