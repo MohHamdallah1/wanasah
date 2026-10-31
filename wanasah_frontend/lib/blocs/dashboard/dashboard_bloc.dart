@@ -133,10 +133,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     LoadDashboardData event,
     Emitter<DashboardState> emit,
   ) async {
+    final authorityEpoch = _custodyAuthorityEpoch;
     emit(const DashboardLoading());
 
     try {
       final loaded = await _loadFromLocal();
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       emit(loaded);
     } catch (e) {
       developer.log('[DashboardBloc] LoadDashboardData error: $e');
@@ -152,7 +154,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) async {
     final previous = state is DashboardLoaded ? state as DashboardLoaded : null;
+    final authorityEpoch = _custodyAuthorityEpoch;
     final result = await _recoverySyncCoordinator.synchronize();
+    if (authorityEpoch != _custodyAuthorityEpoch) return;
 
     developer.log(
       '[DashboardBloc] Recovery sync disposition: ${result.disposition.name}',
@@ -162,11 +166,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final loaded = await _loadFromLocal(
         isOffline: result.disposition == RecoverySyncDisposition.unresolved,
       );
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       emit(loaded);
     } catch (error) {
       developer.log(
         '[DashboardBloc] Local reload after recovery sync failed: $error',
       );
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       if (previous != null) {
         emit(previous.copyWith(
           isOffline: true,
@@ -695,8 +701,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     RespondToTransfer event,
     Emitter<DashboardState> emit,
   ) async {
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded || _sellableAccessDenied) return;
     final snapshot = state as DashboardLoaded;
+    final authorityEpoch = _custodyAuthorityEpoch;
 
     final status = switch (event.responseStatus) {
       'accepted' => TransferDecisionStatus.accepted,
@@ -718,6 +725,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ),
       ]);
 
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) return;
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -742,6 +751,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
     } catch (e) {
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) return;
       developer.log('[DashboardBloc] Custody transfer response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال رد العهدة. أعد المحاولة.'));
       emit(snapshot);
@@ -752,8 +763,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     RespondToBatchTransfer event,
     Emitter<DashboardState> emit,
   ) async {
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded || _sellableAccessDenied) return;
     final snapshot = state as DashboardLoaded;
+    final authorityEpoch = _custodyAuthorityEpoch;
 
     if (event.decisions.isEmpty) {
       emit(snapshot.copyWith(clearPendingTransfer: true));
@@ -762,6 +774,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     try {
       final outcome = await _custodyCoordinator.respond(event.decisions);
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) return;
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -786,6 +800,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
     } catch (e) {
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) return;
       developer.log('[DashboardBloc] Custody batch response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال ردود العهدة. أعد المحاولة.'));
       emit(snapshot);
