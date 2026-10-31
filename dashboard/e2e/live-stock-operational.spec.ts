@@ -170,11 +170,214 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       expect(ownerLog.requests.slice(resume).filter(u => new URL(u).pathname === "/warehouse/inventory/cursor")).toHaveLength(1);
       expect(ownerLog.requests.slice(resume).filter(u => new URL(u).pathname === "/warehouse/inventory/summary")).toHaveLength(1);
     });
-    await test.step("cross-tab A→B rejects delayed A while fresh B authority follows physical custody truth", async () => {
+    await test.step("real movement cannot make delayed list, summary, batch and source one fresh snapshot", async () => {
+      command("race-threshold");
       physicalCommand("setup");
       physicalCommand("grant");
+
+      const initialList = op.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === "GET" && response.status() === 200 &&
+          url.pathname === "/warehouse/inventory/cursor" &&
+          url.searchParams.get("location_id") === String(state.warehouse);
+      });
+      const initialSummary = op.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === "GET" && response.status() === 200 &&
+          url.pathname === "/warehouse/inventory/summary" &&
+          url.searchParams.get("location_id") === String(state.warehouse);
+      });
+      await stock(op).locator(".live-stock-context-refresh").click();
+      await Promise.all([initialList, initialSummary]);
+      const thresholdSummary = await api(op,
+        "/warehouse/inventory/summary?location_id=" + state.warehouse);
+      expect(thresholdSummary.status).toBe(200);
+      expect(thresholdSummary.body.alert_count).toBe(0);
+      await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(0);
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("125");
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("0");
+
+      await op.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
+      let dialog = op.locator('[role="dialog"][aria-modal="true"]');
+      await expect(dialog).toContainText("OP-FIRST");
+      let first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+
+      type RaceKey = "list" | "summary" | "batch" | "source";
+      const raceKeys: RaceKey[] = ["list", "summary", "batch", "source"];
+      const captured = new Map<RaceKey, unknown>();
+      const ready = new Map<RaceKey, Promise<void>>();
+      const readyResolve = new Map<RaceKey, () => void>();
+      const done = new Map<RaceKey, Promise<void>>();
+      const doneResolve = new Map<RaceKey, () => void>();
+      for (const key of raceKeys) {
+        let resolveReady!: () => void;
+        let resolveDone!: () => void;
+        ready.set(key, new Promise<void>((resolve) => { resolveReady = resolve; }));
+        done.set(key, new Promise<void>((resolve) => { resolveDone = resolve; }));
+        readyResolve.set(key, resolveReady);
+        doneResolve.set(key, resolveDone);
+      }
+      let releaseHeld!: () => void;
+      const heldRelease = new Promise<void>((resolve) => { releaseHeld = resolve; });
+
+      const raceHandler = async (route: Route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        if (request.method() !== "GET") {
+          await route.continue();
+          return;
+        }
+        let key: RaceKey | null = null;
+        if (
+          url.pathname === "/warehouse/inventory/cursor" &&
+          url.searchParams.get("location_id") === String(state.warehouse)
+        ) key = "list";
+        else if (
+          url.pathname === "/warehouse/inventory/summary" &&
+          url.searchParams.get("location_id") === String(state.warehouse)
+        ) key = "summary";
+        else if (
+          url.pathname === `/warehouse/inventory/${state.mainId}/batches` &&
+          url.searchParams.get("location_id") === String(state.warehouse)
+        ) key = "batch";
+        else if (
+          url.pathname === `/warehouse/inventory/${state.mainId}/batches/${state.firstBatch}/source` &&
+          url.searchParams.get("location_id") === String(state.warehouse)
+        ) key = "source";
+        if (!key || captured.has(key)) {
+          await route.continue();
+          return;
+        }
+
+        const genuineOldResponse = await route.fetch();
+        expect(genuineOldResponse.status()).toBe(200);
+        captured.set(key, await genuineOldResponse.json());
+        readyResolve.get(key)!();
+        await heldRelease;
+        try {
+          await route.fulfill({ response: genuineOldResponse });
+        } catch {
+          // A scope change may abort the transport before Playwright can deliver
+          // the already-captured response. The consumer must stay fail-closed in
+          // both cooperative-abort and late-delivery cases.
+        } finally {
+          doneResolve.get(key)!();
+        }
+      };
+      await op.route(API + "/warehouse/inventory/**", raceHandler);
+
+      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await ready.get("source");
+      await op.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+
+      await op.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
+      await ready.get("batch");
+      dialog = op.locator('[role="dialog"][aria-modal="true"]');
+      await op.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+
+      await stock(op).locator(".live-stock-context-refresh").click();
+      await Promise.all([ready.get("list")!, ready.get("summary")!]);
+
+      const oldList = captured.get("list") as {
+        items: Array<{ id: number; on_hand_quantity: string; vehicle_quantity: string | null }>;
+      };
+      const oldSummary = captured.get("summary") as { alert_count: number };
+      const oldBatch = captured.get("batch") as {
+        batches: Array<{ batch_id: number; on_hand_quantity: string }>;
+      };
+      const oldSource = captured.get("source") as {
+        statuses: Array<{ stock_status: string; on_hand_quantity: string; reserved_quantity: string }>;
+      };
+      expect(oldList.items.find((row) => row.id === state.mainId)).toMatchObject({
+        on_hand_quantity: "1000",
+        vehicle_quantity: "0",
+      });
+      expect(oldSummary.alert_count).toBe(0);
+      expect(oldBatch.batches.find((batch) => batch.batch_id === state.firstBatch)?.on_hand_quantity).toBe("800");
+      expect(oldSource.statuses.find((status) => status.stock_status === "AVAILABLE")).toMatchObject({
+        on_hand_quantity: "800",
+        reserved_quantity: "24",
+      });
+
       physicalCommand("load");
 
+      const select = stock(op).locator(".live-stock-context-select");
+      const otherRead = op.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === "GET" && response.status() === 200 &&
+          url.pathname === "/warehouse/inventory/cursor" &&
+          url.searchParams.get("location_id") === String(state.otherWarehouse);
+      });
+      await select.selectOption(String(state.otherWarehouse));
+      await otherRead;
+      await expect(item(op, "Paging Item 001")).toBeVisible();
+
+      const freshListPromise = op.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === "GET" && response.status() === 200 &&
+          url.pathname === "/warehouse/inventory/cursor" &&
+          url.searchParams.get("location_id") === String(state.warehouse);
+      });
+      const freshSummaryPromise = op.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.request().method() === "GET" && response.status() === 200 &&
+          url.pathname === "/warehouse/inventory/summary" &&
+          url.searchParams.get("location_id") === String(state.warehouse);
+      });
+      await select.selectOption(String(state.warehouse));
+      const [freshListResponse, freshSummaryResponse] =
+        await Promise.all([freshListPromise, freshSummaryPromise]);
+      const freshList = await freshListResponse.json() as {
+        items: Array<{ id: number; on_hand_quantity: string; vehicle_quantity: string | null }>;
+      };
+      const freshSummary = await freshSummaryResponse.json() as { alert_count: number };
+      expect(freshList.items.find((row) => row.id === state.mainId)).toMatchObject({
+        on_hand_quantity: "968",
+        vehicle_quantity: "32",
+      });
+      expect(freshSummary.alert_count).toBe(1);
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
+      await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
+
+      const freshBatchApi = await api(op,
+        "/warehouse/inventory/" + state.mainId + "/batches?location_id=" + state.warehouse + "&limit=100");
+      const freshFirstBatch = freshBatchApi.body.batches.find(
+        (batch: { batch_id: number }) => batch.batch_id === state.firstBatch);
+      expect(freshFirstBatch.on_hand_quantity).toBe("768");
+
+      await op.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
+      dialog = op.locator('[role="dialog"][aria-modal="true"]');
+      first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+      await expect(first).toBeVisible();
+      await expect(dialog).toContainText("independent reads, not one atomic snapshot");
+      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
+      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await expect(first).toContainText("not a complete physical-inventory total");
+      const freshSourceApi = await api(op,
+        "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch +
+          "/source?location_id=" + state.warehouse);
+      const freshAvailable = freshSourceApi.body.statuses.find(
+        (status: { stock_status: string }) => status.stock_status === "AVAILABLE");
+      expect(freshAvailable).toMatchObject({ on_hand_quantity: "768", reserved_quantity: "24" });
+      await expect(first.locator('[id^="live-stock-source"] dd').filter({ hasText: /^96 / })).toHaveCount(1);
+
+      releaseHeld();
+      await Promise.all(raceKeys.map((key) => done.get(key)!));
+      await delay(op);
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
+      await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
+      await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
+      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
+      await expect(first).toContainText("not a complete physical-inventory total");
+      await op.unroute(API + "/warehouse/inventory/**", raceHandler);
+      await op.keyboard.press("Escape");
+      await shot(op, info, "real-movement-race-fresh-authority");
+    });
+
+    await test.step("cross-tab A→B rejects delayed A while fresh B authority follows physical custody truth", async () => {
       const transition = await browser.newContext({
         baseURL: "http://127.0.0.1:4173",
         viewport: { width: 1360, height: 900 },
@@ -302,13 +505,13 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await page.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
       const dialog = page.locator('[role="dialog"][aria-modal="true"]');
       const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
-      await first.getByRole("button", { name: "Stock source and reservations" }).click();
+      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
       await expect(first).toContainText(/unattributed/i);
       const token = await page.evaluate(() => localStorage.getItem("admin_token"));
       command("revoke");
-      await first.getByRole("button", { name: "Stock source and reservations" }).click();
+      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
       const denial = page.waitForResponse(r => r.request().method() === "GET" && r.status() === 403 && r.url().includes("/source?"));
-      await first.getByRole("button", { name: "Stock source and reservations" }).click();
+      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
       await denial;
       await expect(dialog).toHaveCount(0);
       await expect(stock(page)).toHaveCount(0);
