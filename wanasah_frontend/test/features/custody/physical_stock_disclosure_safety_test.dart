@@ -10,7 +10,6 @@ import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 import 'package:wanasah_frontend/blocs/visit/visit_bloc.dart';
-import 'package:wanasah_frontend/core/network/api_client.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_bloc.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
@@ -62,6 +61,8 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
   ),
 );
 
+class _UnusedVisitBloc extends Fake implements VisitBloc {}
+
 class _DeniedDashboardRepo extends Fake implements DashboardRepository {
   _DeniedDashboardRepo(this.status);
   final int status;
@@ -94,10 +95,6 @@ class _SeededDashboardBloc extends DashboardBloc {
 }
 
 void main() {
-  // VisitBloc requires the normal application API singleton, even though
-  // the rendering test performs no HTTP calls.
-  setUpAll(() => ApiClient.init(onUnauthorized: () {}));
-
   test('zero is valid but omitted/null/malformed/negative custody never becomes zero', () {
     final zero = ProductModel.fromJson(_product());
     expect(zero.currentCartons, 0);
@@ -224,8 +221,7 @@ void main() {
 
   for (final locale in const [Locale('ar'), Locale('en')]) {
     testWidgets('visit catalog AR/EN stock amounts stay unchanged: ${locale.languageCode}', (tester) async {
-      final bloc = VisitBloc();
-      addTearDown(bloc.close);
+      final bloc = _UnusedVisitBloc();
       await tester.pumpWidget(MaterialApp(
         locale: locale,
         supportedLocales: AppLocalizations.supportedLocales,
