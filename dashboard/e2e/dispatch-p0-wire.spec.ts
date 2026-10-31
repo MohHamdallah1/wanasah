@@ -8,7 +8,7 @@ const state = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_P0_WIRE_STATE
 const expectedStatus = "/dispatch/route/" + state.routeId + "/status";
 const expectedAdjust = "/dispatch/route/" + state.routeId + "/adjust_inventory";
 
-function witness(phase: "status" | "adjust" | "replay") {
+function witness(phase: "status" | "adjust" | "replay" | "cancel") {
   const output = execFileSync(process.env.PYTHON || "python",
     [resolve("../wa_backend/tests/dispatch_p0_wire_fixture.py")], {
       encoding: "utf8", env: { ...process.env, WANASAH_DISPATCH_P0_VERIFY_PHASE: phase },
