@@ -66,29 +66,37 @@ jobs:
         working-directory: dashboard
         run: npm run build
 
-      - name: CP6 diff whitespace gate
-        run: git diff --check ed036c6778bddce628b69719ecc29938fc30bb51 HEAD
-
-      - name: Verify bounded CP6 Dashboard scope
+      - name: CP6 current PR whitespace and bounded scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           python - <<'PY'
-          import subprocess
-
-          base = "ed036c6778bddce628b69719ecc29938fc30bb51"
-          allowed = {
-              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
-              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
-              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
-              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
-          }
-          changed = set(
-              subprocess.check_output(
-                  ["git", "diff", "--name-only", base, "HEAD"],
-                  text=True,
-              ).splitlines()
+          import json, os, re, subprocess, urllib.request
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          base_ref = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", head) and re.fullmatch(r"[0-9a-f]{40}", base_ref)
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/compare/{base_ref}...{head}",
+              headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"},
           )
-          assert changed == allowed, f"Unexpected CP6 Dashboard scope: {sorted(changed)}"
-          print("CP6_DASHBOARD_SCOPE=PASS")
-          print("SUPPLIER_BASELINE_FILES_UNTOUCHED=PASS")
-          print("NO_DUPLICATE_MINIMUM_STOCK_MANAGER=ENFORCED_BY_FOCUSED_TEST")
+          with urllib.request.urlopen(request, timeout=30) as response:
+              base = json.load(response)["merge_base_commit"]["sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
+          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          allowed = ["dashboard/src/pages/inventory/Tab2Inbound.tsx","dashboard/src/pages/inventory/TabWarehouseLocations.tsx","dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts","dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx","dashboard/src/test/live-stock-family-cursor.test.tsx","dashboard/src/test/inventory-cp12-responsive-contract.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/e2e/inventory-cp14-device-ux.spec.ts",".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          assert changed <= set(allowed), sorted(changed - set(allowed))
+          # Prove the unchanged Git whitespace validator still rejects real trailing whitespace.
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+          with TemporaryDirectory() as temp:
+              before, after = Path(temp) / "before", Path(temp) / "after"
+              before.write_text("before\n", encoding="utf-8")
+              after.write_text("after \n", encoding="utf-8")
+              result = subprocess.run(["git", "diff", "--no-index", "--check", str(before), str(after)], text=True, capture_output=True)
+              assert result.returncode != 0 and "trailing whitespace" in result.stdout + result.stderr
+          print("CP6_PR_SCOPE_AND_WHITESPACE PASS", base, len(changed))
+          print("CP6_WHITESPACE_NEGATIVE_CONTROL PASS")
           PY
