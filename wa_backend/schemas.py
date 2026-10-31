@@ -1524,13 +1524,23 @@ class WarehouseInventoryItem(BaseModel):
     reserved_quantity: NonNegativeQuantity
     available_for_sale_quantity: NonNegativeQuantity
     unavailable_quantity: NonNegativeQuantity
-    vehicle_quantity: NonNegativeQuantity
+    # Cross-location disclosure only: never Warehouse ownership/attribution.
+    # None means the caller has no authorized Vehicle custody locations;
+    # numeric zero means a known zero inside the declared readable scope.
+    vehicle_quantity: Optional[NonNegativeQuantity] = None
+    vehicle_quantity_scope: Literal[
+        "COMPANY_WIDE",
+        "AUTHORIZED_LOCATIONS",
+        "NO_ACCESS",
+    ]
     recalled_quantity: NonNegativeQuantity
 
-    # Backward-compatible fields used by existing consumers.
+    # Backward-compatible quantity aliases. total_quantity is now explicitly
+    # selected-Warehouse physical stock and never includes Vehicle custody.
     available_quantity: NonNegativeQuantity
     blocked_quantity: NonNegativeQuantity
     total_quantity: NonNegativeQuantity
+    total_quantity_scope: Literal["WAREHOUSE_PHYSICAL"]
     damaged_quantity: NonNegativeQuantity
     minimum_quantity: NonNegativeQuantity
     is_low_stock: bool
