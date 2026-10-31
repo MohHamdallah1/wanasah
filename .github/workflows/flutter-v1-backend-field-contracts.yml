@@ -40,6 +40,12 @@ jobs:
         run: python -m pip install -r requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
       - name: FIELD resolution, financial and custody contracts
         run: python -m pytest -q tests/test_field_return_resolution.py tests/test_field_read_contracts.py tests/test_field_transfer_batch_identity.py
+      - name: Retrieve immutable approved return-cost baseline for FIELD AST parity
+        working-directory: .
+        run: |
+          git fetch --no-tags origin 51a0810cee5e7c13fe7222822e4f68972a6350ba
+          git cat-file -e '51a0810cee5e7c13fe7222822e4f68972a6350ba:wa_backend/api/driver.py'
+          echo "FIELD_IMMUTABLE_RETURN_COST_SOURCE=AVAILABLE"
       - name: Existing field identity, session, visit, custody and durable transport regressions
         run: >-
           python -m pytest -q
