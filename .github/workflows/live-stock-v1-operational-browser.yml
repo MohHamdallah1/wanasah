@@ -24,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: live-stock-operational-browser-${{ github.event.pull_request.number || github.ref }}
+  group: live-stock-operational-browser-${{ github.event.pull_request.number || github.ref }}-${{ inputs.scenario || 'operational' }}
   cancel-in-progress: true
 
 jobs:
