@@ -2729,6 +2729,40 @@ async def adjust_route_inventory(
 
     company_id = access.company_id
     use_canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
+
+    # Backward-compatible trusted in-process callers (there are no production
+    # callers outside this module's HTTP route) are upgraded to the same V2
+    # canonical identity rather than retaining a context-less execution path.
+    # This snapshot is only an expected context: the normal locked validation
+    # below re-checks it before any stock mutation, so a concurrent/ABA change
+    # fails closed through the monotonic route_context_revision.
+    if payload.context is None and request is None:
+        route_snapshot = (
+            await db.execute(
+                select(DispatchRoute).filter_by(company_id=company_id, id=route_id)
+            )
+        ).scalar_one_or_none()
+        if (
+            route_snapshot is None
+            or route_snapshot.vehicle_id is None
+            or route_snapshot.source_location_id is None
+        ):
+            raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مكتمل.")
+        payload = AdjustRouteInventoryRequest(
+            request_id=payload.request_id,
+            context={
+                "version": "ADJUST_LOAD_CONTEXT_V2",
+                "vehicle_id": int(route_snapshot.vehicle_id),
+                "source_warehouse_id": int(route_snapshot.source_location_id),
+                "work_session_id": (
+                    int(route_snapshot.work_session_id)
+                    if route_snapshot.work_session_id is not None else None
+                ),
+                "route_context_revision": int(route_snapshot.adjustment_context_revision),
+            },
+            deltas=payload.deltas,
+        )
+
     request_hash = _dispatch_adjust_request_hash(route_id, payload)
 
     try:
