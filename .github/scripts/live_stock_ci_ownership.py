@@ -169,15 +169,86 @@ def _changed(base: str, head: str) -> set[str]:
     output = _git("diff", "--name-only", base, head)
     return set(output.splitlines()) if output else set()
 
+def _object_sections(source: str, key: str) -> tuple[str, ...]:
+    """Return complete TypeScript object-literal sections for one property key.
+
+    Braces inside strings/comments are ignored so nested objects such as
+    inventoryLive.vehicleScopes remain part of the same owned signature.
+    """
+    sections: list[str] = []
+    pattern = re.compile(rf"\\b{re.escape(key)}\\s*:\\s*{{")
+    for match in pattern.finditer(source):
+        start = source.find("{", match.start(), match.end())
+        depth = 0
+        quote: str | None = None
+        escaped = False
+        line_comment = False
+        block_comment = False
+        index = start
+        while index < len(source):
+            char = source[index]
+            nxt = source[index + 1] if index + 1 < len(source) else ""
+            if line_comment:
+                if char == "\\n":
+                    line_comment = False
+                index += 1
+                continue
+            if block_comment:
+                if char == "*" and nxt == "/":
+                    block_comment = False
+                    index += 2
+                else:
+                    index += 1
+                continue
+            if quote is not None:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    quote = None
+                index += 1
+                continue
+            if char in ('"', "'", "`"):
+                quote = char
+                index += 1
+                continue
+            if char == "/" and nxt == "/":
+                line_comment = True
+                index += 2
+                continue
+            if char == "/" and nxt == "*":
+                block_comment = True
+                index += 2
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    section = source[start:index + 1]
+                    sections.append(re.sub(r"\\s+", " ", section.strip()))
+                    break
+            index += 1
+        else:
+            raise ValueError(f"unterminated object section for {key}")
+    return tuple(sections)
+
+
 def _resource_signature(source: str) -> tuple[str, ...]:
-    entries = []
+    entries: list[str] = []
     for line in source.splitlines():
-        stripped = re.sub(r"\s+", " ", line.strip())
-        if re.search(r"\bLIVE_STOCK_[A-Z0-9_]+\s*:", stripped):
+        stripped = re.sub(r"\\s+", " ", line.strip())
+        if re.search(r"\\bLIVE_STOCK_[A-Z0-9_]+\\s*:", stripped):
             entries.append(stripped)
-        elif re.search(r"\bliveStockCount\s*:", stripped):
+        elif re.search(r"\\bliveStockCount\\s*:", stripped):
             entries.append(stripped)
+    entries.extend(
+        f"inventoryLive[{index}]={section}"
+        for index, section in enumerate(_object_sections(source, "inventoryLive"))
+    )
     return tuple(entries)
+
 
 def _binding_nodes(tree: ast.Module) -> dict[str, ast.AST]:
     bindings: dict[str, ast.AST] = {}
@@ -223,9 +294,51 @@ def _call_name(node: ast.AST) -> str:
         return f"{prefix}.{node.attr}" if prefix else node.attr
     return ""
 
+def _model_aliases(tree: ast.Module, model_name: str) -> set[str]:
+    aliases = {model_name}
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or (node.module or "") != "models":
+            continue
+        for alias in node.names:
+            if alias.name == model_name:
+                aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _direct_route_source_sql_evidence(tree: ast.Module) -> tuple[str, ...]:
+    """Detect prohibited direct SQL that attributes Vehicle balance to route source."""
+    route_aliases = _model_aliases(tree, "DispatchRoute")
+    balance_aliases = _model_aliases(tree, "InventoryBalance")
+    evidence: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
+        attrs = {child.attr for child in ast.walk(node) if isinstance(child, ast.Attribute)}
+        calls = {
+            _call_name(child.func).lower()
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call)
+        }
+        uses_models = bool(names & route_aliases) and bool(names & balance_aliases)
+        uses_route_source = "source_location_id" in attrs and "vehicle_id" in attrs
+        uses_balance_location = "location_id" in attrs
+        queryish = any(
+            name == "select" or name.endswith(".select") or
+            name == "join" or name.endswith(".join")
+            for name in calls
+        )
+        if uses_models and uses_route_source and uses_balance_location and queryish:
+            evidence.append(
+                "DIRECT_ROUTE_SOURCE_SQL:" +
+                ast.dump(node, annotate_fields=True, include_attributes=False)
+            )
+    return tuple(sorted(evidence))
+
+
 def _dispatch_r3_signature(source: str) -> tuple[str, ...]:
     tree = ast.parse(source)
-    evidence: list[str] = []
+    evidence: list[str] = list(_direct_route_source_sql_evidence(tree))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("domains.live_stock_projection"):
             evidence.append(ast.dump(node, annotate_fields=True, include_attributes=False))
@@ -237,6 +350,7 @@ def _dispatch_r3_signature(source: str) -> tuple[str, ...]:
             if "live_stock" in name or "vehicle_attribution" in name:
                 evidence.append(ast.dump(node, annotate_fields=True, include_attributes=False))
     return tuple(sorted(evidence))
+
 
 def _shared_semantics(base: str, head: str, changed: set[str]) -> dict[str, bool]:
     semantic = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
@@ -335,25 +449,69 @@ def selftest() -> None:
     assert classify("operational", {"dashboard/e2e/live-stock-physical-custody.spec.ts"}, none)[0] == "owned"
     _expect_fail("operational", {"dashboard/e2e/live-stock-physical-custody.spec.ts", "dashboard/src/pages/DispatchBoard.tsx"}, none)
 
-    base_resources = 'x: "x"\nLIVE_STOCK_RESPONSE_INVALID: "old"\nliveStockCount: "old"\n'
-    unrelated_resources = 'dispatchRouteSafety: "new"\nx: "x"\nLIVE_STOCK_RESPONSE_INVALID: "old"\nliveStockCount: "old"\n'
-    live_resources = 'x: "x"\nLIVE_STOCK_RESPONSE_INVALID: "new"\nliveStockCount: "old"\n'
+    base_resources = (
+        'dispatchRouteSafety: { confirm: "old" },\\n'
+        'inventoryLive: { warehouseBalanceHint: "AR warehouse", '
+        'withVehiclesHint: "AR vehicle", vehicleScopes: { NO_ACCESS: "AR hidden" } },\\n'
+        'x: "x",\\nLIVE_STOCK_RESPONSE_INVALID: "old",\\nliveStockCount: "old",\\n'
+        'inventoryLive: { warehouseBalanceHint: "EN warehouse", '
+        'withVehiclesHint: "EN vehicle", vehicleScopes: { NO_ACCESS: "EN hidden" } },\\n'
+    )
+    unrelated_resources = base_resources.replace(
+        'dispatchRouteSafety: { confirm: "old" }',
+        'dispatchRouteSafety: { confirm: "new" }',
+    )
+    live_resources = base_resources.replace(
+        'LIVE_STOCK_RESPONSE_INVALID: "old"',
+        'LIVE_STOCK_RESPONSE_INVALID: "new"',
+    )
+    warehouse_hint_resources = base_resources.replace("AR warehouse", "AR warehouse changed")
+    vehicle_hint_resources = base_resources.replace("EN vehicle", "EN vehicle changed")
+    vehicle_scope_resources = base_resources.replace("AR hidden", "AR hidden changed")
+    assert len(_object_sections(base_resources, "inventoryLive")) == 2
     assert _resource_signature(base_resources) == _resource_signature(unrelated_resources)
     assert _resource_signature(base_resources) != _resource_signature(live_resources)
+    assert _resource_signature(base_resources) != _resource_signature(warehouse_hint_resources)
+    assert _resource_signature(base_resources) != _resource_signature(vehicle_hint_resources)
+    assert _resource_signature(base_resources) != _resource_signature(vehicle_scope_resources)
     live_sem = {**none, SHARED_RESOURCES: True}
     assert classify("ux", {SHARED_RESOURCES}, live_sem)[0] == "owned"
     _expect_fail("ux", {SHARED_RESOURCES, "dashboard/src/pages/DispatchBoard.tsx"}, live_sem)
     assert classify("operational", {SHARED_RESOURCES}, live_sem)[0] == "owned"
 
-    base_dispatch = "async def update_route_status():\n    return 1\n"
-    unrelated_dispatch = "async def update_route_status():\n    return 2\n"
+    base_dispatch = (
+        "from models import DispatchRoute, InventoryBalance\\n"
+        "from sqlalchemy import select, func\\n"
+        "async def update_route_status(db, route_id):\\n"
+        "    route = await db.scalar(select(DispatchRoute).where(DispatchRoute.id == route_id))\\n"
+        "    return route.status\\n"
+    )
+    unrelated_dispatch = base_dispatch.replace(
+        "return route.status",
+        "route.status = 'active'\\n    return route.status",
+    )
     bad_dispatch = (
-        "from domains.live_stock_projection.service import refresh_live_stock_vehicle_attribution\n"
-        "async def update_route_status():\n"
-        "    return await refresh_live_stock_vehicle_attribution()\n"
+        base_dispatch +
+        "from domains.live_stock_projection.service import refresh_live_stock_vehicle_attribution\\n"
+        "async def refresh_old_attribution():\\n"
+        "    return await refresh_live_stock_vehicle_attribution()\\n"
+    )
+    direct_sql_dispatch = (
+        "from models import DispatchRoute as Route, InventoryBalance as Balance\\n"
+        "from sqlalchemy import select, func\\n"
+        "async def route_source_vehicle_stock(db):\\n"
+        "    stmt = select(Route.source_location_id, func.sum(Balance.quantity)).join(\\n"
+        "        Balance, Balance.location_id == Route.vehicle_id\\n"
+        "    ).group_by(Route.source_location_id)\\n"
+        "    return await db.execute(stmt)\\n"
     )
     assert _dispatch_r3_signature(base_dispatch) == _dispatch_r3_signature(unrelated_dispatch)
     assert _dispatch_r3_signature(base_dispatch) != _dispatch_r3_signature(bad_dispatch)
+    assert _dispatch_r3_signature(base_dispatch) != _dispatch_r3_signature(direct_sql_dispatch)
+    assert any(
+        item.startswith("DIRECT_ROUTE_SOURCE_SQL:")
+        for item in _dispatch_r3_signature(direct_sql_dispatch)
+    )
     r3_dispatch_sem = {**none, SHARED_DISPATCH: True}
     assert classify("r3", {SHARED_DISPATCH}, r3_dispatch_sem)[0] == "owned"
     _expect_fail("r3", {SHARED_DISPATCH, "dashboard/src/pages/DispatchBoard.tsx"}, r3_dispatch_sem)
