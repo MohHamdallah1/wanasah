@@ -182,6 +182,21 @@ SESSION_ISOLATION_ROOTS = {
     "dashboard/src/lib/authStorage.ts",
 }
 
+# PR #710: bounded backend SQL/performance work may legitimately accompany
+# live_stock.py without becoming an R3 physical-custody implementation wave.
+# Keep this allowlist intentionally exact; movement/cost/security/UI/plan files
+# remain forbidden and are covered by negative self-tests below.
+PERFORMANCE_ACCEPTANCE_ROOTS = {
+    ".github/workflows/live-stock-r4-final-performance.yml",
+    "wa_backend/scripts/gate_live_stock_r4_final.py",
+    "wa_backend/scripts/live_stock_r4_final_fixture.py",
+    "wa_backend/scripts/live_stock_r4_final_profile.py",
+}
+PERFORMANCE_ACCEPTANCE_ALLOWED = PERFORMANCE_ACCEPTANCE_ROOTS | {
+    HELPER,
+    "wa_backend/api/warehouse/live_stock.py",
+}
+
 LIVE_STOCK_SCHEMA_ROOTS = {
     "WarehouseAlertItem",
     "WarehouseInventoryItem",
@@ -441,6 +456,11 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         if extra:
             return "fail", [f"AUTH_SESSION_SCOPE=FAIL extra={extra}"]
         return "session-isolation-repair", []
+    if mode == "r3" and changed & PERFORMANCE_ACCEPTANCE_ROOTS:
+        extra = sorted(changed - PERFORMANCE_ACCEPTANCE_ALLOWED)
+        if extra:
+            return "fail", [f"LIVE_STOCK_PERFORMANCE_SCOPE=FAIL extra={extra}"]
+        return "performance-acceptance", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
@@ -486,6 +506,17 @@ def selftest() -> None:
     _expect_fail("ux", {"dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx", "dashboard/src/pages/DispatchBoard.tsx"}, none)
     assert classify("r3", {"wa_backend/domains/live_stock_projection/service.py"}, none)[0] == "owned"
     _expect_fail("r3", {"wa_backend/domains/live_stock_projection/service.py", "dashboard/src/pages/DispatchBoard.tsx"}, none)
+
+    perf_scope = set(PERFORMANCE_ACCEPTANCE_ALLOWED)
+    assert classify("r3", perf_scope, none)[0] == "performance-acceptance"
+    for foreign in (
+        "wa_backend/services.py",
+        "wa_backend/domains/inventory_costing/service.py",
+        "dashboard/src/pages/inventory/MainInventory.tsx",
+        "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+    ):
+        _expect_fail("r3", perf_scope | {foreign}, none)
+
     assert classify("operational", {"dashboard/e2e/live-stock-physical-custody.spec.ts"}, none)[0] == "owned"
     _expect_fail("operational", {"dashboard/e2e/live-stock-physical-custody.spec.ts", "dashboard/src/pages/DispatchBoard.tsx"}, none)
 
