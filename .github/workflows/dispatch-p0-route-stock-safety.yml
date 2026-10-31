@@ -163,6 +163,8 @@ jobs:
           ).splitlines())
           allowed = {
               ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/field-authorization-phase3.yml",
+              ".github/workflows/v1-return-cost-fidelity-closure.yml",
               "dashboard/e2e/dispatch-p0-wire.config.ts",
               "dashboard/e2e/dispatch-p0-wire.spec.ts",
               "dashboard/src/components/dispatch/AdjustInventoryModal.tsx",
@@ -189,6 +191,8 @@ jobs:
               "wa_backend/tests/dispatch_p0_wire_fixture.py",
               "wa_backend/tests/test_dispatch_adjust_load_uom.py",
               "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
           }
           assert paths <= allowed, f"Forbidden P0 scope: {sorted(paths - allowed)}"
           print("DISPATCH_P0_OWNERSHIP=PASS")
