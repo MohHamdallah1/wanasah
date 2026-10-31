@@ -162,9 +162,28 @@ def inventory_archive_target_query(access, variant_id, samples):
             ).correlate(session).exists())
         else:
             lock = InventoryLock
-            statement = statement.join(lock, and_(lock.company_id == session.company_id, lock.stocktake_session_id == session.id)).where(
-                lock.company_id == company, lock.id == samples[code],
-                lock.product_variant_id == variant_id, lock.released_at.is_(None),
+            scoped_lock_matches_variant = or_(
+                lock.product_variant_id == variant_id,
+                and_(
+                    lock.product_variant_id.is_(None),
+                    select(1).where(
+                        StocktakeLine.company_id == company,
+                        StocktakeLine.stocktake_session_id == session.id,
+                        StocktakeLine.product_variant_id == variant_id,
+                    ).correlate(session).exists(),
+                ),
+            )
+            statement = statement.join(
+                lock,
+                and_(
+                    lock.company_id == session.company_id,
+                    lock.stocktake_session_id == session.id,
+                ),
+            ).where(
+                lock.company_id == company,
+                lock.id == samples[code],
+                scoped_lock_matches_variant,
+                lock.released_at.is_(None),
             )
         statements.append(statement)
 
