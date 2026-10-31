@@ -111,8 +111,18 @@ it("an aborted old inventory refresh must not overwrite a genuinely logged-in di
   const controller = new AbortController();
   const { result } = renderHook(() => useAuthFetch(), { wrapper });
   const pending = result.current("/warehouse/inventory/cursor?location_id=" + fixture.warehouse,
-    { signal: controller.signal }).then(() => true, () => false);
-  const held = await captured.promise;
+    { signal: controller.signal }).then(
+      () => ({ ok: true, name: "", message: "" }),
+      (error: unknown) => ({ ok: false, name: error instanceof Error ? error.name : "Unknown",
+        message: error instanceof Error ? error.message : "non-Error rejection" }),
+    );
+  try {
+  const stage = await Promise.race([
+    captured.promise.then(response => ({ kind: "held" as const, response })),
+    pending.then(outcome => ({ kind: "ended" as const, outcome })),
+  ]);
+  if (stage.kind === "ended") throw new Error("Reader ended before refresh capture: " + JSON.stringify(stage.outcome));
+  const held = stage.response;
   expect(held.status, "real old-session refresh response").toBe(200);
   const current = await login("foreign");
   expect(current.company_id === old.company_id).toBe(false);
@@ -141,4 +151,9 @@ it("an aborted old inventory refresh must not overwrite a genuinely logged-in di
   // Boolean assertions deliberately avoid putting bearer/refresh tokens in CI artifacts.
   expect(accessPreserved, "new session access credential must survive stale refresh").toBe(true);
   expect(refreshPreserved, "new session refresh credential must survive stale refresh").toBe(true);
+  } finally {
+    controller.abort();
+    release.resolve();
+    await pending;
+  }
 });

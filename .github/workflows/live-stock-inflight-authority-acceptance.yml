@@ -119,13 +119,20 @@ jobs:
         working-directory: dashboard
         run: |
           npx tsc --noEmit
-          npx tsc --noEmit --skipLibCheck --target es2022 --module esnext --jsx react-jsx \
-            --moduleResolution bundler --types node --lib es2022,dom e2e/live-stock-inflight.config.ts
+          python - <<'PY'
+          import json, pathlib
+          pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
+              "extends": "../tsconfig.app.json",
+              "compilerOptions": {"types": ["node", "vitest/globals"]},
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts"],
+          }))
+          PY
+          npx tsc --noEmit -p e2e/.inflight-types.json
           npx eslint e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
       - name: Genuine bearer revocation and delayed refresh security invariants
         working-directory: dashboard
         run: >-
-          npx vitest run --config e2e/live-stock-inflight.config.ts
+          npx vitest run e2e/live-stock-inflight-auth.test.tsx --config e2e/live-stock-inflight.config.ts
           --reporter=default --reporter=junit --outputFile=node_modules/.cache/live-stock-inflight-http.xml
       - name: Require execution and expose every red invariant
         if: always()
