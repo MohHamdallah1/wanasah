@@ -111,7 +111,17 @@ export function LiveStockTable({
           {headers.map(([label, hint]) => (
             <th scope="col" key={label}>
               <div className="flex items-center justify-center gap-1.5">
-                <span>{t(`inventoryLive.${label}`)}</span>
+                <span className="leading-tight">
+                  <span className="block">{t(`inventoryLive.${label}`)}</span>
+                  {label === "withVehicles" ? (
+                    <span
+                      className="mt-0.5 block text-[9px] font-semibold text-slate-500"
+                      data-live-stock-vehicle-attribution-note="desktop"
+                    >
+                      {t("inventoryLive.withVehiclesVisibleNote")}
+                    </span>
+                  ) : null}
+                </span>
                 <HeaderHelp text={t(`inventoryLive.${hint}`)} />
               </div>
             </th>
@@ -219,6 +229,11 @@ export function LiveStockTable({
                     dir="ltr"
                     title={rendered.secondary ?? undefined}
                     data-cp13-quantity={metric}
+                    aria-label={
+                      metric === "vehicle"
+                        ? t("inventoryLive.withVehiclesValueA11y", { quantity: rendered.primary })
+                        : undefined
+                    }
                   >
                     {rendered.primary}
                   </td>
