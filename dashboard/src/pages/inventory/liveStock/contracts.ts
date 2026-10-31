@@ -356,6 +356,20 @@ export function parseLiveStockPage(
     }
     if (row.total_quantity_scope !== "WAREHOUSE_PHYSICAL") return contractError(code);
 
+    const onHandQuantity = parseQuantity(
+      row.on_hand_quantity,
+      "on_hand_quantity",
+      { allowZero: true },
+    );
+    const totalQuantity = parseQuantity(
+      row.total_quantity,
+      "total_quantity",
+      { allowZero: true },
+    );
+    if (compareQuantity(totalQuantity, onHandQuantity) !== 0) {
+      return contractError(code);
+    }
+
     const scale = int(row.quantity_scale, code);
     if (scale > 6) return contractError(code);
 
@@ -407,11 +421,7 @@ export function parseLiveStockPage(
         row.quantity_step,
         "quantity_step",
       ),
-      on_hand_quantity: parseQuantity(
-        row.on_hand_quantity,
-        "on_hand_quantity",
-        { allowZero: true },
-      ),
+      on_hand_quantity: onHandQuantity,
       reserved_quantity: parseQuantity(
         row.reserved_quantity,
         "reserved_quantity",
@@ -444,11 +454,7 @@ export function parseLiveStockPage(
         "blocked_quantity",
         { allowZero: true },
       ),
-      total_quantity: parseQuantity(
-        row.total_quantity,
-        "total_quantity",
-        { allowZero: true },
-      ),
+      total_quantity: totalQuantity,
       total_quantity_scope: "WAREHOUSE_PHYSICAL" as const,
       damaged_quantity: parseQuantity(
         row.damaged_quantity,
