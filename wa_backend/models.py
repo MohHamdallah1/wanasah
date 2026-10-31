@@ -2582,11 +2582,12 @@ class OperationIdempotency(Base):
             name='chk_operation_idempotency_completion_pair'
         ),
         CheckConstraint(
-            "state IN ('PENDING', 'COMMITTED', 'CANCELLED')",
+            "state IS NULL OR state IN ('PENDING', 'COMMITTED', 'CANCELLED')",
             name='chk_operation_idempotency_state'
         ),
         CheckConstraint(
-            "((state = 'PENDING' AND response_json IS NULL AND completed_at IS NULL "
+            "(((state IS NULL) AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
+            "(state = 'PENDING' AND response_json IS NULL AND completed_at IS NULL "
             "AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
             "(state = 'COMMITTED' AND response_json IS NOT NULL AND completed_at IS NOT NULL "
             "AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
@@ -2608,7 +2609,9 @@ class OperationIdempotency(Base):
     request_hash  = Column(String(64), nullable=False)
     created_by    = Column(Integer, nullable=False, index=True)
     response_json = Column(JSON, nullable=True)
-    state         = Column(String(16), nullable=False, default="PENDING", server_default="PENDING")
+    # NULL is reserved for backward-compatible legacy direct writers. New
+    # canonical operations always persist an explicit lifecycle state.
+    state         = Column(String(16), nullable=True)
     created_at    = Column(DateTime, nullable=False, default=utc_now, index=True)
     completed_at  = Column(DateTime, nullable=True)
     cancelled_at  = Column(DateTime, nullable=True)
