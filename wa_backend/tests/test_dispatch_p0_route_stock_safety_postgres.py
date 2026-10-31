@@ -75,6 +75,19 @@ def _total(snapshot, loc):
                 if location == loc and status == "AVAILABLE"), D("0"))
 
 
+async def _route_adjust_context(gate, route_id):
+    async with gate.session() as db:
+        route = await db.get(DispatchRoute, route_id)
+        assert route is not None and route.vehicle_id is not None and route.source_location_id is not None
+        return {
+            "version": "ADJUST_LOAD_CONTEXT_V2",
+            "vehicle_id": int(route.vehicle_id),
+            "source_warehouse_id": int(route.source_location_id),
+            "work_session_id": int(route.work_session_id) if route.work_session_id is not None else None,
+            "route_context_revision": int(route.adjustment_context_revision),
+        }
+
+
 async def _vehicle(gate, tenant):
     async with gate.session() as db:
         result = await create_vehicle(
@@ -198,6 +211,7 @@ async def test_route_status_never_mutates_stock_even_with_legacy_carton_targets(
         # Explicit operation is precise, idempotent, and independently audited.
         adjustment = AdjustRouteInventoryRequest(
             request_id=uuid4(),
+            context=await _route_adjust_context(pg, route_id),
             deltas=[{"product_id": tenant.variant_id, "delta_base": D("1")}],
         )
         async with pg.session() as db:
@@ -281,6 +295,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
                 lot="P0-WIRE-" + uuid4().hex[:10], quantity=qty, cost="2",
             )) == {"message": "INBOUND_POSTED"}
     vehicle_id, vehicle_location = await _vehicle(pg, tenant)
+    second_vehicle_id, second_vehicle_location = await _vehicle(pg, tenant)
     async with pg.session() as db:
         await mutate_vehicle_load(
             db, access=tenant.owner.access(db), actor_id=tenant.owner.driver_id,
@@ -299,7 +314,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             db, tenant.owner.access(db), tenant.owner.operational_driver,
         )
     route_id = int(created["route_id"])
-    before = await _snapshot(pg, tenant, [vehicle_location])
+    before = await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location])
     assert (_total(before, vehicle_location), _total(before, tenant.location_id)) == (D("25"), D("55"))
     assert not app.dependency_overrides
     assert any(route.path == "/dispatch/route/{route_id}/status" and "PUT" in (route.methods or ())
@@ -344,9 +359,45 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             assert await _snapshot(pg, tenant, [vehicle_location]) == before
             stranger = await client.put(endpoint, headers=foreign_headers, json=route_only)
             assert stranger.status_code in (403, 404), stranger.text
-            assert await _snapshot(pg, tenant, [vehicle_location]) == before
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == before
+
+            # Server-side ABA proof: a contextless request that was constructed
+            # before V1 -> V2 -> V1 must never become a new executable operation,
+            # even if the old visible Vehicle/Warehouse headers match again.
+            contextless_absent = {
+                "request_id": str(uuid4()),
+                "deltas": [{"product_id": tenant.variant_id, "delta_base": "1"}],
+            }
+            waiting = await client.put(endpoint, headers=headers, json={**route_only, "status": "waiting"})
+            assert waiting.status_code == 200, waiting.text
+            to_second = await client.put(endpoint, headers=headers, json={
+                "status": "waiting", "driverId": str(field.driver.id),
+                "vehicleId": str(second_vehicle_id),
+            })
+            assert to_second.status_code == 200, to_second.text
+            back_first = await client.put(endpoint, headers=headers, json=route_only)
+            assert back_first.status_code == 200, back_first.text
+            reactivated = await client.put(endpoint, headers=headers, json={**route_only, "status": "active"})
+            assert reactivated.status_code == 200, reactivated.text
+            aba_before = await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location])
+            expected_headers = {**headers,
+                "X-Dispatch-Expected-Vehicle-Id": str(vehicle_id),
+                "X-Dispatch-Expected-Source-Warehouse-Id": str(tenant.location_id)}
+            adjust_path = f"/dispatch/route/{route_id}/adjust_inventory"
+            absent = await client.put(adjust_path, headers=expected_headers, json=contextless_absent)
+            assert absent.status_code == 409, absent.text
+            assert absent.json()["error"]["code"] == "DISPATCH_ADJUSTMENT_CONTEXT_REQUIRED"
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == aba_before
+            async with pg.session() as db:
+                assert await db.scalar(select(func.count()).select_from(OperationIdempotency).where(
+                    OperationIdempotency.company_id == tenant.company_id,
+                    OperationIdempotency.operation == "DISPATCH_ADJUST_ROUTE_INVENTORY",
+                    OperationIdempotency.request_id == contextless_absent["request_id"],
+                )) == 0
+
             adjustment = {
                 "request_id": str(uuid4()),
+                "context": await _route_adjust_context(pg, route_id),
                 "deltas": [{"product_id": tenant.variant_id, "delta_base": "1"}],
             }
             recovery_path = f"/dispatch/route/{route_id}/adjust_inventory/recovery"
@@ -358,28 +409,25 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             foreign_probe = await client.post(recovery_path, headers=foreign_headers, json=adjustment)
             assert foreign_probe.status_code in (403, 404), foreign_probe.text
             assert await _snapshot(pg, tenant, [vehicle_location]) == before
-            adjust_path = f"/dispatch/route/{route_id}/adjust_inventory"
-            expected_headers = {**headers,
-                "X-Dispatch-Expected-Vehicle-Id": str(vehicle_id),
-                "X-Dispatch-Expected-Source-Warehouse-Id": str(tenant.location_id)}
-            stale = await client.put(adjust_path, headers={
-                **expected_headers, "X-Dispatch-Expected-Vehicle-Id": str(vehicle_id + 999),
-            }, json=adjustment)
+            stale = await client.put(adjust_path, headers=expected_headers, json={
+                **adjustment,
+                "context": {**adjustment["context"], "route_context_revision": adjustment["context"]["route_context_revision"] - 1},
+            })
             assert stale.status_code == 409, stale.text
             assert stale.json()["error"]["code"] == "DISPATCH_ROUTE_CONTEXT_CHANGED"
-            assert await _snapshot(pg, tenant, [vehicle_location]) == before
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == aba_before
             response = await client.put(adjust_path,
                                         headers=expected_headers, json=adjustment)
             assert response.status_code == 200, response.text
             assert response.json()["mode"] == "DIRECT"
-            after = await _snapshot(pg, tenant, [vehicle_location])
+            after = await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location])
             assert (_total(after, vehicle_location), _total(after, tenant.location_id)) == (D("26"), D("54"))
             assert after["movements"] > before["movements"]
             assert after["cost_events"] == before["cost_events"]
             replay = await client.put(adjust_path,
                                       headers=expected_headers, json=adjustment)
             assert replay.status_code == 200 and replay.json() == response.json(), replay.text
-            assert await _snapshot(pg, tenant, [vehicle_location]) == after
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == after
             # Exact UUID and canonical payload verification never replays the
             # old operation. A changed payload is a conflict, not a new UUID.
             verified = await client.post(recovery_path, headers=headers, json=adjustment)
@@ -578,6 +626,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             # authoritative winner under the same advisory lock.
             race_request = {
                 "request_id": str(uuid4()),
+                "context": await _route_adjust_context(pg, route_id),
                 "deltas": [{"product_id": tenant.variant_id, "delta_base": "1"}],
             }
             race_before = await _snapshot(pg, tenant, [vehicle_location])
