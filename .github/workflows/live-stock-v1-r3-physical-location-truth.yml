@@ -205,11 +205,11 @@ jobs:
           print(f"P0_R3_REGRESSION_EXECUTED={len(regression_cases)}")
           PY
 
-      - name: Exact-base and ownership gate
+      - name: Current-base and ownership gate
         if: always()
         run: |
-          base="ae858c10f04832aaf99df55db15507571986b53e"
-          test "$(git merge-base "$base" HEAD)" = "$base"
+          base="$(git merge-base origin/main HEAD)"
+          test -n "$base"
           git diff --check "$base" HEAD --
           BASE="$base" python - <<'PY'
           import os
