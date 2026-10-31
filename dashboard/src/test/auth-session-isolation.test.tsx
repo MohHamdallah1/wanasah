@@ -371,7 +371,7 @@ it("remounts A Transfers before fresh B authorization, ignores late A and preser
       await bListGate.promise;
       return json({ items: [transferRow(2)], next_cursor: null, has_more: false, total: 1 });
     }
-    throw new Error(\`Unexpected platform-boundary request: \${url.pathname} \${authorization}\`);
+    throw new Error(`Unexpected platform-boundary request: ${url.pathname} ${authorization}`);
   }));
 
   login("2", "22", "warm-b");
