@@ -419,7 +419,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             assert await _snapshot(
                 pg, tenant, [vehicle_location, second_vehicle_location]
             ) == company_before
-            async with pg.session() as db:
+            async with AsyncSession(pg.admin_engine) as db:
                 assert await db.scalar(
                     select(func.count()).select_from(OperationIdempotency).where(
                         OperationIdempotency.request_id
