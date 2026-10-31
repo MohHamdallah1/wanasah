@@ -33,7 +33,7 @@ jobs:
         run: >-
           python -m py_compile
           domains/inventory_archive_navigation.py
-          tests/test_archive_owner_navigation.py
+          tests/test_archive_physical_location_truth.py
 
       - name: Run archive navigation acceptance
         working-directory: wa_backend
