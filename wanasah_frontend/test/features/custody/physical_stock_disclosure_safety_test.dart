@@ -11,6 +11,12 @@ import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 import 'package:wanasah_frontend/blocs/visit/visit_bloc.dart';
 import 'package:wanasah_frontend/core/network/api_client.dart';
+import 'package:wanasah_frontend/blocs/dashboard/dashboard_bloc.dart';
+import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
+import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
+import 'package:wanasah_frontend/repositories/dashboard_repository.dart';
+import 'package:wanasah_frontend/features/work_session/application/work_session_coordinator.dart';
+import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
 import 'package:wanasah_frontend/features/visits/presentation/visit_catalog.dart';
 
 Map<String, dynamic> _product({Object? cartons = 0, Object? packs = 0}) => {
@@ -56,6 +62,37 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
   ),
 );
 
+class _DeniedDashboardRepo extends Fake implements DashboardRepository {
+  _DeniedDashboardRepo(this.status);
+  final int status;
+
+  @override
+  Future<Response> fetchDashboardRaw() async {
+    final request = RequestOptions(path: '/driver/dashboard');
+    throw DioException(
+      requestOptions: request,
+      response: Response(requestOptions: request, statusCode: status),
+      type: DioExceptionType.badResponse,
+    );
+  }
+}
+
+class _InactiveWorkSession extends Fake implements WorkSessionCoordinator {
+  @override
+  Future<WorkSessionRecoveryResult> recoverActiveSession() async =>
+      WorkSessionRecoveryResult.success(const WorkSessionSnapshot.inactive());
+}
+
+// Seed only presentation state; the production refresh handler runs unchanged.
+class _SeededDashboardBloc extends DashboardBloc {
+  _SeededDashboardBloc({
+    required DashboardRepository repository,
+    required WorkSessionCoordinator session,
+  }) : super(dashboardRepo: repository, workSessionCoordinator: session);
+
+  void seed(DashboardLoaded value) => emit(value);
+}
+
 void main() {
   // VisitBloc requires the normal application API singleton, even though
   // the rendering test performs no HTTP calls.
@@ -80,6 +117,35 @@ void main() {
       'id': 17, 'remaining_cartons': 0, 'remaining_packs': 0,
     }).currentCartons, 0);
   });
+
+  for (final status in const [401, 403]) {
+    test('DashboardBloc denied $status refresh clears previously verified custody', () async {
+      final bloc = _SeededDashboardBloc(
+        repository: _DeniedDashboardRepo(status),
+        session: _InactiveWorkSession(),
+      );
+      addTearDown(bloc.close);
+      bloc.seed(DashboardLoaded(
+        visits: const [],
+        products: [ProductModel.fromJson(_product(cartons: 4, packs: 1))],
+        totalVisits: 0,
+        completedVisits: 0,
+        pendingVisits: 0,
+        offlineVisits: 0,
+        sellableStockDisclosure: StockDisclosure.verified,
+        nonSellableStockDisclosure: StockDisclosure.verified,
+      ));
+
+      bloc.add(FetchDashboardData(driverId: 17));
+      final latest = await bloc.stream.firstWhere(
+        (state) => state is DashboardLoaded &&
+          state.sellableStockDisclosure == StockDisclosure.denied,
+      ) as DashboardLoaded;
+      expect(latest.products, isEmpty);
+      expect(latest.nonSellableCustody, isEmpty);
+      expect(latest.nonSellableStockDisclosure, StockDisclosure.denied);
+    });
+  }
 
   test('revoked data stays denied; transient data becomes visibly stale', () {
     expect(stockDisclosureAfterFailure(StockDisclosure.verified, denied: false),
