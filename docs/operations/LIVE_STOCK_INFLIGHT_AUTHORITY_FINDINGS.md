@@ -51,3 +51,38 @@ If CI proves the violation, STOP and request a separately approved transport/aut
 - Revoke-between-server-authorization-and-SQL/response-emission semantics, the deliberately raced multi-request visual snapshot under a physical movement, full network-outage handling, real company midnight and manual visual/screen-reader approval remain outside this proof.
 - Existing unit-level separately committed response/freshness checks are not a new whole-browser atomic snapshot guarantee. Backend R1 one-statement consistency and physical-location authority are unchanged.
 - If IF-01 stops the wave, do not claim complete in-flight acceptance. Record passed cases, the precise confirmed failure and every unexecuted boundary in the PR.
+
+## Owner-authorized repair — issue #706
+
+The earlier STOP above is preserved as historical evidence, and was explicitly
+superseded by the owner/lead decision on #705 (comment 6542866024). The repair
+unblocks frozen V1 §5.1 session handling and fail-closed company isolation.
+
+Production response admission now captures login generation plus canonical
+company/principal/profile and refresh identity. Login creates a new generation,
+including same-principal re-login. Refresh rotation preserves the generation.
+Refresh work and cancellation consumers are partitioned by that snapshot.
+Every awaited response/body and retry is rechecked; stale success, failure,
+permission event and logout cannot mutate/admit into the newer session.
+One canceled waiter does not cancel another live same-session waiter; an
+abandoned flight cannot commit credentials. Rotated access from another browser
+context is reused only within the still-current captured session.
+
+The directly adjacent explicit logout handlers also await network completion.
+Their final storage-clear/navigation now require their captured generation.
+This bounded source finding and precise A-logout/B-login reproducer were
+reported on #706; focused deterministic tests exercise the shared finalization.
+The server remains the sole bearer/capability/RLS authority.
+
+The dedicated gate retains the original 76 assertions and IF-01, adds 14 focused
+auth cases, and requires exactly six genuine HTTP cases plus the one canonical
+fixture, without skips. New genuine cases exercise rejected old refresh,
+overlapping company refresh/retry, same-session coalescing/rotation and foreign
+read/mutation rejection. A read-only restricted-role PG digest compares both
+tenants' balances, movements and cost states/events before/after the denied
+mutation. It does not write inventory fixtures. Sanitized exact-head results
+and limitations belong in the PR/CI; this text does not presume their outcome.
+
+Still outside this bounded proof: a full multi-tab browser scheduling certificate,
+the full remaining Live Stock movement-vs-reader freshness matrix, production
+load certification, and independent Worker 2/lead security sign-off.

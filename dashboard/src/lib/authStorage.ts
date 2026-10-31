@@ -70,6 +70,37 @@ export const migrateLegacyBackofficeIdentityStorage = (): void => {
   );
 };
 
+// A login generation fences asynchronous work, including same-principal re-login.
+// This is client response admission only; the server still authorizes every bearer.
+const SESSION_GENERATION_KEY = "wanasah:auth-session:generation";
+export const beginDashboardSession = (): void => {
+  localStorage.setItem(SESSION_GENERATION_KEY, crypto.randomUUID());
+};
+
+export type DashboardSession = { generation: string; identity: string };
+const dashboardIdentity = (): string => JSON.stringify([
+  localStorage.getItem("company_id"),
+  localStorage.getItem("principal_id"),
+  localStorage.getItem("backoffice_user_id"),
+  readRefreshIdentity(localStorage.getItem("refresh_token") || ""),
+]);
+
+export const captureDashboardSession = (): DashboardSession => {
+  if (!localStorage.getItem(SESSION_GENERATION_KEY)) beginDashboardSession();
+  return {
+    generation: localStorage.getItem(SESSION_GENERATION_KEY)!,
+    identity: dashboardIdentity(),
+  };
+};
+
+export const isDashboardSessionCurrent = (session: DashboardSession): boolean =>
+  localStorage.getItem(SESSION_GENERATION_KEY) === session.generation &&
+  dashboardIdentity() === session.identity;
+
+export const invalidateDashboardSession = (): void => {
+  localStorage.removeItem(SESSION_GENERATION_KEY);
+};
+
 type RefreshIdentity = {
   sub: string;
   companyId: string;
@@ -166,7 +197,8 @@ export const readAccessTokenIfRefreshAdvanced = (
 };
 
 export const clearLocalStoragePreservingLoginHintsAndPreferences =
-  (): void => {
+  (expectedSession?: DashboardSession): boolean => {
+    if (expectedSession && !isDashboardSessionCurrent(expectedSession)) return false;
     const lastCompanyCode =
       readLastCompanyCode();
 
@@ -222,4 +254,5 @@ export const clearLocalStoragePreservingLoginHintsAndPreferences =
         value,
       );
     }
+    return true;
   };

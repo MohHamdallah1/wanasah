@@ -6,6 +6,11 @@ on:
       - "dashboard/src/test/live-stock-warm-authority.test.tsx"
       - "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx"
       - "dashboard/e2e/live-stock-inflight*"
+      - "dashboard/src/hooks/useAuthFetch.ts"
+      - "dashboard/src/lib/authStorage.ts"
+      - "dashboard/src/pages/Login.tsx"
+      - "dashboard/src/test/auth-session*"
+      - "wa_backend/tests/live_stock_inflight_security_probe.py"
       - ".github/workflows/live-stock-inflight-authority-acceptance.yml"
   workflow_dispatch:
 permissions:
@@ -59,6 +64,7 @@ jobs:
           src/test/inventory-cp7-live-stock.test.tsx
           src/test/inventory-session-cache.test.ts
           src/test/auth-session-refresh.test.tsx
+          src/test/auth-session-isolation.test.tsx
           --reporter=default --reporter=junit --outputFile=node_modules/.cache/live-stock-inflight-unit.xml
       - name: Typecheck and lint evidence changes
         working-directory: dashboard
@@ -69,11 +75,13 @@ jobs:
           pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
               "extends": "../tsconfig.app.json",
               "compilerOptions": {"types": ["node", "vitest/globals", "vite/client"]},
-              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts"],
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx"],
           }))
           PY
           npx tsc --noEmit -p e2e/.inflight-types.json
-          npx eslint e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
+          npx eslint src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
+          npm run build
+          node --test src/pages/Login.contract.test.mjs
       - name: Install existing backend dependencies
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio
       - name: Start disposable PG16 and restricted role
@@ -141,8 +149,8 @@ jobs:
           import xml.etree.ElementTree as ET
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", None),
-              ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 2),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 90),
+              ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 6),
           ]:
               root = ET.parse(path).getroot()
               cases = list(root.iter("testcase"))
@@ -170,10 +178,18 @@ jobs:
               "dashboard/e2e/live-stock-inflight.config.ts",
               "dashboard/e2e/live-stock-inflight-auth.test.tsx",
               "docs/operations/LIVE_STOCK_INFLIGHT_AUTHORITY_FINDINGS.md",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/pages/Login.tsx",
+              "dashboard/src/test/auth-session-isolation.test.tsx",
+              "wa_backend/tests/live_stock_inflight_security_probe.py",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "dashboard/src/components/operations/TopBar.tsx",
+              "dashboard/src/components/operations/OperationsSidebar.tsx",
           }
           assert files <= owned, sorted(files - owned)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
-          print("INFLIGHT_TEST_ONLY_SCOPE PASS")
+          print("INFLIGHT_AUTH_REPAIR_SCOPE PASS")
           PY
       - name: Retain sanitized evidence only
         if: always()

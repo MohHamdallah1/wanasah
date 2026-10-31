@@ -6,13 +6,14 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { beginDashboardSession } from "@/lib/authStorage";
 
 const API = import.meta.env.VITE_API_URL;
 if (API !== "http://127.0.0.1:4174" || process.env.WANASAH_INFLIGHT_AUTH_GATE !== "1") {
   throw new Error("This real-HTTP evidence requires the isolated PG16 workflow");
 }
 const fixture = JSON.parse(readFileSync(process.env.WANASAH_OPERATIONAL_BROWSER_STATE!, "utf8")) as {
-  companyId: number; warehouse: number; mainId: number; firstBatch: number;
+  companyId: number; warehouse: number; foreignWarehouse: number; mainId: number; firstBatch: number;
   credentials: Record<string, { code: string; username: string; password: string }>;
 };
 type Session = {
@@ -47,6 +48,7 @@ async function login(actor: string): Promise<Session> {
   return data;
 }
 function install(session: Session) {
+  beginDashboardSession();
   localStorage.setItem("admin_token", session.token);
   localStorage.setItem("refresh_token", session.refresh_token);
   localStorage.setItem("company_id", String(session.company_id));
@@ -183,4 +185,175 @@ it("an aborted old inventory refresh must not overwrite a genuinely logged-in di
     release.resolve();
     await pending;
   }
+});
+
+const safeRun = (fetcher: ReturnType<typeof useAuthFetch>, path: string) =>
+  fetcher(path).then(value => ({ value, error: null }),
+    (error: unknown) => ({ value: null, error: error as Error }));
+const cursorA = () => "/warehouse/inventory/cursor?location_id=" + fixture.warehouse;
+const cursorB = () => "/warehouse/inventory/cursor?location_id=" + fixture.foreignWarehouse;
+async function verifyCurrent(session: Session) {
+  expect(localStorage.getItem("admin_token") === session.token).toBe(true);
+  expect(localStorage.getItem("refresh_token") === session.refresh_token).toBe(true);
+  expect(localStorage.getItem("company_id")).toBe(String(session.company_id));
+  expect(localStorage.getItem("principal_id")).toBe(String(session.principal_id));
+  const res = await wire(API + "/inventory/access/me", { headers: headers(session.token) });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({ company_id: session.company_id, principal_id: session.principal_id });
+}
+
+it("a genuinely rejected old refresh cannot log out a newer company's real session", async () => {
+  const old = await login("owner");
+  const logout = await wire(API + "/logout", { method: "POST",
+    headers: { ...headers(old.token), "X-Refresh-Token": old.refresh_token } });
+  expect(logout.status).toBe(200);
+  install(old);
+  localStorage.setItem("admin_token", "invalid-expired-access-for-disposable-test");
+  const captured = deferred<Response>(), release = deferred<void>();
+  let logoutCalls = 0;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (new URL(String(input)).pathname === "/logout") logoutCalls++;
+    const response = await wire(input, init);
+    if (new URL(String(input)).pathname === "/refresh") {
+      captured.resolve(response); await release.promise;
+    }
+    return response;
+  });
+  const { result } = renderHook(() => useAuthFetch(), { wrapper });
+  const pending = safeRun(result.current, cursorA());
+  try {
+    expect((await captured.promise).status).toBe(401);
+    const current = await login("foreign");
+    install(current);
+    release.resolve();
+    expect((await pending).error?.name).toBe("AbortError");
+    await verifyCurrent(current);
+    expect(logoutCalls).toBe(0);
+    evidence.push({ case: "real-stale-refresh-failure", oldRefreshStatus: 401,
+      newCompany: current.company_id, loggedIn: true, staleLogoutCalls: logoutCalls });
+  } finally { release.resolve(); await pending; }
+});
+
+it("real concurrent refreshes never share credentials or retries across companies", async () => {
+  const a = await login("owner"); install(a);
+  localStorage.setItem("admin_token", "invalid-a-for-disposable-test");
+  const b = await login("foreign");
+  const aHeld = deferred<Response>(), bHeld = deferred<Response>();
+  const aRelease = deferred<void>(), bRelease = deferred<void>();
+  let aRefreshes = 0, bRefreshes = 0;
+  const retries: Array<{ company: string | null; status: number }> = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    const res = await wire(input, init);
+    if (url.pathname === "/refresh") {
+      const refresh = JSON.parse(String(init?.body)).refresh_token;
+      if (refresh === a.refresh_token) { aRefreshes++; aHeld.resolve(res); await aRelease.promise; }
+      else if (refresh === b.refresh_token) { bRefreshes++; bHeld.resolve(res); await bRelease.promise; }
+      else throw new Error("Unexpected real refresh lineage");
+    } else if (url.pathname === "/warehouse/inventory/cursor" && res.ok) {
+      retries.push({ company: localStorage.getItem("company_id"), status: res.status });
+    }
+    return res;
+  });
+  const { result } = renderHook(() => useAuthFetch(), { wrapper });
+  const pa = safeRun(result.current, cursorA());
+  let pb: ReturnType<typeof safeRun> | null = null;
+  try {
+    expect((await aHeld.promise).status).toBe(200);
+    install(b); localStorage.setItem("admin_token", "invalid-b-for-disposable-test");
+    pb = safeRun(result.current, cursorB());
+    expect((await bHeld.promise).status).toBe(200);
+    bRelease.resolve();
+    const outcome = await pb;
+    expect(outcome.error).toBeNull();
+    expect(outcome.value).toHaveProperty("items");
+    const bAccess = localStorage.getItem("admin_token")!;
+    const bRefresh = localStorage.getItem("refresh_token")!;
+    aRelease.resolve();
+    expect((await pa).error?.name).toBe("AbortError");
+    expect(localStorage.getItem("admin_token") === bAccess).toBe(true);
+    expect(localStorage.getItem("refresh_token") === bRefresh).toBe(true);
+    const verified = await wire(API + "/inventory/access/me", { headers: headers(bAccess) });
+    expect(verified.status).toBe(200);
+    expect(await verified.json()).toMatchObject({ company_id: b.company_id, principal_id: b.principal_id });
+    expect([aRefreshes, bRefreshes]).toEqual([1, 1]);
+    expect(retries).toEqual([{ company: String(b.company_id), status: 200 }]);
+    evidence.push({ case: "real-cross-session-refresh-concurrency", refreshes: [aRefreshes, bRefreshes],
+      successfulRetries: retries, newIdentityVerified: true });
+  } finally { aRelease.resolve(); bRelease.resolve(); await pa; if (pb) await pb; }
+});
+
+it("real same-session concurrent401s rotate once and retain canonical identity", async () => {
+  const session = await login("owner"); install(session);
+  localStorage.setItem("admin_token", "invalid-a-for-disposable-test");
+  const held = deferred<Response>(), release = deferred<void>(), both = deferred<void>();
+  let refreshes = 0, initials = 0;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const res = await wire(input, init);
+    const path = new URL(String(input)).pathname;
+    if (path === "/refresh") { refreshes++; held.resolve(res); await release.promise; }
+    if (path === "/warehouse/inventory/cursor" && res.status === 401 && ++initials === 2) both.resolve();
+    return res;
+  });
+  const { result } = renderHook(() => useAuthFetch(), { wrapper });
+  const p1 = safeRun(result.current, cursorA()), p2 = safeRun(result.current, cursorA());
+  try {
+    await both.promise;
+    expect((await held.promise).status).toBe(200);
+    release.resolve();
+    for (const outcome of await Promise.all([p1, p2])) {
+      expect(outcome.error).toBeNull(); expect(outcome.value).toHaveProperty("items");
+    }
+    expect(refreshes).toBe(1);
+    const rotated = { ...session, token: localStorage.getItem("admin_token")!,
+      refresh_token: localStorage.getItem("refresh_token")! };
+    expect(rotated.refresh_token === session.refresh_token).toBe(false);
+    await verifyCurrent(rotated);
+    evidence.push({ case: "real-same-session-rotation", refreshes, retries: 2, identityPreserved: true });
+  } finally { release.resolve(); await Promise.all([p1, p2]); }
+});
+
+it("real company A bearer denies company B readers and mutation with unchanged inventory and cost", async () => {
+  const a = await login("owner"), b = await login("foreign");
+  const own = await wire(API + cursorB(), { headers: headers(b.token) });
+  expect(own.status).toBe(200);
+  const page = await own.json() as { items: Array<{ id: number; base_uom_id: number }> };
+  expect(page.items.length).toBeGreaterThan(0);
+  const product = page.items[0];
+  const batchesPath = "/warehouse/inventory/" + product.id + "/batches?location_id=" + fixture.foreignWarehouse;
+  const batchResponse = await wire(API + batchesPath, { headers: headers(b.token) });
+  expect(batchResponse.status).toBe(200);
+  const detail = await batchResponse.json() as { batches: Array<{ batch_id: number }> };
+  expect(detail.batches.length).toBeGreaterThan(0);
+  const batch = detail.batches[0].batch_id;
+  const paths = [cursorB(), "/warehouse/inventory/summary?location_id=" + fixture.foreignWarehouse,
+    batchesPath, "/warehouse/inventory/" + product.id + "/batches/" + batch + "/source?location_id=" + fixture.foreignWarehouse];
+  const snapshot = () => JSON.parse(execFileSync(process.env.PYTHON || "python", [
+    resolve("../wa_backend/tests/live_stock_inflight_security_probe.py"),
+    String(a.company_id), String(b.company_id),
+  ], { encoding: "utf8", env: process.env }));
+  const before = snapshot();
+  const denied = [];
+  for (const path of paths) {
+    const res = await wire(API + path, { headers: headers(a.token) });
+    denied.push(res.status);
+    expect([403, 404].includes(res.status)).toBe(true);
+    expect(Boolean(res.headers.get("x-request-id"))).toBe(true);
+    const body = await res.json();
+    for (const field of ["items", "batches", "latest_purchase_cost", "total_quantity"]) expect(body).not.toHaveProperty(field);
+  }
+  const res = await wire(API + "/warehouse/inventory/status-change", {
+    method: "POST", headers: { ...headers(a.token), "Content-Type": "application/json" },
+    body: JSON.stringify({ request_id: crypto.randomUUID(), location_id: fixture.foreignWarehouse,
+      product_variant_id: product.id, batch_id: batch, uom_id: product.base_uom_id,
+      source_status: "AVAILABLE", destination_status: "BLOCKED", quantity: "1",
+      reason: "Disposable cross-company authorization rejection" }),
+  });
+  expect([403, 404].includes(res.status)).toBe(true);
+  expect(Boolean(res.headers.get("x-request-id"))).toBe(true);
+  await res.json();
+  const after = snapshot();
+  expect(after).toEqual(before);
+  evidence.push({ case: "real-cross-company-reads-and-mutation", readerStatuses: denied,
+    mutationStatus: res.status, before, after, inventoryAndCostUnchanged: true });
 });

@@ -27,7 +27,7 @@ import {
   useTenantIdentity,
 } from "@/features/tenantIdentity/useTenantIdentity";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
+import { captureDashboardSession, clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
 import { resolveI18nLocale } from "@/lib/locale";
 import {
   preloadCommercialRulesDashboard,
@@ -199,6 +199,7 @@ export function OperationsSidebar({
   };
 
   const handleLogout = async () => {
+    const logoutSession = captureDashboardSession();
     const API_URL = (
       import.meta.env.VITE_API_URL ||
       ""
@@ -255,7 +256,7 @@ export function OperationsSidebar({
       }
     }
 
-    clearLocalStoragePreservingLoginHintsAndPreferences();
+    if (!clearLocalStoragePreservingLoginHintsAndPreferences(logoutSession)) return;
     sessionStorage.clear();
     window.location.replace(
       "/login"

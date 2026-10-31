@@ -3,7 +3,10 @@ import { useNavigate } from "react-router-dom";
 
 import i18n from "@/i18n";
 import { normalizeApiErrorResponse } from "@/lib/apiErrors";
-import { readAccessTokenIfRefreshAdvanced } from "@/lib/authStorage";
+import {
+  captureDashboardSession, isDashboardSessionCurrent, invalidateDashboardSession,
+  readAccessTokenIfRefreshAdvanced, type DashboardSession,
+} from "@/lib/authStorage";
 
 const API = (
   import.meta.env.VITE_API_URL || ""
@@ -15,24 +18,51 @@ if (!API) {
   );
 }
 
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-}> = [];
+type RefreshFlight = {
+  controller: AbortController;
+  consumers: Set<symbol>;
+  promise: Promise<string>;
+};
+// No queue or credentials are shared across login generations/identities.
+const refreshFlights = new Map<string, RefreshFlight>();
+const abandonedSession = () => new DOMException("Session changed or request aborted", "AbortError");
+const assertSession = (session: DashboardSession, signal?: AbortSignal | null) => {
+  if (!isDashboardSessionCurrent(session) || signal?.aborted) throw abandonedSession();
+};
 
-const processQueue = (
-  error: Error | null,
-  token: string | null = null
-) => {
-  failedQueue.forEach((promise) => {
-    if (error) {
-      promise.reject(error);
-    } else {
-      promise.resolve(token!);
-    }
+const joinRefresh = (
+  session: DashboardSession,
+  signal: AbortSignal | null | undefined,
+  run: (signal: AbortSignal) => Promise<string>,
+): Promise<string> => {
+  assertSession(session, signal);
+  const key = JSON.stringify(session);
+  let flight = refreshFlights.get(key);
+  if (!flight || flight.controller.signal.aborted) {
+    const controller = new AbortController();
+    const created: RefreshFlight = { controller, consumers: new Set(), promise: Promise.resolve("") };
+    created.promise = Promise.resolve().then(() => run(controller.signal)).finally(() => {
+      if (refreshFlights.get(key) === created) refreshFlights.delete(key);
+    });
+    refreshFlights.set(key, created);
+    flight = created;
+  }
+  const joined = flight;
+  const consumer = Symbol();
+  joined.consumers.add(consumer);
+  return new Promise<string>((resolve, reject) => {
+    const leave = () => {
+      signal?.removeEventListener("abort", abort);
+      joined.consumers.delete(consumer);
+      if (!joined.consumers.size) joined.controller.abort();
+    };
+    const abort = () => { leave(); reject(abandonedSession()); };
+    signal?.addEventListener("abort", abort, { once: true });
+    joined.promise.then(
+      token => { leave(); try { assertSession(session, signal); resolve(token); } catch (error) { reject(error); } },
+      error => { leave(); reject(error); },
+    );
   });
-  failedQueue = [];
 };
 
 export type HttpError = Error & {
@@ -108,7 +138,9 @@ const requestSignal = (
 export function useAuthFetch() {
   const navigate = useNavigate();
 
-  const forceLogout = useCallback(() => {
+  const forceLogout = useCallback((session: DashboardSession) => {
+    if (!isDashboardSessionCurrent(session)) return;
+    invalidateDashboardSession();
     const currentToken =
       localStorage.getItem(
         "admin_token"
@@ -150,12 +182,14 @@ export function useAuthFetch() {
       path: string,
       opts: RequestInit = {}
     ) => {
+      const session = captureDashboardSession();
+      assertSession(session, opts.signal);
       const token =
         localStorage.getItem(
           "admin_token"
         );
       if (!token) {
-        forceLogout();
+        forceLogout(session);
         throw makeHttpError(
           i18n.t(
             "network.sessionExpired"
@@ -188,25 +222,13 @@ export function useAuthFetch() {
       const perform = async (
         accessToken: string,
         signal: AbortSignal
-      ) =>
-        fetch(
-          `${API}${cleanPath}`,
-          {
-            ...opts,
-            signal,
-            headers: {
-              ...(isFormData
-                ? {}
-                : {
-                    "Content-Type":
-                      "application/json",
-                  }),
-              Authorization:
-                `Bearer ${accessToken}`,
-              ...(opts.headers ?? {}),
-            },
-          }
-        );
+      ) => {
+        assertSession(session, signal);
+        const headers = new Headers(opts.headers);
+        if (!isFormData && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+        headers.set("Authorization", `Bearer ${accessToken}`);
+        return fetch(`${API}${cleanPath}`, { ...opts, signal, headers });
+      };
 
       const first = requestSignal(
         opts.signal,
@@ -240,140 +262,56 @@ export function useAuthFetch() {
           clearTimeout(first.timer);
         }
 
+        assertSession(session, opts.signal);
         if (res.status === 401) {
-          const refreshToken =
-            localStorage.getItem(
-              "refresh_token"
-            );
-          if (!refreshToken) {
-            forceLogout();
-            throw makeHttpError(
-              i18n.t(
-                "network.sessionExpired"
-              ),
-              401
-            );
-          }
-
-          const newTokenPromise =
-            new Promise<string>(
-              (resolve, reject) => {
-                failedQueue.push({
-                  resolve,
-                  reject,
-                });
+          // A concurrent same-session request may already have rotated access.
+          const currentAccess = localStorage.getItem("admin_token");
+          const newToken = currentAccess && currentAccess !== token
+            ? currentAccess
+            : await joinRefresh(session, opts.signal, async (refreshSignal) => {
+              assertSession(session, refreshSignal);
+              const refreshToken = localStorage.getItem("refresh_token");
+              if (!refreshToken) {
+                forceLogout(session);
+                throw makeHttpError(i18n.t("network.sessionExpired"), 401);
               }
-            );
-
-          if (!isRefreshing) {
-            isRefreshing = true;
-            try {
-              if (
-                typeof navigator !==
-                  "undefined" &&
-                navigator.onLine ===
-                  false
-              ) {
-                throw networkError();
-              }
-
-              let refreshRes: Response;
               try {
-                refreshRes =
-                  await fetch(
-                    `${API}/refresh`,
-                    {
-                      method: "POST",
-                      headers: {
-                        "Content-Type":
-                          "application/json",
-                      },
-                      body: JSON.stringify({
-                        refresh_token:
-                          refreshToken,
-                      }),
-                    }
-                  );
+                if (navigator.onLine === false) throw networkError();
+                const refreshRes = await fetch(`${API}/refresh`, {
+                  method: "POST",
+                  signal: refreshSignal,
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ refresh_token: refreshToken }),
+                });
+                assertSession(session, refreshSignal);
+                // Another tab may have rotated this generation. Never replace its pair.
+                const advanced = readAccessTokenIfRefreshAdvanced(refreshToken);
+                if (advanced) return advanced;
+                if (!refreshRes.ok) {
+                  throw makeHttpError(i18n.t("network.refreshFailed"), refreshRes.status);
+                }
+                const data = await refreshRes.json();
+                assertSession(session, refreshSignal);
+                const advancedAfterBody = readAccessTokenIfRefreshAdvanced(refreshToken);
+                if (advancedAfterBody) return advancedAfterBody;
+                if (typeof data.token !== "string" || !data.token ||
+                    (data.refresh_token !== undefined &&
+                     (typeof data.refresh_token !== "string" || !data.refresh_token))) {
+                  throw makeHttpError(i18n.t("network.invalidResponse"), 502);
+                }
+                localStorage.setItem("admin_token", data.token);
+                if (data.refresh_token) localStorage.setItem("refresh_token", data.refresh_token);
+                return data.token as string;
               } catch (error) {
-                if (
-                  error instanceof
-                  TypeError
-                ) {
-                  throw networkError();
-                }
-                throw error;
+                // An old failure must not invalidate a new login or an aborted flight.
+                assertSession(session, refreshSignal);
+                const normalized = error instanceof TypeError ? networkError() : error;
+                if ((normalized as HttpError)?.status === 401 ||
+                    (normalized as HttpError)?.status === 403) forceLogout(session);
+                throw normalized;
               }
-
-              if (!refreshRes.ok) {
-                const advancedAccessToken =
-                  [400, 401, 403].includes(
-                    refreshRes.status
-                  )
-                    ? readAccessTokenIfRefreshAdvanced(
-                        refreshToken
-                      )
-                    : null;
-
-                if (advancedAccessToken) {
-                  processQueue(
-                    null,
-                    advancedAccessToken
-                  );
-                } else {
-                  throw makeHttpError(
-                    i18n.t(
-                      "network.refreshFailed"
-                    ),
-                    refreshRes.status
-                  );
-                }
-              } else {
-                const data =
-                  await refreshRes.json();
-                localStorage.setItem(
-                  "admin_token",
-                  data.token
-                );
-                if (
-                  data.refresh_token
-                ) {
-                  localStorage.setItem(
-                    "refresh_token",
-                    data.refresh_token
-                  );
-                }
-                processQueue(
-                  null,
-                  data.token
-                );
-              }
-            } catch (error) {
-              const normalized =
-                error instanceof Error
-                  ? error
-                  : networkError();
-              processQueue(
-                normalized,
-                null
-              );
-              if (
-                (
-                  normalized as HttpError
-                ).status === 401 ||
-                (
-                  normalized as HttpError
-                ).status === 403
-              ) {
-                forceLogout();
-              }
-              throw normalized;
-            } finally {
-              isRefreshing = false;
-            }
-          }
-
-          const newToken =
-            await newTokenPromise;
+            });
+          assertSession(session, opts.signal);
           const retry =
             requestSignal(
               opts.signal,
@@ -414,9 +352,11 @@ export function useAuthFetch() {
           }
         }
 
+        assertSession(session, opts.signal);
         let data: unknown = null;
         const raw =
           await res.text();
+        assertSession(session, opts.signal);
         if (raw) {
           try {
             data =
@@ -467,7 +407,7 @@ export function useAuthFetch() {
             normalized.code ===
               "ACCOUNT_DISABLED"
           ) {
-            forceLogout();
+            forceLogout(session);
           }
 
           throw makeHttpError(

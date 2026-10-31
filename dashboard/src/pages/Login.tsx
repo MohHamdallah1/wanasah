@@ -1,6 +1,7 @@
 import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 import {
+  beginDashboardSession,
   migrateLegacyBackofficeIdentityStorage,
   readLastCompanyCode,
   rememberLastCompanyCode,
@@ -141,6 +142,7 @@ export default function Login() {
       }
 
       // 6. حفظ هوية Backoffice canonical فقط. driver_id القديم لا يمثل هوية اللوحة.
+      beginDashboardSession();
       localStorage.setItem('admin_token', data.token);
       localStorage.setItem('refresh_token', data.refresh_token);
       localStorage.setItem('company_id', nextCompanyId);

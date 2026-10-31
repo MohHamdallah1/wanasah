@@ -147,6 +147,28 @@ OP_ALLOWED = {
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
+# Issue #706: a bounded auth repair also retains the original Live Stock evidence.
+SESSION_ISOLATION_ALLOWED = {
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/test/live-stock-warm-authority.test.tsx",
+    "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+    "dashboard/e2e/live-stock-inflight.config.ts",
+    "dashboard/e2e/live-stock-inflight-auth.test.tsx",
+    "docs/operations/LIVE_STOCK_INFLIGHT_AUTHORITY_FINDINGS.md",
+    "dashboard/src/hooks/useAuthFetch.ts",
+    "dashboard/src/lib/authStorage.ts",
+    "dashboard/src/pages/Login.tsx",
+    "dashboard/src/test/auth-session-isolation.test.tsx",
+    "wa_backend/tests/live_stock_inflight_security_probe.py",
+    ".github/scripts/live_stock_ci_ownership.py",
+    "dashboard/src/components/operations/TopBar.tsx",
+    "dashboard/src/components/operations/OperationsSidebar.tsx",
+}
+SESSION_ISOLATION_ROOTS = {
+    "dashboard/src/hooks/useAuthFetch.ts",
+    "dashboard/src/lib/authStorage.ts",
+}
+
 LIVE_STOCK_SCHEMA_ROOTS = {
     "WarehouseAlertItem",
     "WarehouseInventoryItem",
@@ -401,6 +423,11 @@ def _spec(mode: str):
     return allowed, shared, hard_owned, forbidden, label
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed & SESSION_ISOLATION_ROOTS:
+        extra = sorted(changed - SESSION_ISOLATION_ALLOWED)
+        if extra:
+            return "fail", [f"AUTH_SESSION_SCOPE=FAIL extra={extra}"]
+        return "session-isolation-repair", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
@@ -543,6 +570,11 @@ def selftest() -> None:
     for mode in ("ux", "r3", "operational"):
         state, messages = classify(mode, set(POLICY_FILES), none)
         assert state == "policy-maintenance" and not messages
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, set(SESSION_ISOLATION_ALLOWED), none)[0] == "session-isolation-repair"
+        for foreign in ("wa_backend/api/dispatch.py", "wa_backend/services.py",
+                        "wanasah_frontend/lib/main.dart", "LIVE_STOCK_V1_CLOSURE_PLAN.md"):
+            _expect_fail(mode, set(SESSION_ISOLATION_ALLOWED) | {foreign}, none)
     print("LIVE_STOCK_OWNERSHIP_SELFTEST=PASS")
 
 def main() -> int:
