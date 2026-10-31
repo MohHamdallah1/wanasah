@@ -1,6 +1,8 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthFetch } from './useAuthFetch';
+import { useDashboardSession } from './useDashboardSession';
+import { isDashboardSessionCurrent, type DashboardSession } from '@/lib/authStorage';
 
 type InventoryAccessContractError = Error & { code: string };
 
@@ -118,24 +120,91 @@ export function parseInventoryLocationCapabilities(
   return result;
 }
 
+type InventorySessionIdentity = {
+  companyId: number;
+  principalId: number;
+  backofficeUserId: number;
+};
+
+const positiveStoredId = (value: unknown): number | null => {
+  const id = typeof value === 'string' && value.trim() ? Number(value) : NaN;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+};
+
+const inventorySessionIdentity = (
+  session: DashboardSession | null,
+): InventorySessionIdentity | null => {
+  if (!session) return null;
+  try {
+    const raw: unknown = JSON.parse(session.identity);
+    if (!Array.isArray(raw) || raw.length < 3) return null;
+    const companyId = positiveStoredId(raw[0]);
+    const principalId = positiveStoredId(raw[1]);
+    const backofficeUserId = positiveStoredId(raw[2]);
+    if (companyId === null || principalId === null || backofficeUserId === null) return null;
+    return { companyId, principalId, backofficeUserId };
+  } catch {
+    return null;
+  }
+};
+
+const requireInventorySessionIdentity = (
+  session: DashboardSession | null,
+  identity: InventorySessionIdentity | null,
+): InventorySessionIdentity => {
+  if (!session || !identity || !isDashboardSessionCurrent(session)) {
+    inventoryAccessContractError('INVENTORY_ACCESS_SCOPE_MISMATCH');
+  }
+  return identity;
+};
+
+const assertInventoryCapabilitiesScope = (
+  result: InventoryCapabilities,
+  locationId: number | null,
+  session: DashboardSession | null,
+  identity: InventorySessionIdentity | null,
+): void => {
+  const currentIdentity = requireInventorySessionIdentity(session, identity);
+  if (
+    result.company_id !== currentIdentity.companyId ||
+    result.principal_id !== currentIdentity.principalId ||
+    result.backoffice_user_id !== currentIdentity.backofficeUserId ||
+    result.location_id !== locationId
+  ) {
+    inventoryAccessContractError('INVENTORY_ACCESS_SCOPE_MISMATCH');
+  }
+};
+
 export function useInventoryAccess(locationId: number | null = null) {
   const authFetch = useAuthFetch();
-  // Cache partitioning is UX only; the server independently verifies the token.
-  const company = localStorage.getItem('company_id');
-  const user = localStorage.getItem('principal_id');
+  const session = useDashboardSession();
+  const identity = useMemo(() => inventorySessionIdentity(session), [session]);
+  const sessionCurrent = Boolean(
+    session && identity && isDashboardSessionCurrent(session),
+  );
   const query = useQuery({
-    queryKey: ['inventory-access', company, user, locationId],
+    queryKey: [
+      'inventory-access',
+      session?.generation ?? null,
+      session?.identity ?? null,
+      locationId,
+    ],
+    enabled: sessionCurrent,
     queryFn: async ({ signal }) => {
+      requireInventorySessionIdentity(session, identity);
       const result = parseInventoryCapabilities(await authFetch(
-        `/inventory/access/me${locationId === null ? '' : `?location_id=${locationId}`}`, { signal }));
-      if (result.location_id !== locationId) inventoryAccessContractError('INVENTORY_ACCESS_SCOPE_MISMATCH');
+        `/inventory/access/me${locationId === null ? '' : `?location_id=${locationId}`}`,
+        { signal },
+      ));
+      assertInventoryCapabilitiesScope(result, locationId, session, identity);
       return result;
     },
+    placeholderData: undefined,
     staleTime: 0,
     refetchOnWindowFocus: true,
     retry: false,
   });
-  const data = query.isError ? undefined : query.data;
+  const data = !sessionCurrent || query.isError ? undefined : query.data;
   const { refetch } = query;
   useEffect(() => {
     const refresh = () => { void refetch(); };
@@ -146,25 +215,42 @@ export function useInventoryAccess(locationId: number | null = null) {
     data.permissions.includes(code) || (locationId !== null && data.location_permissions.includes(code))
   )), [data, locationId]);
   const canAny = useCallback((code: string) => Boolean(data?.any_permissions.includes(code)), [data]);
-  // The existing consumer property now reflects only persisted canonical Owner state.
   return { ...query, data, can, canAny, isCompanyOwner: data?.is_company_owner === true };
 }
 
 
 export function useLocationCapabilities(locationIds: number[]) {
   const authFetch = useAuthFetch();
+  const session = useDashboardSession();
+  const identity = useMemo(() => inventorySessionIdentity(session), [session]);
+  const sessionCurrent = Boolean(
+    session && identity && isDashboardSessionCurrent(session),
+  );
   const ids = [...new Set(locationIds)].sort((a, b) => a - b);
   const query = useQuery({
-    queryKey: ['inventory-access', localStorage.getItem('company_id'), localStorage.getItem('principal_id'), 'batch', ids],
-    enabled: ids.length > 0,
-    queryFn: async ({ signal }) =>
-      parseInventoryLocationCapabilities(
+    queryKey: [
+      'inventory-access',
+      session?.generation ?? null,
+      session?.identity ?? null,
+      'batch',
+      ids,
+    ],
+    enabled: sessionCurrent && ids.length > 0,
+    queryFn: async ({ signal }) => {
+      requireInventorySessionIdentity(session, identity);
+      const result = parseInventoryLocationCapabilities(
         await authFetch('/inventory/access/locations/capabilities', {
           method: 'POST', signal, body: JSON.stringify({ location_ids: ids }),
         }),
         ids,
-      ),
-    staleTime: 0, retry: false, refetchOnWindowFocus: true,
+      );
+      requireInventorySessionIdentity(session, identity);
+      return result;
+    },
+    placeholderData: undefined,
+    staleTime: 0,
+    retry: false,
+    refetchOnWindowFocus: true,
   });
   const { refetch } = query;
   useEffect(() => {
@@ -173,5 +259,6 @@ export function useLocationCapabilities(locationIds: number[]) {
     window.addEventListener('inventory-permission-denied', refresh);
     return () => window.removeEventListener('inventory-permission-denied', refresh);
   }, [refetch, ids.length]);
-  return (locationId: number, code: string) => !query.isError && query.data?.[locationId]?.includes(code) === true;
+  return (locationId: number, code: string) =>
+    sessionCurrent && !query.isError && query.data?.[locationId]?.includes(code) === true;
 }
