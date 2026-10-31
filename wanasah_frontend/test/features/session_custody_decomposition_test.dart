@@ -68,7 +68,7 @@ void main() {
         expect(bloc, contains('_custodyCoordinator.respond('));
         expect(bloc, contains('_custodyCoordinator.loadPendingTransfers()'));
         expect(custody, contains('loadPendingTransfers()'));
-        expect(custody, contains('loadNonSellableCustody()'));
+        expect(custody, contains('loadNonSellableCustody({int? expectedSessionId})'));
         expect(custody, contains('_transferGateway.respond('));
         expect(custody, isNot(contains('package:flutter/material.dart')));
       },
