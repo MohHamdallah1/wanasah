@@ -1,0 +1,78 @@
+name: P1 archive physical-location truth
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/domains/inventory_archive_navigation.py"
+      - "wa_backend/tests/test_archive_owner_navigation.py"
+      - ".github/workflows/p1-archive-physical-location-truth.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+
+      - name: Compile focused source
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          domains/inventory_archive_navigation.py
+          tests/test_archive_owner_navigation.py
+
+      - name: Run archive navigation acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q
+          tests/test_archive_owner_navigation.py
+          tests/test_archive_navigation_canonical_access.py
+          tests/test_catalog_canonical_boundary.py
+          tests/test_catalog_canonical_cutover.py
+
+      - name: Physical-location and scope guard
+        run: |
+          git diff --check main...HEAD
+          python - <<'PY'
+          import pathlib
+          import subprocess
+
+          base = subprocess.check_output(
+              ["git", "merge-base", "origin/main", "HEAD"],
+              text=True,
+          ).strip()
+          changed = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", base, "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          allowed = {
+              ".github/workflows/p1-archive-physical-location-truth.yml",
+              "wa_backend/domains/inventory_archive_navigation.py",
+              "wa_backend/tests/test_archive_owner_navigation.py",
+          }
+          assert changed <= allowed, sorted(changed - allowed)
+
+          source = pathlib.Path(
+              "wa_backend/domains/inventory_archive_navigation.py"
+          ).read_text(encoding="utf-8")
+          assert "DispatchRoute" not in source
+          assert "route.source_location_id" not in source
+          assert "warehouse shell" not in source.lower()
+          print("P1_ARCHIVE_PHYSICAL_LOCATION_SCOPE=PASS")
+          PY
