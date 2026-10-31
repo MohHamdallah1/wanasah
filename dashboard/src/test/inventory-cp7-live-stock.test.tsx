@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { resources } from "@/i18n/resources";
 import type { WarehouseProduct } from "@/pages/inventory/liveStock/contracts";
 import { BatchDetailPanel } from "@/pages/inventory/liveStock/BatchDetailPanel";
 import { getLiveStockCp7Copy } from "@/pages/inventory/liveStock/i18n";
@@ -12,16 +13,50 @@ import { resolveAppLocale } from "@/lib/locale";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import { parseLiveStockWarehouseSource, type LiveStockReservationEvidence } from "@/pages/inventory/liveStock/sourceContract";
 
-const mocks = vi.hoisted(() => ({
-  language: "en",
-  t: (key: string, options?: { unit?: string; defaultValue?: string }) => {
-    if (key.startsWith("uom.")) return key.slice(4);
-    if (key === "inventoryLive.perUnit") {
-      return `${mocks.language === "ar" ? "لكل" : "per"} ${options?.unit ?? ""}`;
-    }
-    return options?.defaultValue ?? key;
-  },
-}));
+const mocks = vi.hoisted(() => {
+  const vehicleCopy = {
+    ar: {
+      withVehicles: "عهدة المركبات",
+      withVehiclesVisibleNote: "آخر خط · منفصلة عن المستودع",
+      withVehiclesMobileDisclosure:
+        "عهدة المركبات هنا منسوبة عبر آخر خط وليست رصيد المستودع أو مصدر التحميل. قد تظهر عهدة حُمّلت من مستودع آخر، والعهدة بلا خط مؤهل قد لا تظهر؛ الصفر يعني صفر كمية منسوبة فقط.",
+      withVehiclesValueA11y:
+        "الكمية {{quantity}}. عهدة مركبات منسوبة عبر آخر خط، منفصلة عن رصيد المستودع. الصفر يعني صفر كمية منسوبة فقط ولا ينفي وجود عهدة فعلية بالمركبات.",
+      indicatorVehicle: "عهدة عبر آخر خط",
+    },
+    en: {
+      withVehicles: "Vehicle custody",
+      withVehiclesVisibleNote: "Latest route · separate from warehouse",
+      withVehiclesMobileDisclosure:
+        "Vehicle custody here is attributed via the latest route, not warehouse stock or load origin. Custody loaded elsewhere can appear here; no-route custody may not. Zero means zero attributed quantity only.",
+      withVehiclesValueA11y:
+        "{{quantity}}. Vehicle custody attributed via the latest route, separate from warehouse stock. Zero means zero attributed quantity only and does not prove zero physical vehicle custody.",
+      indicatorVehicle: "Vehicle via latest route",
+    },
+  } as const;
+  const state = {
+    language: "en" as "ar" | "en",
+    vehicleCopy,
+    t: (
+      key: string,
+      options?: { unit?: string; defaultValue?: string; quantity?: string },
+    ) => {
+      if (key.startsWith("uom.")) return key.slice(4);
+      if (key === "inventoryLive.perUnit") {
+        return `${state.language === "ar" ? "لكل" : "per"} ${options?.unit ?? ""}`;
+      }
+      const vehicleKey = key.replace("inventoryLive.", "") as keyof typeof vehicleCopy.en;
+      if (key.startsWith("inventoryLive.") && vehicleKey in vehicleCopy[state.language]) {
+        return vehicleCopy[state.language][vehicleKey].replace(
+          "{{quantity}}",
+          options?.quantity ?? "{{quantity}}",
+        );
+      }
+      return options?.defaultValue ?? key;
+    },
+  };
+  return state;
+});
 
 vi.mock("react-i18next", () => ({
   initReactI18next: { type: "3rdParty", init: () => undefined },
@@ -349,6 +384,103 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(desktop).toContain("hidden md:table");
     expect(mobile).toContain("md:hidden");
     expect(mobile).not.toContain("available_for_sale_quantity =");
+  });
+
+  it.each(["ar", "en"] as const)(
+    "renders truthful R3 vehicle attribution for desktop/mobile positive and zero values in %s",
+    (language) => {
+      mocks.language = language;
+      const actual = resources[language].translation.inventoryLive;
+      const expected = mocks.vehicleCopy[language];
+      expect(actual.withVehicles).toBe(expected.withVehicles);
+      expect(actual.withVehiclesVisibleNote).toBe(expected.withVehiclesVisibleNote);
+      expect(actual.withVehiclesMobileDisclosure).toBe(expected.withVehiclesMobileDisclosure);
+      expect(actual.withVehiclesValueA11y).toBe(expected.withVehiclesValueA11y);
+      expect(actual.indicatorVehicle).toBe(expected.indicatorVehicle);
+
+      const attributed: WarehouseProduct = {
+        ...product,
+        vehicle_quantity: "12",
+        total_quantity: "14.500001",
+      };
+      const zero: WarehouseProduct = {
+        ...product,
+        id: 42,
+        name: "Zero attribution",
+        vehicle_quantity: "0",
+        total_quantity: "2.500001",
+      };
+      const { container } = render(
+        <>
+          <LiveStockTable products={[attributed, zero]} loading={false} onOpen={vi.fn()} />
+          <LiveStockMobileCards products={[attributed, zero]} onOpen={vi.fn()} />
+        </>,
+      );
+
+      expect(
+        container.querySelector('[data-live-stock-vehicle-attribution-note="desktop"]'),
+      ).toHaveTextContent(expected.withVehiclesVisibleNote);
+      expect(
+        container.querySelector('[data-live-stock-vehicle-attribution-note="mobile"]'),
+      ).toHaveTextContent(expected.withVehiclesMobileDisclosure);
+
+      const desktopVehicleCells = Array.from(
+        container.querySelectorAll<HTMLTableCellElement>('td[data-cp13-quantity="vehicle"]'),
+      );
+      expect(desktopVehicleCells).toHaveLength(2);
+      expect(desktopVehicleCells[0]).toHaveTextContent("12");
+      expect(desktopVehicleCells[1]).toHaveTextContent("0");
+      expect(desktopVehicleCells[0].getAttribute("aria-label")).toContain("12");
+      expect(desktopVehicleCells[1].getAttribute("aria-label")).toContain("0");
+
+      const mobileVehicleValues = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          '[data-testid="live-stock-mobile-cards"] [data-cp13-quantity="vehicle"] dd',
+        ),
+      );
+      expect(mobileVehicleValues).toHaveLength(2);
+      expect(mobileVehicleValues[0]).toHaveTextContent("12");
+      expect(mobileVehicleValues[1]).toHaveTextContent("0");
+      expect(mobileVehicleValues[0].getAttribute("aria-label")).toContain("12");
+      expect(mobileVehicleValues[1].getAttribute("aria-label")).toContain("0");
+
+      console.log(
+        "R3_VEHICLE_COLUMN_RENDER_EVIDENCE",
+        JSON.stringify({
+          language,
+          desktopLabel: expected.withVehicles,
+          desktopVisibleNote: expected.withVehiclesVisibleNote,
+          mobileDisclosure: expected.withVehiclesMobileDisclosure,
+          positiveAttributedQuantity: "12",
+          zeroAttributedQuantity: "0",
+        }),
+      );
+    },
+  );
+
+  it("keeps the vehicle filter canonical while its visible/accessibility copy says latest-route attribution", () => {
+    const filters = source("src/pages/inventory/liveStock/LiveStockFilters.tsx");
+    expect(filters).toContain('["vehicle", "indicatorVehicle"]');
+    expect(filters).toContain("aria-pressed={indicators.includes(value)}");
+    expect(filters).toContain('t(`inventoryLive.${key}`)');
+    expect(resources.ar.translation.inventoryLive.indicatorVehicle).toBe("عهدة عبر آخر خط");
+    expect(resources.en.translation.inventoryLive.indicatorVehicle).toBe("Vehicle via latest route");
+  });
+
+  it("discloses the direct-unattributed and zero-attribution limits without changing vehicle_quantity authority", () => {
+    const ar = resources.ar.translation.inventoryLive;
+    const en = resources.en.translation.inventoryLive;
+    expect(ar.withVehiclesHint).toContain("العهدة المباشرة بلا خط مؤهل قد لا تظهر هنا");
+    expect(ar.withVehiclesHint).toContain("الصفر يعني صفر كمية منسوبة");
+    expect(en.withVehiclesHint).toContain("Direct vehicle custody without a qualifying route may not appear here");
+    expect(en.withVehiclesHint).toContain("Zero means zero attributed quantity");
+
+    const desktop = source("src/pages/inventory/liveStock/LiveStockTable.tsx");
+    const mobile = source("src/pages/inventory/liveStock/LiveStockMobileCards.tsx");
+    expect(desktop).toContain('[product.vehicle_quantity, "text-blue-700", "vehicle"]');
+    expect(mobile).toContain('["withVehicles", product.vehicle_quantity, "text-blue-700", "vehicle"]');
+    expect(desktop).not.toContain("vehicle_quantity =");
+    expect(mobile).not.toContain("vehicle_quantity =");
   });
 
   it("keeps no-permission Live Stock requests fail-closed in MainInventory", () => {
