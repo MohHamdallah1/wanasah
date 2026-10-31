@@ -61,12 +61,12 @@ jobs:
 
       - name: Exact UX-only ownership
         run: |
-          base="4c100550ac3dc3fcf16ecd174e285f3dc84c941f"
-          git cat-file -e "$base^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD --
-          BASE="$base" python - <<'PY'
-          import os
+          verified_base="4c100550ac3dc3fcf16ecd174e285f3dc84c941f"
+          git cat-file -e "$verified_base^{commit}"
+          git merge-base --is-ancestor "$verified_base" HEAD
+          git fetch --no-tags origin main
+          git diff --check origin/main...HEAD --
+          python - <<'PY'
           import subprocess
 
           allowed = {
@@ -78,7 +78,7 @@ jobs:
           }
           changed = set(
               subprocess.check_output(
-                  ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+                  ["git", "diff", "--name-only", "origin/main...HEAD"],
                   text=True,
               ).splitlines()
           )
