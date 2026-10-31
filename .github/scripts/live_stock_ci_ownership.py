@@ -163,6 +163,11 @@ SESSION_ISOLATION_ALLOWED = {
     ".github/scripts/live_stock_ci_ownership.py",
     "dashboard/src/components/operations/TopBar.tsx",
     "dashboard/src/components/operations/OperationsSidebar.tsx",
+    "dashboard/src/hooks/useDashboardSession.ts",
+    "dashboard/src/features/tenantIdentity/useTenantIdentity.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/pages/products/import/useImportProductPolling.ts",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
 }
 SESSION_ISOLATION_ROOTS = {
     "dashboard/src/hooks/useAuthFetch.ts",
@@ -597,6 +602,16 @@ def main() -> int:
     base = _git("merge-base", base_ref, head)
     subprocess.run(["git", "diff", "--check", base, head], check=True)
     changed = _changed(base, head)
+    if changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed:
+        before = _git_show(base, "dashboard/src/pages/DispatchBoard.tsx")
+        after = _git_show(head, "dashboard/src/pages/DispatchBoard.tsx")
+        def without_socket(source: str) -> str:
+            source = re.sub(r'^import .* from "@/lib/authStorage";\n', "", source, flags=re.M)
+            start = source.index("  // Realtime dispatch updates:")
+            end = source.index("\n  useEffect(() => {\n    if (!selectedVehicleId)", start)
+            return source[:start] + source[end:]
+        if without_socket(before) != without_socket(after):
+            raise SystemExit("AUTH_SESSION_SCOPE=FAIL Dispatch outside socket lifetime")
     semantic = _shared_semantics(base, head, changed)
     state, messages = classify(args.mode, changed, semantic)
     if messages:

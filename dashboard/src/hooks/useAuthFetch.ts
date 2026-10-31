@@ -5,7 +5,7 @@ import i18n from "@/i18n";
 import { normalizeApiErrorResponse } from "@/lib/apiErrors";
 import {
   captureDashboardSession, isDashboardSessionCurrent, invalidateDashboardSession,
-  readAccessTokenIfRefreshAdvanced, type DashboardSession,
+  readAccessTokenIfRefreshAdvanced, notifyDashboardSessionChange, type DashboardSession,
 } from "@/lib/authStorage";
 
 const API = (
@@ -171,6 +171,7 @@ export function useAuthFetch() {
     localStorage.removeItem(
       "refresh_token"
     );
+    notifyDashboardSessionChange();
     navigate(
       "/login",
       { replace: true }

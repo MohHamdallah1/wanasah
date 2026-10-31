@@ -2,6 +2,7 @@ import { currentLocale } from "@/i18n";
 import { useTranslation } from "react-i18next";
 import {
   beginDashboardSession,
+  notifyDashboardSessionChange,
   captureDashboardSession,
   isDashboardSessionCurrent,
   migrateLegacyBackofficeIdentityStorage,
@@ -156,6 +157,7 @@ export default function Login() {
       localStorage.setItem('company_code', data.company_code);
       rememberLastCompanyCode(data.company_code);
       localStorage.setItem('admin_name', data.display_name);
+      notifyDashboardSessionChange();
 
       // 7. التوجيه من حالة Owner canonical فقط
       navigate(data.is_company_owner ? '/' : '/inventory');

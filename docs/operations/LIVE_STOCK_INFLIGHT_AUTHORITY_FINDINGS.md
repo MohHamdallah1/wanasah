@@ -96,3 +96,38 @@ case renders the production Login component, submits actual fixture credentials,
 holds its unmodified real200, installs/verifies genuine B login, then releases A
 and requires B's exact credentials and canonical identity to survive. Source
 reproducer was reported immediately on #706. Runtime outcome is in exact-head CI.
+
+## Final bounded consumer gaps — SEC-CACHE-01 / SEC-WS-01
+
+Lead comment6543143361 and Worker2 review5722616499 accepted the core credential
+repair but withheld cross-tenant sign-off on these two untested consumers.
+This continuation retains that history and the unchanged90 units/seven real
+HTTP/PG16 assertions. It does not claim historical unauthorized inventory rows.
+
+SEC-CACHE-01: the actual tenant hook now observes complete same-SPA login/logout
+commits and native cross-tab storage changes. Its key contains company/principal/
+profile identity and login generation, with no bearer/refresh values. Both
+sides of the awaited query are fenced; A data is not placeholder data for B.
+Same-session token rotation retains the cache; a new login generation does not.
+
+SEC-WS-01: the existing Dispatch socket effect captures its original session.
+Open/message/close, refresh/alert timers, reconnect and visibility callbacks
+check it. A session change closes the socket, aborts obsolete refreshes, drops
+pending alerts and dismisses that feed's own visible alerts. Late callbacks
+remain rejected even before the native storage notification arrives.
+Only the socket-lifetime block and one auth import change in DispatchBoard;
+a Git diff guard rejects any route/load/status/business changes outside it.
+PR #697 and its branch are not edited or integrated.
+
+The adjacent Product Import hook had the same unfenced session pattern.
+Its socket, HTTP status admission, progress/debounce, fallback/reconnect and
+completion toast/state now stop at the captured-session boundary. Existing
+same-session lifecycle tests remain unchanged and are included.
+
+The focused unit extension comprises16 actual-hook/component cases (including
+AR/EN), plus the four existing Import lifecycle regressions. Deterministic
+fake socket delivery explicitly invokes callbacks after close; it is not a
+certificate of a real server WebSocket. The existing seven genuine HTTP/PG16
+cases remain separate and mandatory. Expected dedicated total:110 units,
+seven real HTTP cases, one canonical fixture, zero skipped. Exact-head outcomes
+and renewed independent Worker2 review are recorded in the PR.

@@ -10,6 +10,10 @@ on:
       - "dashboard/src/lib/authStorage.ts"
       - "dashboard/src/pages/Login.tsx"
       - "dashboard/src/test/auth-session*"
+      - "dashboard/src/hooks/useDashboardSession.ts"
+      - "dashboard/src/features/tenantIdentity/useTenantIdentity.ts"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/pages/products/import/useImportProductPolling.ts"
       - "wa_backend/tests/live_stock_inflight_security_probe.py"
       - ".github/workflows/live-stock-inflight-authority-acceptance.yml"
   workflow_dispatch:
@@ -65,6 +69,8 @@ jobs:
           src/test/inventory-session-cache.test.ts
           src/test/auth-session-refresh.test.tsx
           src/test/auth-session-isolation.test.tsx
+          src/test/auth-session-consumer-isolation.test.tsx
+          src/test/product-import-realtime-lifecycle-j.test.tsx
           --reporter=default --reporter=junit --outputFile=node_modules/.cache/live-stock-inflight-unit.xml
       - name: Typecheck and lint evidence changes
         working-directory: dashboard
@@ -75,11 +81,11 @@ jobs:
           pathlib.Path("e2e/.inflight-types.json").write_text(json.dumps({
               "extends": "../tsconfig.app.json",
               "compilerOptions": {"types": ["node", "vitest/globals", "vite/client"]},
-              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx"],
+              "include": ["./live-stock-inflight-auth.test.tsx", "./live-stock-inflight.config.ts", "../src/test/auth-session-isolation.test.tsx", "../src/test/auth-session-consumer-isolation.test.tsx"],
           }))
           PY
           npx tsc --noEmit -p e2e/.inflight-types.json
-          npx eslint src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
+          npx eslint src/hooks/useDashboardSession.ts src/features/tenantIdentity/useTenantIdentity.ts src/pages/DispatchBoard.tsx src/pages/products/import/useImportProductPolling.ts src/test/auth-session-consumer-isolation.test.tsx src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
           npm run build
           node --test src/pages/Login.contract.test.mjs
       - name: Install existing backend dependencies
@@ -149,7 +155,7 @@ jobs:
           import xml.etree.ElementTree as ET
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 90),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 110),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
@@ -186,6 +192,11 @@ jobs:
               ".github/scripts/live_stock_ci_ownership.py",
               "dashboard/src/components/operations/TopBar.tsx",
               "dashboard/src/components/operations/OperationsSidebar.tsx",
+              "dashboard/src/hooks/useDashboardSession.ts",
+              "dashboard/src/features/tenantIdentity/useTenantIdentity.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/pages/products/import/useImportProductPolling.ts",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
           }
           assert files <= owned, sorted(files - owned)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
