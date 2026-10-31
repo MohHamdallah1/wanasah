@@ -142,6 +142,7 @@ def inventory_archive_target_query(access, variant_id, samples):
                 ),
             ),
             access.allows("stocktake.read", session.location_id),
+            access.allows("location.read", session.location_id),
             or_(
                 unsupported_state,
                 and_(
