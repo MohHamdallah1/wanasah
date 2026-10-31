@@ -70,9 +70,13 @@ def test_positive_stock_filters_drive_from_sparse_projection():
         "has_unavailable",
         "has_damaged",
         "has_recalled",
-        "has_vehicle",
     ):
         assert token in body
+    assert "or has_vehicle" not in body
+    assert "if has_vehicle:" in body
+    assert "_readable_vehicle_locations_subquery" in body
+    assert "_latest_readable_vehicle_sources_subquery" not in body
+    assert "projection.vehicle_packs" not in body
     assert "select(projection.product_variant_id.label('id'))" in body
     assert "projection.warehouse_location_id == location_id" in body
     assert "variant.company_id == projection.company_id" in body
@@ -101,14 +105,25 @@ def test_vehicle_and_recall_filters_drive_the_page_from_materialized_ids():
     # other stock filters retain the existing candidate strategy.
     assert "else:\n                candidate_filters.append(ProductVariant.id.in_(filtered_ids))" in body
 
-def test_unmodified_live_stock_query_families_stay_exact_base():
+def test_vehicle_summary_is_physical_and_route_independent():
+    source = SOURCE.read_text(encoding="utf-8")
+    body = ast.unparse(_function(source, "get_warehouse_inventory_summary"))
+
+    assert "_readable_vehicle_locations_subquery" in body
+    assert "InventoryBalance.on_hand_quantity > 0" in body
+    assert "union(warehouse_nonactive, readable_vehicle_nonactive)" in body
+    assert "_latest_readable_vehicle_sources_subquery" not in body
+    assert "DispatchRoute" not in body
+    assert "has_vehicle_presence" not in body
+
+
+def test_unmodified_non_vehicle_live_stock_query_families_stay_exact_base():
     current = SOURCE.read_text(encoding="utf-8")
     base = subprocess.check_output(
         ["git", "show", f"{BASE_SHA}:{SOURCE_PATH}"],
         text=True,
     )
     for name in (
-        "get_warehouse_inventory_summary",
         "get_warehouse_inventory_alert_summary",
         "get_warehouse_inventory_families",
         "get_warehouse_inventory_batches",
