@@ -237,7 +237,7 @@ def _readable_vehicle_locations_subquery(
     )
 
 
-# تحديد أحدث مستودع مصدر لكل مركبة مقروءة لاستخدامه في الرصيد الحي.
+# التحقق من المستودع الفعلي المحدد وصلاحية قراءة مخزونه.
 async def _require_live_stock_warehouse_read(
     db: AsyncSession,
     *,
