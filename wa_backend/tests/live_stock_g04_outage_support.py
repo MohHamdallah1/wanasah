@@ -3,7 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import signal
+import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import psycopg
@@ -12,6 +17,10 @@ from sqlalchemy.engine import make_url
 
 STATE = Path(os.environ.get("WANASAH_OPERATIONAL_BROWSER_STATE", "/tmp/live-stock-g04-state.json"))
 REVOKED = Path(os.environ.get("WANASAH_G04_REVOKED_STATE", "/tmp/live-stock-g04-revoked.json"))
+API_PID = Path(os.environ.get("WANASAH_G04_API_PID", "/tmp/live-stock-g04-api.pid"))
+API_LOG = Path(os.environ.get("WANASAH_G04_API_LOG", "/tmp/live-stock-g04-api.log"))
+API_URL = os.environ.get("WANASAH_G04_API", "http://127.0.0.1:4174")
+BACKEND_ROOT = Path(os.environ.get("R3_BACKEND_ROOT", Path(__file__).resolve().parents[1]))
 
 FINGERPRINT_TABLES = (
     "inventory_locations",
@@ -139,6 +148,63 @@ def restore_reader_warehouse() -> dict:
     return {"restored": restored}
 
 
+def _api_reachable() -> bool:
+    try:
+        with urllib.request.urlopen(API_URL + "/health", timeout=0.4) as response:
+            return int(response.status) == 200
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
+def stop_api() -> None:
+    if not API_PID.exists():
+        raise AssertionError(f"Missing FastAPI pid file: {API_PID}")
+    pid = int(API_PID.read_text(encoding="utf-8").strip())
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(60):
+        if not _api_reachable():
+            print(f"G04_API_STOP PASS pid={pid}")
+            return
+        time.sleep(0.1)
+    raise AssertionError("FastAPI remained reachable after SIGTERM")
+
+
+def start_api() -> None:
+    if _api_reachable():
+        print("G04_API_START PASS already_reachable=1")
+        return
+    API_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with API_LOG.open("ab", buffering=0) as log:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "4174",
+            ],
+            cwd=str(BACKEND_ROOT),
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            env=os.environ.copy(),
+        )
+    API_PID.write_text(str(process.pid), encoding="utf-8")
+    for _ in range(100):
+        if process.poll() is not None:
+            raise AssertionError(
+                f"FastAPI restart exited early with code {process.returncode}"
+            )
+        if _api_reachable():
+            print(f"G04_API_START PASS pid={process.pid}")
+            return
+        time.sleep(0.1)
+    raise AssertionError("FastAPI did not recover after restart")
+
+
 def main() -> None:
     action = sys.argv[1] if len(sys.argv) > 1 else ""
     if action == "fingerprint":
@@ -150,7 +216,16 @@ def main() -> None:
     if action == "restore":
         print("G04_RESTORE PASS " + json.dumps(restore_reader_warehouse(), sort_keys=True))
         return
-    raise SystemExit("usage: live_stock_g04_outage_support.py fingerprint|revoke|restore")
+    if action == "api-stop":
+        stop_api()
+        return
+    if action == "api-start":
+        start_api()
+        return
+    raise SystemExit(
+        "usage: live_stock_g04_outage_support.py "
+        "fingerprint|revoke|restore|api-stop|api-start"
+    )
 
 
 if __name__ == "__main__":
