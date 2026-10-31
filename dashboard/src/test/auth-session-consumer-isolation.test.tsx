@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { useState, type ReactNode } from "react";
 import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
