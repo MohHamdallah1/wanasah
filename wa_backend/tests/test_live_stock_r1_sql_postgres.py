@@ -20,7 +20,7 @@ from domains.inventory_costing.service import build_purchase_cost_input
 from domains.live_stock_projection.service import (
     apply_live_stock_active_variant_delta, refresh_live_stock_keys,
 )
-from models import InventoryStockPolicy, ProductBatch, ProductVariant, utc_now
+from models import DispatchRoute, InventoryStockPolicy, ProductBatch, ProductVariant, utc_now
 from services import apply_inventory_movements_batch
 from tests.test_inbound_no_lot_frozen_postgres import pg
 from tests.live_stock_r1_support import D, cursor_kwargs, emit, r1case
@@ -101,11 +101,29 @@ def baseline_list():
     source = subprocess.check_output([
         "git", "show", "c0fe0187dbf326e9852e789fd2c38262ab648052:wa_backend/api/warehouse/live_stock.py",
     ], text=True)
-    node = next(n for n in ast.parse(source).body
+    tree = ast.parse(source)
+    node = next(n for n in tree.body
                 if isinstance(n, ast.AsyncFunctionDef) and n.name == "get_warehouse_inventory")
     node.decorator_list = []
+    historical_helpers = [
+        part for part in tree.body
+        if isinstance(part, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and part.name == "_latest_readable_vehicle_sources_subquery"
+    ]
+    assert len(historical_helpers) == 1
     namespace = vars(live_stock).copy()
-    exec(compile(ast.Module(body=[node], type_ignores=[]), "<accepted-main-list>", "exec"), namespace)
+    # The accepted-main comparison still owns latest-Route attribution. Compile
+    # that helper and its historical model dependency only inside this test
+    # namespace; production R3 remains Route-independent.
+    namespace["DispatchRoute"] = DispatchRoute
+    exec(
+        compile(
+            ast.Module(body=[*historical_helpers, node], type_ignores=[]),
+            "<accepted-main-list>",
+            "exec",
+        ),
+        namespace,
+    )
     return namespace["get_warehouse_inventory"]
 
 
