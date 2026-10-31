@@ -249,7 +249,13 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(500); });
     expect(fake.warning).toHaveBeenCalledWith("Authorized alert", expect.objectContaining({ id: expect.any(String) }));
     expect(fake.fetch.mock.calls.length).toBeGreaterThan(initial);
-    act(() => socket.onclose?.());
+    act(() => {
+      socket.readyState = Socket.CLOSED;
+      socket.onclose?.();
+      // Visibility can restore the feed before the queued reconnect fires.
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(Socket.instances).toHaveLength(2);
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(Socket.instances).toHaveLength(2);
   });

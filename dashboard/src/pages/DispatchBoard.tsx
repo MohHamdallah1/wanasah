@@ -588,6 +588,7 @@ export default function DispatchBoard() {
 
     const connectWS = () => {
       if (!live()) return;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
       const token = localStorage.getItem("admin_token");
       if (!apiUrl || !token) return;
 
