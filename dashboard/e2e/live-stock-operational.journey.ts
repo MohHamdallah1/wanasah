@@ -2,6 +2,18 @@ import { expect, type Page, type TestInfo } from "playwright/test";
 import { api, canon, command, delay, item, record, shot, state, stock, validationFault } from "./live-stock-operational.support";
 
 export async function policyAndScope(p: Page, info: TestInfo, log: ReturnType<typeof record>) {
+  const initial = await api(p, "/warehouse/inventory/cursor?location_id=" + state.warehouse + "&limit=50");
+  expect(initial.status).toBe(200);
+  const physical = initial.body.items.find((row: { id: number }) => row.id === state.mainId);
+  expect(physical).toMatchObject({
+    on_hand_quantity: "1000", total_quantity: "1000", total_quantity_scope: "WAREHOUSE_PHYSICAL",
+    vehicle_quantity: null, vehicle_quantity_scope: "NO_ACCESS",
+  });
+  await info.attach("integrated-main-initial-physical-contract", {
+    body: JSON.stringify({ status: initial.status, requestId: initial.requestId, row: physical }, null, 2),
+    contentType: "application/json",
+  });
+  // Preserve the exact product-row assertion that failed on the old backend.
   await expect(item(p, state.mainName)).toBeVisible();
   const select = stock(p).locator(".live-stock-context-select");
   await expect(select.locator("option")).toHaveCount(1);

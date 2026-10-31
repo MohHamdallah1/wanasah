@@ -9,6 +9,7 @@ on:
       - "dashboard/src/test/inventory-access.test.ts"
       - "dashboard/src/test/inventory-cp7-live-stock*.test.tsx"
       - "dashboard/e2e/live-stock-physical-custody.*"
+      - "dashboard/e2e/live-stock-operational-workflow.test.py"
       - ".github/workflows/live-stock-physical-custody-consumers.yml"
       - ".github/workflows/live-stock-v1-operational-browser.yml"
 permissions:
@@ -17,6 +18,6 @@ jobs:
   composed-api-browser:
     uses: ./.github/workflows/live-stock-v1-operational-browser.yml
     with:
-      # Explicit dependency proof, not a claim that main already contains #687.
-      backend_ref: "5c4ad1df78f845bfb4d3648ea0fc1d6fa7f37b39"
+      # Automatic PR acceptance uses the same current head for both trees.
+      # Historical pins are opt-in audit inputs on the reusable/manual runner.
       scenario: physical-custody
