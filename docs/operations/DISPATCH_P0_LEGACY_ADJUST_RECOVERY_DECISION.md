@@ -12,7 +12,7 @@ The table now models an explicit lifecycle:
 - `COMMITTED`: response JSON and completion timestamp are present; cancellation metadata is absent.
 - `CANCELLED`: response/completion are absent and permanent cancellation actor/time are present.
 
-Database checks reject mixed states. Existing completed rows migrate to `COMMITTED`; existing incomplete rows migrate to `PENDING`. There is no second operation ledger and cancellation is never represented as a successful operation response. The direct legacy correction writer that also uses `operation_idempotency` explicitly writes `PENDING -> COMMITTED` so the migration is backward-compatible with that path.
+Database checks reject mixed explicit states. Existing completed rows migrate to `COMMITTED`; existing incomplete rows migrate to `PENDING`. For rolling/backward compatibility, the new `state` column remains nullable: an older direct writer that does not know the new column may still write the original response/completion pair, and the canonical service interprets a legacy NULL state as PENDING or COMMITTED only from that pair. Cancellation is never nullable and always uses explicit `CANCELLED` plus immutable audit fields. There is no second operation ledger and cancellation is never represented as a successful operation response. The existing Product Import correction writer remains byte-for-byte unchanged from accepted main.
 
 ## Pre-cutover route-only recovery contract
 
