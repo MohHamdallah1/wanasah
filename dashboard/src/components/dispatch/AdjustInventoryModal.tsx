@@ -146,11 +146,28 @@ export function AdjustInventoryModal({
         if (Object.keys(migratedDraft).length &&
             sameOriginalPhysicalCustody && safePreSessionV2Baseline) {
           const currentKey = draftKey(command.scope, loadContext);
-          if (localStorage.getItem(currentKey) === null) {
+          const currentDraft = Object.fromEntries(
+            Object.entries(parseAdjustmentDraft(localStorage.getItem(currentKey)))
+              .filter(([, value]) => hasAdjustmentDraft(value))
+          );
+          const allIds = new Set([...Object.keys(currentDraft), ...Object.keys(migratedDraft)]);
+          const sameDraft = [...allIds].every((id) => currentDraft[id] === migratedDraft[id]);
+
+          if (!Object.values(currentDraft).some(hasAdjustmentDraft)) {
             localStorage.setItem(currentKey, JSON.stringify(migratedDraft));
+            localStorage.removeItem(migratedKey);
+            if (migratedContextKey) localStorage.removeItem(migratedContextKey);
+          } else if (sameDraft) {
+            // The V2 slot already contains the exact unsent values; retiring the
+            // duplicate legacy copy loses no operator intent.
+            localStorage.removeItem(migratedKey);
+            if (migratedContextKey) localStorage.removeItem(migratedContextKey);
+          } else {
+            // Two different unsent drafts must never overwrite one another.
+            setPendingContext((previous) => previous ?? {
+              scope: oldCommandScope, context: quarantinedContext, deltas: migratedDraft,
+            });
           }
-          localStorage.removeItem(migratedKey);
-          if (migratedContextKey) localStorage.removeItem(migratedContextKey);
         } else if (Object.keys(migratedDraft).length) {
           setPendingContext((previous) => previous ?? {
             scope: oldCommandScope, context: quarantinedContext, deltas: migratedDraft,
