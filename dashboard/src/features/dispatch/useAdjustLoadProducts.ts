@@ -82,6 +82,43 @@ export function useAdjustLoadProducts(
     });
   }, [discoveredItems, drafts]);
 
+  // Restoring a saved draft is asynchronous to the initial custody read.
+  // The initial read can finish before the saved IDs become available; hydrate
+  // those IDs on demand without reloading the whole catalog or losing the edit.
+  const draftedIds = draftIds(drafts).sort().join(",");
+  useEffect(() => {
+    if (!routeId || loadedScope !== windowScope || loading || error || !draftedIds) return;
+    const missing = draftedIds.split(",").filter((id) =>
+      !loadedIds.current.has(id) && !pinnedItems.some((row) => row.product_id === id) &&
+      !discoveredItems.some((row) => row.product_id === id));
+    if (!missing.length) return;
+    const controller = new AbortController();
+    const hydrate = async () => {
+      const endpoint = `/dispatch/route/${routeId}/live_inventory`;
+      const collected: AdjustLoadItem[] = [];
+      for (let offset = 0; offset < missing.length; offset += ADJUST_LOAD_HYDRATION_BATCH_SIZE) {
+        const batch = missing.slice(offset, offset + ADJUST_LOAD_HYDRATION_BATCH_SIZE);
+        const params = new URLSearchParams();
+        batch.forEach((id) => params.append("product_ids", id));
+        const rows = parseAdjustLoadInventory(await authFetch(`${endpoint}?${params}`, { signal: controller.signal }));
+        if (controller.signal.aborted) return;
+        if (rows.length !== batch.length || batch.some((id) => !rows.some((item) => item.product_id === id)))
+          throw adjustmentError();
+        collected.push(...rows);
+      }
+      if (!controller.signal.aborted) {
+        setPinnedItems((current) => {
+          const present = new Set(current.map((row) => row.product_id));
+          return [...current, ...collected.filter((row) => !present.has(row.product_id))];
+        });
+      }
+    };
+    void hydrate().catch((failure) => { if (!controller.signal.aborted) setError(failure); });
+    return () => controller.abort();
+    // Re-evaluate on draft identity, scope or initial load; not on every keypress,
+    // so loading 500 products remains cursor-bounded.
+  }, [authFetch, routeId, loadedScope, windowScope, loading, error, draftedIds, pinnedItems, discoveredItems]);
+
   const pinnedIds = useMemo(() => new Set(pinnedItems.map((item) => item.product_id)), [pinnedItems]);
   const windowItems = useMemo(
     () => discoveredItems.filter((item) => !pinnedIds.has(item.product_id)),
