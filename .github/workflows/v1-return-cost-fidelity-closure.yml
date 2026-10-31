@@ -67,6 +67,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Retrieve immutable approved return-cost baseline for FIELD AST parity
+        working-directory: .
+        run: |
+          git fetch --no-tags origin 51a0810cee5e7c13fe7222822e4f68972a6350ba
+          git cat-file -e '51a0810cee5e7c13fe7222822e4f68972a6350ba:wa_backend/api/driver.py'
+          echo "RETURN_COST_IMMUTABLE_FIELD_SOURCE=AVAILABLE"
+
       - name: Install focused backend dependencies
         run: python -m pip install -r requirements.txt alembic pytest pytest-asyncio httpx
 
