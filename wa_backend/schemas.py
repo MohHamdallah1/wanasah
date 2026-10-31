@@ -1094,8 +1094,17 @@ class InventoryAdjustmentDelta(RequestModel):
         return self
 
 
+class AdjustRouteInventoryContext(RequestModel):
+    version: Literal["ADJUST_LOAD_CONTEXT_V2"]
+    vehicle_id: PositiveDbInt
+    source_warehouse_id: PositiveDbInt
+    work_session_id: OptionalPositiveDbInt = None
+    route_context_revision: PositiveDbInt
+
+
 class AdjustRouteInventoryRequest(RequestModel):
     request_id: UUID
+    context: Optional[AdjustRouteInventoryContext] = None
     deltas: List[InventoryAdjustmentDelta] = Field(
         ..., min_length=1, max_length=5000, description="قائمة بالتعديلات المطلوبة"
     )
@@ -1242,6 +1251,8 @@ class ActiveRouteResponse(BaseModel):
     status: str
     sessionEnded: bool
     sessionBound: bool
+    workSessionId: Optional[str] = None
+    adjustmentContextRevision: int = 1
     can_execute: bool = False
     commercial_context: Optional[RouteCommercialContextResponse] = None
 
