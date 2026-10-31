@@ -1,6 +1,7 @@
 """Real bearer ASGI/SQL measurements; production dependencies and endpoint contracts."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -24,6 +25,28 @@ from scripts.live_stock_r4_final_metrics import (
 from tests.live_stock_r4_search_support import compile_endpoint
 
 LIST = "/warehouse/inventory/cursor"
+
+
+def _compile_runtime(source: str, label: str):
+    """Compile the endpoint plus owned candidate helper from one source snapshot."""
+    tree = ast.parse(source)
+    wanted = {"_build_visible_inventory_stmt", "get_warehouse_inventory"}
+    nodes = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in wanted
+    ]
+    assert {node.name for node in nodes} == wanted
+    for node in nodes:
+        if isinstance(node, ast.AsyncFunctionDef):
+            node.decorator_list = []
+    namespace = vars(live_stock).copy()
+    exec(
+        compile(ast.Module(body=nodes, type_ignores=[]), f"<R4-{label}>", "exec"),
+        namespace,
+    )
+    return namespace["get_warehouse_inventory"]
 
 
 def implementations():
@@ -52,7 +75,7 @@ def implementations():
             control, "unsafe-probe-disabled-control"
         )
     return ({
-        "accepted_main": compile_endpoint(frozen, "exact-pr-base"),
+        "accepted_main": _compile_runtime(frozen, "exact-pr-base"),
         **controls,
         "implementation_head": live_stock.get_warehouse_inventory,
     }, {
