@@ -275,3 +275,49 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
+
+
+describe("in-flight subordinate evidence ordering", () => {
+  it("does not restore a pending batch continuation after source403 revokes disclosure", async () => {
+    const delayed = deferred<ReturnType<typeof batchPage>>();
+    const denied = vi.fn(); let reads = 0;
+    mocks.authFetch.mockImplementation((url: string) => {
+      if (url.includes("/source?")) return Promise.reject(Object.assign(new Error("revoked"), { status: 403 }));
+      return ++reads === 1 ? Promise.resolve({ ...batchPage(), next_cursor: "more", has_more: true }) : delayed.promise;
+    });
+    const { result } = renderHook(() => useLiveStockBatchDetail(11, "failed", "stale", denied));
+    act(() => result.current.open(product));
+    await waitFor(() => expect(result.current.page?.has_more).toBe(true));
+    act(() => result.current.loadMore());
+    const signal = getCalls("/batches?")[1][1].signal as AbortSignal;
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(denied).toHaveBeenCalledTimes(1));
+    expect(signal.aborted).toBe(true);
+    await act(async () => delayed.resolve(batchPage()));
+    expect(result.current.page).toBeNull();
+    expect(result.current.sourceByBatch).toEqual({});
+  });
+
+  it("ignores an old product source after a different product is selected", async () => {
+    const old = deferred<ReturnType<typeof sourcePayload>>();
+    let reads = 0;
+    mocks.authFetch.mockImplementation((url: string) => {
+      if (url.includes("/source?")) return old.promise;
+      return Promise.resolve(++reads === 1 ? batchPage() : {
+        ...batchPage(), product_variant_id: 42,
+        batches: [{ ...batchRaw(), batch_id: 72 }],
+      });
+    });
+    const { result } = hook();
+    act(() => result.current.open(product));
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    act(() => result.current.loadSource(71));
+    const signal = getCalls("/source?")[0][1].signal as AbortSignal;
+    act(() => result.current.open({ ...product, id: 42, name: "Product 42" }));
+    await waitFor(() => expect(result.current.page?.product_variant_id).toBe(42));
+    expect(signal.aborted).toBe(true);
+    await act(async () => old.resolve(sourcePayload()));
+    expect(result.current.product?.id).toBe(42);
+    expect(result.current.sourceByBatch).toEqual({});
+  });
+});
