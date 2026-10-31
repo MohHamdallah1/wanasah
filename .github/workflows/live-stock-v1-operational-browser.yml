@@ -196,7 +196,6 @@ jobs:
           src/test/live-stock-batch-refresh-integration.test.tsx
           src/test/live-stock-warm-authority.test.tsx
           src/test/inventory-cp13-shell-polish.test.tsx
-          src/test/inventory-access.test.ts
           src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
           src/test/inventory-cp7-live-stock.test.tsx
           src/test/inventory-cp7-live-stock-parity.test.tsx
@@ -298,6 +297,12 @@ jobs:
             test "$count" -ge 9
           fi
           echo "OPERATIONAL_SCREENSHOTS=$count"
+
+      # Keep this full legacy contract module enforced, while allowing real
+      # browser evidence to execute before unrelated inherited assertions fail.
+      - name: Strict contract and legacy consumer regressions
+        working-directory: dashboard
+        run: npx vitest run src/test/inventory-access.test.ts
 
       - name: Upload operational visual and server evidence
         if: always()

@@ -16,6 +16,12 @@ async function witness(page: Page, scope: string, vehicle: string | null, wareho
     on_hand_quantity: warehouse, total_quantity: warehouse, total_quantity_scope: "WAREHOUSE_PHYSICAL" });
   return row;
 }
+async function vehicleFilter(page: Page, expectedIds: number[]) {
+  const response = await api(page, "/warehouse/inventory/cursor?location_id=" + state.warehouse +
+    "&search=OP-MULTI&has_vehicle=true");
+  expect(response.status).toBe(200);
+  expect(response.body.items.map((row: { id: number }) => row.id)).toEqual(expectedIds);
+}
 async function refresh(page: Page) {
   const read = page.waitForResponse(r => r.request().method() === "GET" && r.status() === 200 &&
     new URL(r.url()).pathname === "/warehouse/inventory/cursor");
@@ -28,6 +34,7 @@ test("real #687 scopes, no-route load and same-token vehicle revocation preserve
   await login(page, "reader");
   const cell = () => item(page, state.mainName).locator('[data-cp13-quantity="vehicle"]');
   await witness(page, "NO_ACCESS", null, "1000");
+  await vehicleFilter(page, []);
   await expect(cell()).toHaveText("Vehicle stock not disclosed");
   await expect(item(page, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("125");
   const context = await browser.newContext({ baseURL: "http://127.0.0.1:4173", viewport: { width: 1360, height: 900 } });
@@ -35,6 +42,7 @@ test("real #687 scopes, no-route load and same-token vehicle revocation preserve
   try {
     await login(owner, "owner");
     await witness(owner, "COMPANY_WIDE", "0", "1000");
+    await vehicleFilter(owner, []);
     await expect(item(owner, state.mainName).locator('[data-vehicle-scope="COMPANY_WIDE"]')).toContainText("0");
     command("grant");
     await refresh(page);
@@ -44,9 +52,11 @@ test("real #687 scopes, no-route load and same-token vehicle revocation preserve
     command("load");
     await refresh(page);
     await witness(page, "AUTHORIZED_LOCATIONS", "32", "968");
+    await vehicleFilter(page, [state.mainId]);
     await expect(cell()).toContainText("4");
     await refresh(owner);
     await witness(owner, "COMPANY_WIDE", "32", "968");
+    await vehicleFilter(owner, [state.mainId]);
     for (const [language, width, label] of [
       ["en", 1360, "All company vehicles"], ["en", 390, "All company vehicles"],
       ["ar", 1360, "كل مركبات الشركة"], ["ar", 390, "كل مركبات الشركة"],
@@ -63,6 +73,7 @@ test("real #687 scopes, no-route load and same-token vehicle revocation preserve
     command("revoke");
     await refresh(page);
     await witness(page, "NO_ACCESS", null, "968");
+    await vehicleFilter(page, []);
     await expect(cell()).toHaveText("Vehicle stock not disclosed");
     await expect(cell()).not.toContainText("4");
     expect(await page.evaluate(() => localStorage.getItem("admin_token"))).toBe(token);
