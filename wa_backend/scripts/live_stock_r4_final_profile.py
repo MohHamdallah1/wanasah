@@ -1,6 +1,7 @@
 """Real bearer ASGI/SQL measurements; production dependencies and endpoint contracts."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -26,18 +27,62 @@ from tests.live_stock_r4_search_support import compile_endpoint
 LIST = "/warehouse/inventory/cursor"
 
 
+def _compile_runtime(source: str, label: str):
+    """Compile the endpoint plus owned candidate helper from one source snapshot."""
+    tree = ast.parse(source)
+    wanted = {"_build_visible_inventory_stmt", "get_warehouse_inventory"}
+    nodes = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in wanted
+    ]
+    assert {node.name for node in nodes} == wanted
+    for node in nodes:
+        if isinstance(node, ast.AsyncFunctionDef):
+            node.decorator_list = []
+    namespace = vars(live_stock).copy()
+    exec(
+        compile(ast.Module(body=nodes, type_ignores=[]), f"<R4-{label}>", "exec"),
+        namespace,
+    )
+    return namespace["get_warehouse_inventory"]
+
+
 def implementations():
+    """Compile exact PR base and execute HEAD against the same physical fixture.
+
+    The original #661 gate required byte-identical runtime because it was
+    evidence-only. This closure gate intentionally supports a measured SQL
+    optimization: base is immutable evidence, HEAD is the candidate. Payload,
+    cursor, authorization and physical quantity parity are still mandatory.
+    """
     import subprocess
     base = os.environ["R4_FINAL_BASE_SHA"]
-    frozen = subprocess.check_output(["git", "show", base + ":wa_backend/api/warehouse/live_stock.py"], text=True)
+    frozen = subprocess.check_output(
+        ["git", "show", base + ":wa_backend/api/warehouse/live_stock.py"],
+        text=True,
+    )
     current = Path(live_stock.__file__).read_text()
-    assert frozen == current, "This evidence-only gate must preserve the exact accepted runtime"
     condition = "if search_variant_ids is not None and limit == 1 and not use_alert_fast_path:"
-    assert frozen.count(condition) == 1
-    control = frozen.replace(condition, "if False and search_variant_ids is not None and limit == 1 and not use_alert_fast_path:")
-    return {"accepted_main": compile_endpoint(frozen, "immutable-approved-main"),
-            "probe_disabled_control": compile_endpoint(control, "unsafe-probe-disabled-control"),
-            "implementation_head": live_stock.get_warehouse_inventory}, hashlib.sha256(current.encode()).hexdigest()
+    controls = {}
+    if frozen.count(condition) == 1:
+        control = frozen.replace(
+            condition,
+            "if False and search_variant_ids is not None and limit == 1 and not use_alert_fast_path:",
+        )
+        controls["probe_disabled_control"] = compile_endpoint(
+            control, "unsafe-probe-disabled-control"
+        )
+    return ({
+        "accepted_main": _compile_runtime(frozen, "exact-pr-base"),
+        **controls,
+        "implementation_head": live_stock.get_warehouse_inventory,
+    }, {
+        "base": hashlib.sha256(frozen.encode()).hexdigest(),
+        "head": hashlib.sha256(current.encode()).hexdigest(),
+        "changed": frozen != current,
+    })
 
 
 @contextmanager
