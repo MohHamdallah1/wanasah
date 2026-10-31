@@ -335,19 +335,35 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
         // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
         final dynamic rawInv = sessionData['inventory'];
-        if (rawInv is! List) {
-          throw const FormatException('Missing or malformed vehicle inventory');
+        if (rawInv is List) {
+          try {
+            // Parse the whole page before declaring any physical quantity live.
+            // A bad row must not produce a partial or fabricated balance.
+            apiProducts = rawInv
+                .map((p) => ProductModel.fromJson(
+                      Map<String, dynamic>.from(p as Map),
+                    ))
+                .toList();
+            sellableDisclosure = StockDisclosure.verified;
+          } on Object catch (error) {
+            developer.log(
+              '[DashboardBloc] Invalid custody inventory contract: $error',
+            );
+            apiProducts = <ProductModel>[];
+          }
+        } else {
+          developer.log('[DashboardBloc] Custody inventory not disclosed');
         }
-        apiProducts = rawInv
-            .map((p) => ProductModel.fromJson(
-                  Map<String, dynamic>.from(p as Map),
-                ))
-            .toList();
-        sellableDisclosure = StockDisclosure.verified;
       }
 
-      // Only a successfully disclosed, parsed snapshot can clear denial.
-      _sellableAccessDenied = false;
+      // Only an actually disclosed, parsed snapshot clears prior revocation.
+      if (sellableDisclosure == StockDisclosure.verified) {
+        _sellableAccessDenied = false;
+      }
+      if (_sellableAccessDenied) {
+        apiProducts = <ProductModel>[];
+        sellableDisclosure = StockDisclosure.denied;
+      }
 
       final financials =
           data['financials'] is Map
