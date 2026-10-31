@@ -348,7 +348,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
                 assert response.status_code == 409, response.text
                 assert response.json()["error"]["code"] == "DISPATCH_ROUTE_STATUS_INVENTORY_FORBIDDEN"
                 assert response.headers.get("x-request-id")
-                assert await _snapshot(pg, tenant, [vehicle_location]) == before
+                assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == before
             # The exact route-only Dashboard body has no inventory property.
             route_only = {"status": "waiting", "driverId": str(field.driver.id),
                           "vehicleId": str(vehicle_id)}
@@ -356,7 +356,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             assert updated.status_code == 200, updated.text
             active = await client.put(endpoint, headers=headers, json={**route_only, "status": "active"})
             assert active.status_code == 200, active.text
-            assert await _snapshot(pg, tenant, [vehicle_location]) == before
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == before
             stranger = await client.put(endpoint, headers=foreign_headers, json=route_only)
             assert stranger.status_code in (403, 404), stranger.text
             assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == before
@@ -408,7 +408,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             }
             foreign_probe = await client.post(recovery_path, headers=foreign_headers, json=adjustment)
             assert foreign_probe.status_code in (403, 404), foreign_probe.text
-            assert await _snapshot(pg, tenant, [vehicle_location]) == before
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == before
             stale = await client.put(adjust_path, headers=expected_headers, json={
                 **adjustment,
                 "context": {**adjustment["context"], "route_context_revision": adjustment["context"]["route_context_revision"] - 1},
@@ -442,7 +442,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
             })
             assert mismatched.status_code == 409, mismatched.text
             assert mismatched.json()["error"]["code"] == "DISPATCH_RECOVERY_PAYLOAD_CONFLICT"
-            assert await _snapshot(pg, tenant, [vehicle_location]) == after
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == after
 
             # COMMITTED always wins over a later cancellation attempt and returns
             # the original evidence without replay.
@@ -453,7 +453,7 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
                 "state": "COMMITTED", "request_id": adjustment["request_id"],
                 "response": response.json(),
             }
-            assert await _snapshot(pg, tenant, [vehicle_location]) == after
+            assert await _snapshot(pg, tenant, [vehicle_location, second_vehicle_location]) == after
 
             # NOT_CONFIRMED -> immutable CANCELLED terminal fence. Repeated
             # cancellation is idempotent and every late original arrival is 409.
