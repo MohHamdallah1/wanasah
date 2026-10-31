@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { expect, test, type Page, type Route } from "playwright/test";
 import { visualCases } from "./live-stock-ux-closure.fixtures";
-import { API, api, command, delay, item, login, record, shot, state, stock } from "./live-stock-operational.support";
+import { API, api, command, delay, item, login, record, shot, state, stock, validationFault } from "./live-stock-operational.support";
 import { detailFreshness, policyAndScope, searchFailures } from "./live-stock-operational.journey";
 
 
@@ -538,4 +539,264 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
     readerLog.persist(info);
     await owner?.close();
   }
+});
+
+
+test("G06 owner-ready real-server UX/accessibility package", async ({ browser }, info) => {
+  test.setTimeout(180_000);
+  const testedSha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const packageRoot = info.outputPath("owner-package");
+  mkdirSync(packageRoot, { recursive: true });
+
+  const captureOwner = async (
+    page: Page,
+    filename: string,
+  ) => {
+    await page.screenshot({
+      path: resolve(packageRoot, filename),
+      fullPage: true,
+    });
+  };
+
+  const captureAxTree = async (
+    page: Page,
+    filename: string,
+  ) => {
+    const session = await page.context().newCDPSession(page);
+    try {
+      const tree = await session.send("Accessibility.getFullAXTree");
+      expect(tree.nodes.length).toBeGreaterThan(20);
+      writeFileSync(
+        resolve(packageRoot, filename),
+        JSON.stringify(tree, null, 2),
+        "utf8",
+      );
+    } finally {
+      await session.detach();
+    }
+  };
+
+  const views = [
+    { filename: "01-desktop-ar-light.png", locale: "ar" as const, theme: "light" as const, width: 1440, height: 900, mobile: false },
+    { filename: "02-desktop-en-dark.png", locale: "en" as const, theme: "dark" as const, width: 1440, height: 900, mobile: false },
+    { filename: "03-mobile-ar-dark.png", locale: "ar" as const, theme: "dark" as const, width: 390, height: 844, mobile: true },
+    { filename: "04-mobile-en-light.png", locale: "en" as const, theme: "light" as const, width: 390, height: 844, mobile: true },
+  ];
+
+  for (const view of views) {
+    const context = await browser.newContext({
+      baseURL: "http://127.0.0.1:4173",
+      viewport: { width: view.width, height: view.height },
+      timezoneId: "Pacific/Honolulu",
+    });
+    const page = await context.newPage();
+    try {
+      await login(page, "owner", view.locale);
+      await page.evaluate((theme) => {
+        document.documentElement.classList.toggle("dark", theme === "dark");
+      }, view.theme);
+
+      await expect(page.locator("html")).toHaveAttribute(
+        "dir",
+        view.locale === "ar" ? "rtl" : "ltr",
+      );
+      if (view.theme === "dark") {
+        await expect(page.locator("html")).toHaveClass(/dark/);
+      } else {
+        await expect(page.locator("html")).not.toHaveClass(/dark/);
+      }
+
+      const surface = stock(page);
+      const search = surface.getByRole("searchbox").first();
+      await expect(surface).toBeVisible();
+      await expect(search).toHaveAccessibleName(/.+/);
+      await expect(surface.locator(".live-stock-context-select")).toHaveAccessibleName(/.+/);
+      await expect(surface.locator(".live-stock-filter-button")).toHaveAccessibleName(/.+/);
+      await expect(surface.locator(".live-stock-family-button")).toHaveAccessibleName(/.+/);
+      await expect(item(page, state.mainName)).toBeVisible();
+      await expect(item(page, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toBeVisible();
+
+      const physical = await api(
+        page,
+        "/warehouse/inventory/cursor?location_id=" + state.warehouse + "&search=OP-MULTI",
+      );
+      expect(physical.status).toBe(200);
+      expect(physical.requestId).toBeTruthy();
+      const row = physical.body.items.find((candidate: { id: number }) => candidate.id === state.mainId);
+      expect(row.total_quantity_scope).toBe("WAREHOUSE_PHYSICAL");
+      expect(["AUTHORIZED_LOCATIONS", "COMPANY_WIDE"]).toContain(row.vehicle_quantity_scope);
+
+      if (view.mobile) {
+        await expect(page.locator("[data-cp13-stock-card]").first()).toBeVisible();
+        await expect(page.locator(".live-stock-table")).toHaveCount(0);
+        const contextPanel = surface.locator(".live-stock-context-panel");
+        const locationContext = contextPanel.locator(".live-stock-context-location");
+        const statusContext = contextPanel.locator(".live-stock-context-status");
+        const [panelBox, locationBox, statusBox] = await Promise.all([
+          contextPanel.boundingBox(),
+          locationContext.boundingBox(),
+          statusContext.boundingBox(),
+        ]);
+        expect(panelBox).not.toBeNull();
+        expect(locationBox).not.toBeNull();
+        expect(statusBox).not.toBeNull();
+        expect(locationBox!.y + locationBox!.height).toBeLessThanOrEqual(statusBox!.y + 1);
+        expect(locationBox!.x).toBeGreaterThanOrEqual(panelBox!.x - 1);
+        expect(statusBox!.x).toBeGreaterThanOrEqual(panelBox!.x - 1);
+        expect(locationBox!.x + locationBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 1);
+        expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 1);
+      } else {
+        await expect(page.locator(".live-stock-table")).toBeVisible();
+      }
+
+      await captureOwner(page, view.filename);
+      if (view.filename === "02-desktop-en-dark.png") {
+        await captureAxTree(page, "AX-01-main-desktop-en-dark.json");
+      }
+    } finally {
+      await context.close();
+    }
+  }
+
+  const context = await browser.newContext({
+    baseURL: "http://127.0.0.1:4173",
+    viewport: { width: 1440, height: 900 },
+    timezoneId: "Pacific/Honolulu",
+  });
+  const page = await context.newPage();
+  try {
+    await login(page, "owner", "en");
+    const surface = stock(page);
+    const search = surface.getByRole("searchbox").first();
+    const liveStatus = surface.locator('[data-live-count-kind="loaded"]');
+    await expect(liveStatus).toHaveAttribute("role", "status");
+    await expect(liveStatus).toHaveAttribute("aria-live", "polite");
+
+    await search.fill("Paging");
+    await expect(item(page, "Paging Item 001")).toBeVisible();
+    const list = surface.locator("[data-cp13-stock-list]");
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await list.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event("scroll"));
+      });
+      if ((await liveStatus.innerText()).includes("105")) break;
+      await page.waitForTimeout(180);
+    }
+    await expect(liveStatus).toContainText("105");
+
+    await search.fill("");
+    const family = surface.locator(".live-stock-family-button");
+    await family.focus();
+    await page.keyboard.press("Enter");
+    const loadMore = page.locator(".live-stock-family-list").getByRole("button", { name: "Load more", exact: false });
+    await expect(loadMore).toBeVisible();
+    await loadMore.focus();
+    await page.keyboard.press("Enter");
+    const family51 = page.locator(".live-stock-family-option").filter({ hasText: "Journey Family 051" });
+    await family51.focus();
+    await page.keyboard.press("Enter");
+    await expect(family).toHaveAttribute("aria-label", /Journey Family 051/);
+    await page.keyboard.press("Escape");
+    await expect(item(page, "Paging Item 105")).toBeVisible();
+
+    await family.focus();
+    await page.keyboard.press("Enter");
+    await page.locator(".live-stock-family-clear").click();
+    await page.keyboard.press("Escape");
+    await expect(item(page, state.mainName)).toBeVisible();
+
+    await search.focus();
+    const focusTrail: string[] = [];
+    for (let index = 0; index < 10; index += 1) {
+      await page.keyboard.press("Tab");
+      focusTrail.push(await page.evaluate(() => {
+        const active = document.activeElement as HTMLElement | null;
+        if (!active) return "NONE";
+        return [
+          active.tagName,
+          active.getAttribute("role") ?? "",
+          active.getAttribute("aria-label") ?? "",
+          active.textContent?.trim().slice(0, 40) ?? "",
+        ].join("|");
+      }));
+    }
+    expect(focusTrail.every((entry) => !entry.startsWith("BODY|"))).toBe(true);
+    expect(new Set(focusTrail).size).toBeGreaterThanOrEqual(5);
+
+    const opener = page.locator('[data-live-stock-product-open="' + state.mainId + '"]');
+    await opener.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAccessibleName(new RegExp(state.mainName));
+    await expect(dialog).toHaveAttribute("aria-modal", "true");
+    await captureAxTree(page, "AX-02-batch-dialog.json");
+    await captureOwner(page, "05-desktop-en-batch-dialog.png");
+
+    for (let index = 0; index < 14; index += 1) {
+      await page.keyboard.press("Tab");
+      expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    }
+    for (let index = 0; index < 4; index += 1) {
+      await page.keyboard.press("Shift+Tab");
+      expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    }
+
+    const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+    const source = first.getByRole("button", {
+      name: "Actionable Warehouse source and reservations",
+    });
+    await expect(source).toHaveAccessibleName(/.+/);
+    const removeFault = await validationFault(
+      page,
+      "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?",
+    );
+    const failed = page.waitForResponse((response) =>
+      response.request().method() === "GET" &&
+      response.status() === 422 &&
+      response.url().includes("/batches/" + state.firstBatch + "/source?"),
+    );
+    await source.focus();
+    await page.keyboard.press("Enter");
+    expect((await failed).headers()["x-request-id"]).toBeTruthy();
+    const alert = first.getByRole("alert");
+    await expect(alert).toBeVisible();
+    const retry = alert.getByRole("button", { name: "Retry", exact: true });
+    await expect(retry).toHaveAccessibleName(/.+/);
+    await captureAxTree(page, "AX-03-source-error-retry.json");
+    await captureOwner(page, "06-desktop-en-source-error-retry.png");
+
+    await removeFault();
+    await retry.focus();
+    await page.keyboard.press("Enter");
+    await expect(alert).toHaveCount(0);
+    await expect(source).toHaveAttribute("aria-expanded", "true");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(opener).toBeFocused();
+  } finally {
+    await context.close();
+  }
+
+  const runUrl = process.env.GITHUB_RUN_ID && process.env.GITHUB_REPOSITORY
+    ? `${process.env.GITHUB_SERVER_URL ?? "https://github.com"}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    : "local-run";
+  const checklist = `# G06 — حزمة قبول المالك
+
+- SHA المختبر فعلياً: \`${testedSha}\`
+- الخادم الحقيقي: Dashboard مبني + FastAPI حقيقي + PostgreSQL16 ضمن نفس تشغيل CI.
+- دليل الخادم: \`live-stock-remaining-consistency.xml\`، \`live-stock-real-api.log\`، \`live-stock-sha-provenance.json\`.
+- الصور المختصرة: \`01-desktop-ar-light.png\`، \`02-desktop-en-dark.png\`، \`03-mobile-ar-dark.png\`، \`04-mobile-en-light.png\`، \`05-desktop-en-batch-dialog.png\`، \`06-desktop-en-source-error-retry.png\`.
+- الإتاحة الآلية: ترتيب لوحة المفاتيح، أسماء الوصول، dialog/focus trap، aria-live، alert/retry، وChromium AX-tree محفوظة في ملفات \`AX-*.json\`.
+- لا يوجد ادعاء بجلسة قارئ شاشة بشرية؛ هذا الجزء يبقى قرار المالك البصري/اليدوي.
+- تشغيل CI والحزمة: [فتح التشغيل](${runUrl})
+- قرار المالك بعد مشاهدة الحزمة: **YES / NO**
+`;
+  writeFileSync(
+    resolve(packageRoot, "G06_OWNER_SIGNOFF_AR.md"),
+    checklist,
+    "utf8",
+  );
 });
