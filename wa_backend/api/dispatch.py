@@ -2732,6 +2732,41 @@ async def adjust_route_inventory(
     request_hash = _dispatch_adjust_request_hash(route_id, payload)
 
     try:
+        # Context-less bodies are historical identities only. They may observe an
+        # already-persisted terminal/forensic outcome, but an absent UUID must
+        # never become a brand-new executable command after a physical-context
+        # transition (including ABA back to the same visible Vehicle/Warehouse).
+        if payload.context is None:
+            legacy_state, legacy_response = await recover_idempotent_operation(
+                db,
+                company_id=company_id,
+                actor_id=legacy_actor.id,
+                operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
+                request_id=str(payload.request_id),
+                request_hash=request_hash,
+                cancel_if_absent=False,
+            )
+            if legacy_state == "COMMITTED":
+                await db.rollback()
+                return legacy_response
+            if legacy_state == "CANCELLED":
+                raise OperationIdempotencyError(
+                    "IDEMPOTENCY_CANCELLED",
+                    "هذا الطلب ملغى نهائياً ولا يجوز تنفيذه أو إعادة تشغيله.",
+                )
+            if legacy_state == "INDETERMINATE":
+                raise OperationIdempotencyError(
+                    "IDEMPOTENCY_INDETERMINATE",
+                    "هذا الطلب يحمل دليلاً غير مكتمل ويجب عزله للمراجعة.",
+                )
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "DISPATCH_ADJUSTMENT_CONTEXT_REQUIRED",
+                    "A new load-adjustment request must include its immutable physical context.",
+                ),
+            )
+
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
@@ -2755,41 +2790,23 @@ async def adjust_route_inventory(
         if route is None or route.driver_id is None or route.vehicle_id is None:
             raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مكتمل.")
 
-        # New commands bind immutable physical/session context inside the canonical
-        # versioned request hash. Legacy clients keep their historical header guard.
-        if payload.context is not None:
-            context = payload.context
-            current_session_id = int(bound_context) if bound_context is not None else None
-            if (
-                int(context.vehicle_id) != int(route.vehicle_id)
-                or int(context.source_warehouse_id) != int(route.source_location_id)
-                or (
-                    int(context.work_session_id)
-                    if context.work_session_id is not None else None
-                ) != current_session_id
-                or int(context.route_context_revision)
-                != int(route.adjustment_context_revision)
-            ):
-                raise HTTPException(status_code=409, detail=inventory_business_error(
-                    "DISPATCH_ROUTE_CONTEXT_CHANGED",
-                    "The physical route/session context changed. Reopen Adjust Load.",
-                ))
-        elif request is not None:
-            for header, current in (
-                ("x-dispatch-expected-vehicle-id", route.vehicle_id),
-                ("x-dispatch-expected-source-warehouse-id", route.source_location_id),
-            ):
-                supplied = request.headers.get(header)
-                if supplied is None:
-                    continue
-                if not supplied.isascii() or not supplied.isdecimal() or int(supplied) <= 0:
-                    raise HTTPException(status_code=422, detail=inventory_business_error(
-                        "DISPATCH_ADJUSTMENT_CONTEXT_INVALID", "Invalid physical adjustment context.",
-                    ))
-                if int(supplied) != int(current or 0):
-                    raise HTTPException(status_code=409, detail=inventory_business_error(
-                        "DISPATCH_ROUTE_CONTEXT_CHANGED", "The assigned vehicle or source warehouse changed. Reopen Adjust Load.",
-                    ))
+        # Every executable new command is context-bound inside its canonical hash.
+        context = payload.context
+        current_session_id = int(bound_context) if bound_context is not None else None
+        if (
+            int(context.vehicle_id) != int(route.vehicle_id)
+            or int(context.source_warehouse_id) != int(route.source_location_id)
+            or (
+                int(context.work_session_id)
+                if context.work_session_id is not None else None
+            ) != current_session_id
+            or int(context.route_context_revision)
+            != int(route.adjustment_context_revision)
+        ):
+            raise HTTPException(status_code=409, detail=inventory_business_error(
+                "DISPATCH_ROUTE_CONTEXT_CHANGED",
+                "The physical route/session context changed. Reopen Adjust Load.",
+            ))
 
         if getattr(route, "work_session_id", None) != bound_context:
             raise HTTPException(status_code=409, detail=inventory_business_error(
