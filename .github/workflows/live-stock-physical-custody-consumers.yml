@@ -1,0 +1,22 @@
+name: Live Stock physical custody consumer acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/liveStock/**"
+      - "dashboard/src/pages/inventory/StockMinimumManager.tsx"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/inventory-access.test.ts"
+      - "dashboard/src/test/inventory-cp7-live-stock*.test.tsx"
+      - "dashboard/e2e/live-stock-physical-custody.*"
+      - ".github/workflows/live-stock-physical-custody-consumers.yml"
+      - ".github/workflows/live-stock-v1-operational-browser.yml"
+permissions:
+  contents: read
+jobs:
+  composed-api-browser:
+    uses: ./.github/workflows/live-stock-v1-operational-browser.yml
+    with:
+      # Explicit dependency proof, not a claim that main already contains #687.
+      backend_ref: "0fa2c26b1774054e65dc072d06321d44a0f56e4f"
+      scenario: physical-custody

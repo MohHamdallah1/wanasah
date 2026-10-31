@@ -109,6 +109,8 @@ export interface LiveStockFamilyOption {
   code: string;
 }
 
+export type VehicleQuantityScope = "COMPANY_WIDE" | "AUTHORIZED_LOCATIONS" | "NO_ACCESS";
+
 export interface WarehouseProduct {
   id: number;
   name: string;
@@ -138,13 +140,15 @@ export interface WarehouseProduct {
   reserved_quantity: Quantity;
   available_for_sale_quantity: Quantity;
   unavailable_quantity: Quantity;
-  vehicle_quantity: Quantity;
+  vehicle_quantity: Quantity | null;
+  vehicle_quantity_scope: VehicleQuantityScope;
   recalled_quantity: Quantity;
 
   // Backward-compatible response fields kept while older consumers migrate.
   available_quantity: Quantity;
   blocked_quantity: Quantity;
   total_quantity: Quantity;
+  total_quantity_scope: "WAREHOUSE_PHYSICAL";
   damaged_quantity: Quantity;
   minimum_quantity: Quantity;
   is_low_stock: boolean;
@@ -337,6 +341,21 @@ export function parseLiveStockPage(
     if (ids.has(id)) return contractError(code);
     ids.add(id);
 
+    const scope = row.vehicle_quantity_scope;
+    if (scope !== "COMPANY_WIDE" && scope !== "AUTHORIZED_LOCATIONS" && scope !== "NO_ACCESS") {
+      return contractError(code);
+    }
+    if ((scope === "NO_ACCESS") !== (row.vehicle_quantity === null)) return contractError(code);
+    let vehicleQuantity: Quantity | null = null;
+    if (scope !== "NO_ACCESS") {
+      try {
+        vehicleQuantity = parseQuantity(row.vehicle_quantity, "vehicle_quantity", { allowZero: true });
+      } catch {
+        return contractError(code);
+      }
+    }
+    if (row.total_quantity_scope !== "WAREHOUSE_PHYSICAL") return contractError(code);
+
     const scale = int(row.quantity_scale, code);
     if (scale > 6) return contractError(code);
 
@@ -408,11 +427,8 @@ export function parseLiveStockPage(
         "unavailable_quantity",
         { allowZero: true },
       ),
-      vehicle_quantity: parseQuantity(
-        row.vehicle_quantity,
-        "vehicle_quantity",
-        { allowZero: true },
-      ),
+      vehicle_quantity: vehicleQuantity,
+      vehicle_quantity_scope: scope,
       recalled_quantity: parseQuantity(
         row.recalled_quantity,
         "recalled_quantity",
@@ -433,6 +449,7 @@ export function parseLiveStockPage(
         "total_quantity",
         { allowZero: true },
       ),
+      total_quantity_scope: "WAREHOUSE_PHYSICAL" as const,
       damaged_quantity: parseQuantity(
         row.damaged_quantity,
         "damaged_quantity",

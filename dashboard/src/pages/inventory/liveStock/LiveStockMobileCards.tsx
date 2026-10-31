@@ -1,3 +1,4 @@
+import { VehicleCustodyQuantity } from "./VehicleCustodyQuantity";
 import { AlertTriangle, PackageOpen } from "lucide-react";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -86,7 +87,6 @@ export function LiveStockMobileCards({
           ["availableForSale", product.available_for_sale_quantity, "text-emerald-700", "available"],
           ["reserved", product.reserved_quantity, "text-amber-700", "reserved"],
           ["unavailable", product.unavailable_quantity, "text-rose-700", "unavailable"],
-          ["withVehicles", product.vehicle_quantity, "text-blue-700", "vehicle"],
         ] as const;
 
         return (
@@ -144,6 +144,10 @@ export function LiveStockMobileCards({
                   </div>
                 );
               })}
+              <div className="min-w-0" data-cp13-quantity="vehicle">
+                <dt className="font-bold text-slate-500">{t("inventoryLive.withVehicles")}</dt>
+                <dd className="mt-0.5 font-black text-blue-700"><VehicleCustodyQuantity product={product} /></dd>
+              </div>
             </dl>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 border-t border-slate-100 pt-2 text-[10px]">
               {costs.map(([label, value, unit, metric]) => {

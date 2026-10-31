@@ -22,8 +22,8 @@ const basic: WarehouseProduct = {
   last_purchase_uom_code: null, last_purchase_date: null,
   quantity_scale: 0, quantity_step: "1", on_hand_quantity: "10",
   reserved_quantity: "0", available_for_sale_quantity: "10",
-  unavailable_quantity: "0", vehicle_quantity: "0", recalled_quantity: "0",
-  available_quantity: "10", blocked_quantity: "0", total_quantity: "10",
+  unavailable_quantity: "0", vehicle_quantity_scope: "COMPANY_WIDE" as const, vehicle_quantity: "0", recalled_quantity: "0",
+  available_quantity: "10", blocked_quantity: "0", total_quantity_scope: "WAREHOUSE_PHYSICAL" as const, total_quantity: "10",
   damaged_quantity: "0", minimum_quantity: "10", is_low_stock: true,
 };
 
