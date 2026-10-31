@@ -19,6 +19,9 @@ type LoadError = {
   kind: "initial" | "continuation";
 };
 
+const isAuthorityDenial = (error: unknown): boolean =>
+  [401, 403, 404].includes(apiErrorStatus(error) ?? 0);
+
 export function useLiveStockBatchDetail(
   locationId: number,
   fallbackMessage: string,
@@ -118,7 +121,7 @@ export function useLiveStockBatchDetail(
       } catch (error: unknown) {
         if (sequence !== requestSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
-        if (apiErrorStatus(error) === 403) {
+        if (isAuthorityDenial(error)) {
           onReadDenied?.();
           // A revoked read must not leave formerly authorized evidence visible.
           sourceSeq.current += 1;
@@ -131,7 +134,7 @@ export function useLiveStockBatchDetail(
         }
         setLoadError({
           message: apiErrorMessage(error, fallbackMessage),
-          kind: apiErrorStatus(error) === 403 ? "initial" : append ? "continuation" : "initial",
+          kind: isAuthorityDenial(error) ? "initial" : append ? "continuation" : "initial",
         });
       } finally {
         if (requestAbort.current === controller) requestAbort.current = null;
@@ -235,7 +238,7 @@ export function useLiveStockBatchDetail(
       } catch (error: unknown) {
         if (sequence !== sourceSeq.current) return;
         if (error instanceof Error && error.name === "AbortError") return;
-        if (apiErrorStatus(error) === 403) {
+        if (isAuthorityDenial(error)) {
           onReadDenied?.();
           // Source revocation invalidates the entire displayed batch evidence.
           stopRequests();
