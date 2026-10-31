@@ -105,7 +105,7 @@ describe("SEC-CACHE-01 actual tenant hook with a persistent QueryClient", () => 
     render(<QueryClientProvider client={q}><MemoryRouter><View /></MemoryRouter></QueryClientProvider>);
     return { q, admissions };
   }
-  for (const locale of ["ar", "en"]) {
+  for (const locale of ["ar", "en"] as const) {
     it("never presents fresh A metadata for B after same-SPA login in " + locale, async () => {
       await setAppLanguage(locale);
       const b = deferred<unknown>();
@@ -174,7 +174,7 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
     await act(async () => {});
     return Socket.instances[0];
   }
-  for (const locale of ["ar", "en"]) {
+  for (const locale of ["ar", "en"] as const) {
     it("ignores a delayed A message/open/close after cross-tab B login in " + locale, async () => {
       await setAppLanguage(locale);
       const socket = await mountDispatch();
