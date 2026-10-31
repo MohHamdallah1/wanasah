@@ -127,6 +127,84 @@ class _LiveOrFailedDashboardRepo extends Fake implements DashboardRepository {
   @override
   Future<void> cacheDashboardData(Map<String, String> data) async {}
 }
+class _HeldDashboardRepository extends Fake implements DashboardRepository {
+  final firstStarted = Completer<void>();
+  final secondStarted = Completer<void>();
+  final firstResponse = Completer<Response>();
+  final secondResponse = Completer<Response>();
+  int reads = 0;
+  int cacheWrites = 0;
+
+  @override
+  Future<Response> fetchDashboardRaw() {
+    reads++;
+    if (reads == 1) {
+      firstStarted.complete();
+      return firstResponse.future;
+    }
+    if (reads == 2) {
+      secondStarted.complete();
+      return secondResponse.future;
+    }
+    throw StateError('Unexpected dashboard fetch #$reads');
+  }
+
+  @override
+  Future<Map<String, String>> getAllCachedData() async => {};
+
+  @override
+  Future<void> cacheDashboardData(Map<String, String> data) async {
+    cacheWrites++;
+  }
+}
+
+class _SuccessfulSessionChange extends Fake implements WorkSessionCoordinator {
+  _SuccessfulSessionChange({required this.ending});
+  final bool ending;
+
+  @override
+  Future<WorkSessionRecoveryResult> recoverActiveSession() async =>
+      const WorkSessionRecoveryResult.success(WorkSessionSnapshot.inactive());
+
+  @override
+  Future<WorkSessionOperationResult> startSession() async =>
+      const WorkSessionOperationResult(
+        operation: WorkSessionOperation.start,
+        disposition: WorkSessionDisposition.success,
+        reconciledSession: WorkSessionSnapshot(
+          isActive: true,
+          sessionId: 99,
+          startTime: '2026-10-31T08:00:00Z',
+          isOnBreak: false,
+        ),
+      );
+
+  @override
+  Future<WorkSessionOperationResult> endSession() async =>
+      const WorkSessionOperationResult(
+        operation: WorkSessionOperation.end,
+        disposition: WorkSessionDisposition.success,
+        reconciledSession: WorkSessionSnapshot.inactive(),
+      );
+}
+
+Response _authorizedDashboardResponse({required int cartons, required bool active}) {
+  final request = RequestOptions(path: '/driver/dashboard');
+  return Response(requestOptions: request, statusCode: 200, data: {
+    'driver_name': 'Representative',
+    'active_session': {
+      if (active) ...{
+        'session_id': cartons == 7 ? 55 : 99,
+        'start_time': '2026-10-31T08:00:00Z',
+      },
+      'is_authorized_to_sell': active,
+      'inventory': [_product(cartons: cartons)],
+    },
+    'financials': <String, dynamic>{},
+    'counts': <String, dynamic>{},
+  });
+}
+
 class _UnusedCustodyCoordinator extends Fake implements CustodyCoordinator {}
 
 /// Controlled production DashboardBloc custody path: request begins before
@@ -283,6 +361,68 @@ void main() {
       expect(current.nonSellableStockDisclosure, StockDisclosure.denied);
       expect(current.products, isEmpty);
       expect(current.nonSellableCustody, isEmpty);
+    });
+  }
+
+  for (final ending in const [false, true]) {
+    test('late old dashboard response cannot restore stock after successful '
+        '${ending ? "end" : "start"} session', () async {
+      final repo = _HeldDashboardRepository();
+      final bloc = _SeededDashboardBloc(
+        repository: repo,
+        session: _SuccessfulSessionChange(ending: ending),
+        db: _StockLocalDb(),
+        recovery: _EmptyRecoveryReader(),
+        sync: _NoSyncRepository(),
+      );
+      addTearDown(bloc.close);
+      bloc.seed(DashboardLoaded(
+        visits: const [],
+        products: [ProductModel.fromJson(_product(cartons: 7))],
+        totalVisits: 0,
+        completedVisits: 0,
+        pendingVisits: 0,
+        offlineVisits: 0,
+        isActiveSession: ending,
+        sellableStockDisclosure: StockDisclosure.verified,
+        nonSellableStockDisclosure: StockDisclosure.verified,
+      ));
+
+      final witnessed = <DashboardLoaded>[];
+      final observer = bloc.stream.where((s) => s is DashboardLoaded)
+          .cast<DashboardLoaded>().listen(witnessed.add);
+      addTearDown(observer.cancel);
+
+      bloc.add(FetchDashboardData(driverId: 17));
+      await repo.firstStarted.future; // Old server response remains in flight.
+      final transition = bloc.stream.firstWhere((s) =>
+          s is DashboardLoaded && s.actionSuccessMessage != null);
+      bloc.add(ending ? const EndSessionEvent(driverId: 17)
+          : const StartSessionEvent(driverId: 17));
+      final transitioned = await transition as DashboardLoaded;
+      expect(transitioned.sellableStockDisclosure, StockDisclosure.unavailable);
+      expect(transitioned.products, isEmpty);
+
+      // Deliver a fully valid stale snapshot AFTER server-confirmed start/end.
+      repo.firstResponse.complete(
+        _authorizedDashboardResponse(cartons: 7, active: true));
+      // The queued refresh starts only after the old request handler finishes.
+      await repo.secondStarted.future;
+      expect(repo.cacheWrites, 0,
+          reason: 'Old session data must not update durable dashboard cache');
+      expect(witnessed.where((s) =>
+          s.sellableStockDisclosure == StockDisclosure.verified), isEmpty,
+          reason: 'No intermediate emission can verify stale custody');
+
+      final newAuthorized = bloc.stream.firstWhere((s) =>
+          s is DashboardLoaded &&
+          s.sellableStockDisclosure == StockDisclosure.verified);
+      repo.secondResponse.complete(
+        _authorizedDashboardResponse(cartons: 12, active: !ending));
+      final current = await newAuthorized as DashboardLoaded;
+      expect(current.products.single.currentCartons, 12);
+      expect(current.sellableStockDisclosure, StockDisclosure.verified);
+      expect(repo.cacheWrites, 1);
     });
   }
 
