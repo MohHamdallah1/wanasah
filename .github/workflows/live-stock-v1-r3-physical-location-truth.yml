@@ -23,6 +23,7 @@ on:
       - "wa_backend/scripts/gate_r2_live_stock_perf_50k.py"
       - "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md"
       - ".github/workflows/live-stock-v1-r3-physical-location-truth.yml"
+      - ".github/scripts/live_stock_ci_ownership.py"
   workflow_dispatch:
 
 permissions:
@@ -208,56 +209,10 @@ jobs:
       - name: Current-base and ownership gate
         if: always()
         run: |
-          base="$(git merge-base origin/main HEAD)"
-          test -n "$base"
-          git diff --check "$base" HEAD --
-          BASE="$base" python - <<'PY'
-          import os
-          import subprocess
-
-          changed = set(
-              subprocess.check_output(
-                  ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
-                  text=True,
-              ).splitlines()
-          )
-          allowed = {
-              ".github/workflows/live-stock-v1-r3-physical-location-truth.yml",
-              ".github/workflows/flutter-v1-backend-field-contracts.yml",
-              "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md",
-              "wa_backend/api/dispatch.py",
-              "wa_backend/api/warehouse/live_stock.py",
-              "wa_backend/domains/live_stock_projection/service.py",
-              "wa_backend/schemas.py",
-              "wa_backend/scripts/gate_stage821_live_stock_projector_core.py",
-              "wa_backend/scripts/gate_r2_live_stock_perf_50k.py",
-              "wa_backend/tests/test_live_stock_canonical_cutover.py",
-              "wa_backend/tests/test_live_stock_r4_negative_filter_contract.py",
-              "wa_backend/tests/test_live_stock_r4_query_contract.py",
-              "wa_backend/tests/test_live_stock_v1_r4_query_optimization_postgres.py",
-              "wa_backend/tests/live_stock_r4_negative_filter_postgres_acceptance.py",
-              "wa_backend/tests/test_live_stock_r1_http_postgres.py",
-              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
-              "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
-              "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py",
-              "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
-              "wa_backend/tests/test_live_stock_v1_route_sale_unload_postgres.py",
-              "wa_backend/tests/test_live_stock_v1_r3_physical_location_truth_postgres.py",
-          }
-          extra = changed - allowed
-          if extra:
-              raise SystemExit(f"P0_R3_SCOPE=FAIL extra={sorted(extra)}")
-          forbidden = [
-              path
-              for path in changed
-              if path == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
-              or path.startswith("dashboard/")
-              or path.startswith("wanasah_frontend/")
-          ]
-          if forbidden:
-              raise SystemExit(f"P0_R3_SCOPE=FAIL forbidden={sorted(forbidden)}")
-          print(f"P0_R3_SCOPE=PASS files={len(changed)}")
-          PY
+          python -B .github/scripts/live_stock_ci_ownership.py --selftest
+          python -B .github/scripts/live_stock_ci_ownership.py \
+            --mode r3 \
+            --base "${{ github.event.pull_request.base.sha || github.sha }}"
 
       - name: Retain focused evidence
         if: always()
