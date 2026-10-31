@@ -46,17 +46,34 @@ AFTER_DB = "wanasah_r4_after"
 
 
 def _compile_endpoint(source: str, label: str):
-    node = next(
+    tree = ast.parse(source)
+    endpoint = next(
         node
-        for node in ast.parse(source).body
+        for node in tree.body
         if isinstance(node, ast.AsyncFunctionDef)
         and node.name == "get_warehouse_inventory"
     )
-    node.decorator_list = []
+    endpoint.decorator_list = []
+
+    # Compile historical helper dependencies from the same source snapshot.
+    # The P0 R3 head intentionally removes latest-Route Vehicle attribution;
+    # executing an accepted-base endpoint against the head module namespace
+    # would otherwise fail before any before/after comparison is measured.
+    dependency_names = {
+        "_readable_vehicle_locations_subquery",
+        "_latest_readable_vehicle_sources_subquery",
+    }
+    dependencies = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in dependency_names
+    ]
+
     namespace = vars(live_stock).copy()
     exec(
         compile(
-            ast.Module(body=[node], type_ignores=[]),
+            ast.Module(body=[*dependencies, endpoint], type_ignores=[]),
             f"<R4-query-opt-{label}>",
             "exec",
         ),
