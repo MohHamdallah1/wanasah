@@ -10,6 +10,7 @@ import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
 import 'package:wanasah_frontend/blocs/visit/visit_bloc.dart';
+import 'package:wanasah_frontend/core/network/api_client.dart';
 import 'package:wanasah_frontend/features/visits/presentation/visit_catalog.dart';
 
 Map<String, dynamic> _product({Object? cartons = 0, Object? packs = 0}) => {
@@ -56,6 +57,10 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
 );
 
 void main() {
+  // VisitBloc requires the normal application API singleton, even though
+  // the rendering test performs no HTTP calls.
+  setUpAll(() => ApiClient.init(onUnauthorized: () {}));
+
   test('zero is valid but omitted/null/malformed/negative custody never becomes zero', () {
     final zero = ProductModel.fromJson(_product());
     expect(zero.currentCartons, 0);
