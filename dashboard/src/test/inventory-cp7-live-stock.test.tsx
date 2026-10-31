@@ -304,7 +304,7 @@ describe("CP7 Live Stock Dashboard closure", () => {
         onLoadSource={loadSource}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Stock source and reservations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Actionable Warehouse source and reservations" }));
     expect(loadSource).toHaveBeenCalledWith(71);
   });
 
@@ -447,12 +447,16 @@ describe("UI-05 mobile cost parity", () => {
     expect(average).toHaveTextContent("per PK");
     expect(purchase).not.toHaveTextContent("per PK");
     expect(average).not.toHaveTextContent("per CT");
+    const purchaseDate = new Intl.DateTimeFormat(locale, {
+      year: "numeric", month: "2-digit", day: "2-digit",
+      numberingSystem: "latn", timeZone: "UTC",
+    }).format(new Date(`${item.last_purchase_date}T00:00:00Z`));
     expect(purchase.querySelector("[title]")).toHaveAttribute("title",
-      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
+      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT · ${purchaseDate}`);
     expect(average.querySelector("[title]")).toHaveAttribute("title",
       `${formatMoneyExact(item.average_cost_display!, "JOD", locale)} · per PK`);
-    expect(purchase.querySelector(".sr-only")?.textContent).toBe(
-      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT`);
+    expect(purchase.querySelector(".sr-only")?.textContent).toContain(
+      `${formatMoneyExact(item.last_purchase_cost!, "JOD", locale)} · per CT · ${purchaseDate}`);
     const desktopCells = document.querySelectorAll<HTMLTableCellElement>(".live-stock-row td");
     expect(desktopCells[8].textContent).toBe(formatMoneyDisplay(item.last_purchase_cost!, "JOD", locale));
     expect(desktopCells[9].textContent).toBe(formatMoneyDisplay(item.average_cost_display!, "JOD", locale));
@@ -627,7 +631,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     expect(screen.getByText(/مرجع الحجز:/)).toHaveTextContent("ROUTE-701");
     expect(screen.getByText(/القائمة مقتطعة:/)).toBeInTheDocument();
     expect(screen.getByText("دليل الحجز جزئي")).toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: "مصدر الرصيد والحجوزات" });
+    const toggle = screen.getByRole("button", { name: "دليل مصدر المستودع القابل للإجراء والحجوزات" });
     toggle.focus();
     expect(toggle).toHaveFocus();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
