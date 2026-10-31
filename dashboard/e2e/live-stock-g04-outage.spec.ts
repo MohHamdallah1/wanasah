@@ -11,14 +11,20 @@ if (process.env.WANASAH_G04_GATE !== "1") {
   throw new Error("G04 real outage browser proof requires its isolated PG16 workflow");
 }
 
-function support(action: "fingerprint" | "revoke" | "restore") {
+function support(action: "fingerprint" | "revoke" | "restore" | "api-stop" | "api-start") {
   const output = execFileSync(
     PYTHON,
     [resolve(process.cwd(), "../wa_backend/tests/live_stock_g04_outage_support.py"), action],
     { encoding: "utf8", env: process.env },
   ).trim();
   if (action === "fingerprint") return JSON.parse(output) as Record<string, unknown>;
-  expect(output).toContain(action === "revoke" ? "G04_REVOKE PASS" : "G04_RESTORE PASS");
+  const marker = {
+    revoke: "G04_REVOKE PASS",
+    restore: "G04_RESTORE PASS",
+    "api-stop": "G04_API_STOP PASS",
+    "api-start": "G04_API_START PASS",
+  }[action];
+  expect(output).toContain(marker);
   return output;
 }
 
@@ -166,6 +172,34 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
     expect(await ownerRow.innerText()).toBe(initialText);
     await page.unroute(API + "/warehouse/inventory/cursor*", dropOnce);
     await retryStale(page);
+
+    // Actual HTTP service unavailability: terminate the genuine FastAPI process,
+    // refresh while the already-visible page cannot connect, then restart that
+    // same application and require a fresh successful read before freshness returns.
+    const failedCursor = page.waitForEvent("requestfailed", (request) => {
+      const url = new URL(request.url());
+      return request.method() === "GET" &&
+        url.origin === API &&
+        url.pathname === "/warehouse/inventory/cursor";
+    });
+    support("api-stop");
+    await page.locator(".live-stock-context-refresh").click();
+    const unavailableRequest = await failedCursor;
+    expect(unavailableRequest.failure()?.errorText).toBeTruthy();
+    await expect(page.locator('[data-cp13-state="stale"]')).toBeVisible();
+    await expect(ownerRow).toBeVisible();
+    expect(await ownerRow.innerText()).toBe(initialText);
+    await expect(page.locator('[data-cp13-state="empty"]')).toHaveCount(0);
+    await page.screenshot({
+      path: info.outputPath("g04-real-http-unavailable-stale-not-zero.png"),
+      fullPage: true,
+    });
+
+    support("api-start");
+    await waitReady(page);
+    await retryStale(page);
+    await expect(ownerRow.locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
+    await expect(ownerRow.locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
 
     const restricted = await browser.newContext({
       baseURL: "http://127.0.0.1:4173",
