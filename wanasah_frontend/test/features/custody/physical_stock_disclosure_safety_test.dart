@@ -20,6 +20,9 @@ import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
 import 'package:wanasah_frontend/repositories/dashboard_repository.dart';
 import 'package:wanasah_frontend/repositories/sync_repository.dart';
+import 'package:wanasah_frontend/core/db/local_database.dart';
+import 'package:wanasah_frontend/features/recovery/application/recovery_reader.dart';
+import 'package:wanasah_frontend/features/recovery/application/recovery_snapshot.dart';
 import 'package:wanasah_frontend/features/work_session/application/work_session_coordinator.dart';
 import 'package:wanasah_frontend/features/work_session/application/work_session_outcome.dart';
 import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
@@ -71,6 +74,59 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
 class _UnusedTransferGateway extends Fake implements TransferDispatchGateway {}
 class _UnusedVisitBloc extends Fake implements VisitBloc {}
 class _UnusedSyncRepository extends Fake implements SyncRepository {}
+
+class _NoSyncRepository extends Fake implements SyncRepository {
+  @override
+  Future<bool> syncDown() async => false;
+}
+
+class _StockLocalDb extends Fake implements LocalDatabase {
+  @override
+  Future<List<Map<String, dynamic>>> getVisits() async => [];
+  @override
+  Future<List<Map<String, dynamic>>> getProducts() async =>
+      [_product(cartons: 4, packs: 1)];
+}
+
+class _EmptyRecoveryReader extends Fake implements RecoveryReader {
+  @override
+  Future<RecoverySnapshot> read() async => const RecoverySnapshot.empty();
+}
+
+class _LiveOrFailedDashboardRepo extends Fake implements DashboardRepository {
+  int? failureStatus;
+
+  @override
+  Future<Response> fetchDashboardRaw() async {
+    final request = RequestOptions(path: '/driver/dashboard');
+    if (failureStatus != 200) {
+      throw DioException(
+        requestOptions: request,
+        type: failureStatus == null
+            ? DioExceptionType.connectionError : DioExceptionType.badResponse,
+        response: failureStatus == null ? null
+            : Response(requestOptions: request, statusCode: failureStatus),
+      );
+    }
+    return Response(requestOptions: request, statusCode: 200, data: {
+      'driver_name': 'Representative',
+      'active_session': {
+        'session_id': 17,
+        'start_time': '2026-10-31T07:00:00Z',
+        'is_authorized_to_sell': true,
+        'inventory': [_product(cartons: 8, packs: 2)],
+      },
+      'financials': <String, dynamic>{},
+      'counts': <String, dynamic>{},
+    });
+  }
+
+  @override
+  Future<Map<String, String>> getAllCachedData() async => {};
+
+  @override
+  Future<void> cacheDashboardData(Map<String, String> data) async {}
+}
 class _UnusedCustodyCoordinator extends Fake implements CustodyCoordinator {}
 
 /// Controlled production DashboardBloc custody path: request begins before
@@ -125,10 +181,15 @@ class _SeededDashboardBloc extends DashboardBloc {
     required DashboardRepository repository,
     required WorkSessionCoordinator session,
     CustodyCoordinator? custody,
+    LocalDatabase? db,
+    RecoveryReader? recovery,
+    SyncRepository? sync,
   }) : super(
     dashboardRepo: repository,
     workSessionCoordinator: session,
-    syncRepository: _UnusedSyncRepository(),
+    syncRepository: sync ?? _UnusedSyncRepository(),
+    db: db,
+    recoveryReader: recovery,
     custodyCoordinator: custody ?? _UnusedCustodyCoordinator(),
   );
 
@@ -251,6 +312,55 @@ void main() {
       }
       expect(requests, CustodyCoordinator.maximumCustodyPages);
     }
+  });
+
+  test('connectivity fallback shows local stock only as stale, not live',
+      () async {
+    final repo = _LiveOrFailedDashboardRepo()..failureStatus = null;
+    final bloc = _SeededDashboardBloc(
+      repository: repo,
+      session: _InactiveWorkSession(),
+      db: _StockLocalDb(),
+      recovery: _EmptyRecoveryReader(),
+      sync: _NoSyncRepository(),
+    );
+    addTearDown(bloc.close);
+    final next = bloc.stream.firstWhere((state) =>
+        state is DashboardLoaded &&
+        state.refreshIssue?.kind == DashboardRefreshIssueKind.connectivity);
+    bloc.add(FetchDashboardData(driverId: 17));
+    final offline = await next as DashboardLoaded;
+    expect(offline.products.single.currentCartons, 4);
+    expect(offline.sellableStockDisclosure, StockDisclosure.stale);
+    expect(offline.isOffline, isTrue);
+  });
+
+  test('fresh authorized response restores verified stock after 403 denial',
+      () async {
+    final repo = _LiveOrFailedDashboardRepo()..failureStatus = 403;
+    final bloc = _SeededDashboardBloc(
+      repository: repo,
+      session: _InactiveWorkSession(),
+      db: _StockLocalDb(),
+      recovery: _EmptyRecoveryReader(),
+      sync: _NoSyncRepository(),
+    );
+    addTearDown(bloc.close);
+    final denied = bloc.stream.firstWhere((state) =>
+        state is DashboardError ||
+        state is DashboardLoaded &&
+            state.sellableStockDisclosure == StockDisclosure.denied);
+    bloc.add(FetchDashboardData(driverId: 17));
+    await denied;
+    repo.failureStatus = 200;
+    final authorized = bloc.stream.firstWhere((state) =>
+        state is DashboardLoaded &&
+            state.sellableStockDisclosure == StockDisclosure.verified);
+    bloc.add(FetchDashboardData(driverId: 17));
+    final restored = await authorized as DashboardLoaded;
+    expect(restored.products.single.currentCartons, 8);
+    expect(restored.products.single.currentPacks, 2);
+    expect(restored.sellableStockDisclosure, StockDisclosure.verified);
   });
 
   test('revoked data stays denied; transient data becomes visibly stale', () {
