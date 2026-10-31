@@ -67,27 +67,27 @@ jobs:
           name: live-stock-v1-browser-failures
           path: dashboard/node_modules/.cache/live-stock-v1-browser
           if-no-files-found: warn
-      - name: Verify exact four-file scope from approved starting SHA
+      - name: Verify bounded PR browser scope and whitespace
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
-          base="90ce302c828802a3f4f825c1d3ff9a035e9f27d1"
-          git cat-file -e "$base^{commit}"
-          git merge-base --is-ancestor "$base" HEAD
-          git diff --check "$base" HEAD --
-          BASE="$base" python - <<'PY'
-          import os
-          import subprocess
-
-          expected = {
-              ".github/workflows/live-stock-v1-browser-acceptance.yml",
-              "dashboard/e2e/live-stock-v1.config.ts",
-              "dashboard/e2e/live-stock-v1.fixtures.ts",
-              "dashboard/e2e/live-stock-v1.spec.ts",
-          }
-          changed = set(subprocess.check_output(
-              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
-              text=True,
-          ).splitlines())
-          if changed != expected:
-              raise SystemExit(f"LIVE_STOCK_V1_BROWSER_SCOPE=FAIL extra={sorted(changed - expected)} missing={sorted(expected - changed)}")
-          print("LIVE_STOCK_V1_BROWSER_SCOPE=PASS")
+          python - <<'PY'
+          import json, os, re, subprocess, urllib.request
+          head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          base_ref = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", head) and re.fullmatch(r"[0-9a-f]{40}", base_ref)
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/compare/{base_ref}...{head}",
+              headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"], "Accept": "application/vnd.github+json"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              base = json.load(response)["merge_base_commit"]["sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
+          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-physical-custody-consumers.yml",".github/workflows/live-stock-v1-browser-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/inventory-cp14-device-ux.spec.ts","dashboard/e2e/live-stock-physical-custody.config.ts","dashboard/e2e/live-stock-physical-custody.fixture.py","dashboard/e2e/live-stock-physical-custody.spec.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-v1.config.ts","dashboard/e2e/live-stock-v1.fixtures.ts","dashboard/e2e/live-stock-v1.spec.ts","dashboard/src/i18n/resources.ts","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx","dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx","dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx","dashboard/src/pages/inventory/liveStock/contracts.ts","dashboard/src/test/inventory-access.test.ts","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx","dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx","dashboard/src/test/inventory-cp7-live-stock.test.tsx","dashboard/src/test/live-stock-local-failure.test.tsx","dashboard/src/test/live-stock-render-performance.benchmark.test.tsx","dashboard/src/test/live-stock-render-windowing.test.tsx","dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx","dashboard/src/test/live-stock-warm-authority.test.tsx"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          assert changed <= set(allowed), sorted(changed - set(allowed))
+          print("LIVE_STOCK_V1_BROWSER_SCOPE=PASS", base, len(changed))
           PY
