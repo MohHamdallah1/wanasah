@@ -151,6 +151,7 @@ OP_ALLOWED = {
 SESSION_ISOLATION_ALLOWED = {
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
     "dashboard/src/App.tsx",
     "dashboard/src/components/operations/DashboardLayout.tsx",
     "dashboard/src/hooks/useInventoryAccess.ts",
