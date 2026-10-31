@@ -92,11 +92,16 @@ export function AdjustInventoryModal({
       }
     }
     try {
+      const migratedContextKey = legacyScope ? `${legacyScope}:migrated-draft-context-v2` : null;
       const storedContext = legacyScope ? localStorage.getItem(`${legacyScope}:draft-context`) : null;
       const oldValue = legacyScope ? localStorage.getItem(`${legacyScope}:draft`) : null;
       const legacyDraft = oldValue && storedContext ? Object.fromEntries(
         Object.entries(parseAdjustmentDraft(oldValue)).filter(([, value]) => hasAdjustmentDraft(value))
       ) : {};
+
+      // Pre-V2 drafts knew only Route/Vehicle/source-Warehouse. Move them once
+      // into a discoverable quarantine slot; never attach them to a different
+      // physical custody or silently drop them when the V2 scope changes.
       if (storedContext && Object.keys(legacyDraft).length) {
         const identity = JSON.parse(storedContext) as unknown;
         if (!Array.isArray(identity) || identity.length !== 3 || identity[0] !== route?.id) {
@@ -108,15 +113,53 @@ export function AdjustInventoryModal({
         if (localStorage.getItem(migratedKey) === null) {
           localStorage.setItem(migratedKey, JSON.stringify(legacyDraft));
         }
-        if (storedContext !== loadContext) {
-          setPendingContext((previous) => previous ?? {
-            scope: oldCommandScope, context: storedContext, deltas: legacyDraft,
-          });
-        }
-        // Preserve the durable request-id key: only retire migrated draft slots.
+        if (migratedContextKey) localStorage.setItem(migratedContextKey, storedContext);
+        // Preserve the durable request-id key: only retire the obsolete draft slots.
         localStorage.removeItem(`${legacyScope}:draft`);
         localStorage.removeItem(`${legacyScope}:draft-context`);
       }
+
+      const quarantinedContext = migratedContextKey
+        ? localStorage.getItem(migratedContextKey) : null;
+      if (quarantinedContext) {
+        const identity = JSON.parse(quarantinedContext) as unknown;
+        const currentIdentity = JSON.parse(loadContext) as unknown;
+        if (!Array.isArray(identity) || identity.length !== 3 ||
+            !Array.isArray(currentIdentity) || currentIdentity.length !== 5 ||
+            identity[0] !== route?.id) {
+          throw new Error("Migrated draft physical identity is invalid");
+        }
+        const oldCommandScope = durableScope(companyId!, principalId!, "dispatch-adjust-base",
+          `${route!.id}:${quarantinedContext}`);
+        const migratedKey = draftKey(oldCommandScope, quarantinedContext);
+        const migratedDraft = Object.fromEntries(
+          Object.entries(parseAdjustmentDraft(localStorage.getItem(migratedKey)))
+            .filter(([, value]) => hasAdjustmentDraft(value))
+        );
+        const sameOriginalPhysicalCustody =
+          identity[0] === currentIdentity[0] &&
+          identity[1] === currentIdentity[1] &&
+          identity[2] === currentIdentity[2];
+        const safePreSessionV2Baseline =
+          currentIdentity[3] === null && currentIdentity[4] === 1;
+
+        if (Object.keys(migratedDraft).length &&
+            sameOriginalPhysicalCustody && safePreSessionV2Baseline) {
+          const currentKey = draftKey(command.scope, loadContext);
+          if (localStorage.getItem(currentKey) === null) {
+            localStorage.setItem(currentKey, JSON.stringify(migratedDraft));
+          }
+          localStorage.removeItem(migratedKey);
+          if (migratedContextKey) localStorage.removeItem(migratedContextKey);
+        } else if (Object.keys(migratedDraft).length) {
+          setPendingContext((previous) => previous ?? {
+            scope: oldCommandScope, context: quarantinedContext, deltas: migratedDraft,
+          });
+        } else if (migratedContextKey) {
+          localStorage.removeItem(migratedContextKey);
+        }
+      }
+
       const rawDraft = localStorage.getItem(draftKey(command.scope, loadContext));
       const restored = Object.fromEntries(Object.entries(parseAdjustmentDraft(rawDraft))
         .filter(([, value]) => hasAdjustmentDraft(value)));
