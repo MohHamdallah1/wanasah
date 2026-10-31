@@ -193,13 +193,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
 
     final List<ProductModel> products = [];
+    var localStockContractValid = true;
     for (var row in rawProducts) {
       try {
         products.add(ProductModel.fromJson(row));
       } catch (e) {
-        developer.log('[DashboardBloc] Skipped corrupt product row: $e');
+        localStockContractValid = false;
+        developer.log('[DashboardBloc] Invalid local stock row: $e');
       }
     }
+    // Do not show a partial SQLite catalog as the entire vehicle custody.
+    if (!localStockContractValid) products.clear();
 
     // +++ القراءة من المستودع بدلاً من الخزنة مباشرة +++
     final allData = await _dashboardRepo.getAllCachedData();
@@ -265,7 +269,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       visits: visits,
       products: _sellableAccessDenied ? const <ProductModel>[] : products,
       sellableStockDisclosure: _sellableAccessDenied
-          ? StockDisclosure.denied : StockDisclosure.stale,
+          ? StockDisclosure.denied
+          : (localStockContractValid && rawProducts.isNotEmpty
+              ? StockDisclosure.stale
+              : StockDisclosure.unavailable),
       totalVisits: total,
       completedVisits: completed,
       pendingVisits: pending,
