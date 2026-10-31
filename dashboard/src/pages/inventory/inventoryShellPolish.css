@@ -159,3 +159,31 @@ html[dir="rtl"] .inventory-workspace .inventory-top-dock__dock,
 html[dir="rtl"] .inventory-workspace .inventory-shared-context-row .inventory-context-bar {
   direction: rtl;
 }
+
+
+/* G06: keep the compact Live Stock warehouse context non-overlapping on phones. */
+@media (max-width: 639px) {
+  .inventory-live-stock .live-stock-context-location,
+  .inventory-live-stock .live-stock-context-status {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .inventory-live-stock .live-stock-context-location {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .inventory-live-stock .live-stock-context-select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .inventory-live-stock .live-stock-context-status {
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.4rem 0.75rem;
+  }
+}
