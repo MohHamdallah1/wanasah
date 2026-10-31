@@ -264,19 +264,20 @@ jobs:
           # Focused classifier selftests: shared schemas.py changes are ignored
           # only when CP2's own AST contract is unchanged. Genuine CP2 edits
           # remain owned, and unrelated files cannot accompany them.
-          synthetic = """
-BatchIndexTrackingMode = Literal["NONE"]
-BatchIndexDisposition = Literal["RELEASED"]
-BatchIndexSellabilityState = Literal["SELLABLE"]
-BatchIndexSellabilityReason = Literal["EXPIRED"]
-unrelated = 1
-class WarehouseInventoryBatchIndexItem(BaseModel):
-    batch_id: int
-class WarehouseInventoryBatchIndexCursorPage(BaseModel):
-    items: list[WarehouseInventoryBatchIndexItem]
-class WarehouseInventoryBatchIndexSummaryResponse(BaseModel):
-    total_relevant_batches: int
-"""
+          synthetic = "\n".join((
+              'BatchIndexTrackingMode = Literal["NONE"]',
+              'BatchIndexDisposition = Literal["RELEASED"]',
+              'BatchIndexSellabilityState = Literal["SELLABLE"]',
+              'BatchIndexSellabilityReason = Literal["EXPIRED"]',
+              "unrelated = 1",
+              "class WarehouseInventoryBatchIndexItem(BaseModel):",
+              "    batch_id: int",
+              "class WarehouseInventoryBatchIndexCursorPage(BaseModel):",
+              "    items: list[WarehouseInventoryBatchIndexItem]",
+              "class WarehouseInventoryBatchIndexSummaryResponse(BaseModel):",
+              "    total_relevant_batches: int",
+              "",
+          ))
           synthetic_unrelated = synthetic.replace("unrelated = 1", "unrelated = 2")
           synthetic_cp2 = synthetic.replace("batch_id: int", "batch_id: str")
           assert (
