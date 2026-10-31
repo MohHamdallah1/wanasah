@@ -45,6 +45,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   bool _workSessionRecoveryCompleted = false;
   // A confirmed denial must not be bypassed by an offline SQLite reload.
   bool _sellableAccessDenied = false;
+  // On a server-confirmed session switch, old SQLite stock is not evidence
+  // of the new session's physical custody. Durable commands are untouched.
+  bool _awaitingNewSessionStock = false;
   // Different event types execute concurrently despite per-type sequential
   // transformers. Authority transitions revoke all earlier custody reads.
   int _custodyAuthorityEpoch = 0;
@@ -277,10 +280,14 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     return DashboardLoaded(
       visits: visits,
-      products: _sellableAccessDenied ? const <ProductModel>[] : products,
+      products: (_sellableAccessDenied || _awaitingNewSessionStock)
+          ? const <ProductModel>[]
+          : products,
       sellableStockDisclosure: _sellableAccessDenied
           ? StockDisclosure.denied
-          : (localStockContractValid && rawProducts.isNotEmpty
+          : _awaitingNewSessionStock
+              ? StockDisclosure.unavailable
+              : (localStockContractValid && rawProducts.isNotEmpty
               ? StockDisclosure.stale
               : StockDisclosure.unavailable),
       totalVisits: total,
@@ -389,6 +396,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       // Only an actually disclosed, parsed snapshot clears prior revocation.
       if (sellableDisclosure == StockDisclosure.verified) {
         _sellableAccessDenied = false;
+        _awaitingNewSessionStock = false;
       }
       if (_sellableAccessDenied) {
         apiProducts = <ProductModel>[];
@@ -883,6 +891,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           result.operation == WorkSessionOperation.end) {
         _custodyAuthorityEpoch++;
         _custodySessionId = null;
+        _awaitingNewSessionStock = true;
       }
       if (state is DashboardLoaded) {
         var next = state as DashboardLoaded;
