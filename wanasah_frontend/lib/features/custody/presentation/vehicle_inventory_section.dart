@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../models/product_model.dart';
+import '../../../l10n/generated/app_localizations.dart';
+import '../domain/stock_disclosure.dart';
 import '../domain/non_sellable_custody.dart';
 import '../domain/pending_return_custody.dart';
 
@@ -9,26 +11,33 @@ class VehicleInventorySection extends StatelessWidget {
     required this.products,
     required this.nonSellableCustody,
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
+    this.sellableDisclosure = StockDisclosure.unavailable,
+    this.nonSellableDisclosure = StockDisclosure.unavailable,
     super.key,
   });
 
   final List<ProductModel> products;
   final List<NonSellableCustodyItem> nonSellableCustody;
   final List<PendingReturnCustodyItem> pendingReturnCustody;
+  final StockDisclosure sellableDisclosure;
+  final StockDisclosure nonSellableDisclosure;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 20),
         const Divider(height: 30, thickness: 1),
         Text(
-          'مخزون سيارة المندوب:',
+          l10n.stockVehicleTitle,
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 12),
-        if (products.isEmpty)
+        if (sellableDisclosure != StockDisclosure.verified)
+          _disclosureNotice(context, sellableDisclosure, l10n),
+        if (products.isEmpty && sellableDisclosure == StockDisclosure.verified)
           Container(
             padding: const EdgeInsets.all(16.0),
             decoration: BoxDecoration(
@@ -36,10 +45,10 @@ class VehicleInventorySection extends StatelessWidget {
               borderRadius: BorderRadius.circular(8.0),
               border: Border.all(color: Colors.red.shade200),
             ),
-            child: const Center(
+            child: Center(
               child: Text(
-                'لا يوجد مخزون متاح للبيع في السيارة حالياً.',
-                style: TextStyle(
+                l10n.stockEmptyVerified,
+                style: const TextStyle(
                   fontSize: 16,
                   color: Colors.red,
                   fontWeight: FontWeight.bold,
@@ -47,7 +56,9 @@ class VehicleInventorySection extends StatelessWidget {
               ),
             ),
           ),
-        if (products.isNotEmpty)
+        if (products.isNotEmpty &&
+            (sellableDisclosure == StockDisclosure.verified ||
+             sellableDisclosure == StockDisclosure.stale))
           ...products.map(
             (item) => Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
@@ -74,12 +85,12 @@ class VehicleInventorySection extends StatelessWidget {
                           MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'الاستلام: ${item.startingCartons} كرتونة'
-                          "${item.startingPacks > 0 ? ' و ${item.startingPacks} حبة' : ''}",
+                          '${l10n.stockReceived}: ${item.startingCartons} ${l10n.stockCarton}'
+                           "${item.startingPacks > 0 ? ' + ${item.startingPacks} ${l10n.stockPiece}' : ''}",
                           style: const TextStyle(fontSize: 14),
                         ),
                         Text(
-                          'المباع: ${item.soldCartons} كرتونة، ${item.soldPacks} حبة',
+                          '${l10n.stockSold}: ${item.soldCartons} ${l10n.stockCarton}, ${item.soldPacks} ${l10n.stockPiece}',
                           style: TextStyle(
                             fontSize: 14,
                             color: Colors.green[700],
@@ -90,7 +101,7 @@ class VehicleInventorySection extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'المتبقي: ${item.currentCartons} كرتونة، ${item.currentPacks} باكيت',
+                      '${l10n.stockRemaining}: ${item.currentCartons} ${l10n.stockCarton}, ${item.currentPacks} ${l10n.stockPack}',
                       style: const TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.bold,
@@ -105,13 +116,13 @@ class VehicleInventorySection extends StatelessWidget {
         if (pendingReturnCustody.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
-            'مرتجعات محلية بانتظار الحسم:',
+            l10n.stockPendingReturns,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 4),
-          const Text(
-            'هذه أدلة محلية معلقة وليست رصيد العهدة النهائي من السيرفر.',
-            style: TextStyle(fontSize: 12, color: Colors.deepOrange),
+          Text(
+            l10n.stockPendingReturnsHint,
+            style: const TextStyle(fontSize: 12, color: Colors.deepOrange),
           ),
           const SizedBox(height: 8),
           ...pendingReturnCustody.map(
@@ -149,14 +160,14 @@ class VehicleInventorySection extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
-                          '${_pendingReasonLabel(item.reason)} · ${_pendingStateLabel(item.evidenceState)}',
+                          '${_pendingReasonLabel(item.reason, l10n)} · ${_pendingStateLabel(item.evidenceState, l10n)}',
                           style: const TextStyle(fontSize: 12),
                         ),
                       ],
                     ),
                   ),
                   Text(
-                    '${item.cartons} كرتونة، ${item.packs} باكيت',
+                    '${item.cartons} ${l10n.stockCarton}, ${item.packs} ${l10n.stockPack}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ],
@@ -164,10 +175,14 @@ class VehicleInventorySection extends StatelessWidget {
             ),
           ),
         ],
-        if (nonSellableCustody.isNotEmpty) ...[
+        if (nonSellableDisclosure != StockDisclosure.verified)
+          _disclosureNotice(context, nonSellableDisclosure, l10n),
+        if (nonSellableCustody.isNotEmpty &&
+            (nonSellableDisclosure == StockDisclosure.verified ||
+             nonSellableDisclosure == StockDisclosure.stale)) ...[
           const SizedBox(height: 12),
           Text(
-            'عهدة غير قابلة للبيع:',
+            l10n.stockNonSellableTitle,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
@@ -198,7 +213,7 @@ class VehicleInventorySection extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          _statusLabel(item.status),
+                          _statusLabel(item.status, l10n),
                           style: const TextStyle(fontSize: 12),
                         ),
                       ],
@@ -220,29 +235,49 @@ class VehicleInventorySection extends StatelessWidget {
     );
   }
 
-  String _pendingReasonLabel(PendingReturnReason reason) {
+  Widget _disclosureNotice(
+    BuildContext context,
+    StockDisclosure disclosure,
+    AppLocalizations l10n,
+  ) {
+    final message = switch (disclosure) {
+      StockDisclosure.verified => '',
+      StockDisclosure.stale => l10n.stockStale,
+      StockDisclosure.denied => l10n.stockDenied,
+      StockDisclosure.unavailable => l10n.stockUnavailable,
+    };
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        message,
+        style: TextStyle(color: Theme.of(context).colorScheme.error),
+      ),
+    );
+  }
+
+  String _pendingReasonLabel(PendingReturnReason reason, AppLocalizations l10n) {
     return switch (reason) {
-      PendingReturnReason.damaged => 'تالف',
-      PendingReturnReason.expired => 'منتهي الصلاحية',
-      PendingReturnReason.factoryDefect => 'عيب مصنعي',
+      PendingReturnReason.damaged => l10n.stockStatusDamaged,
+      PendingReturnReason.expired => l10n.stockReasonExpired,
+      PendingReturnReason.factoryDefect => l10n.stockReasonFactory,
     };
   }
 
-  String _pendingStateLabel(PendingCustodyEvidenceState state) {
+  String _pendingStateLabel(PendingCustodyEvidenceState state, AppLocalizations l10n) {
     return switch (state) {
-      PendingCustodyEvidenceState.pending => 'بانتظار المزامنة',
-      PendingCustodyEvidenceState.inFlight => 'قيد الإرسال',
-      PendingCustodyEvidenceState.blocked => 'يحتاج معالجة',
+      PendingCustodyEvidenceState.pending => l10n.stockPending,
+      PendingCustodyEvidenceState.inFlight => l10n.stockInFlight,
+      PendingCustodyEvidenceState.blocked => l10n.stockNeedsAction,
     };
   }
 
-  String _statusLabel(NonSellableCustodyStatus status) {
+  String _statusLabel(NonSellableCustodyStatus status, AppLocalizations l10n) {
     return switch (status) {
-      NonSellableCustodyStatus.damaged => 'تالف',
-      NonSellableCustodyStatus.quarantined => 'محجور',
-      NonSellableCustodyStatus.blocked => 'محظور',
-      NonSellableCustodyStatus.recalled => 'مستدعى',
-      NonSellableCustodyStatus.disposalPending => 'بانتظار الإتلاف',
+      NonSellableCustodyStatus.damaged => l10n.stockStatusDamaged,
+      NonSellableCustodyStatus.quarantined => l10n.stockStatusQuarantined,
+      NonSellableCustodyStatus.blocked => l10n.stockStatusBlocked,
+      NonSellableCustodyStatus.recalled => l10n.stockStatusRecalled,
+      NonSellableCustodyStatus.disposalPending => l10n.stockStatusDisposalPending,
     };
   }
 }
