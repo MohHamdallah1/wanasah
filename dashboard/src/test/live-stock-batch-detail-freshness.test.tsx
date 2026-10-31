@@ -224,7 +224,7 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
       onLoadSource, onRetrySource,
     };
     const { rerender } = render(<BatchDetailPanel {...props} sourceOpenId={71} />);
-    const toggle = screen.getByRole("button", { name: "Stock source and reservations" });
+    const toggle = screen.getByRole("button", { name: "Actionable Warehouse source and reservations" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const target = toggle.getAttribute("aria-controls");
     expect(target).toBeTruthy();
@@ -245,7 +245,7 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(screen.getByRole("dialog")).toHaveAttribute("dir", "rtl");
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(onRetrySource).toHaveBeenCalledWith(71);
-    expect(screen.getByRole("button", { name: "مصدر الرصيد والحجوزات" }))
+    expect(screen.getByRole("button", { name: "دليل مصدر المستودع القابل للإجراء والحجوزات" }))
       .toHaveAttribute("aria-expanded", "true");
   });
 
@@ -262,6 +262,35 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     await waitFor(() => expect(denied).toHaveBeenCalledTimes(1));
     expect(result.current.page).toBeNull();
     expect(result.current.sourceByBatch).toEqual({});
+  });
+
+  it.each([401, 404])("fails the whole disclosure closed for HTTP %s authority loss", async (status) => {
+    const denied = vi.fn();
+    let deny = false;
+    mocks.authFetch.mockImplementation((url: string) => {
+      if (deny) return Promise.reject(Object.assign(new Error("authority lost"), { status }));
+      return url.includes("/source?") ? Promise.resolve(sourcePayload()) : Promise.resolve(batchPage());
+    });
+    const { result } = renderHook(() => useLiveStockBatchDetail(
+      11, "Batch load failed", "Stale", denied));
+
+    act(() => result.current.open(product));
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(result.current.sourceByBatch[71]).toBeTruthy());
+
+    deny = true;
+    act(() => result.current.loadSource(71));
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(denied).toHaveBeenCalledTimes(1));
+    expect(result.current.page).toBeNull();
+    expect(result.current.sourceByBatch).toEqual({});
+    expect(result.current.sourceOpenId).toBeNull();
+
+    act(() => result.current.retry());
+    await waitFor(() => expect(denied).toHaveBeenCalledTimes(2));
+    expect(result.current.page).toBeNull();
+    expect(result.current.loadError?.kind).toBe("initial");
   });
 
   it("offers an in-dialog refresh without closing or reusing source evidence", () => {
