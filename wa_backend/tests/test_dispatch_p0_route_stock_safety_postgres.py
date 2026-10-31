@@ -401,6 +401,32 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
                 "deltas": [{"product_id": tenant.variant_id, "delta_base": "1"}],
             }
             recovery_path = f"/dispatch/route/{route_id}/adjust_inventory/recovery"
+            cancel_path = recovery_path + "/cancel"
+
+            # Cross-company cancellation is rejected before the canonical row
+            # can be created under either tenant.
+            foreign_cancel_request = {
+                "request_id": str(uuid4()),
+                "deltas": [{"product_id": tenant.variant_id, "delta_base": "1"}],
+            }
+            company_before = await _snapshot(
+                pg, tenant, [vehicle_location, second_vehicle_location]
+            )
+            foreign_cancel = await client.post(
+                cancel_path, headers=foreign_headers, json=foreign_cancel_request
+            )
+            assert foreign_cancel.status_code in (403, 404), foreign_cancel.text
+            assert await _snapshot(
+                pg, tenant, [vehicle_location, second_vehicle_location]
+            ) == company_before
+            async with pg.session() as db:
+                assert await db.scalar(
+                    select(func.count()).select_from(OperationIdempotency).where(
+                        OperationIdempotency.request_id
+                        == foreign_cancel_request["request_id"]
+                    )
+                ) == 0
+
             initial_probe = await client.post(recovery_path, headers=headers, json=adjustment)
             assert initial_probe.status_code == 200, initial_probe.text
             assert initial_probe.json() == {
@@ -446,7 +472,6 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
 
             # COMMITTED always wins over a later cancellation attempt and returns
             # the original evidence without replay.
-            cancel_path = recovery_path + "/cancel"
             committed_cancel = await client.post(cancel_path, headers=headers, json=adjustment)
             assert committed_cancel.status_code == 200, committed_cancel.text
             assert committed_cancel.json() == {
