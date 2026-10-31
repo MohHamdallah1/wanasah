@@ -223,6 +223,7 @@ jobs:
           )
           allowed = {
               ".github/workflows/live-stock-v1-r3-physical-location-truth.yml",
+              ".github/workflows/flutter-v1-backend-field-contracts.yml",
               "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md",
               "wa_backend/api/dispatch.py",
               "wa_backend/api/warehouse/live_stock.py",
@@ -236,6 +237,7 @@ jobs:
               "wa_backend/tests/test_live_stock_v1_r4_query_optimization_postgres.py",
               "wa_backend/tests/live_stock_r4_negative_filter_postgres_acceptance.py",
               "wa_backend/tests/test_live_stock_r1_http_postgres.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
               "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
               "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py",
               "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
