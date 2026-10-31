@@ -217,7 +217,7 @@ jobs:
             --env POSTGRES_USER=perf_physical_admin \
             --env POSTGRES_DB=wanasah_no_lot_contract_test \
             --env POSTGRES_HOST_AUTH_METHOD=trust \
-            --publish 127.0.0.1:55439:55440 \
+            --publish 127.0.0.1:55439:55439 \
             postgres:16 -p 55439
           for attempt in $(seq 1 30); do
             if docker exec live-stock-perf-physical pg_isready \
