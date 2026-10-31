@@ -370,7 +370,8 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
       await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
-      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
+      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(2);
+      await expect(first.locator('[id^="live-stock-source"] dd').filter({ hasText: /^96 / })).toHaveCount(1);
       await expect(first).toContainText("not a complete physical-inventory total");
       await op.unroute(API + "/warehouse/inventory/**", raceHandler);
       await op.keyboard.press("Escape");
