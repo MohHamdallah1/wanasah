@@ -566,6 +566,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     expect(rows[1]).toHaveTextContent("1 CT + 2 EA");
     expect(rows[1].querySelector("[title]")).toHaveAttribute("title", "10 EA");
     expect(screen.getByText("Reservation evidence complete")).toBeInTheDocument();
+    expect(screen.getByText(/not a complete physical-inventory total/)).toBeInTheDocument();
     expect(screen.queryByText(/Truncated list:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Unattributed reserved quantity:/)).not.toBeInTheDocument();
     expect(list.querySelector("a, button")).toBeNull();
