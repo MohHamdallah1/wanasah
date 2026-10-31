@@ -14,6 +14,8 @@ import 'package:wanasah_frontend/blocs/dashboard/dashboard_bloc.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
 import 'package:wanasah_frontend/repositories/dashboard_repository.dart';
+import 'package:wanasah_frontend/repositories/sync_repository.dart';
+import 'package:wanasah_frontend/features/custody/application/custody_coordinator.dart';
 import 'package:wanasah_frontend/features/work_session/application/work_session_coordinator.dart';
 import 'package:wanasah_frontend/features/work_session/data/work_session_snapshot.dart';
 import 'package:wanasah_frontend/features/visits/presentation/visit_catalog.dart';
@@ -62,6 +64,8 @@ Widget _stockWidget(Locale locale, StockDisclosure disclosure, {
 );
 
 class _UnusedVisitBloc extends Fake implements VisitBloc {}
+class _UnusedSyncRepository extends Fake implements SyncRepository {}
+class _UnusedCustodyCoordinator extends Fake implements CustodyCoordinator {}
 
 class _DeniedDashboardRepo extends Fake implements DashboardRepository {
   _DeniedDashboardRepo(this.status);
@@ -89,7 +93,12 @@ class _SeededDashboardBloc extends DashboardBloc {
   _SeededDashboardBloc({
     required DashboardRepository repository,
     required WorkSessionCoordinator session,
-  }) : super(dashboardRepo: repository, workSessionCoordinator: session);
+  }) : super(
+    dashboardRepo: repository,
+    workSessionCoordinator: session,
+    syncRepository: _UnusedSyncRepository(),
+    custodyCoordinator: _UnusedCustodyCoordinator(),
+  );
 
   void seed(DashboardLoaded value) => emit(value);
 }
