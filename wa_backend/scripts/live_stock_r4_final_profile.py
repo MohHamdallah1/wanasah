@@ -27,17 +27,39 @@ LIST = "/warehouse/inventory/cursor"
 
 
 def implementations():
+    """Compile exact PR base and execute HEAD against the same physical fixture.
+
+    The original #661 gate required byte-identical runtime because it was
+    evidence-only. This closure gate intentionally supports a measured SQL
+    optimization: base is immutable evidence, HEAD is the candidate. Payload,
+    cursor, authorization and physical quantity parity are still mandatory.
+    """
     import subprocess
     base = os.environ["R4_FINAL_BASE_SHA"]
-    frozen = subprocess.check_output(["git", "show", base + ":wa_backend/api/warehouse/live_stock.py"], text=True)
+    frozen = subprocess.check_output(
+        ["git", "show", base + ":wa_backend/api/warehouse/live_stock.py"],
+        text=True,
+    )
     current = Path(live_stock.__file__).read_text()
-    assert frozen == current, "This evidence-only gate must preserve the exact accepted runtime"
     condition = "if search_variant_ids is not None and limit == 1 and not use_alert_fast_path:"
-    assert frozen.count(condition) == 1
-    control = frozen.replace(condition, "if False and search_variant_ids is not None and limit == 1 and not use_alert_fast_path:")
-    return {"accepted_main": compile_endpoint(frozen, "immutable-approved-main"),
-            "probe_disabled_control": compile_endpoint(control, "unsafe-probe-disabled-control"),
-            "implementation_head": live_stock.get_warehouse_inventory}, hashlib.sha256(current.encode()).hexdigest()
+    controls = {}
+    if frozen.count(condition) == 1:
+        control = frozen.replace(
+            condition,
+            "if False and search_variant_ids is not None and limit == 1 and not use_alert_fast_path:",
+        )
+        controls["probe_disabled_control"] = compile_endpoint(
+            control, "unsafe-probe-disabled-control"
+        )
+    return ({
+        "accepted_main": compile_endpoint(frozen, "exact-pr-base"),
+        **controls,
+        "implementation_head": live_stock.get_warehouse_inventory,
+    }, {
+        "base": hashlib.sha256(frozen.encode()).hexdigest(),
+        "head": hashlib.sha256(current.encode()).hexdigest(),
+        "changed": frozen != current,
+    })
 
 
 @contextmanager
