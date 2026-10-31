@@ -158,6 +158,7 @@ jobs:
           CP2_AUDIT_HEAD_SHA: ${{ steps.audit-base.outputs.head }}
         run: |
           python - <<'PY'
+          import ast
           import os
           import subprocess
 
@@ -179,8 +180,54 @@ jobs:
               ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
           }
           cp2_workflow = ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
+          shared_schema = "wa_backend/schemas.py"
+          cp2_schema_symbols = {
+              "BatchIndexTrackingMode",
+              "BatchIndexDisposition",
+              "BatchIndexSellabilityState",
+              "BatchIndexSellabilityReason",
+              "WarehouseInventoryBatchIndexItem",
+              "WarehouseInventoryBatchIndexCursorPage",
+              "WarehouseInventoryBatchIndexSummaryResponse",
+          }
 
-          def classify(changed, *, is_pr):
+          def cp2_schema_contract_from_source(source):
+              tree = ast.parse(source)
+              owned = {}
+              for node in tree.body:
+                  if isinstance(node, ast.ClassDef) and node.name in cp2_schema_symbols:
+                      owned[node.name] = ast.dump(node, include_attributes=False)
+                  elif isinstance(node, ast.Assign):
+                      for target in node.targets:
+                          if isinstance(target, ast.Name) and target.id in cp2_schema_symbols:
+                              owned[target.id] = ast.dump(node, include_attributes=False)
+                  elif (
+                      isinstance(node, ast.AnnAssign)
+                      and isinstance(node.target, ast.Name)
+                      and node.target.id in cp2_schema_symbols
+                  ):
+                      owned[node.target.id] = ast.dump(node, include_attributes=False)
+              missing = cp2_schema_symbols - set(owned)
+              if missing:
+                  raise ValueError(
+                      "CP2_SCOPE=FAIL CP2 schema contract symbols missing\n"
+                      f"missing={sorted(missing)}"
+                  )
+              return tuple((name, owned[name]) for name in sorted(owned))
+
+          def cp2_schema_contract(ref):
+              try:
+                  source = subprocess.check_output(
+                      ["git", "show", f"{ref}:{shared_schema}"],
+                      text=True,
+                  )
+              except subprocess.CalledProcessError as exc:
+                  raise ValueError(
+                      "CP2_SCOPE=FAIL unable to inspect shared schema contract"
+                  ) from exc
+              return cp2_schema_contract_from_source(source)
+
+          def classify(changed, *, is_pr, cp2_schema_changed=False):
               if not is_pr:
                   if changed != expected:
                       raise ValueError(
@@ -189,11 +236,24 @@ jobs:
                           f"extra={sorted(changed - expected)}"
                       )
                   return "historical"
-              if not (changed & expected):
+
+              cp2_owned = expected - {shared_schema}
+              touches_cp2 = bool(changed & cp2_owned) or (
+                  shared_schema in changed and cp2_schema_changed
+              )
+              if not touches_cp2:
                   return "not-applicable"
               if cp2_workflow in changed and changed <= policy_only:
                   return "policy-maintenance"
-              invalid = changed - expected
+
+              # schemas.py is shared infrastructure. It is CP2-owned for this
+              # audit only when one of CP2's explicit response-contract AST
+              # nodes changed. An unrelated schema edit must not make CP2 own
+              # the whole PR, and it must not hitchhike beside real CP2 work.
+              allowed = set(expected)
+              if shared_schema in changed and not cp2_schema_changed:
+                  allowed.remove(shared_schema)
+              invalid = changed - allowed
               if invalid:
                   raise ValueError(
                       "CP2_SCOPE=FAIL maintenance changes outside CP2 ownership\n"
@@ -201,31 +261,72 @@ jobs:
                   )
               return "maintenance"
 
-          # Execute actual policy function against representative ownership
-          # cases. A failure case must raise; never convert real failures to
-          # a green result or exclude a CP2-owned runtime path.
-          for names, expected_mode in (
-              ({"wa_backend/api/warehouse/live_stock.py"}, "not-applicable"),
-              ({"dashboard/src/pages/inventory/MainInventory.tsx"}, "not-applicable"),
-              ({"wa_backend/api/warehouse/batch_index.py"}, "maintenance"),
-              (expected, "maintenance"),
-              (policy_only, "policy-maintenance"),
-          ):
-              assert classify(names, is_pr=True) == expected_mode
-          for names in (
-              {"wa_backend/api/warehouse/batch_index.py", "dashboard/unrelated.tsx"},
-              {cp2_workflow, "wa_backend/alembic/versions/unrelated.py"},
-              {cp2_workflow, "docs/unrelated.md"},
-          ):
+          # Focused classifier selftests: shared schemas.py changes are ignored
+          # only when CP2's own AST contract is unchanged. Genuine CP2 edits
+          # remain owned, and unrelated files cannot accompany them.
+          synthetic = """
+BatchIndexTrackingMode = Literal["NONE"]
+BatchIndexDisposition = Literal["RELEASED"]
+BatchIndexSellabilityState = Literal["SELLABLE"]
+BatchIndexSellabilityReason = Literal["EXPIRED"]
+unrelated = 1
+class WarehouseInventoryBatchIndexItem(BaseModel):
+    batch_id: int
+class WarehouseInventoryBatchIndexCursorPage(BaseModel):
+    items: list[WarehouseInventoryBatchIndexItem]
+class WarehouseInventoryBatchIndexSummaryResponse(BaseModel):
+    total_relevant_batches: int
+"""
+          synthetic_unrelated = synthetic.replace("unrelated = 1", "unrelated = 2")
+          synthetic_cp2 = synthetic.replace("batch_id: int", "batch_id: str")
+          assert (
+              cp2_schema_contract_from_source(synthetic)
+              == cp2_schema_contract_from_source(synthetic_unrelated)
+          )
+          assert (
+              cp2_schema_contract_from_source(synthetic)
+              != cp2_schema_contract_from_source(synthetic_cp2)
+          )
+
+          positive_cases = (
+              ({"wa_backend/api/warehouse/live_stock.py"}, False, "not-applicable"),
+              ({"dashboard/src/pages/inventory/MainInventory.tsx"}, False, "not-applicable"),
+              ({shared_schema, "wa_backend/api/warehouse/live_stock.py"}, False, "not-applicable"),
+              ({"wa_backend/api/warehouse/batch_index.py"}, False, "maintenance"),
+              ({shared_schema}, True, "maintenance"),
+              (expected, True, "maintenance"),
+              (policy_only, False, "policy-maintenance"),
+          )
+          for names, schema_changed, expected_mode in positive_cases:
+              assert classify(
+                  names,
+                  is_pr=True,
+                  cp2_schema_changed=schema_changed,
+              ) == expected_mode
+
+          negative_cases = (
+              ({"wa_backend/api/warehouse/batch_index.py", "dashboard/unrelated.tsx"}, False),
+              ({shared_schema, "wa_backend/api/warehouse/live_stock.py"}, True),
+              ({"wa_backend/api/warehouse/batch_index.py", shared_schema}, False),
+              ({cp2_workflow, shared_schema}, False),
+              ({cp2_workflow, "wa_backend/alembic/versions/unrelated.py"}, False),
+              ({cp2_workflow, "docs/unrelated.md"}, False),
+          )
+          for names, schema_changed in negative_cases:
               try:
-                  classify(names, is_pr=True)
+                  classify(
+                      names,
+                      is_pr=True,
+                      cp2_schema_changed=schema_changed,
+                  )
               except ValueError:
                   pass
               else:
                   raise AssertionError(f"CP2 scope violation escaped: {sorted(names)}")
+
           assert classify(expected, is_pr=False) == "historical"
           try:
-              classify(expected - {"wa_backend/schemas.py"}, is_pr=False)
+              classify(expected - {shared_schema}, is_pr=False)
           except ValueError:
               pass
           else:
@@ -240,8 +341,23 @@ jobs:
                   text=True,
               ).splitlines()
           )
+          is_pr = os.environ["GITHUB_EVENT_NAME"] == "pull_request"
+          cp2_schema_changed = False
+          if is_pr and shared_schema in changed:
+              cp2_schema_changed = (
+                  cp2_schema_contract(os.environ["CP2_AUDIT_BASE_SHA"])
+                  != cp2_schema_contract(os.environ["CP2_AUDIT_HEAD_SHA"])
+              )
+              print(
+                  "CP2_SHARED_SCHEMA_CONTRACT_CHANGED="
+                  + ("true" if cp2_schema_changed else "false")
+              )
           try:
-              scope = classify(changed, is_pr=os.environ["GITHUB_EVENT_NAME"] == "pull_request")
+              scope = classify(
+                  changed,
+                  is_pr=is_pr,
+                  cp2_schema_changed=cp2_schema_changed,
+              )
           except ValueError as exc:
               raise SystemExit(str(exc)) from None
 
