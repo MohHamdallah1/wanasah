@@ -698,12 +698,24 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     await page.keyboard.press("Enter");
     await expect(family).toHaveAttribute("aria-label", /Journey Family 051/);
     await page.keyboard.press("Escape");
+    await expect(family).toBeFocused();
     await expect(item(page, "Paging Item 105")).toBeVisible();
 
     await family.focus();
     await page.keyboard.press("Enter");
     await page.locator(".live-stock-family-clear").click();
     await page.keyboard.press("Escape");
+    await expect(family).toBeFocused();
+    const closedFamilyLayerFocus = await page.evaluate(() => {
+      const layer = document.querySelector<HTMLElement>(
+        ".live-stock-family-popover[data-state='closed']",
+      );
+      return {
+        mounted: Boolean(layer),
+        retainsFocus: Boolean(layer?.contains(document.activeElement)),
+      };
+    });
+    expect(closedFamilyLayerFocus.retainsFocus).toBe(false);
     await expect(item(page, state.mainName)).toBeVisible();
 
     await search.focus();
@@ -727,10 +739,11 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     const opener = page.locator('[data-live-stock-product-open="' + state.mainId + '"]');
     await opener.focus();
     await page.keyboard.press("Enter");
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", { name: new RegExp(state.mainName) });
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAccessibleName(new RegExp(state.mainName));
     await expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
     await captureAxTree(page, "AX-02-batch-dialog.json");
     await captureOwner(page, "05-desktop-en-batch-dialog.png");
 
