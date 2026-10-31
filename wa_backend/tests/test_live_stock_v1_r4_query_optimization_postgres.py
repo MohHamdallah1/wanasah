@@ -420,6 +420,23 @@ async def _acceptance():
         poolclass=NullPool,
     )
 
+    # Projection v2 intentionally rejects stale v1 persisted state.
+    # Rebuild each physical clone before any timed/list observation so
+    # before/after compare identical READY projection data. This preparation is
+    # outside all measured calls.
+    for engine in (before, after):
+        async with AsyncSession(engine, expire_on_commit=False) as db:
+            await db.begin()
+            await db.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(fixture["company_id"])},
+            )
+            await rebuild_live_stock_company(
+                db,
+                company_id=int(fixture["company_id"]),
+            )
+            await db.commit()
+
     report = {
         "base_sha": BASE_SHA,
         "head_sha": os.environ["R4_OPT_HEAD_SHA"],
@@ -473,15 +490,6 @@ async def _acceptance():
                         ), {"t": table})
                     ).one()
                     assert tuple(flags) == (True, True), table
-
-                # Projection v2 intentionally rejects stale v1 persisted state.
-                # Rebuild each physical clone before any timed/list observation
-                # so before/after compare identical READY projection data.
-                await rebuild_live_stock_company(
-                    db,
-                    company_id=int(fixture["company_id"]),
-                )
-                await db.commit()
 
         # Controlled first-list observation: identical cloned data and owner scope.
         report["cold"]["before"] = await _first_list_observation(
