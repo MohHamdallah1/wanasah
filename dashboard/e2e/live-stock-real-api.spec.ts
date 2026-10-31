@@ -167,7 +167,7 @@ async function openBatchAndReadEvidence(
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(company.lot);
 
-  const sourceButton = dialog.getByRole("button", { name: "Stock source and reservations" });
+  const sourceButton = dialog.getByRole("button", { name: "Actionable Warehouse source and reservations" });
   const sourceResponsePromise = page.waitForResponse((response) =>
     response.request().method() === "GET"
     && response.url().includes(
