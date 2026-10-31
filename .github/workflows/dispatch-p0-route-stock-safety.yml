@@ -212,6 +212,7 @@ jobs:
               "dashboard/src/pages/products/import/useImportProductPolling.ts",
               "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
               "dashboard/src/test/auth-session-isolation.test.tsx",
+              "dashboard/src/test/auth-session-page-boundary.test.tsx",
               "dashboard/src/test/dispatch-load-context.test.tsx",
               "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
               "dashboard/src/test/live-stock-warm-authority.test.tsx",
