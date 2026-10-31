@@ -189,6 +189,7 @@ describe('live stock response contract', () => {
     { vehicle_quantity: "-1" }, { vehicle_quantity: "0.0000001" },
     { total_quantity_scope: undefined }, { total_quantity_scope: "COMPANY_WIDE" },
     { total_quantity_scope: "LATEST_ROUTE" },
+    { total_quantity: "31.125" },
   ])("rejects malformed or ambiguous physical-custody scope %#", (changes) => {
     expect(() => parseLiveStockPage(page(changes))).toThrow("LIVE_STOCK_RESPONSE_INVALID");
   });
