@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
+import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
 import 'package:wanasah_frontend/features/work_session/presentation/work_session_controls.dart';
 import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/models/product_model.dart';
@@ -103,10 +104,10 @@ void main() {
         expect(session, isNot(contains('WorkSessionIssuePanel')));
         expect(transfer, contains("strings.t('title')"));
         expect(transfer, contains("strings.t('allRequired')"));
-        expect(inventory, contains("'مخزون سيارة المندوب:'"));
+        expect(inventory, contains('l10n.stockVehicleTitle'));
         expect(
           inventory,
-          contains("'لا يوجد مخزون متاح للبيع في السيارة حالياً.'"),
+          contains('l10n.stockEmptyVerified'),
         );
       },
     );
@@ -217,9 +218,14 @@ void main() {
 
     await tester.pumpWidget(
       const MaterialApp(
+        locale: Locale('ar'),
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
         home: Scaffold(
           body: VehicleInventorySection(
             products: <ProductModel>[product],
+            sellableDisclosure: StockDisclosure.verified,
+            nonSellableDisclosure: StockDisclosure.verified,
             nonSellableCustody: <NonSellableCustodyItem>[],
           ),
         ),
@@ -228,8 +234,8 @@ void main() {
 
     expect(find.text('مخزون سيارة المندوب:'), findsOneWidget);
     expect(find.text('منتج اختبار'), findsOneWidget);
-    expect(find.text('الاستلام: 10 كرتونة و 3 حبة'), findsOneWidget);
-    expect(find.text('المباع: 2 كرتونة، 4 حبة'), findsOneWidget);
-    expect(find.text('المتبقي: 8 كرتونة، 11 باكيت'), findsOneWidget);
+    expect(find.text('الاستلام: 10 كرتونة + 3 حبة'), findsOneWidget);
+    expect(find.text('المباع: 2 كرتونة, 4 حبة'), findsOneWidget);
+    expect(find.text('المتبقي: 8 كرتونة, 11 باكيت'), findsOneWidget);
   });
 }
