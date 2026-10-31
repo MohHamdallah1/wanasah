@@ -1,1 +1,19 @@
-import { defineConfig } from "playwright/test";\n\nexport default defineConfig({\n  testDir: ".",\n  testMatch: "live-stock-g04-outage.spec.ts",\n  workers: 1,\n  retries: 0,\n  reporter: [["list"], ["junit", { outputFile: "../node_modules/.cache/live-stock-g04-outage.xml" }]],\n  outputDir: "../node_modules/.cache/live-stock-g04-outage",\n  use: {\n    baseURL: "http://127.0.0.1:4173",\n    browserName: "chromium",\n    headless: true,\n    actionTimeout: 15_000,\n    navigationTimeout: 30_000,\n    trace: "retain-on-failure",\n    screenshot: "only-on-failure",\n  },\n});\n
+import { defineConfig } from "playwright/test";
+
+export default defineConfig({
+  testDir: ".",
+  testMatch: "live-stock-g04-outage.spec.ts",
+  workers: 1,
+  retries: 0,
+  reporter: [["list"], ["junit", { outputFile: "../node_modules/.cache/live-stock-g04-outage.xml" }]],
+  outputDir: "../node_modules/.cache/live-stock-g04-outage",
+  use: {
+    baseURL: "http://127.0.0.1:4173",
+    browserName: "chromium",
+    headless: true,
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
+});
