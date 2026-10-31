@@ -328,8 +328,15 @@ async def _run():
 
         # R3 projection v2 deliberately rejects persisted v1 state. Prepare
         # both cloned comparison databases identically before measurements.
+        # Use a write-capable transaction here; r4.session is intentionally
+        # READ ONLY and is reserved for measurements.
         for engine in (before, after):
-            async with r4.session(engine, fixture["company_id"]) as db:
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                await db.begin()
+                await db.execute(
+                    text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                    {"tenant": str(fixture["company_id"])},
+                )
                 await rebuild_live_stock_company(
                     db,
                     company_id=int(fixture["company_id"]),
