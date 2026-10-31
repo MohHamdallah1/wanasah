@@ -30,6 +30,8 @@ import '../../features/recovery/data/recovery_data_source.dart';
 import '../../features/recovery/data/recovery_sync_executor.dart';
 import '../../features/custody/application/custody_coordinator.dart';
 import '../../features/custody/domain/transfer_decision.dart';
+import '../../features/custody/domain/non_sellable_custody.dart';
+import '../../features/custody/domain/stock_disclosure.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
