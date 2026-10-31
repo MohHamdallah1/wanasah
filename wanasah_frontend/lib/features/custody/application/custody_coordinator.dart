@@ -49,7 +49,7 @@ class CustodyCoordinator {
   Future<PendingTransferBatch?> loadPendingTransfers() =>
       _pendingTransfers.load();
 
-  Future<List<NonSellableCustodyItem>> loadNonSellableCustody() async {
+  Future<List<NonSellableCustodyItem>> loadNonSellableCustody({int? expectedSessionId}) async {
     // Cursor is opaque and session-bound. Never return partial pages.
     final items = <NonSellableCustodyItem>[];
     final seenCursors = <String>{};
@@ -65,6 +65,9 @@ class CustodyCoordinator {
       );
       if (sessionId != null && sessionId != page.sessionId) {
         throw const FormatException('Custody session changed between pages');
+      }
+      if (expectedSessionId != null && page.sessionId != expectedSessionId) {
+        throw const FormatException('Custody response belongs to another session');
       }
       sessionId = page.sessionId;
       if (page.items.length > custodyPageSize ||
