@@ -285,21 +285,21 @@ class LiveStockCanonicalCutoverTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("product_variants.id > 10", visible)
             self.assertIn("warehouse_location_id = 21", visible)
             self.assertIn("LIMIT 3", visible)
-            ordering = ("product_variants.name DESC, product_variants.id DESC" if owner else
-                        "visible_inventory_candidates.variant_name DESC, visible_inventory_candidates.id DESC")
+            ordering = (
+                "visible_inventory_candidates.variant_name DESC, "
+                "visible_inventory_candidates.id DESC"
+            )
             self.assertIn("ORDER BY " + ordering, visible)
             self.assertIn("live_stock_filter_variant.company_id = 7", filtered)
             self.assertIn("warehouse_location_id = 21", filtered)
             self.assertIn("warehouse_sellable_on_hand", filtered)
             self.assertIn("warehouse_reserved", filtered)
             self.assertIn("recalled_packs", filtered)
-            if owner:
-                self.assertIn("vehicle_packs", filtered)
-            else:
-                for rendered in (visible, filtered):
-                    self.assertIn("inventory_balances.company_id = 7", rendered)
-                    self.assertIn("dispatch_routes.company_id = 7", rendered)
-                    self.assertIn("latest_readable_vehicle_sources.source_location_id = 21", rendered)
+            for rendered in (visible, filtered):
+                self.assertIn("inventory_balances.company_id = 7", rendered)
+                self.assertNotIn("dispatch_routes", rendered)
+                self.assertNotIn("latest_readable_vehicle_sources", rendered)
+                self.assertNotIn("vehicle_packs", rendered)
 
     async def http_request(self, context, path, readiness):
         app = FastAPI()
