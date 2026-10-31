@@ -18,7 +18,9 @@ from main import app
 from models import ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from scripts.live_stock_r4_final_fixture import build, fingerprint
-from scripts.live_stock_r4_final_metrics import hardware, assert_selective_point_scans
+from scripts.live_stock_r4_final_metrics import (
+    assert_selective_point_scans, distribution, hardware,
+)
 from scripts.live_stock_r4_final_profile import (
     LIST, implementations, login, measure, specifications,
 )
