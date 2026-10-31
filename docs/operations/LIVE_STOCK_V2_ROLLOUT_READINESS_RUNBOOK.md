@@ -1,6 +1,6 @@
 # Live Stock projection v1 → physical-location v2: operator rollout acceptance
 
-**Status:** acceptance and safe deployment instructions, NOT permission to deploy. This document and its PostgreSQL 16 test change no production records. Exact starting main for this proof: `70e13b3f6f75777d9d3802dddb478446bf868f09`.
+**Status:** acceptance and safe deployment instructions, NOT permission to deploy. These PostgreSQL 16 acceptances change no production records. The original v1→v2 projection proof started from `70e13b3f6f75777d9d3802dddb478446bf868f09`; the real backup/restore rehearsal starts from exact main `1e4a83c685ae2a7a2cdafb53783683079e9bbb7d`.
 
 ## Findings from the current implementation
 
@@ -27,8 +27,54 @@
 - **Application rollback**: reverting only the backend to code that interprets `vehicle_packs` as Warehouse-owned is unsafe. Keep stock reads fail-closed until the rollback's schema/reader contract is proven safe. If a true database restore is necessary, treat it as a separate controlled recovery with full post-backup movement/financial reconciliation; NEVER silently overwrite production transactions. Backup recovery requires incident/change approval.
 - **Unknown/unauthorized**: do not present old cached v1, partial projected rows or inaccessible Vehicle custody as zero. A READINESS=false company remains unavailable, not empty.
 
+## Real non-production backup/restore rehearsal
+
+The missing restore rehearsal is covered by `wa_backend/tests/test_live_stock_v2_restore_rehearsal_postgres.py` and `.github/workflows/live-stock-v2-restore-rehearsal.yml`. This gate reuses the #700 canonical seed/rebuild helpers and production `rebuild_live_stock_company`; it does **not** add another projection algorithm, manual READY path, movement replay, costing repair, authorization shortcut or RLS exception.
+
+The workflow creates one PostgreSQL 16 container with a migration role plus `wanasah_app NOSUPERUSER NOBYPASSRLS`. It migrates a disposable source database, seeds the same canonical two-tenant physical truth used by #700 (Warehouse, Vehicle, IN_TRANSIT, route-independent custody and actual costing evidence), persists a schema-valid v1 projection, and records per-company SHA-256 fingerprints of canonical locations/batches/balances/movements/cost layers/cost events/cost state/idempotency plus projection state. The source is verified fail-closed through real FastAPI bearer reads before backup.
+
+The backup and restore are actual PostgreSQL custom-format operations into a **different empty database** in the same disposable PG16 container. The executable core is:
+
+```bash
+docker exec live-stock-v2-restore pg_dump \
+  -U v2_restore_admin -p 55439 \
+  -d wanasah_no_lot_contract_test -Fc \
+  > /tmp/live-stock-v2-source.dump
+
+docker exec live-stock-v2-restore createdb \
+  -U v2_restore_admin -p 55439 wanasah_live_stock_v2_restore_test
+
+docker exec -i live-stock-v2-restore pg_restore \
+  -U v2_restore_admin -p 55439 \
+  --no-owner --exit-on-error \
+  -d wanasah_live_stock_v2_restore_test \
+  < /tmp/live-stock-v2-source.dump
+```
+
+The restore job checks that the dump is non-empty, records its SHA-256, inspects the archive for canonical balance/movement/cost/projection table data, and then starts a **fresh test process** whose `DATABASE_URL` points only at `wanasah_live_stock_v2_restore_test`. That fresh process verifies Alembic heads, `wanasah_app` remains non-superuser/non-BYPASSRLS, FORCE RLS remains active on authoritative and projection tables, every pre-backup canonical fingerprint and Warehouse/Vehicle/IN_TRANSIT quantity matches exactly, and a tenant session cannot see the other company's balances.
+
+Recovery is then exercised on the restored v1 snapshot itself. Fresh owner and restricted-reader bearer requests remain HTTP 503 `LIVE_STOCK_PROJECTION_NOT_READY` before a successful rebuild while the unrelated company remains readable. The test injects failure on the second Warehouse inside the existing canonical company rebuild, rolls the transaction back, and requires the entire projection fingerprint/version/state to equal the pre-recovery restored v1 snapshot. Canonical balance/movement/cost/idempotency fingerprints and physical custody must also remain byte-equivalent, proving an interrupted recovery cannot leave false READY or replay stock movements.
+
+Only after that negative proof does the rehearsal execute `rebuild_live_stock_company(..., batch_size=1)`, call `assert_live_stock_projection_ready` for every active Warehouse and commit. Fresh post-recovery logins must then read W1=91, W2=63, company-wide Vehicle=42 for the owner, authorized Vehicle=35 for the restricted reader, preserve IN_TRANSIT=4, deny cross-company locations, and keep the foreign company unchanged. A second canonical rebuild must report zero drift/summary repairs while all authoritative movement/cost fingerprints remain identical.
+
+GitHub runs the focused restore check as:
+
+```bash
+python -B -m pytest -p no:cacheprovider -q -s \
+  tests/test_live_stock_v2_restore_rehearsal_postgres.py::test_prepare_backup_source
+
+DATABASE_URL=postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_live_stock_v2_restore_test \
+DATABASE_URL_MIGRATION=postgresql+asyncpg://v2_restore_admin@127.0.0.1:55439/wanasah_live_stock_v2_restore_test \
+python -B -m pytest -p no:cacheprovider -q -s \
+  tests/test_live_stock_v2_restore_rehearsal_postgres.py::test_restored_backup_recovers_v1_to_v2_without_authoritative_replay
+```
+
+### Production-only prerequisites still open
+
+This disposable rehearsal closes the repository-level **backup/restore mechanics** gap only. Production still requires explicit release/change approval; a production-approved backup/snapshot method and credentials; a verified production-target restore location; production database size, dump/restore duration, lock and maintenance-window budgets; confirmation that deployed API/Dashboard/mobile clients are compatible; approved per-company restricted execution authority; final integrated-main CI; and an incident-specific reconciliation plan for any transactions created after the chosen restore point. A real production restore must never silently discard post-backup inventory or financial events. Nothing in this rehearsal authorizes deploying v2, running a rebuild against production, or restoring customer data.
+
 ## Isolated acceptance coverage and limits
 
 `wa_backend/tests/test_live_stock_v2_rollout_readiness_postgres.py` is guarded by `WANASAH_LIVE_STOCK_V2_ROLLOUT_PG_GATE=1` and the fixture's exact `127.0.0.1:55439/wanasah_no_lot_contract_test` identity, restricted non-bypass runtime role, FORCE RLS and fresh Alembic head. It seeds two tenants, Warehouse W1/W2, independent Vehicle1/Vehicle2, mixed origin/lot receipts, actual IN_TRANSIT movement and a W1 Route on a Vehicle holding W2 stock. It persists an intentionally stale schema-valid v1 projection row and READY v1 summary versions **in the disposable fixture only**. It proves actual HTTP bearer 503 prior to rebuild, a deliberately interrupted atomic rollback and another 503, bounded canonical rebuild to READY, precise W1/W2/Vehicle/IN_TRANSIT and scoped bearer results, tenant denial, no movement/cost duplication and repeated rebuild zero drift for FIFO and moving average.
 
-The synthetic v1 seed demonstrates stale v1 persisted data with old Vehicle attribution; it is **not** an executed binary downgrade or production backup replay. The test provides rollout-specific runtime evidence only after a green same-HEAD GitHub Actions run. It cannot certify a production company's unique data size, backup recoverability, deployment permissions, network concurrency or peak-load timing. Operational certification and owner approval remain separate prerequisites.
+The #700 synthetic v1 seed still demonstrates stale v1 persisted data with old Vehicle attribution and is not an executed binary downgrade. The dedicated restore rehearsal now adds an actual disposable PostgreSQL16 `pg_dump` → separate-database `pg_restore` replay and performs the canonical recovery against that restored v1 snapshot. Neither test is a production restore certificate: they cannot certify a production company's unique size, backup storage, credentials, restore target, maintenance timing, post-backup transaction reconciliation, deployment permissions, network concurrency or peak-load behavior. Operational certification and owner approval remain separate prerequisites.

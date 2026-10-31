@@ -1,0 +1,230 @@
+name: Live Stock v2 real restore recovery rehearsal
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/test_live_stock_v2_restore_rehearsal_postgres.py"
+      - "docs/operations/LIVE_STOCK_V2_ROLLOUT_READINESS_RUNBOOK.md"
+      - ".github/workflows/live-stock-v2-restore-rehearsal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  restore-recovery-pg16:
+    name: real-backup-restore-recovery-pg16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockV2RestoreRehearsalOnly123456789012345678901
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://v2_restore_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_LIVE_STOCK_V2_RESTORE_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://v2_restore_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_LIVE_STOCK_V2_RESTORE_MANIFEST: /tmp/live-stock-v2-restore-manifest.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile restore rehearsal
+        working-directory: wa_backend
+        run: python -m py_compile tests/test_live_stock_v2_restore_rehearsal_postgres.py
+
+      - name: Start disposable PostgreSQL16
+        run: |
+          docker run --detach --name live-stock-v2-restore \
+            --env POSTGRES_USER=v2_restore_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-v2-restore pg_isready \
+              -U v2_restore_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-v2-restore
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Install fresh source schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant source runtime DML without bypassing RLS
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Seed canonical physical truth and persisted v1 restore point
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v2_restore_rehearsal_postgres.py::test_prepare_backup_source
+          --junitxml=live-stock-v2-restore-source.xml
+
+      - name: Take and inspect real PostgreSQL16 custom-format backup
+        run: |
+          docker exec live-stock-v2-restore pg_dump \
+            -U v2_restore_admin -p 55439 \
+            -d wanasah_no_lot_contract_test -Fc \
+            > /tmp/live-stock-v2-source.dump
+          test -s /tmp/live-stock-v2-source.dump
+          sha256sum /tmp/live-stock-v2-source.dump \
+            | tee /tmp/live-stock-v2-source.dump.sha256
+          docker exec -i live-stock-v2-restore pg_restore -l \
+            < /tmp/live-stock-v2-source.dump \
+            > /tmp/live-stock-v2-source.restore-list.txt
+          grep -q "TABLE DATA public inventory_balances" \
+            /tmp/live-stock-v2-source.restore-list.txt
+          grep -q "TABLE DATA public inventory_movements" \
+            /tmp/live-stock-v2-source.restore-list.txt
+          grep -q "TABLE DATA public inventory_cost_events" \
+            /tmp/live-stock-v2-source.restore-list.txt
+          grep -q "TABLE DATA public inventory_live_stock_projection" \
+            /tmp/live-stock-v2-source.restore-list.txt
+
+      - name: Restore backup into a separate disposable database
+        run: |
+          docker exec live-stock-v2-restore createdb \
+            -U v2_restore_admin -p 55439 wanasah_live_stock_v2_restore_test
+          docker exec -i live-stock-v2-restore pg_restore \
+            -U v2_restore_admin -p 55439 \
+            --no-owner --exit-on-error \
+            -d wanasah_live_stock_v2_restore_test \
+            < /tmp/live-stock-v2-source.dump
+
+      - name: Restored v1 to v2 rollback recovery and fresh bearer RLS proof
+        working-directory: wa_backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_live_stock_v2_restore_test
+          DATABASE_URL_MIGRATION: postgresql+asyncpg://v2_restore_admin@127.0.0.1:55439/wanasah_live_stock_v2_restore_test
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v2_restore_rehearsal_postgres.py::test_restored_backup_recovers_v1_to_v2_without_authoritative_replay
+          --junitxml=live-stock-v2-restore-recovery.xml
+
+      - name: Reject skipped failed or empty restore evidence
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          files = [
+              "live-stock-v2-restore-source.xml",
+              "live-stock-v2-restore-recovery.xml",
+          ]
+          executed = 0
+          for path in files:
+              root = ET.parse(path).getroot()
+              cases = list(root.iter("testcase"))
+              assert len(cases) == 1, (path, len(cases))
+              for item in cases:
+                  assert not any(
+                      item.find(tag) is not None
+                      for tag in ("failure", "error", "skipped")
+                  ), (path, item.attrib)
+              executed += len(cases)
+          print(
+              "LIVE_STOCK_V2_REAL_BACKUP_RESTORE_RECOVERY=PASS "
+              f"cases={executed} skipped=0"
+          )
+          PY
+
+      - name: Verify bounded ownership and whitespace
+        run: |
+          base="$(git merge-base origin/main HEAD)"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
+          import subprocess
+          files = set(
+              subprocess.check_output(
+                  ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+                  text=True,
+              ).splitlines()
+          )
+          owned = {
+              ".github/workflows/live-stock-v2-restore-rehearsal.yml",
+              ".github/workflows/live-stock-v2-rollout-readiness.yml",
+              "docs/operations/LIVE_STOCK_V2_ROLLOUT_READINESS_RUNBOOK.md",
+              "wa_backend/tests/test_live_stock_v2_restore_rehearsal_postgres.py",
+          }
+          def check_scope(candidate):
+              unexpected = candidate - owned
+              assert not unexpected, f"Unowned V2 restore changes: {sorted(unexpected)}"
+          check_scope(files)
+          for probe in ("wa_backend/services.py", "wa_backend/domains/inventory/services.py"):
+              try:
+                  check_scope(files | {probe})
+              except AssertionError as exc:
+                  assert probe in str(exc)
+              else:
+                  raise AssertionError("Unexpected V2 restore ownership bypass: " + probe)
+          print("LIVE_STOCK_V2_RESTORE_SCOPE=PASS negative_probes=2")
+          PY
+
+      - name: Retain disposable restore evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-v2-restore-rehearsal-${{ github.sha }}
+          path: |
+            wa_backend/live-stock-v2-restore-source.xml
+            wa_backend/live-stock-v2-restore-recovery.xml
+            /tmp/live-stock-v2-restore-manifest.json
+            /tmp/live-stock-v2-source.dump.sha256
+            /tmp/live-stock-v2-source.restore-list.txt
+          if-no-files-found: warn
