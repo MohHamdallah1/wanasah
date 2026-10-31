@@ -45,6 +45,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   bool _workSessionRecoveryCompleted = false;
   // A confirmed denial must not be bypassed by an offline SQLite reload.
   bool _sellableAccessDenied = false;
+  // Different event types execute concurrently despite per-type sequential
+  // transformers. Authority transitions revoke all earlier custody reads.
+  int _custodyAuthorityEpoch = 0;
+  int? _custodySessionId;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
   EventTransformer<T> _sequential<T>() {
@@ -330,6 +334,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               : null;
       final sessionSnapshot = WorkSessionSnapshot.fromDashboardResponse(data);
       final bool sessionIsActive = sessionSnapshot.isActive;
+      // New authoritative dashboard invalidates older custody reads, even
+      // when the representative's session has changed between responses.
+      _custodyAuthorityEpoch++;
+      _custodySessionId = sessionSnapshot.sessionId;
 
       bool isAuthorized = false;
       final bool isOnBreak = sessionSnapshot.isOnBreak ?? false;
@@ -507,6 +515,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       }
     } on DioException catch (e) {
       if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        _custodyAuthorityEpoch++;
+        _custodySessionId = null;
         _sellableAccessDenied = true;
         if (state is DashboardLoaded) {
           emit((state as DashboardLoaded).copyWith(
@@ -612,6 +622,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   ) async {
     if (state is! DashboardLoaded) return;
     final snapshot = state as DashboardLoaded;
+    if (_sellableAccessDenied) return;
+    final authorityEpoch = _custodyAuthorityEpoch;
+    final authoritySessionId = _custodySessionId;
 
     var pendingTransfer = snapshot.pendingTransfer;
     var nonSellableCustody = snapshot.nonSellableCustody;
@@ -652,7 +665,14 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       developer.log('[DashboardBloc] Pending return custody read failed: $e');
     }
 
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded ||
+        _sellableAccessDenied ||
+        authorityEpoch != _custodyAuthorityEpoch ||
+        authoritySessionId != _custodySessionId) {
+      // Never allow an old response to resurrect revoked or previous-session
+      // custody as verified. No partial or synthetic zero disclosure.
+      return;
+    }
     emit(
       (state as DashboardLoaded).copyWith(
         pendingTransfer: pendingTransfer,
@@ -806,10 +826,25 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final message = workSessionResultMessage(result);
 
     if (result.isSuccess) {
+      if (result.operation == WorkSessionOperation.start ||
+          result.operation == WorkSessionOperation.end) {
+        _custodyAuthorityEpoch++;
+        _custodySessionId = null;
+      }
       if (state is DashboardLoaded) {
         var next = state as DashboardLoaded;
         if (result.reconciledSession != null) {
           next = _applyRecoveredWorkSession(next, result.reconciledSession!);
+        }
+        if (result.operation == WorkSessionOperation.start ||
+            result.operation == WorkSessionOperation.end) {
+          next = next.copyWith(
+            products: const <ProductModel>[],
+            sellableStockDisclosure: StockDisclosure.unavailable,
+            nonSellableCustody: const <NonSellableCustodyItem>[],
+            nonSellableStockDisclosure: StockDisclosure.unavailable,
+            clearPendingTransfer: true,
+          );
         }
         emit(
           next.copyWith(
