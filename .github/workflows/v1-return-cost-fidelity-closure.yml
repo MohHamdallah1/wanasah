@@ -228,20 +228,41 @@ jobs:
               ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
               text=True,
           ).splitlines())
-          extra = changed - allowed
-          if extra:
-              raise SystemExit(f"RETURN_COST_SCOPE=FAIL extra={sorted(extra)}")
-          forbidden = {
-              "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
-              "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+          # This workflow is also a compatibility gate for shared models/services/
+          # FIELD source. In a cross-domain PR, unrelated files must not be
+          # misclassified as return-cost ownership. Keep the original strict scope
+          # whenever a dedicated return-cost implementation surface is changed.
+          dedicated = {
+              "wa_backend/domains/inventory_costing/service.py",
+              "wa_backend/alembic/versions/e1b7c4d9a203_linked_return_cost_provenance.py",
+              "wa_backend/tests/test_return_cost_fidelity_c3_c5_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py",
+              "wa_backend/tests/purchase_reference_pg_support.py",
+              "wa_backend/scripts/gate_stage74_inventory_costing.py",
           }
-          overlap = changed & forbidden
-          if overlap or any(
-              path.startswith("dashboard/") or path.startswith("wanasah_frontend/")
-              for path in changed
-          ):
-              raise SystemExit(f"RETURN_COST_SCOPE=FAIL forbidden={sorted(overlap)}")
-          print(f"RETURN_COST_SCOPE=PASS files={len(changed)}")
+          return_cost_owned = changed & dedicated
+          if return_cost_owned:
+              extra = changed - allowed
+              if extra:
+                  raise SystemExit(f"RETURN_COST_SCOPE=FAIL extra={sorted(extra)}")
+              forbidden = {
+                  "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
+                  "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+              }
+              overlap = changed & forbidden
+              if overlap or any(
+                  path.startswith("dashboard/") or path.startswith("wanasah_frontend/")
+                  for path in changed
+              ):
+                  raise SystemExit(f"RETURN_COST_SCOPE=FAIL forbidden={sorted(overlap)}")
+              print(f"RETURN_COST_SCOPE=PASS strict files={len(changed)}")
+          else:
+              shared = changed & allowed
+              assert shared, "Compatibility run must be triggered by a declared shared surface"
+              print(
+                  "RETURN_COST_SCOPE=PASS compatibility-only "
+                  f"shared={sorted(shared)} unrelated_pr_files={len(changed - allowed)}"
+              )
           PY
 
       - name: Retain committed financial evidence
