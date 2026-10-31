@@ -7,6 +7,7 @@ import { qualityActionReasons } from "./qualityActionReasons";
 import { suppliers } from "./suppliers";
 import { dispatchRouteLoad } from "./dispatchRouteLoad";
 import { dispatchAdjustLoad } from "./dispatchAdjustLoad";
+import { dispatchRouteSafety } from "./dispatchRouteSafety";
 import { dispatchProductSearch } from "./dispatchProductSearch";
 
 export const supportedLanguages = [
@@ -29,6 +30,7 @@ export const resources = {
       suppliers: suppliers.ar,
       dispatchRouteLoad: dispatchRouteLoad.ar,
       dispatchAdjustLoad: dispatchAdjustLoad.ar,
+      dispatchRouteSafety: dispatchRouteSafety.ar,
       dispatchProductSearch: dispatchProductSearch.ar,
       common: {
         save: "حفظ",
@@ -2209,7 +2211,12 @@ export const resources = {
           PRODUCT_RECALL_INBOUND_NEW_BLOCKED: "لا يمكن توريد هذا المنتج لأنه موقوف حاليًا بسبب مشكلة جودة أو سلامة. عالج حالة المنتج أولًا ثم أعد المحاولة.",
           DISPATCH_ADJUSTMENT_INVALID: "تعذر التحقق من كمية تعديل الحمولة أو وحدة المنتج. راجع البيانات ثم أعد المحاولة.",
           DISPATCH_TRANSFER_RESPONSE_INVALID: "تعذر التحقق من كميات المصافحات ووحداتها. حدّث الرادار وحاول مجددًا.",
-          DISPATCH_ROUTE_CONTEXT_CHANGED: "تغيّر ارتباط المسار بجلسة العمل. حدّث بيانات الحمولة ثم أعد المحاولة.",
+          DISPATCH_ROUTE_CONTEXT_CHANGED: "تغيّر سياق خط السير أو السيارة أو المستودع أو الجلسة. افتح تعديل الحمولة من جديد.",
+          DISPATCH_ADJUSTMENT_CANCELLED: "هذا الطلب ملغى نهائياً ولن يُنفذ. افتح تعديل حمولة جديداً.",
+          DISPATCH_ADJUSTMENT_INDETERMINATE: "هذا الطلب يحمل دليلاً غير مكتمل وتم عزله للمراجعة. لا تعِد تنفيذه.",
+          DISPATCH_RECOVERY_INDETERMINATE: "يوجد دليل غير مكتمل للطلب السابق؛ لا يمكن إلغاؤه آلياً.",
+          DISPATCH_RECOVERY_PAYLOAD_CONFLICT: "هوية الطلب السابق مرتبطة بكميات مختلفة؛ أوقف العملية وراجع الدليل.",
+          DISPATCH_RECOVERY_ACTOR_CONFLICT: "هوية الطلب السابق مرتبطة بمستخدم آخر؛ لا يمكن تسويتها من هذا الحساب.",
           DISPATCH_PRODUCT_CURSOR_INVALID: "تغيّر سياق البحث أو انتهت صلاحية متابعة النتائج. أعد البحث من البداية.",
           DISPATCH_PRODUCT_CONTEXT_REQUIRED: "اختر سيارة ومستودع المصدر للبحث عن المنتجات.",
           DISPATCH_ADJUSTMENT_NEGATIVE: "رصيد السيارة والمصافحات المعلقة لا يغطيان مقدار الإرجاع المطلوب.",
@@ -2431,6 +2438,7 @@ export const resources = {
       suppliers: suppliers.en,
       dispatchRouteLoad: dispatchRouteLoad.en,
       dispatchAdjustLoad: dispatchAdjustLoad.en,
+      dispatchRouteSafety: dispatchRouteSafety.en,
       dispatchProductSearch: dispatchProductSearch.en,
       common: {
         save: "Save",
@@ -4614,7 +4622,12 @@ export const resources = {
           PRODUCT_RECALL_INBOUND_NEW_BLOCKED: "This product cannot be received because it is currently on hold due to a quality or safety issue. Resolve the product status first, then try again.",
           DISPATCH_ADJUSTMENT_INVALID: "The load adjustment quantity or product unit could not be verified. Review the data and try again.",
           DISPATCH_TRANSFER_RESPONSE_INVALID: "Transfer quantities and units could not be verified. Refresh the radar and try again.",
-          DISPATCH_ROUTE_CONTEXT_CHANGED: "The route WorkSession binding changed. Refresh the load data and try again.",
+          DISPATCH_ROUTE_CONTEXT_CHANGED: "The route, vehicle, warehouse, or session context changed. Reopen Adjust Load.",
+          DISPATCH_ADJUSTMENT_CANCELLED: "This request is permanently cancelled and cannot execute. Start a new load adjustment.",
+          DISPATCH_ADJUSTMENT_INDETERMINATE: "This request has incomplete evidence and is quarantined for review. Do not replay it.",
+          DISPATCH_RECOVERY_INDETERMINATE: "Incomplete evidence exists for the earlier request; it cannot be cancelled automatically.",
+          DISPATCH_RECOVERY_PAYLOAD_CONFLICT: "The earlier request identity is bound to different quantities. Stop and review the evidence.",
+          DISPATCH_RECOVERY_ACTOR_CONFLICT: "The earlier request identity belongs to another actor and cannot be resolved from this account.",
           DISPATCH_PRODUCT_CURSOR_INVALID: "The search context changed or the continuation is invalid. Restart the search.",
           DISPATCH_PRODUCT_CONTEXT_REQUIRED: "Select a vehicle and source warehouse to search for products.",
           DISPATCH_ADJUSTMENT_NEGATIVE: "Vehicle stock and pending handshakes do not cover the requested return.",
