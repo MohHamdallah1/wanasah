@@ -69,7 +69,17 @@ jobs:
 
       - name: Start disposable PostgreSQL16
         run: |
-          docker run --detach --name live-stock-g04-pg \
+          for attempt in 1 2 3; do
+            if docker pull postgres:16; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to pull postgres:16 after bounded retries"
+              exit 1
+            fi
+            sleep 2
+          done
+          docker run --detach --pull=never --name live-stock-g04-pg \
             --env POSTGRES_USER=g04_admin \
             --env POSTGRES_DB=wanasah_no_lot_contract_test \
             --env POSTGRES_HOST_AUTH_METHOD=trust \
