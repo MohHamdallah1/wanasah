@@ -34,7 +34,7 @@ export async function api(p: Page, path: string) {
   }, { origin: API, path });
 }
 
-export function command(action: "reserve" | "revoke") {
+export function command(action: "reserve" | "race-threshold" | "revoke") {
   const output = execFileSync(process.env.PYTHON || "python", [
     resolve(process.cwd(), "../wa_backend/tests/live_stock_operational_browser_support.py"), action,
   ], { encoding: "utf8", env: process.env });

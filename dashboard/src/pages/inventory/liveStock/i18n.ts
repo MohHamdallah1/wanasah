@@ -6,6 +6,7 @@ export type LiveStockCp7Copy = {
   sourceEvidence: string;
   sourceLoading: string;
   sourceUnavailable: string;
+  sourceScopeNotice: string;
   freshnessNotice: string;
   staleBatchDetails: string;
   sourceWarehouse: string;
@@ -37,10 +38,11 @@ const ar: LiveStockCp7Copy = {
   openBatchDetails: "عرض تفاصيل التشغيلات",
   loadingBatches: "جاري تحميل تفاصيل التشغيلات...",
   noBatches: "لا توجد تشغيلات لها رصيد في هذا المستودع.",
-  sourceEvidence: "مصدر الرصيد والحجوزات",
+  sourceEvidence: "دليل مصدر المستودع القابل للإجراء والحجوزات",
   sourceLoading: "جاري تحميل دليل المصدر...",
   sourceUnavailable: "تعذر تحميل دليل المصدر لهذا المستودع.",
-  freshnessNotice: "القائمة والتشغيلات ودليل المصدر قراءات مستقلة؛ قد تتغير الكميات بعد جلبها. حدّث للتحقق.",
+  sourceScopeNotice: "هذا دليل إجراءات للمستودع المحدد فقط، وليس جرداً كاملاً لكل المواقع الفعلية. عهدة المركبات إفصاح منفصل؛ مخزون النقل الجاري والإتلاف ليس ضمن إجمالي المستودع، وعدم ظهوره هنا لا يعني أنه صفر.",
+  freshnessNotice: "القائمة والملخص والتشغيلات ودليل المصدر قراءات مستقلة وليست لقطة ذرية واحدة؛ قد تتغير الكميات بينها. حدّث للتحقق.",
   staleBatchDetails: "تفاصيل التشغيلات السابقة لم تعد مؤكدة بعد التحديث. أعد المحاولة للتحقق.",
   sourceWarehouse: "المستودع",
   movableQuantity: "قابل للحركة",
@@ -85,10 +87,11 @@ const en: LiveStockCp7Copy = {
   openBatchDetails: "View batch details",
   loadingBatches: "Loading batch details...",
   noBatches: "No batch currently has stock in this warehouse.",
-  sourceEvidence: "Stock source and reservations",
+  sourceEvidence: "Actionable Warehouse source and reservations",
   sourceLoading: "Loading source evidence...",
   sourceUnavailable: "Source evidence could not be loaded for this warehouse.",
-  freshnessNotice: "The list, batches and source evidence are separate reads. Quantities can change after retrieval; refresh to verify.",
+  sourceScopeNotice: "This is action evidence for the selected Warehouse, not a complete physical-inventory total. Readable Vehicle custody is disclosed separately; IN_TRANSIT and SCRAP stock is outside the Warehouse total, and absence here does not mean zero.",
+  freshnessNotice: "The list, summary, batches and source evidence are independent reads, not one atomic snapshot. Quantities can change between reads; refresh to verify.",
   staleBatchDetails: "Previous batch details are no longer verified after refresh. Retry to check.",
   sourceWarehouse: "Warehouse",
   movableQuantity: "Movable quantity",
