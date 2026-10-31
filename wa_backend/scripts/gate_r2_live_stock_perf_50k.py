@@ -585,6 +585,13 @@ async def benchmark(label: str, fixture_path: Path, output: Path) -> None:
             async with runtime_session(
                 engine, int(fixture["company_id"])
             ) as db:
+                # Projection-v2 deployment preparation is outside every timed
+                # sample. The 50k rebuild can legitimately exceed the normal
+                # 60s read-query ceiling, so widen only this one transaction;
+                # measured Live Stock calls continue to use the original limit.
+                await db.execute(
+                    text("SET LOCAL statement_timeout='300000ms'")
+                )
                 await rebuild_live_stock_company(
                     db,
                     company_id=int(fixture["company_id"]),
