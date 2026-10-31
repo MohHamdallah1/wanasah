@@ -62,7 +62,18 @@ def _normalize_r3_vehicle_filter_contract(function):
             and target.id == "projection_guaranteed"
             for target in node.targets
         ):
-            node.value = ast.Constant(value="R3_VEHICLE_NORMALIZED")
+            if not isinstance(node.value, ast.BoolOp):
+                raise AssertionError(
+                    "projection_guaranteed shape changed outside R3 scope"
+                )
+            node.value.values = [
+                value
+                for value in node.value.values
+                if not (
+                    isinstance(value, ast.Name)
+                    and value.id == "has_vehicle"
+                )
+            ]
         if (
             isinstance(node, ast.If)
             and isinstance(node.test, ast.Name)
