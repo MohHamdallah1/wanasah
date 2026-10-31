@@ -21,7 +21,7 @@ from domains.vehicles.contracts import CreateVehicleCommand
 from domains.vehicles.management import create_vehicle
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryCostEvent, InventoryLocation,
-    InventoryMovement, OperationIdempotency,
+    InventoryMovement, OperationIdempotency, utc_now,
 )
 from schemas import AdjustRouteInventoryRequest, DispatchRouteRequest, UpdateRouteStatusRequest
 from services import recover_idempotent_operation
@@ -520,6 +520,40 @@ async def test_actual_fastapi_bearer_http_status_and_adjust_are_exact_and_idempo
                     })
                     await db.flush()
                 await db.rollback()
+            assert await _snapshot(pg, tenant, [vehicle_location]) == cancel_before
+
+            # Rolling-upgrade compatibility: a legacy direct writer may omit
+            # the new state column entirely. The original completion pair remains
+            # authoritative and is observed as COMMITTED without replay.
+            legacy_null = AdjustRouteInventoryRequest(
+                request_id=uuid4(),
+                deltas=[{"product_id": tenant.variant_id, "delta_base": D("1")}],
+            )
+            legacy_null_hash = dispatch._dispatch_adjust_request_hash(route_id, legacy_null)
+            legacy_null_response = {"mode": "NO_CHANGE"}
+            async with pg.session() as db:
+                db.add(OperationIdempotency(
+                    company_id=tenant.company_id,
+                    operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
+                    request_id=str(legacy_null.request_id),
+                    request_hash=legacy_null_hash,
+                    created_by=tenant.owner.driver_id,
+                    state=None,
+                    response_json=legacy_null_response,
+                    completed_at=utc_now(),
+                ))
+                await db.commit()
+            legacy_null_json = legacy_null.model_dump(mode="json")
+            legacy_probe = await client.post(recovery_path, headers=headers, json=legacy_null_json)
+            assert legacy_probe.status_code == 200
+            assert legacy_probe.json() == {
+                "state": "COMMITTED",
+                "request_id": str(legacy_null.request_id),
+                "response": legacy_null_response,
+            }
+            legacy_retry = await client.put(adjust_path, headers=expected_headers, json=legacy_null_json)
+            assert legacy_retry.status_code == 200
+            assert legacy_retry.json() == legacy_null_response
             assert await _snapshot(pg, tenant, [vehicle_location]) == cancel_before
 
             # A rolled-back cancellation attempt leaves no tombstone; retrying
