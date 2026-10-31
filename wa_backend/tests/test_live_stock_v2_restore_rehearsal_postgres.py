@@ -108,9 +108,16 @@ def _strict_urls(expected_database: str):
     return runtime, admin
 
 
+def _decimal_text(value: Any) -> str:
+    rendered = format(D(value), "f")
+    if "." in rendered:
+        rendered = rendered.rstrip("0").rstrip(".")
+    return rendered or "0"
+
+
 def _normalize(value: Any):
     if isinstance(value, D):
-        return format(value, "f")
+        return _decimal_text(value)
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     if isinstance(value, UUID):
@@ -166,7 +173,7 @@ async def _physical_snapshot(db: AsyncSession, company_id: int, variant_id: int)
         .order_by(InventoryLocation.location_type, InventoryLocation.id)
     )).all()
     return {
-        f"{kind}:{int(location_id)}": format(D(quantity), "f")
+        f"{kind}:{int(location_id)}": _decimal_text(quantity)
         for kind, location_id, quantity in rows
     }
 
