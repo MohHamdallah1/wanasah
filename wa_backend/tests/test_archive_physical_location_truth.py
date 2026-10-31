@@ -21,6 +21,13 @@ class _AllowAllAccess:
         return literal(True)
 
 
+class _NoLocationReadAccess(_AllowAllAccess):
+    def allows(self, permission, *args, **kwargs):
+        if permission == "location.read":
+            return literal(False)
+        return literal(True)
+
+
 def _table(metadata, model, names):
     return Table(
         model.__tablename__,
@@ -135,3 +142,83 @@ def test_vehicle_archive_evidence_stays_on_vehicle_without_route_authority():
         assert rows[code]["location_id"] == 2
         assert rows[code]["kind"] == "capability-gap"
         assert rows[code]["reason"] == "INVENTORY_SOURCE"
+
+
+def test_vehicle_stocktake_requires_location_read_at_vehicle_location():
+    metadata = MetaData()
+    tables = {
+        InventoryLocation: _table(
+            metadata, InventoryLocation, "id company_id location_type is_active vehicle_id"
+        ),
+        StocktakeSession: _table(
+            metadata,
+            StocktakeSession,
+            "id company_id stocktake_type status location_id related_work_session_id",
+        ),
+        StocktakeLine: _table(
+            metadata,
+            StocktakeLine,
+            "id company_id stocktake_session_id product_variant_id",
+        ),
+        InventoryLock: _table(
+            metadata,
+            InventoryLock,
+            "id company_id stocktake_session_id product_variant_id released_at",
+        ),
+    }
+
+    engine = create_engine("sqlite://")
+    with engine.begin() as connection:
+        metadata.create_all(connection)
+        connection.execute(
+            tables[InventoryLocation].insert(),
+            {
+                "id": 2,
+                "company_id": 1,
+                "location_type": "VEHICLE",
+                "is_active": True,
+                "vehicle_id": 7,
+            },
+        )
+        connection.execute(
+            tables[StocktakeSession].insert(),
+            {
+                "id": 30,
+                "company_id": 1,
+                "stocktake_type": "VEHICLE_RECON",
+                "status": "COUNTING",
+                "location_id": 2,
+                "related_work_session_id": 80,
+            },
+        )
+        connection.execute(
+            tables[StocktakeLine].insert(),
+            {
+                "id": 301,
+                "company_id": 1,
+                "stocktake_session_id": 30,
+                "product_variant_id": 101,
+            },
+        )
+        connection.execute(
+            tables[InventoryLock].insert(),
+            {
+                "id": 40,
+                "company_id": 1,
+                "stocktake_session_id": 30,
+                "product_variant_id": 101,
+                "released_at": None,
+            },
+        )
+
+        query = inventory_archive_target_query(
+            _NoLocationReadAccess(),
+            101,
+            {
+                "OPEN_STOCKTAKE": 30,
+                "ACTIVE_INVENTORY_LOCK": 40,
+            },
+        )
+        rows = list(connection.execute(query).mappings())
+
+    assert rows == []
