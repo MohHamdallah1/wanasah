@@ -47,6 +47,7 @@ async def _grant_archive_reader(pg_gate, tenant, *, vehicle_location_id: int) ->
         "inventory.read",
         "location.read",
         "stocktake.read",
+        "stocktake.count",
     }
     async with AsyncSession(pg_gate.admin_engine, expire_on_commit=False) as db:
         await db.execute(
