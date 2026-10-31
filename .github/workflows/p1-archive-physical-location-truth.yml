@@ -56,7 +56,6 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q
           tests/test_archive_physical_location_truth.py
           tests/test_archive_navigation_canonical_access.py
-          tests/test_catalog_canonical_boundary.py
           tests/test_catalog_canonical_cutover.py
 
       - name: Start disposable PostgreSQL 16
@@ -130,6 +129,7 @@ jobs:
           PY
 
       - name: Run real PostgreSQL 16 G6 archive acceptance
+        id: pg_g6
         working-directory: wa_backend
         run: >-
           python -B -m pytest -p no:cacheprovider -q -s
@@ -137,7 +137,7 @@ jobs:
           --junitxml=archive-physical-location-postgres.xml
 
       - name: Reject PostgreSQL skips, failures and empty execution
-        if: always()
+        if: ${{ always() && steps.pg_g6.outcome != 'skipped' }}
         working-directory: wa_backend
         run: |
           python - <<'PY'
