@@ -75,8 +75,8 @@ jobs:
             tests/test_live_stock_v1_quantity_reconciliation_postgres.py \
             tests/test_live_stock_v1_route_sale_unload_postgres.py \
             tests/test_live_stock_v1_remaining_consistency_postgres.py \
-            tests/test_live_stock_canonical_cutover.py
-            tests/test_live_stock_r4_negative_filter_contract.py \
+            tests/test_live_stock_canonical_cutover.py \
+            tests/test_live_stock_r4_negative_filter_contract.py
 
       - name: Run static physical-location contract gates
         working-directory: wa_backend
