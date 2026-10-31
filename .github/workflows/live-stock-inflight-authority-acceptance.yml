@@ -86,7 +86,7 @@ jobs:
           }))
           PY
           npx tsc --noEmit -p e2e/.inflight-types.json
-          npx eslint src/hooks/useDashboardSession.ts src/features/tenantIdentity/useTenantIdentity.ts src/pages/DispatchBoard.tsx src/pages/products/import/useImportProductPolling.ts src/test/auth-session-consumer-isolation.test.tsx src/test/dispatch-load-context.test.tsx src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
+          npx eslint src/App.tsx src/components/operations/DashboardLayout.tsx src/hooks/useInventoryAccess.ts src/hooks/useDashboardSession.ts src/features/tenantIdentity/useTenantIdentity.ts src/pages/DispatchBoard.tsx src/pages/products/import/useImportProductPolling.ts src/test/auth-session-consumer-isolation.test.tsx src/test/dispatch-load-context.test.tsx src/hooks/useAuthFetch.ts src/lib/authStorage.ts src/test/auth-session-isolation.test.tsx e2e/live-stock-inflight-auth.test.tsx e2e/live-stock-inflight.config.ts
           npm run build
           node --test src/pages/Login.contract.test.mjs
       - name: Install existing backend dependencies
@@ -156,7 +156,7 @@ jobs:
           import xml.etree.ElementTree as ET
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 112),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 114),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
@@ -180,6 +180,7 @@ jobs:
           files = set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"], text=True).splitlines())
           owned = {
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
               "dashboard/src/test/live-stock-warm-authority.test.tsx",
               "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
               "dashboard/e2e/live-stock-inflight.config.ts",
@@ -193,6 +194,9 @@ jobs:
               ".github/scripts/live_stock_ci_ownership.py",
               "dashboard/src/components/operations/TopBar.tsx",
               "dashboard/src/components/operations/OperationsSidebar.tsx",
+              "dashboard/src/App.tsx",
+              "dashboard/src/components/operations/DashboardLayout.tsx",
+              "dashboard/src/hooks/useInventoryAccess.ts",
               "dashboard/src/hooks/useDashboardSession.ts",
               "dashboard/src/features/tenantIdentity/useTenantIdentity.ts",
               "dashboard/src/pages/DispatchBoard.tsx",
