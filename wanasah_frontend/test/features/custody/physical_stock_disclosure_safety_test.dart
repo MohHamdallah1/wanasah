@@ -140,7 +140,7 @@ class _BlockedCustodyCoordinator extends Fake implements CustodyCoordinator {
   Future<PendingTransferBatch?> loadPendingTransfers() async => null;
 
   @override
-  Future<List<NonSellableCustodyItem>> loadNonSellableCustody() {
+  Future<List<NonSellableCustodyItem>> loadNonSellableCustody({int? expectedSessionId}) {
     if (!started.isCompleted) started.complete();
     return inFlight.future;
   }
@@ -402,6 +402,20 @@ void main() {
       {'limit': 100}, {'limit': 100, 'cursor': 'opaque-session-cursor'},
     ]);
     expect(() => items.removeLast(), throwsUnsupportedError);
+  });
+
+  test('custody page from a different authorized session fails closed', () async {
+    final client = CustodyClient(get: (_, {queryParameters}) async => {
+      'session_id': 88,
+      'items': [_custodyItem(5)],
+      'next_cursor': null,
+    });
+    await expectLater(_coordinator(client)
+        .loadNonSellableCustody(expectedSessionId: 87),
+        throwsFormatException);
+    final matching = await _coordinator(client)
+        .loadNonSellableCustody(expectedSessionId: 88);
+    expect(matching.single.productVariantId, 5);
   });
 
   test('cross-session page and repeated cursor fail closed', () async {
