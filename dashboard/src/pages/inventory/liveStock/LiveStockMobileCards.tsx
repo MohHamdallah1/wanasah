@@ -50,6 +50,13 @@ export function LiveStockMobileCards({
       data-cp13-phone-list="true"
       role="list"
     >
+      <p
+        className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5 text-[9px] font-semibold leading-relaxed text-slate-600"
+        data-live-stock-vehicle-attribution-note="mobile"
+        role="note"
+      >
+        {t("inventoryLive.withVehiclesMobileDisclosure")}
+      </p>
       {topSpacerHeight > 0 ? (
         <div aria-hidden="true" data-live-stock-window-spacer="top" style={{ height: topSpacerHeight }} />
       ) : null}
@@ -133,11 +140,23 @@ export function LiveStockMobileCards({
                 const rendered = quantity(value);
                 return (
                   <div key={label} className="min-w-0" data-cp13-quantity={metric}>
-                    <dt className="truncate font-bold text-slate-500">{t(`inventoryLive.${label}`)}</dt>
+                    <dt className={metric === "vehicle" ? "font-bold text-slate-500" : "truncate font-bold text-slate-500"}>
+                      <span className="block truncate">{t(`inventoryLive.${label}`)}</span>
+                      {metric === "vehicle" ? (
+                        <span className="mt-0.5 block text-[8px] font-semibold leading-tight text-slate-400">
+                          {t("inventoryLive.withVehiclesVisibleNote")}
+                        </span>
+                      ) : null}
+                    </dt>
                     <dd
                       className={`mt-0.5 truncate font-black tabular-nums ${tone}`}
                       dir="ltr"
                       title={rendered.secondary ?? undefined}
+                      aria-label={
+                        metric === "vehicle"
+                          ? t("inventoryLive.withVehiclesValueA11y", { quantity: rendered.primary })
+                          : undefined
+                      }
                     >
                       {rendered.primary}
                     </dd>
