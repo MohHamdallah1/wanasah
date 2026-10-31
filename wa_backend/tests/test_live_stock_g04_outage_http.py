@@ -72,8 +72,12 @@ def _main_row(response: httpx.Response, variant_id: int) -> dict:
 
 
 def _assert_outage_response(response: httpx.Response, state: dict) -> None:
-    assert 500 <= response.status_code <= 599, (response.status_code, response.text)
+    # A valid bearer must not be reclassified as invalid credentials merely
+    # because its persisted authentication/RLS backend is temporarily down.
+    assert response.status_code == 503, (response.status_code, response.text)
     payload = response.json()
+    assert payload.get("error", {}).get("code") == "AUTHENTICATION_BACKEND_UNAVAILABLE", payload
+    assert "www-authenticate" not in response.headers
     rendered = json.dumps(payload, sort_keys=True)
     assert state["mainName"] not in rendered
     assert state["expected"]["value"] not in rendered
