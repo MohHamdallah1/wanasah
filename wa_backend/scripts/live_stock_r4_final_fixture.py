@@ -5,9 +5,14 @@ import json
 from pathlib import Path
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from domains.identity.models import CompanyPrincipal
+from domains.live_stock_projection.service import (
+    assert_live_stock_projection_ready,
+    rebuild_live_stock_company,
+)
 from models import Company, InventoryLocation, ProductBatch, ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from tests.canonical_actor_fixtures import seed_company_owner_fixture
@@ -132,6 +137,35 @@ async def build(root, size, admin):
                                   "username": foreign_name, "password": "R4ForeignReader123"}
         fixture["foreign_company_id"], fixture["foreign_warehouse_id"] = int(foreign_company.id), int(foreign_location.id)
         await db.commit()
+
+    # Direct bulk fixture writes are deliberately outside runtime mutation
+    # authority. Finish the synthetic setup only through the canonical current
+    # projection rebuild; never fabricate projection_version/READY in SQL.
+    runtime = create_async_engine(
+        r4.seed.checked_url("DATABASE_URL"),
+        poolclass=NullPool,
+    )
+    try:
+        async with AsyncSession(runtime, expire_on_commit=False) as db:
+            await db.execute(
+                text("SELECT set_config('app.current_tenant',:c,false)"),
+                {"c": str(c)},
+            )
+            report = await rebuild_live_stock_company(
+                db,
+                company_id=c,
+                batch_size=10000,
+            )
+            assert report.company_id == c
+            await assert_live_stock_projection_ready(
+                db,
+                company_id=c,
+                warehouse_location_id=w,
+            )
+            await db.commit()
+    finally:
+        await runtime.dispose()
+
     async with admin.begin() as conn:
         for table in ("products", "product_variants", "product_batches", "inventory_balances",
                       "inventory_locations", "inventory_live_stock_projection"):
