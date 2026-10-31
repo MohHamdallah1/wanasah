@@ -18,10 +18,24 @@ on:
       - "dashboard/src/pages/inventory/**"
       - "dashboard/src/components/dashboard/WorkspaceTopBar.css"
       - "dashboard/e2e/live-stock-operational.*"
+      - "dashboard/e2e/live-stock-operational-workflow.test.py"
       - "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx"
       - "wa_backend/tests/live_stock_operational_browser_support.py"
       - ".github/workflows/live-stock-v1-operational-browser.yml"
   workflow_dispatch:
+    inputs:
+      backend_ref:
+        description: "Optional exact backend SHA for an intentional audit"
+        type: string
+        default: ""
+      accepted_main_ref:
+        description: "Optional exact baseline SHA requiring unchanged runtime"
+        type: string
+        default: ""
+      scenario:
+        type: choice
+        options: [operational, physical-custody]
+        default: operational
 
 permissions:
   contents: read
@@ -49,6 +63,7 @@ jobs:
       PYTHON: python
       R3_BACKEND_ROOT: ${{ github.workspace }}/backend-under-test/wa_backend
       SCENARIO: ${{ inputs.scenario || 'operational' }}
+      BACKEND_REF: ${{ inputs.backend_ref }}
       ACCEPTED_MAIN_REF: ${{ inputs.accepted_main_ref }}
       PR_BASE_REF: ${{ github.event.pull_request.base.sha || github.sha }}
 
@@ -76,6 +91,9 @@ jobs:
           path: backend-under-test
           fetch-depth: 1
 
+      - name: Guard future-runtime and optional-audit workflow contracts
+        run: python -B dashboard/e2e/live-stock-operational-workflow.test.py
+
       - name: Prove integrated-main runtime and historical contract mismatch
         run: |
           python - <<'PY'
@@ -86,6 +104,8 @@ jobs:
           frontend = git("rev-parse", "HEAD")
           accepted = os.environ["ACCEPTED_MAIN_REF"] or git("merge-base", os.environ["PR_BASE_REF"], frontend)
           backend = git("-C", "backend-under-test", "rev-parse", "HEAD")
+          if not os.environ["BACKEND_REF"]:
+              assert backend == frontend, "Default acceptance must use matching PR frontend/backend"
           runtime_matches = subprocess.run(["git", "diff", "--quiet", accepted, frontend, "--",
                           "wa_backend", "dashboard/src", ":!dashboard/src/test"]).returncode == 0
           runtime_matches = runtime_matches and git("rev-parse", backend + ":wa_backend") == git("rev-parse", accepted + ":wa_backend")
@@ -306,7 +326,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.sha }}" python - <<'PY'
           import os, subprocess
-          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-physical-custody-consumers.yml",".github/workflows/live-stock-v1-browser-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/inventory-cp14-device-ux.spec.ts","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-physical-custody.config.ts","dashboard/e2e/live-stock-physical-custody.fixture.py","dashboard/e2e/live-stock-physical-custody.spec.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/e2e/live-stock-v1.fixtures.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/i18n/resources.ts","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx","dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx","dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx","dashboard/src/pages/inventory/liveStock/contracts.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/test/inventory-access.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx","dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx","dashboard/src/test/inventory-cp7-live-stock.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","dashboard/src/test/live-stock-local-failure.test.tsx","dashboard/src/test/live-stock-render-performance.benchmark.test.tsx","dashboard/src/test/live-stock-render-windowing.test.tsx","dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx","dashboard/src/test/live-stock-warm-authority.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
+          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-physical-custody-consumers.yml",".github/workflows/live-stock-v1-browser-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/inventory-cp14-device-ux.spec.ts","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational-workflow.test.py","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-physical-custody.config.ts","dashboard/e2e/live-stock-physical-custody.fixture.py","dashboard/e2e/live-stock-physical-custody.spec.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/e2e/live-stock-v1.fixtures.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/i18n/resources.ts","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/StockMinimumManager.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx","dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx","dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx","dashboard/src/pages/inventory/liveStock/contracts.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/test/inventory-access.test.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx","dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx","dashboard/src/test/inventory-cp7-live-stock.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","dashboard/src/test/live-stock-local-failure.test.tsx","dashboard/src/test/live-stock-render-performance.benchmark.test.tsx","dashboard/src/test/live-stock-render-windowing.test.tsx","dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx","dashboard/src/test/live-stock-warm-authority.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
           import json, re, urllib.request
           head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           base_ref = os.environ["BASE"]
