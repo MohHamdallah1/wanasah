@@ -62,6 +62,7 @@ vi.mock("@/pages/inventory/warehouse-locations/QualityHandlingDestinationsCard",
   QualityHandlingDestinationsCard: () => null,
 }));
 
+import { beginDashboardSession } from "@/lib/authStorage";
 import { StockMinimumManager } from "@/pages/inventory/StockMinimumManager";
 import { TabWarehouseLocations } from "@/pages/inventory/TabWarehouseLocations";
 
@@ -183,8 +184,11 @@ const applyCalls = () =>
 describe("CP6 minimum-stock Dashboard parity", () => {
   beforeEach(() => {
     localStorage.clear();
+    beginDashboardSession();
+    localStorage.setItem("admin_token", "cp6-test-access");
     localStorage.setItem("company_id", "77");
     localStorage.setItem("principal_id", "101");
+    localStorage.setItem("backoffice_user_id", "202");
     accessState.owner = false;
     accessState.manage = true;
     accessState.readableLocations = new Set([LOCATION]);
