@@ -44,20 +44,21 @@ export function LiveStockMobileCards({
   const locale = resolveI18nLocale(i18n);
 
   return (
-    <div
-      className="space-y-1.5 p-2 md:hidden"
-      data-testid="live-stock-mobile-cards"
-      data-cp13-phone-list="true"
-      role="list"
-    >
+    <>
       <p
-        className="rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5 text-[9px] font-semibold leading-relaxed text-slate-600"
+        className="mx-2 mt-2 rounded-lg border border-blue-100 bg-blue-50/60 px-2 py-1.5 text-[9px] font-semibold leading-relaxed text-slate-600 md:hidden"
         data-live-stock-vehicle-attribution-note="mobile"
         role="note"
       >
         {t("inventoryLive.withVehiclesMobileDisclosure")}
       </p>
-      {topSpacerHeight > 0 ? (
+      <div
+        className="space-y-1.5 p-2 md:hidden"
+        data-testid="live-stock-mobile-cards"
+        data-cp13-phone-list="true"
+        role="list"
+      >
+        {topSpacerHeight > 0 ? (
         <div aria-hidden="true" data-live-stock-window-spacer="top" style={{ height: topSpacerHeight }} />
       ) : null}
       {products.map((product, index) => {
@@ -201,9 +202,10 @@ export function LiveStockMobileCards({
           </article>
         );
       })}
-      {bottomSpacerHeight > 0 ? (
-        <div aria-hidden="true" data-live-stock-window-spacer="bottom" style={{ height: bottomSpacerHeight }} />
-      ) : null}
-    </div>
+        {bottomSpacerHeight > 0 ? (
+          <div aria-hidden="true" data-live-stock-window-spacer="bottom" style={{ height: bottomSpacerHeight }} />
+        ) : null}
+      </div>
+    </>
   );
 }
