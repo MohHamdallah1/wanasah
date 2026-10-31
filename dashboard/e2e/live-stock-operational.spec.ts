@@ -15,6 +15,9 @@ function physicalCommand(action: "setup" | "grant" | "load") {
 
 async function commitForeignDashboardSession(page: Page) {
   const credentials = state.credentials.foreign as { code: string; username: string; password: string };
+  if (!page.url().startsWith("http://127.0.0.1:4173/")) {
+    await page.goto("http://127.0.0.1:4173/");
+  }
   return page.evaluate(async ({ origin, credentials, warehouse }) => {
     const response = await fetch(origin + "/login", {
       method: "POST",
