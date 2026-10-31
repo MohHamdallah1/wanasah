@@ -658,13 +658,13 @@ async def _acceptance():
                     actor, name, head_result["plan"]
                 )
 
-            # These exact-base empty filters are independently known from #661
-            # to suffer the catalog-correlated projection lookup. Require the
-            # focused comparison to reproduce that cause before calling it fixed.
-            if (
-                name == "empty_recalled"
-                or (name == "empty_vehicle" and actor == "owner")
-            ):
+            # The recalled path is still the exact #661/#675 projection
+            # optimization seam, so require its historical correlated cause.
+            # R3 intentionally replaces the Vehicle path's old latest-Route
+            # attribution with canonical physical VEHICLE-location custody;
+            # requiring that superseded baseline plan shape would test the
+            # rejected Route semantic rather than preserve R4 behavior.
+            if name == "empty_recalled":
                 old_correlated = [
                     row for row in base_result["plan"]["relations"]
                     if row["catalog_correlated"]
