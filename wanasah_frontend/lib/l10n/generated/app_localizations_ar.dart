@@ -585,4 +585,115 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get visitOpenVisitHint => 'فتح الزيارة';
+
+  @override
+  String get stockVehicleTitle => 'مخزون سيارة المندوب:';
+
+  @override
+  String get stockEmptyVerified => 'لا يوجد مخزون متاح للبيع في السيارة حالياً.';
+
+  @override
+  String get stockUnavailable => 'تعذر التحقق من مخزون السيارة؛ الرصيد غير معروف.';
+
+  @override
+  String get stockDenied => 'لا توجد صلاحية لعرض العهدة الحالية.';
+
+  @override
+  String get stockStale => 'مخزون محفوظ للاستخدام دون اتصال؛ ليس رصيداً حالياً مؤكداً.';
+
+  @override
+  String get stockReceived => 'الاستلام';
+
+  @override
+  String get stockSold => 'المباع';
+
+  @override
+  String get stockRemaining => 'المتبقي';
+
+  @override
+  String get stockCarton => 'كرتونة';
+
+  @override
+  String get stockPack => 'باكيت';
+
+  @override
+  String get stockPiece => 'حبة';
+
+  @override
+  String get stockPendingReturns => 'مرتجعات محلية بانتظار الحسم:';
+
+  @override
+  String get stockPendingReturnsHint => 'هذه أدلة محلية معلقة وليست رصيد العهدة النهائي من السيرفر.';
+
+  @override
+  String get stockNonSellableTitle => 'عهدة غير قابلة للبيع:';
+
+  @override
+  String get stockStatusDamaged => 'تالف';
+
+  @override
+  String get stockStatusQuarantined => 'محجور';
+
+  @override
+  String get stockStatusBlocked => 'محظور';
+
+  @override
+  String get stockStatusRecalled => 'مستدعى';
+
+  @override
+  String get stockStatusDisposalPending => 'بانتظار الإتلاف';
+
+  @override
+  String get stockPending => 'بانتظار المزامنة';
+
+  @override
+  String get stockInFlight => 'قيد الإرسال';
+
+  @override
+  String get stockNeedsAction => 'يحتاج معالجة';
+
+  @override
+  String get stockReasonExpired => 'منتهي الصلاحية';
+
+  @override
+  String get stockReasonFactory => 'عيب مصنعي';
+
+  @override
+  String get stockAvailableLocal => 'المتوفر محلياً (غير مؤكد حالياً)';
+
+  @override
+  String get stockSearchHint => 'ابحث عن صنف...';
+
+  @override
+  String get stockConfirmQuantities => 'اعتماد الكميات والعودة للفاتورة';
+
+  @override
+  String get stockSaleCartons => 'كراتين المبيع';
+
+  @override
+  String get stockSalePacks => 'حبات المبيع';
+
+  @override
+  String get stockSampleCartons => 'كراتين العينات (🎁)';
+
+  @override
+  String get stockSamplePacks => 'حبات العينات (🎁)';
+
+  @override
+  String get stockSampleReasonHint => 'اختر سبب صرف العينة (إجباري)';
+
+  @override
+  String get stockSampleReasonDetailsHint => 'اكتب السبب بالتفصيل...';
+
+  @override
+  String get stockSampleReasonPromo => 'ترويج منتج جديد';
+
+  @override
+  String get stockSampleReasonFree => 'عينة مجانية للزبائن';
+
+  @override
+  String get stockSampleReasonCompensation => 'تعويض ودي للمحل';
+
+  @override
+  String get stockSampleReasonOther => 'أخرى';
 }

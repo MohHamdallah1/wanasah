@@ -34,6 +34,13 @@ class CustodyCoordinator {
   static const int transferBatchMaximum =
       ApiTransferResponseClient.runtimeBatchMaximum;
 
+  // Mobile rendering bound (not a business cap). At most 50 bounded HTTP
+  // pages / 5,000 in-memory records; an over-limit response fails closed and
+  // never returns a truncated list as complete custody.
+  static const int custodyPageSize = 100;
+  static const int maximumCustodyPages = 50;
+  static const int maximumCustodyRows = 5000;
+
   final PendingTransferSource _pendingTransfers;
   final CustodyClient _custodyClient;
   final TransferDispatchGateway _transferGateway;
@@ -42,9 +49,41 @@ class CustodyCoordinator {
   Future<PendingTransferBatch?> loadPendingTransfers() =>
       _pendingTransfers.load();
 
-  Future<List<NonSellableCustodyItem>> loadNonSellableCustody() async {
-    final page = await _custodyClient.custody();
-    return page.items;
+  Future<List<NonSellableCustodyItem>> loadNonSellableCustody({int? expectedSessionId}) async {
+    // Cursor is opaque and session-bound. Never return partial pages.
+    final items = <NonSellableCustodyItem>[];
+    final seenCursors = <String>{};
+    int? sessionId;
+    String? cursor;
+    var pages = 0;
+    do {
+      if (++pages > maximumCustodyPages) {
+        throw const FormatException('Custody read exceeds mobile page bound');
+      }
+      final page = await _custodyClient.custody(
+        query: CustodyQuery(limit: custodyPageSize, cursor: cursor),
+      );
+      if (sessionId != null && sessionId != page.sessionId) {
+        throw const FormatException('Custody session changed between pages');
+      }
+      if (expectedSessionId != null && page.sessionId != expectedSessionId) {
+        throw const FormatException('Custody response belongs to another session');
+      }
+      sessionId = page.sessionId;
+      if (page.items.length > custodyPageSize ||
+          items.length + page.items.length > maximumCustodyRows ||
+          (page.nextCursor != null && pages == maximumCustodyPages) ||
+          (page.nextCursor != null && page.items.isEmpty)) {
+        // The list is all-or-nothing: do not publish a partial custody total.
+        throw const FormatException('Custody read exceeds mobile safety bound');
+      }
+      items.addAll(page.items);
+      cursor = page.nextCursor;
+      if (cursor != null && !seenCursors.add(cursor)) {
+        throw const FormatException('Repeated custody cursor');
+      }
+    } while (cursor != null);
+    return List.unmodifiable(items);
   }
 
   Future<List<PendingReturnCustodyItem>> loadPendingReturnCustody() =>

@@ -13,6 +13,7 @@ import '../../repositories/sync_repository.dart';
 import 'dashboard_event.dart';
 import 'dashboard_state.dart';
 import 'package:dio/dio.dart';
+import '../../core/errors/api_failure_exception.dart';
 import '../../services/location_service.dart';
 import '../../repositories/dashboard_repository.dart';
 import '../../features/work_session/application/work_session_coordinator.dart';
@@ -29,6 +30,8 @@ import '../../features/recovery/data/recovery_data_source.dart';
 import '../../features/recovery/data/recovery_sync_executor.dart';
 import '../../features/custody/application/custody_coordinator.dart';
 import '../../features/custody/domain/transfer_decision.dart';
+import '../../features/custody/domain/non_sellable_custody.dart';
+import '../../features/custody/domain/stock_disclosure.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
@@ -40,6 +43,15 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   final RecoverySyncCoordinator _recoverySyncCoordinator;
   final CustodyCoordinator _custodyCoordinator;
   bool _workSessionRecoveryCompleted = false;
+  // A confirmed denial must not be bypassed by an offline SQLite reload.
+  bool _sellableAccessDenied = false;
+  // On a server-confirmed session switch, old SQLite stock is not evidence
+  // of the new session's physical custody. Durable commands are untouched.
+  bool _awaitingNewSessionStock = false;
+  // Different event types execute concurrently despite per-type sequential
+  // transformers. Authority transitions revoke all earlier custody reads.
+  int _custodyAuthorityEpoch = 0;
+  int? _custodySessionId;
 
   // +++ EVT-1: محول تسلسلي (Sequential Transformer) لإجبار البلوك على معالجة الأحداث بالدور ومنع السباق +++
   EventTransformer<T> _sequential<T>() {
@@ -124,10 +136,12 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     LoadDashboardData event,
     Emitter<DashboardState> emit,
   ) async {
+    final authorityEpoch = _custodyAuthorityEpoch;
     emit(const DashboardLoading());
 
     try {
       final loaded = await _loadFromLocal();
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       emit(loaded);
     } catch (e) {
       developer.log('[DashboardBloc] LoadDashboardData error: $e');
@@ -143,7 +157,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     Emitter<DashboardState> emit,
   ) async {
     final previous = state is DashboardLoaded ? state as DashboardLoaded : null;
+    final authorityEpoch = _custodyAuthorityEpoch;
     final result = await _recoverySyncCoordinator.synchronize();
+    if (authorityEpoch != _custodyAuthorityEpoch) return;
 
     developer.log(
       '[DashboardBloc] Recovery sync disposition: ${result.disposition.name}',
@@ -153,13 +169,21 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final loaded = await _loadFromLocal(
         isOffline: result.disposition == RecoverySyncDisposition.unresolved,
       );
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       emit(loaded);
     } catch (error) {
       developer.log(
         '[DashboardBloc] Local reload after recovery sync failed: $error',
       );
+      if (authorityEpoch != _custodyAuthorityEpoch) return;
       if (previous != null) {
-        emit(previous.copyWith(isOffline: true));
+        emit(previous.copyWith(
+          isOffline: true,
+          sellableStockDisclosure: stockDisclosureAfterFailure(
+            previous.sellableStockDisclosure, denied: false),
+          nonSellableStockDisclosure: stockDisclosureAfterFailure(
+            previous.nonSellableStockDisclosure, denied: false),
+        ));
       } else {
         emit(const DashboardInitial());
       }
@@ -182,13 +206,17 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
 
     final List<ProductModel> products = [];
+    var localStockContractValid = true;
     for (var row in rawProducts) {
       try {
         products.add(ProductModel.fromJson(row));
       } catch (e) {
-        developer.log('[DashboardBloc] Skipped corrupt product row: $e');
+        localStockContractValid = false;
+        developer.log('[DashboardBloc] Invalid local stock row: $e');
       }
     }
+    // Do not show a partial SQLite catalog as the entire vehicle custody.
+    if (!localStockContractValid) products.clear();
 
     // +++ القراءة من المستودع بدلاً من الخزنة مباشرة +++
     final allData = await _dashboardRepo.getAllCachedData();
@@ -252,7 +280,16 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     return DashboardLoaded(
       visits: visits,
-      products: products,
+      products: (_sellableAccessDenied || _awaitingNewSessionStock)
+          ? const <ProductModel>[]
+          : products,
+      sellableStockDisclosure: _sellableAccessDenied
+          ? StockDisclosure.denied
+          : _awaitingNewSessionStock
+              ? StockDisclosure.unavailable
+              : (localStockContractValid && rawProducts.isNotEmpty
+              ? StockDisclosure.stale
+              : StockDisclosure.unavailable),
       totalVisits: total,
       completedVisits: completed,
       pendingVisits: pending,
@@ -280,12 +317,18 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     FetchDashboardData event,
     Emitter<DashboardState> emit,
   ) async {
+    // Per-type sequential transformers do not serialize WorkSession events.
+    // An older dashboard response must not restore previous-session custody.
+    var expectedAuthorityEpoch = _custodyAuthorityEpoch;
     // +++  لـ Bug 3: منع الشاشة البيضاء (Jank) وتفريغ الواجهة إذا كانت محملة مسبقاً +++
     if (state is! DashboardLoaded) emit(const DashboardLoading());
 
     WorkSessionRecoveryResult? restartRecovery;
     if (!_workSessionRecoveryCompleted) {
       restartRecovery = await _workSessionCoordinator.recoverActiveSession();
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (restartRecovery.succeeded) {
         _workSessionRecoveryCompleted = true;
       }
@@ -294,6 +337,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     try {
       // +++  لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
       final response = await _dashboardRepo.fetchDashboardRaw();
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
       if (response.data is! Map) {
@@ -310,26 +356,51 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               : null;
       final sessionSnapshot = WorkSessionSnapshot.fromDashboardResponse(data);
       final bool sessionIsActive = sessionSnapshot.isActive;
+      // New authoritative dashboard invalidates older custody reads, even
+      // when the representative's session has changed between responses.
+      expectedAuthorityEpoch = ++_custodyAuthorityEpoch;
+      _custodySessionId = sessionSnapshot.sessionId;
 
       bool isAuthorized = false;
       final bool isOnBreak = sessionSnapshot.isOnBreak ?? false;
       final String? startTimeStr = sessionSnapshot.startTime;
       List<ProductModel> apiProducts = [];
+      var sellableDisclosure = StockDisclosure.unavailable;
 
       if (sessionData != null) {
         isAuthorized = sessionData['is_authorized_to_sell'] == true;
 
         // +++ درع القوائم: حماية الـ List من الانهيار إذا أرسل السيرفر null أو Map بالخطأ +++
         final dynamic rawInv = sessionData['inventory'];
-        final List<dynamic> inventoryList = rawInv is List ? rawInv : [];
-        apiProducts =
-            inventoryList
-                .map(
-                  (p) => ProductModel.fromJson(
-                    p is Map ? Map<String, dynamic>.from(p) : {},
-                  ),
-                )
+        if (rawInv is List) {
+          try {
+            // Parse the whole page before declaring any physical quantity live.
+            // A bad row must not produce a partial or fabricated balance.
+            apiProducts = rawInv
+                .map((p) => ProductModel.fromJson(
+                      Map<String, dynamic>.from(p as Map),
+                    ))
                 .toList();
+            sellableDisclosure = StockDisclosure.verified;
+          } on Object catch (error) {
+            developer.log(
+              '[DashboardBloc] Invalid custody inventory contract: $error',
+            );
+            apiProducts = <ProductModel>[];
+          }
+        } else {
+          developer.log('[DashboardBloc] Custody inventory not disclosed');
+        }
+      }
+
+      // Only an actually disclosed, parsed snapshot clears prior revocation.
+      if (sellableDisclosure == StockDisclosure.verified) {
+        _sellableAccessDenied = false;
+        _awaitingNewSessionStock = false;
+      }
+      if (_sellableAccessDenied) {
+        apiProducts = <ProductModel>[];
+        sellableDisclosure = StockDisclosure.denied;
       }
 
       final financials =
@@ -371,6 +442,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         'cached_is_active_session': sessionIsActive.toString(),
         'cached_session_start_time': startTimeStr ?? '',
       });
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       try {
         // +++   احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
@@ -386,12 +460,19 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
 
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       final localData = await _loadFromLocal(isOffline: false);
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       emit(
         DashboardLoaded(
           visits: localData.visits,
-          products: apiProducts.isNotEmpty ? apiProducts : localData.products,
+          products: apiProducts,
+          sellableStockDisclosure: sellableDisclosure,
           // +++  لـ Bug 5: الاعتماد على الإجمالي المحلي إذا كان السيرفر معطلاً أو البيانات ناقصة +++
           totalVisits:
               countsData != null
@@ -465,7 +546,27 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         add(CheckPendingTransfers());
       }
     } on DioException catch (e) {
-      if (e.response?.statusCode == 401) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        _custodyAuthorityEpoch++;
+        _custodySessionId = null;
+        _sellableAccessDenied = true;
+        if (state is DashboardLoaded) {
+          emit((state as DashboardLoaded).copyWith(
+            products: const <ProductModel>[],
+            nonSellableCustody: const <NonSellableCustodyItem>[],
+            sellableStockDisclosure: StockDisclosure.denied,
+            nonSellableStockDisclosure: StockDisclosure.denied,
+            clearPendingTransfer: true,
+            clearRefreshIssue: true,
+          ));
+        } else {
+          emit(DashboardError(message: 'dashboard_access_denied'));
+        }
+        return;
+      }
 
       final status = e.response?.statusCode;
       final isConnectivityFailure =
@@ -492,6 +593,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               localData,
               restartRecovery!.session!,
             );
+          }
+          if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+            return;
           }
           emit(
             localData.copyWith(
@@ -522,6 +626,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ),
       );
     } catch (e) {
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Parsing Error: $e');
       emit(DashboardError(message: 'dashboard_processing_failure'));
     }
@@ -556,22 +663,41 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   ) async {
     if (state is! DashboardLoaded) return;
     final snapshot = state as DashboardLoaded;
+    if (_sellableAccessDenied) return;
+    final authorityEpoch = _custodyAuthorityEpoch;
+    final authoritySessionId = _custodySessionId;
 
     var pendingTransfer = snapshot.pendingTransfer;
     var nonSellableCustody = snapshot.nonSellableCustody;
     var pendingReturnCustody = snapshot.pendingReturnCustody;
     var pendingReadCompleted = false;
+    var nonSellableDisclosure = snapshot.nonSellableStockDisclosure;
+    var pendingDenied = false;
 
     try {
       pendingTransfer = await _custodyCoordinator.loadPendingTransfers();
       pendingReadCompleted = true;
     } catch (e) {
+      if (_isCustodyDenied(e)) {
+        pendingTransfer = null;
+        pendingDenied = true;
+      }
       developer.log('[DashboardBloc] Custody pending-transfer read failed: $e');
     }
 
     try {
-      nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody();
+      nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody(
+        expectedSessionId: authoritySessionId,
+      );
+      nonSellableDisclosure = StockDisclosure.verified;
     } catch (e) {
+      if (_isCustodyDenied(e)) {
+        nonSellableCustody = const <NonSellableCustodyItem>[];
+        nonSellableDisclosure = StockDisclosure.denied;
+      } else {
+        nonSellableDisclosure = stockDisclosureAfterFailure(
+          snapshot.nonSellableStockDisclosure, denied: false);
+      }
       developer.log('[DashboardBloc] Non-sellable custody read failed: $e');
     }
 
@@ -582,23 +708,39 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       developer.log('[DashboardBloc] Pending return custody read failed: $e');
     }
 
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded ||
+        _sellableAccessDenied ||
+        authorityEpoch != _custodyAuthorityEpoch ||
+        authoritySessionId != _custodySessionId) {
+      // Never allow an old response to resurrect revoked or previous-session
+      // custody as verified. No partial or synthetic zero disclosure.
+      return;
+    }
     emit(
       (state as DashboardLoaded).copyWith(
         pendingTransfer: pendingTransfer,
-        clearPendingTransfer: pendingReadCompleted && pendingTransfer == null,
+        clearPendingTransfer: pendingDenied || (pendingReadCompleted && pendingTransfer == null),
         nonSellableCustody: nonSellableCustody,
+        nonSellableStockDisclosure: nonSellableDisclosure,
         pendingReturnCustody: pendingReturnCustody,
       ),
     );
+  }
+
+  bool _isCustodyDenied(Object error) {
+    final status = error is ApiFailureException
+        ? error.apiFailure.status
+        : error is DioException ? error.response?.statusCode : null;
+    return status == 401 || status == 403;
   }
 
   Future<void> _onRespondToTransfer(
     RespondToTransfer event,
     Emitter<DashboardState> emit,
   ) async {
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded || _sellableAccessDenied) return;
     final snapshot = state as DashboardLoaded;
+    final authorityEpoch = _custodyAuthorityEpoch;
 
     final status = switch (event.responseStatus) {
       'accepted' => TransferDecisionStatus.accepted,
@@ -620,6 +762,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ),
       ]);
 
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -644,6 +790,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
     } catch (e) {
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Custody transfer response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال رد العهدة. أعد المحاولة.'));
       emit(snapshot);
@@ -654,8 +804,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     RespondToBatchTransfer event,
     Emitter<DashboardState> emit,
   ) async {
-    if (state is! DashboardLoaded) return;
+    if (state is! DashboardLoaded || _sellableAccessDenied) return;
     final snapshot = state as DashboardLoaded;
+    final authorityEpoch = _custodyAuthorityEpoch;
 
     if (event.decisions.isEmpty) {
       emit(snapshot.copyWith(clearPendingTransfer: true));
@@ -664,6 +815,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
 
     try {
       final outcome = await _custodyCoordinator.respond(event.decisions);
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -688,6 +843,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
     } catch (e) {
+      if (_sellableAccessDenied ||
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Custody batch response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال ردود العهدة. أعد المحاولة.'));
       emit(snapshot);
@@ -728,10 +887,26 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     final message = workSessionResultMessage(result);
 
     if (result.isSuccess) {
+      if (result.operation == WorkSessionOperation.start ||
+          result.operation == WorkSessionOperation.end) {
+        _custodyAuthorityEpoch++;
+        _custodySessionId = null;
+        _awaitingNewSessionStock = true;
+      }
       if (state is DashboardLoaded) {
         var next = state as DashboardLoaded;
         if (result.reconciledSession != null) {
           next = _applyRecoveredWorkSession(next, result.reconciledSession!);
+        }
+        if (result.operation == WorkSessionOperation.start ||
+            result.operation == WorkSessionOperation.end) {
+          next = next.copyWith(
+            products: const <ProductModel>[],
+            sellableStockDisclosure: StockDisclosure.unavailable,
+            nonSellableCustody: const <NonSellableCustodyItem>[],
+            nonSellableStockDisclosure: StockDisclosure.unavailable,
+            clearPendingTransfer: true,
+          );
         }
         emit(
           next.copyWith(
@@ -774,6 +949,8 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     return DashboardLoaded(
       visits: current.visits,
       products: current.products,
+      sellableStockDisclosure: current.sellableStockDisclosure,
+      nonSellableStockDisclosure: current.nonSellableStockDisclosure,
       totalVisits: current.totalVisits,
       completedVisits: current.completedVisits,
       pendingVisits: current.pendingVisits,

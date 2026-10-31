@@ -13,6 +13,7 @@ import 'package:wanasah_frontend/blocs/dashboard/dashboard_event.dart';
 import 'package:wanasah_frontend/blocs/dashboard/dashboard_state.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
 import 'package:wanasah_frontend/features/custody/domain/pending_return_custody.dart';
+import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_reader.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_sync_coordinator.dart';
@@ -339,6 +340,8 @@ DashboardLoaded _loaded() => DashboardLoaded(
   totalDebtPaid: 32,
   totalCashOverall: 160.5,
   debtPaymentsCount: 2,
+  sellableStockDisclosure: StockDisclosure.verified,
+  nonSellableStockDisclosure: StockDisclosure.verified,
   products: const [
     ProductModel(
       id: 1,

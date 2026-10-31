@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/core/errors/api_failure_exception.dart';
 import 'package:wanasah_frontend/features/custody/data/pending_transfer_source.dart';
 import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.dart';
+import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
+import 'package:wanasah_frontend/l10n/generated/app_localizations.dart';
 import 'package:wanasah_frontend/features/custody/domain/transfer_decision.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
 
@@ -176,9 +178,14 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('ar'),
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
         home: Scaffold(
           body: VehicleInventorySection(
             products: const [],
+            sellableDisclosure: StockDisclosure.verified,
+            nonSellableDisclosure: StockDisclosure.verified,
             nonSellableCustody: <NonSellableCustodyItem>[item],
           ),
         ),

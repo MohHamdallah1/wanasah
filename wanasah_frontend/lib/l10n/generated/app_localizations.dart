@@ -101,6 +101,44 @@ abstract class AppLocalizations {
   /// **'وناسة'**
   String get appTitle;
 
+  String get stockVehicleTitle;
+  String get stockEmptyVerified;
+  String get stockUnavailable;
+  String get stockDenied;
+  String get stockStale;
+  String get stockReceived;
+  String get stockSold;
+  String get stockRemaining;
+  String get stockCarton;
+  String get stockPack;
+  String get stockPiece;
+  String get stockPendingReturns;
+  String get stockPendingReturnsHint;
+  String get stockNonSellableTitle;
+  String get stockStatusDamaged;
+  String get stockStatusQuarantined;
+  String get stockStatusBlocked;
+  String get stockStatusRecalled;
+  String get stockStatusDisposalPending;
+  String get stockPending;
+  String get stockInFlight;
+  String get stockNeedsAction;
+  String get stockReasonExpired;
+  String get stockReasonFactory;
+  String get stockAvailableLocal;
+  String get stockSearchHint;
+  String get stockConfirmQuantities;
+  String get stockSaleCartons;
+  String get stockSalePacks;
+  String get stockSampleCartons;
+  String get stockSamplePacks;
+  String get stockSampleReasonHint;
+  String get stockSampleReasonDetailsHint;
+  String get stockSampleReasonPromo;
+  String get stockSampleReasonFree;
+  String get stockSampleReasonCompensation;
+  String get stockSampleReasonOther;
+
   /// No description provided for @dashboardConnectivityCached.
   ///
   /// In ar, this message translates to:

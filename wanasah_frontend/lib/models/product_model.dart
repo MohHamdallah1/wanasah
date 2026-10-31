@@ -39,6 +39,19 @@ class ProductModel extends Equatable {
     final int rawPacks = int.tryParse(json['packs_per_carton']?.toString() ?? '1') ?? 1;
     final int safePacksPerCarton = rawPacks > 0 ? rawPacks : 1;
 
+    // Both current fields must be verified. Never invent a zero.
+    int requiredQuantity(String primary, String legacy) {
+      final raw = json.containsKey(primary) ? json[primary] : json[legacy];
+      if (raw is! int && raw is! String) {
+        throw FormatException('Invalid or missing stock quantity: $primary');
+      }
+      final parsed = raw is int ? raw : int.tryParse(raw as String);
+      if (parsed == null || parsed < 0) {
+        throw FormatException('Invalid or missing stock quantity: $primary');
+      }
+      return parsed;
+    }
+
     return ProductModel(
       id: parsedId,
       name:
@@ -57,8 +70,8 @@ class ProductModel extends Equatable {
       startingPacks: int.tryParse(json['starting_packs']?.toString() ?? '0') ?? 0,
       soldCartons: int.tryParse(json['sold_cartons']?.toString() ?? '0') ?? 0,
       soldPacks: int.tryParse(json['sold_packs']?.toString() ?? '0') ?? 0,
-      currentCartons: int.tryParse((json['current_cartons'] ?? json['remaining_cartons'])?.toString() ?? '0') ?? 0,
-      currentPacks: int.tryParse((json['current_packs'] ?? json['remaining_packs'])?.toString() ?? '0') ?? 0,
+      currentCartons: requiredQuantity('current_cartons', 'remaining_cartons'),
+      currentPacks: requiredQuantity('current_packs', 'remaining_packs'),
     );
   }
 

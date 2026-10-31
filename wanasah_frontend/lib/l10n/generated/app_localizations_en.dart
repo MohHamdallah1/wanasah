@@ -585,4 +585,115 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get visitOpenVisitHint => 'Open visit';
+
+  @override
+  String get stockVehicleTitle => 'Vehicle inventory:';
+
+  @override
+  String get stockEmptyVerified => 'No sellable stock is currently in the vehicle.';
+
+  @override
+  String get stockUnavailable => 'Vehicle stock could not be verified; balance is unknown.';
+
+  @override
+  String get stockDenied => 'You do not have access to current custody.';
+
+  @override
+  String get stockStale => 'Saved offline stock; not a verified current balance.';
+
+  @override
+  String get stockReceived => 'Received';
+
+  @override
+  String get stockSold => 'Sold';
+
+  @override
+  String get stockRemaining => 'Remaining';
+
+  @override
+  String get stockCarton => 'cartons';
+
+  @override
+  String get stockPack => 'packs';
+
+  @override
+  String get stockPiece => 'pieces';
+
+  @override
+  String get stockPendingReturns => 'Local returns pending resolution:';
+
+  @override
+  String get stockPendingReturnsHint => 'These are pending local records, not final server custody.';
+
+  @override
+  String get stockNonSellableTitle => 'Non-sellable custody:';
+
+  @override
+  String get stockStatusDamaged => 'Damaged';
+
+  @override
+  String get stockStatusQuarantined => 'Quarantined';
+
+  @override
+  String get stockStatusBlocked => 'Blocked';
+
+  @override
+  String get stockStatusRecalled => 'Recalled';
+
+  @override
+  String get stockStatusDisposalPending => 'Awaiting disposal';
+
+  @override
+  String get stockPending => 'Pending sync';
+
+  @override
+  String get stockInFlight => 'Sending';
+
+  @override
+  String get stockNeedsAction => 'Needs attention';
+
+  @override
+  String get stockReasonExpired => 'Expired';
+
+  @override
+  String get stockReasonFactory => 'Factory defect';
+
+  @override
+  String get stockAvailableLocal => 'Locally available (not currently verified)';
+
+  @override
+  String get stockSearchHint => 'Search products...';
+
+  @override
+  String get stockConfirmQuantities => 'Confirm quantities and return to invoice';
+
+  @override
+  String get stockSaleCartons => 'Sale cartons';
+
+  @override
+  String get stockSalePacks => 'Sale pieces';
+
+  @override
+  String get stockSampleCartons => 'Sample cartons (🎁)';
+
+  @override
+  String get stockSamplePacks => 'Sample pieces (🎁)';
+
+  @override
+  String get stockSampleReasonHint => 'Select sample reason (required)';
+
+  @override
+  String get stockSampleReasonDetailsHint => 'Describe the reason...';
+
+  @override
+  String get stockSampleReasonPromo => 'New product promotion';
+
+  @override
+  String get stockSampleReasonFree => 'Free customer sample';
+
+  @override
+  String get stockSampleReasonCompensation => 'Shop goodwill compensation';
+
+  @override
+  String get stockSampleReasonOther => 'Other';
 }

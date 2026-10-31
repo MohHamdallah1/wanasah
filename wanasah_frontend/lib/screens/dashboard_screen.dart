@@ -353,6 +353,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         _pendingTransfers(state),
         VehicleInventorySection(
           products: state.products,
+          sellableDisclosure: state.sellableStockDisclosure,
+          nonSellableDisclosure: state.nonSellableStockDisclosure,
           nonSellableCustody: state.nonSellableCustody,
           pendingReturnCustody: state.pendingReturnCustody,
         ),

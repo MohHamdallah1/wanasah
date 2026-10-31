@@ -6,6 +6,7 @@ import '../../models/product_model.dart';
 import '../../models/visit_model.dart';
 import '../../features/custody/domain/pending_transfer.dart';
 import '../../features/custody/domain/non_sellable_custody.dart';
+import '../../features/custody/domain/stock_disclosure.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
 import '../../features/work_session/application/work_session_action_issue.dart';
 
@@ -69,6 +70,8 @@ class DashboardLoaded extends DashboardState {
   // +++ جديد: للتعامل مع المصافحة المعلقة (Transfers Handshake) +++
   final PendingTransferBatch? pendingTransfer;
   final List<NonSellableCustodyItem> nonSellableCustody;
+  final StockDisclosure sellableStockDisclosure;
+  final StockDisclosure nonSellableStockDisclosure;
   final List<PendingReturnCustodyItem> pendingReturnCustody;
   // +++  لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
   final String? actionSuccessMessage;
@@ -96,6 +99,8 @@ class DashboardLoaded extends DashboardState {
     this.refreshIssue,
     this.pendingTransfer,
     this.nonSellableCustody = const <NonSellableCustodyItem>[],
+    this.sellableStockDisclosure = StockDisclosure.unavailable,
+    this.nonSellableStockDisclosure = StockDisclosure.unavailable,
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
     this.actionSuccessMessage,
     this.workSessionIssue,
@@ -124,6 +129,8 @@ class DashboardLoaded extends DashboardState {
     refreshIssue,
     pendingTransfer,
     nonSellableCustody,
+    sellableStockDisclosure,
+    nonSellableStockDisclosure,
     pendingReturnCustody,
     actionSuccessMessage,
     workSessionIssue,
@@ -152,6 +159,8 @@ class DashboardLoaded extends DashboardState {
     DashboardRefreshIssue? refreshIssue,
     PendingTransferBatch? pendingTransfer,
     List<NonSellableCustodyItem>? nonSellableCustody,
+    StockDisclosure? sellableStockDisclosure,
+    StockDisclosure? nonSellableStockDisclosure,
     List<PendingReturnCustodyItem>? pendingReturnCustody,
     String? actionSuccessMessage,
     WorkSessionActionIssue? workSessionIssue,
@@ -190,6 +199,10 @@ class DashboardLoaded extends DashboardState {
               : (pendingTransfer ?? this.pendingTransfer),
       nonSellableCustody:
           nonSellableCustody ?? this.nonSellableCustody,
+      sellableStockDisclosure:
+          sellableStockDisclosure ?? this.sellableStockDisclosure,
+      nonSellableStockDisclosure:
+          nonSellableStockDisclosure ?? this.nonSellableStockDisclosure,
       pendingReturnCustody:
           pendingReturnCustody ?? this.pendingReturnCustody,
       actionSuccessMessage:
