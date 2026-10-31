@@ -259,10 +259,10 @@ void main() {
       'lib/features/custody/presentation/vehicle_inventory_section.dart',
     ).readAsString();
 
-    expect(source, contains('مرتجعات محلية بانتظار الحسم'));
+    expect(source, contains('l10n.stockPendingReturns'));
     expect(
       source,
-      contains('ليست رصيد العهدة النهائي من السيرفر'),
+      contains('l10n.stockPendingReturnsHint'),
     );
     expect(source, contains('nonSellableCustody'));
     expect(source, contains('pendingReturnCustody'));
