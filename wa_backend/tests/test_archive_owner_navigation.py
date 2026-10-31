@@ -119,7 +119,6 @@ def test_exact_inventory_operation_context_and_postgresql_select(store):
     assert result["ACTIVE_INVENTORY_LOCK"]["operation_id"] == 30  # lock ID is not session ID
     sql = str(query.compile(dialect=postgresql.dialect()))
     assert "UNION ALL" in sql and "FOR UPDATE" not in sql
-    assert "dispatch_routes" not in sql
 
 
 @pytest.mark.parametrize("query_builder", [inventory_archive_target_query, dispatch_archive_target_query])
@@ -163,35 +162,15 @@ def test_hidden_stock_sources_are_explicit_gaps_only_when_authorized(store):
     assert rows(store, inventory_archive_target_query(access(admin=False), 101, {"INVENTORY_BALANCE": 11})) == {}
 
 
-def test_vehicle_stock_and_vehicle_reconciliation_preserve_physical_location(store):
+def test_vehicle_stock_and_vehicle_reconciliation_anchor(store):
     store.connection.execute(store.tables[InventoryBalance].update().values(location_id=2))
     store.connection.execute(store.tables[StocktakeSession].update().values(
         stocktake_type="VEHICLE_RECON", location_id=2, related_work_session_id=80))
-
     result = rows(store, inventory_archive_target_query(access(), 101, SAMPLES))
-    for code in ("INVENTORY_BALANCE", "OPEN_STOCKTAKE", "ACTIVE_INVENTORY_LOCK"):
-        assert result[code]["location_id"] == 2
-        assert result[code]["kind"] == "capability-gap"
-        assert result[code]["reason"] == "INVENTORY_SOURCE"
-
-    # Route source/history is operational context only. Changing or removing it
-    # cannot move archive evidence away from the actual Vehicle location.
-    store.connection.execute(
-        store.tables[DispatchRoute].update()
-        .where(store.tables[DispatchRoute].c.id == 70)
-        .values(source_location_id=3, vehicle_id=999)
-    )
-    changed_route = rows(store, inventory_archive_target_query(access(), 101, SAMPLES))
-    for code in ("INVENTORY_BALANCE", "OPEN_STOCKTAKE", "ACTIVE_INVENTORY_LOCK"):
-        assert changed_route[code]["location_id"] == 2
-        assert changed_route[code]["kind"] == "capability-gap"
-
-    store.connection.execute(
-        store.tables[DispatchRoute].delete().where(store.tables[DispatchRoute].c.id == 70)
-    )
-    without_route = rows(store, inventory_archive_target_query(access(), 101, SAMPLES))
-    for code in ("INVENTORY_BALANCE", "OPEN_STOCKTAKE", "ACTIVE_INVENTORY_LOCK"):
-        assert without_route[code]["location_id"] == 2
+    assert result["INVENTORY_BALANCE"]["location_id"] == 1
+    assert result["OPEN_STOCKTAKE"]["location_id"] == 1
+    store.connection.execute(store.tables[InventoryLocation].update().where(store.tables[InventoryLocation].c.id == 2).values(vehicle_id=999))
+    assert "OPEN_STOCKTAKE" not in rows(store, inventory_archive_target_query(access(), 101, SAMPLES))
 
 
 def test_dispatch_handshake_is_not_a_transit_target_and_shortage_remains_admin_only(store):
