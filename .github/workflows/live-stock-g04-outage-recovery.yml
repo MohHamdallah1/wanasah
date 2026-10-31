@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: live-stock-g04-\${{ github.event.pull_request.number || github.ref }}
+  group: live-stock-g04-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       WANASAH_G04_REVOKED_STATE: /tmp/live-stock-g04-revoked.json
       WANASAH_G04_API: http://127.0.0.1:4174
       WANASAH_G04_DB_CONTAINER: live-stock-g04-pg
-      R3_BACKEND_ROOT: \${{ github.workspace }}/wa_backend
+      R3_BACKEND_ROOT: ${{ github.workspace }}/wa_backend
       VITE_API_URL: http://127.0.0.1:4174
       PYTHON: python
 
@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
@@ -182,7 +182,7 @@ jobs:
       - name: Require complete no-skip execution and bounded ownership
         if: always()
         env:
-          BASE: \${{ github.event.pull_request.base.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           python - <<'PY'
           import os, re, subprocess, xml.etree.ElementTree as ET
@@ -240,7 +240,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-stock-g04-\${{ github.event.pull_request.head.sha || github.sha }}
+          name: live-stock-g04-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             /tmp/live-stock-g04-fixture.xml
             /tmp/live-stock-g04-http.xml
