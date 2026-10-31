@@ -1,7 +1,62 @@
-import { expect, test } from "playwright/test";
+import { execFileSync } from "node:child_process";
+import { resolve } from "node:path";
+import { expect, test, type Page, type Route } from "playwright/test";
 import { visualCases } from "./live-stock-ux-closure.fixtures";
-import { api, command, delay, item, login, record, shot, state, stock } from "./live-stock-operational.support";
+import { API, api, command, delay, item, login, record, shot, state, stock } from "./live-stock-operational.support";
 import { detailFreshness, policyAndScope, searchFailures } from "./live-stock-operational.journey";
+
+
+function physicalCommand(action: "setup" | "grant" | "load") {
+  const output = execFileSync(process.env.PYTHON || "python",
+    [resolve("e2e/live-stock-physical-custody.fixture.py"), action],
+    { encoding: "utf8", env: process.env });
+  expect(output).toContain("PHYSICAL_CONSUMER_COMMAND PASS " + action);
+}
+
+async function commitForeignDashboardSession(page: Page) {
+  const credentials = state.credentials.foreign as { code: string; username: string; password: string };
+  if (!page.url().startsWith("http://127.0.0.1:4173/")) {
+    await page.goto("http://127.0.0.1:4173/");
+  }
+  return page.evaluate(async ({ origin, credentials, warehouse }) => {
+    const response = await fetch(origin + "/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        company_code: credentials.code,
+        username: credentials.username,
+        password: credentials.password,
+      }),
+    });
+    const data = await response.json() as Record<string, unknown>;
+    if (!response.ok) throw new Error("Foreign real login failed: " + response.status);
+    const companyId = data.company_id;
+    const principalId = data.principal_id;
+    const backofficeUserId = data.backoffice_user_id;
+    if (
+      typeof data.token !== "string" || !data.token ||
+      typeof data.refresh_token !== "string" || !data.refresh_token ||
+      typeof companyId !== "number" || !Number.isSafeInteger(companyId) || companyId <= 0 ||
+      typeof principalId !== "number" || !Number.isSafeInteger(principalId) || principalId <= 0 ||
+      typeof backofficeUserId !== "number" || !Number.isSafeInteger(backofficeUserId) || backofficeUserId <= 0 ||
+      data.channel !== "DASHBOARD" || data.principal_type !== "BACKOFFICE"
+    ) throw new Error("Foreign real login returned an invalid canonical Dashboard identity");
+
+    // Mirror Login.tsx's canonical cross-tab commit using the genuine FastAPI tokens.
+    localStorage.setItem("wanasah:auth-session:generation", crypto.randomUUID());
+    localStorage.setItem("admin_token", data.token);
+    localStorage.setItem("refresh_token", data.refresh_token);
+    localStorage.setItem("company_id", String(companyId));
+    localStorage.setItem("principal_id", String(principalId));
+    localStorage.setItem("backoffice_user_id", String(backofficeUserId));
+    localStorage.removeItem("driver_id");
+    if (typeof data.company_code === "string") localStorage.setItem("company_code", data.company_code);
+    if (typeof data.display_name === "string") localStorage.setItem("admin_name", data.display_name);
+    localStorage.setItem("inventory_selected_location:" + companyId, String(warehouse));
+    localStorage.setItem("inventory_active_tab:" + companyId, "live");
+    return { companyId, principalId, backofficeUserId };
+  }, { origin: API, credentials, warehouse: state.foreignWarehouse });
+}
 
 test("remaining V1 operational clauses on production Dashboard and real FastAPI/PG16", async ({ page, browser }, info) => {
   test.setTimeout(240_000);
@@ -114,6 +169,132 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await delay(op);
       expect(ownerLog.requests.slice(resume).filter(u => new URL(u).pathname === "/warehouse/inventory/cursor")).toHaveLength(1);
       expect(ownerLog.requests.slice(resume).filter(u => new URL(u).pathname === "/warehouse/inventory/summary")).toHaveLength(1);
+    });
+    await test.step("cross-tab A→B rejects delayed A while fresh B authority follows physical custody truth", async () => {
+      physicalCommand("setup");
+      physicalCommand("grant");
+      physicalCommand("load");
+
+      const transition = await browser.newContext({
+        baseURL: "http://127.0.0.1:4173",
+        viewport: { width: 1360, height: 900 },
+      });
+      const aTab = await transition.newPage();
+      const bTab = await transition.newPage();
+      try {
+        await login(aTab, "reader");
+        const physical = await api(
+          aTab,
+          "/warehouse/inventory/cursor?location_id=" + state.warehouse + "&search=OP-MULTI",
+        );
+        expect(physical.status).toBe(200);
+        const physicalRow = physical.body.items.find((row: { id: number }) => row.id === state.mainId);
+        expect(physicalRow).toMatchObject({
+          on_hand_quantity: "968",
+          total_quantity: "968",
+          total_quantity_scope: "WAREHOUSE_PHYSICAL",
+          vehicle_quantity: "32",
+          vehicle_quantity_scope: "AUTHORIZED_LOCATIONS",
+        });
+        await expect(item(aTab, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
+        await expect(item(aTab, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
+
+        let releaseStaleA!: () => void;
+        let staleACaptured!: () => void;
+        let staleADelivered!: () => void;
+        const staleARelease = new Promise<void>((resolveRelease) => { releaseStaleA = resolveRelease; });
+        const staleAReady = new Promise<void>((resolveReady) => { staleACaptured = resolveReady; });
+        const staleADone = new Promise<void>((resolveDone) => { staleADelivered = resolveDone; });
+        let heldA = false;
+        const staleAHandler = async (route: Route) => {
+          const request = route.request();
+          const url = new URL(request.url());
+          if (
+            !heldA &&
+            request.method() === "GET" &&
+            url.pathname === "/warehouse/inventory/cursor" &&
+            url.searchParams.get("location_id") === String(state.warehouse)
+          ) {
+            heldA = true;
+            const genuineAResponse = await route.fetch();
+            expect(genuineAResponse.status()).toBe(200);
+            staleACaptured();
+            await staleARelease;
+            await route.fulfill({ response: genuineAResponse });
+            staleADelivered();
+            return;
+          }
+          await route.continue();
+        };
+        await aTab.route(API + "/warehouse/inventory/cursor*", staleAHandler);
+
+        let releaseBAuth!: () => void;
+        let bAuthCaptured!: () => void;
+        let bAuthDelivered!: () => void;
+        const bAuthRelease = new Promise<void>((resolveRelease) => { releaseBAuth = resolveRelease; });
+        const bAuthReady = new Promise<void>((resolveReady) => { bAuthCaptured = resolveReady; });
+        const bAuthDone = new Promise<void>((resolveDone) => { bAuthDelivered = resolveDone; });
+        let heldB = false;
+        let bAuthBody: Record<string, unknown> | null = null;
+        const bAuthHandler = async (route: Route) => {
+          const response = await route.fetch();
+          const body = await response.json() as Record<string, unknown>;
+          if (!heldB && body.company_id !== state.companyId) {
+            heldB = true;
+            bAuthBody = body;
+            bAuthCaptured();
+            await bAuthRelease;
+            await route.fulfill({ response });
+            bAuthDelivered();
+            return;
+          }
+          await route.fulfill({ response });
+        };
+        await aTab.route(API + "/inventory/access/me*", bAuthHandler);
+
+        await stock(aTab).locator(".live-stock-context-refresh").click();
+        await staleAReady;
+
+        const foreignSession = await commitForeignDashboardSession(bTab);
+        await bAuthReady;
+
+        // ProtectedRoute/DashboardLayout must drop A before fresh B authorization finishes.
+        await expect(item(aTab, state.mainName)).toHaveCount(0);
+        expect(await aTab.evaluate(() => localStorage.getItem("company_id"))).toBe(String(foreignSession.companyId));
+
+        releaseStaleA();
+        await staleADone;
+        await expect(item(aTab, state.mainName)).toHaveCount(0);
+
+        const freshBCursor = aTab.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return response.request().method() === "GET" &&
+            response.status() === 200 &&
+            url.pathname === "/warehouse/inventory/cursor" &&
+            url.searchParams.get("location_id") === String(state.foreignWarehouse);
+        });
+        releaseBAuth();
+        await bAuthDone;
+        expect(bAuthBody).toMatchObject({
+          company_id: foreignSession.companyId,
+          principal_id: foreignSession.principalId,
+          backoffice_user_id: foreignSession.backofficeUserId,
+        });
+        await freshBCursor;
+
+        const bOwn = await api(aTab, "/warehouse/inventory/cursor?location_id=" + state.foreignWarehouse + "&limit=50");
+        expect(bOwn.status).toBe(200);
+        expect(JSON.stringify(bOwn.body)).not.toContain(state.mainName);
+        const bCrossTenant = await api(aTab, "/warehouse/inventory/cursor?location_id=" + state.warehouse + "&limit=50");
+        expect(bCrossTenant.status).toBe(404);
+        expect(JSON.stringify(bCrossTenant.body)).not.toContain(state.mainName);
+        await expect(item(aTab, state.mainName)).toHaveCount(0);
+
+        await aTab.unroute(API + "/warehouse/inventory/cursor*", staleAHandler);
+        await aTab.unroute(API + "/inventory/access/me*", bAuthHandler);
+      } finally {
+        await transition.close();
+      }
     });
     await test.step("same-token source403 revokes already-open batch, list and costs", async () => {
       await page.setViewportSize({ width: 1360, height: 900 });
