@@ -509,9 +509,11 @@ async def _run():
                     warmups=1, samples=2, **filters,
                 )
                 accepted._assert_r3_location_contract(new["payload"])
-            assert accepted._r3_stable_payload(
-                new["payload"]
-            ) == accepted._r3_stable_payload(old["payload"]), (actor, name)
+                assert accepted._r3_stable_payload(
+                    new["payload"]
+                ) == accepted._r3_stable_payload(
+                    old["payload"]
+                ), (actor, name)
                 keys = [
                     (row["name"], int(row["id"]))
                     for row in new["payload"]["items"]
