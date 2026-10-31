@@ -103,8 +103,7 @@ async def _begin_correction_idempotency(
             created_by,
             request_hash,
             response_json,
-            completed_at,
-            state
+            completed_at
         FROM operation_idempotency
         WHERE company_id = %s
           AND operation = %s
@@ -126,7 +125,6 @@ async def _begin_correction_idempotency(
             existing_hash,
             response_json,
             completed_at,
-            state,
         ) = existing
         if int(
             existing_actor
@@ -139,8 +137,7 @@ async def _begin_correction_idempotency(
         ) != canonical_hash:
             raise InlineCorrectionError("PRODUCT_IMPORT_CORRECTION_REQUEST_REUSED")
         if (
-            str(state) != "COMMITTED"
-            or completed_at
+            completed_at
             is None
             or not isinstance(
                 response_json,
@@ -169,12 +166,11 @@ async def _begin_correction_idempotency(
             created_by,
             response_json,
             created_at,
-            completed_at,
-            state
+            completed_at
         )
         VALUES (
             %s,%s,%s,%s,%s,
-            NULL,CURRENT_TIMESTAMP,NULL,'PENDING'
+            NULL,CURRENT_TIMESTAMP,NULL
         )
         """,
         [
@@ -468,8 +464,7 @@ async def _complete_correction_idempotency(
         """
         UPDATE operation_idempotency
         SET response_json = %s,
-            completed_at = CURRENT_TIMESTAMP,
-            state = 'COMMITTED'
+            completed_at = CURRENT_TIMESTAMP
         WHERE company_id = %s
           AND operation = %s
           AND request_id = %s
