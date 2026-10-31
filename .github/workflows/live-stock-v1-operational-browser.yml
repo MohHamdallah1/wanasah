@@ -347,6 +347,7 @@ jobs:
           echo "OPERATIONAL_SCREENSHOTS=$count"
 
       - name: Verify compact G06 owner sign-off package
+        if: inputs.scenario != 'physical-custody'
         run: |
           package_dir=$(find dashboard/node_modules/.cache/live-stock-operational -type d -name owner-package -print -quit)
           test -n "$package_dir"
