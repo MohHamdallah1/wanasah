@@ -20,6 +20,7 @@ FINGERPRINT_TABLES = (
     "inventory_cost_events",
     "inventory_cost_layers",
     "inventory_cost_states",
+    "inventory_stock_policies",
     "operation_idempotency",
 )
 
