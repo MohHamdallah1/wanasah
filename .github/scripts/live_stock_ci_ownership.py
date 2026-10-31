@@ -152,6 +152,7 @@ OP_ALLOWED = {
 # the existing operational Chromium proof in one PR. Keep this crossover gated
 # by an actual OP_WORKFLOW change and limited to these frontend/test files.
 WORKER1_COMBINED_CLOSURE = {
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     "dashboard/e2e/live-stock-operational.journey.ts",
     "dashboard/e2e/live-stock-operational.spec.ts",
     "dashboard/e2e/live-stock-operational.support.ts",
