@@ -335,7 +335,7 @@ export function parseLiveStockPage(
   }
 
   const ids = new Set<number>();
-  const items = page.items.map((rawItem) => {
+  const items = page.items.map((rawItem): WarehouseProduct => {
     const row = record(rawItem, code);
     const id = int(row.id, code, 1);
     if (ids.has(id)) return contractError(code);
