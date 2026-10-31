@@ -109,9 +109,10 @@ async def _resolve_authenticated_access_session(
         raise
     except RequestContextRejected:
         raise _authentication_rejected() from None
-    except SQLAlchemyError:
-        # A database/pool outage is not evidence that a valid bearer became
-        # invalid. Fail closed without triggering credential-loss semantics.
+    except (SQLAlchemyError, OSError):
+        # Database/pool connection failures are not evidence that a valid
+        # bearer became invalid. asyncpg connection refusal may surface as a
+        # low-level OSError before SQLAlchemy can wrap it.
         raise _authentication_backend_unavailable() from None
     except Exception:
         # Non-persistence resolution failures remain opaque and fail closed.
