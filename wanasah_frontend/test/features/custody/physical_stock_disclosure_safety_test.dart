@@ -81,6 +81,19 @@ void main() {
     }).currentCartons, 0);
   });
 
+  test('revoked data stays denied; transient data becomes visibly stale', () {
+    expect(stockDisclosureAfterFailure(StockDisclosure.verified, denied: false),
+        StockDisclosure.stale);
+    expect(stockDisclosureAfterFailure(StockDisclosure.stale, denied: false),
+        StockDisclosure.stale);
+    expect(stockDisclosureAfterFailure(StockDisclosure.unavailable, denied: false),
+        StockDisclosure.unavailable);
+    expect(stockDisclosureAfterFailure(StockDisclosure.verified, denied: true),
+        StockDisclosure.denied);
+    expect(stockDisclosureAfterFailure(StockDisclosure.denied, denied: false),
+        StockDisclosure.denied);
+  });
+
   test('101 custody records require cursor and keep exact session', () async {
     final calls = <Map<String, dynamic>>[];
     final items = await _coordinator(CustodyClient(get: (path, {queryParameters}) async {
