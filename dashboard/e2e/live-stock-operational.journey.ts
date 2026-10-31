@@ -114,7 +114,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(dialog).toContainText("OP-FIRST");
   await expect(first.getByRole("button", { name: "Actionable Warehouse source and reservations" })).toHaveAttribute("aria-expanded", "false");
   await expect(first.locator('[id^="live-stock-source"]')).toHaveCount(0);
-  await first.getByRole("button", { name: "Stock source and reservations" }).click();
+  await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
   const evidence = await api(p, "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?location_id=" + state.warehouse);
   const available = evidence.body.statuses.find((x: { stock_status: string }) => x.stock_status === "AVAILABLE");
   expect(canon(available.reserved_quantity)).toBe("24");
