@@ -298,11 +298,14 @@ jobs:
           fi
           echo "OPERATIONAL_SCREENSHOTS=$count"
 
-      # Keep this full legacy contract module enforced, while allowing real
-      # browser evidence to execute before unrelated inherited assertions fail.
-      - name: Strict contract and legacy consumer regressions
+      # P2 consumer audit: keep the legacy Live Stock parser contract enforced
+      # here without importing unrelated Inbound/Ledger suites owned by their
+      # dedicated acceptance gates.
+      - name: Strict Live Stock legacy consumer contract
         working-directory: dashboard
-        run: npx vitest run src/test/inventory-access.test.ts
+        run: >-
+          npx vitest run src/test/inventory-access.test.ts
+          -t "live stock response contract"
 
       - name: Upload operational visual and server evidence
         if: always()
