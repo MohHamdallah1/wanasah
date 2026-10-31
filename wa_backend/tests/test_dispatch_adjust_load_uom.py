@@ -106,6 +106,15 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.db.add(self.route)
         await self.db.flush()
         self.rid = int(self.route.id)
+        # Keep plain scalar context evidence across commits. SQLAlchemy expires
+        # ORM attributes on commit; reading self.route synchronously afterwards
+        # would attempt async IO outside greenlet_spawn and raise MissingGreenlet.
+        self.context_vehicle_id = int(self.route.vehicle_id)
+        self.context_source_warehouse_id = int(self.route.source_location_id)
+        self.context_work_session_id = (
+            int(self.route.work_session_id) if self.route.work_session_id is not None else None
+        )
+        self.context_revision = int(self.route.adjustment_context_revision)
         self.db.add(DispatchLoadPlanLine(company_id=self.company, dispatch_route_id=self.rid,
             product_variant_id=self.pid, target_quantity_packs=25, updated_by=self.actor_id))
         await self.db.commit()
@@ -113,10 +122,10 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
     def adjustment_context(self):
         return {
             "version": "ADJUST_LOAD_CONTEXT_V2",
-            "vehicle_id": int(self.route.vehicle_id),
-            "source_warehouse_id": int(self.route.source_location_id),
-            "work_session_id": int(self.route.work_session_id) if self.route.work_session_id is not None else None,
-            "route_context_revision": int(self.route.adjustment_context_revision),
+            "vehicle_id": self.context_vehicle_id,
+            "source_warehouse_id": self.context_source_warehouse_id,
+            "work_session_id": self.context_work_session_id,
+            "route_context_revision": self.context_revision,
         }
 
     async def adjust(self, delta=None, *, legacy=None, request_id=None, rows=None):
@@ -147,8 +156,10 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.db.add(self.session)
         await self.db.flush()
         self.sid = int(self.session.id)
-        self.route.work_session_id = self.sid
-        self.route.adjustment_context_revision += 1
+        self.context_work_session_id = self.sid
+        self.context_revision += 1
+        self.route.work_session_id = self.context_work_session_id
+        self.route.adjustment_context_revision = self.context_revision
         self.route.status = "active"
         await self.db.commit()
 
