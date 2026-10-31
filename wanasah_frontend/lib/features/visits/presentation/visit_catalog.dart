@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../blocs/visit/visit_bloc.dart';
 import '../../../models/cart_item_model.dart';
 import '../../../models/product_model.dart';
+import '../../../l10n/generated/app_localizations.dart';
 import '../domain/returns/return_resolution.dart';
 import 'returns/return_reason_quantities.dart';
 
@@ -45,6 +46,7 @@ class _VisitCatalogState extends State<VisitCatalog> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final filteredCatalog = widget.catalog.where((p) => p.name.toLowerCase().contains(_searchQuery.toLowerCase())).toList();
 
     return Expanded( // غلفنا العمود بـ Expanded ليعمل داخل الـ Column الرئيسي
@@ -64,7 +66,7 @@ class _VisitCatalogState extends State<VisitCatalog> {
                       controller: _searchController,
                       onChanged: (val) => setState(() => _searchQuery = val),
                       decoration: InputDecoration(
-                        hintText: 'ابحث عن صنف...',
+                        hintText: l10n.stockSearchHint,
                         border: InputBorder.none,
                         suffixIcon: _searchQuery.isNotEmpty 
                           ? IconButton(icon: const Icon(Icons.cancel, color: Colors.grey), onPressed: () { _searchController.clear(); setState(() => _searchQuery = ''); }) 
@@ -106,6 +108,7 @@ class _VisitCatalogState extends State<VisitCatalog> {
   }
 
   Widget _buildMasterConfirmButton() {
+    final l10n = AppLocalizations.of(context);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))]),
@@ -118,7 +121,7 @@ class _VisitCatalogState extends State<VisitCatalog> {
              widget.onClose(); // +++ يغلق الكاتالوج ويعود للفاتورة فقط دون تدمير الزيارة +++
           },
           style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade700, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-          child: const Text('اعتماد الكميات والعودة للفاتورة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+          child: Text(l10n.stockConfirmQuantities, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
         ),
       ),
     );
@@ -320,8 +323,19 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
     );
   }
 
+  String _sampleReasonLabel(String reason, AppLocalizations l10n) {
+    return switch (reason) {
+      'ترويج منتج جديد' => l10n.stockSampleReasonPromo,
+      'عينة مجانية للزبائن' => l10n.stockSampleReasonFree,
+      'تعويض ودي للمحل' => l10n.stockSampleReasonCompensation,
+      'أخرى' => l10n.stockSampleReasonOther,
+      _ => reason,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     bool isInCart = widget.cartItem != null;
 
     return AnimatedContainer(
@@ -342,7 +356,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
             },
             leading: Icon(isInCart ? Icons.check_circle : Icons.inventory_2_outlined, color: isInCart ? Colors.blue : Colors.grey),
             title: Text(widget.product.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-            subtitle: Text('المتوفر: ${widget.product.currentCartons} ك | ${widget.product.currentPacks} ح', style: const TextStyle(fontSize: 12)),
+            subtitle: Text('${l10n.stockAvailableLocal}: ${widget.product.currentCartons} ${l10n.stockCarton} | ${widget.product.currentPacks} ${l10n.stockPack}', style: const TextStyle(fontSize: 12)),
             trailing: Icon(showExtras ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, color: Colors.blue),
           ),
           Padding(
@@ -351,9 +365,9 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
               children: [
                 Row(
                   children: [
-                    Expanded(child: _buildStepper("كراتين المبيع", sCartons, iconColor: Colors.green)),
+                    Expanded(child: _buildStepper(l10n.stockSaleCartons, sCartons, iconColor: Colors.green)),
                     const SizedBox(width: 10),
-                    Expanded(child: _buildStepper("حبات المبيع", sPacks, iconColor: Colors.green)),
+                    Expanded(child: _buildStepper(l10n.stockSalePacks, sPacks, iconColor: Colors.green)),
                   ],
                 ),
                 AnimatedCrossFade(
@@ -378,16 +392,16 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
                             const Divider(height: 24),
                             Row(
                               children: [
-                                Expanded(child: _buildStepper("كراتين العينات (🎁)", smpCartons, iconColor: Colors.purple)),
+                                Expanded(child: _buildStepper(l10n.stockSampleCartons, smpCartons, iconColor: Colors.purple)),
                                 const SizedBox(width: 8),
-                                Expanded(child: _buildStepper("حبات العينات (🎁)", smpPacks, iconColor: Colors.purple)),
+                                Expanded(child: _buildStepper(l10n.stockSamplePacks, smpPacks, iconColor: Colors.purple)),
                               ],
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<String>(
                               value: _selectedSampleReason,
                               decoration: InputDecoration(
-                                hintText: 'اختر سبب صرف العينة (إجباري)',
+                                hintText: l10n.stockSampleReasonHint,
                                 filled: true,
                                 fillColor: Colors.white,
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -396,7 +410,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
                               items: _reasonOptions.map((String reason) {
                                 return DropdownMenuItem<String>(
                                   value: reason,
-                                  child: Text(reason, style: const TextStyle(fontSize: 13)),
+                                  child: Text(_sampleReasonLabel(reason, l10n), style: const TextStyle(fontSize: 13)),
                                 );
                               }).toList(),
                               onChanged: (String? newValue) {
@@ -417,7 +431,7 @@ class _AccordionProductCardState extends State<_AccordionProductCard> {
                               TextField(
                                 controller: smpReason,
                                 onChanged: (_) => _commitToBloc(),
-                                decoration: InputDecoration(hintText: 'اكتب السبب بالتفصيل...', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                                decoration: InputDecoration(hintText: l10n.stockSampleReasonDetailsHint, filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
                               ),
                             ],
                           ],
