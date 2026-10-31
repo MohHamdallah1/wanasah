@@ -106,12 +106,33 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.db.add(self.route)
         await self.db.flush()
         self.rid = int(self.route.id)
+        # Keep plain scalar context evidence across commits. SQLAlchemy expires
+        # ORM attributes on commit; reading self.route synchronously afterwards
+        # would attempt async IO outside greenlet_spawn and raise MissingGreenlet.
+        self.context_vehicle_id = int(self.route.vehicle_id)
+        self.context_source_warehouse_id = int(self.route.source_location_id)
+        self.context_work_session_id = (
+            int(self.route.work_session_id) if self.route.work_session_id is not None else None
+        )
+        self.context_revision = int(self.route.adjustment_context_revision)
         self.db.add(DispatchLoadPlanLine(company_id=self.company, dispatch_route_id=self.rid,
             product_variant_id=self.pid, target_quantity_packs=25, updated_by=self.actor_id))
         await self.db.commit()
 
+    def adjustment_context(self):
+        return {
+            "version": "ADJUST_LOAD_CONTEXT_V2",
+            "vehicle_id": self.context_vehicle_id,
+            "source_warehouse_id": self.context_source_warehouse_id,
+            "work_session_id": self.context_work_session_id,
+            "route_context_revision": self.context_revision,
+        }
+
     async def adjust(self, delta=None, *, legacy=None, request_id=None, rows=None):
-        payload = AdjustRouteInventoryRequest(request_id=request_id or uuid4(), deltas=rows or [
+        payload = AdjustRouteInventoryRequest(
+            request_id=request_id or uuid4(),
+            context=self.adjustment_context(),
+            deltas=rows or [
             dict(product_id=self.pid, **({"delta_cartons": legacy} if legacy is not None else {"delta_base": str(delta)}))])
         return await dispatch.adjust_route_inventory(self.rid, payload, self.db,
             self.seed.owner.access(self.db), self.actor)
@@ -135,7 +156,10 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.db.add(self.session)
         await self.db.flush()
         self.sid = int(self.session.id)
-        self.route.work_session_id = self.sid
+        self.context_work_session_id = self.sid
+        self.context_revision += 1
+        self.route.work_session_id = self.context_work_session_id
+        self.route.adjustment_context_revision = self.context_revision
         self.route.status = "active"
         await self.db.commit()
 
@@ -434,7 +458,10 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         other = self.seed.Session()
         try:
             task = asyncio.create_task(dispatch.adjust_route_inventory(self.rid,
-                AdjustRouteInventoryRequest(request_id=uuid4(), deltas=[dict(product_id=self.pid, delta_base="8")]),
+                AdjustRouteInventoryRequest(
+                    request_id=uuid4(), context=self.adjustment_context(),
+                    deltas=[dict(product_id=self.pid, delta_base="8")],
+                ),
                 other, self.seed.owner.access(other), self.actor))
             await asyncio.sleep(0.15)
             self.assertFalse(task.done())

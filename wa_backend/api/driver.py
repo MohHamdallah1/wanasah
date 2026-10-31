@@ -403,6 +403,8 @@ async def start_work_session(
         await db.flush()
 
         active_route.work_session_id = new_session.id
+        # Session binding is an immutable Adjust Load context transition.
+        active_route.adjustment_context_revision += 1
 
         # Opening custody snapshot.
         # InventoryBalance يبقى الرصيد الحي؛ هذه مجرد صورة تاريخية غير قابلة للتعديل أثناء اليوم.

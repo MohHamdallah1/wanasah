@@ -8,7 +8,17 @@ export interface AdjustLoadItem extends RouteLoadUom {
   reserved_base_quantity: Quantity;
   pending_base_quantity: Quantity;
 }
-export interface AdjustLoadPayload { deltas: { product_id: number; delta_base: Quantity }[] }
+export interface AdjustLoadCommandContext {
+  version: "ADJUST_LOAD_CONTEXT_V2";
+  vehicle_id: number;
+  source_warehouse_id: number;
+  work_session_id: number | null;
+  route_context_revision: number;
+}
+export interface AdjustLoadPayload {
+  deltas: { product_id: number; delta_base: Quantity }[];
+  context?: AdjustLoadCommandContext;
+}
 
 export const adjustmentError = () => Object.assign(new Error(), { code: "DISPATCH_ADJUSTMENT_INVALID" });
 

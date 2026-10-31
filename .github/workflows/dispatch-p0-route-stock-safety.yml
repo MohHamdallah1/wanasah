@@ -1,0 +1,327 @@
+name: P0 Dispatch route stock mutation safety
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/dispatch_p0_wire_fixture.py"
+      - "dashboard/e2e/dispatch-p0-wire.config.ts"
+      - "dashboard/e2e/dispatch-p0-wire.spec.ts"
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/api/driver.py"
+      - "wa_backend/models.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/services.py"
+      - "wa_backend/domains/simple_products/imports/infrastructure/correction_repository.py"
+      - "wa_backend/alembic/versions/*adjust_load_cancellation_context.py"
+      - "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py"
+      - "dashboard/src/components/dispatch/AdjustInventoryModal.tsx"
+      - "dashboard/src/features/dispatch/adjustLoad.ts"
+      - "dashboard/src/features/dispatch/useAdjustLoadCommand.ts"
+      - "dashboard/src/types/dispatch.ts"
+      - "dashboard/src/i18n/dispatchAdjustLoad.ts"
+      - "dashboard/src/test/dispatch-adjust-load.test.tsx"
+      - "dashboard/src/features/dispatch/useAdjustLoadProducts.ts"
+      - "docs/operations/DISPATCH_P0_LEGACY_ADJUST_RECOVERY_DECISION.md"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/components/dispatch/RouteManagementModal.tsx"
+      - "dashboard/src/features/dispatch/routeStatusPayload.ts"
+      - "dashboard/src/i18n/dispatchRouteSafety.ts"
+      - "dashboard/src/i18n/resources.ts"
+      - "dashboard/src/test/dispatch-p0-route-stock-safety.test.tsx"
+      - "dashboard/src/test/dispatch-product-discovery.test.tsx"
+      - ".github/workflows/dispatch-p0-route-stock-safety.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  physical-postgres:
+    name: route-physical-pg16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: P0DispatchSafetyPG16OnlyTest1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile mutation boundary and acceptance
+        working-directory: wa_backend
+        run: python -m py_compile api/dispatch.py tests/test_dispatch_p0_route_stock_safety_postgres.py
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name dispatch-p0-postgres             --env POSTGRES_USER=p0_dispatch_admin             --env POSTGRES_DB=wanasah_no_lot_contract_test             --env POSTGRES_HOST_AUTH_METHOD=trust             --publish 127.0.0.1:55439:55439             postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-p0-postgres pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dispatch-p0-postgres
+          exit 1
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Fresh Alembic schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Exact physical balances and movement acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_dispatch_p0_route_stock_safety_postgres.py
+          --junitxml=dispatch-p0-physical.xml
+      - name: Reject skipped, empty or failed PG16 evidence
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases = list(ET.parse("dispatch-p0-physical.xml").getroot().iter("testcase"))
+          assert len(cases) == 11, f"Expected 10 FIFO / MOVING_AVERAGE + one actual FastAPI bearer HTTP case: {len(cases)}"
+          assert not [case for case in cases if case.find("skipped") is not None]
+          assert not [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          print(f"DISPATCH_P0_PG16_PASS={len(cases)}")
+          PY
+
+  dashboard:
+    name: route-ui-focused
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Load exact comparison base for existing no-new-diagnostics gate
+        run: git fetch --no-tags origin main:refs/remotes/origin/main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Scoped Dispatch type-check, no-new-diagnostics guard and build
+        working-directory: dashboard
+        run: |
+          node scripts/verify-dispatch-adjust-load-types.cjs
+          npm run build
+      - name: Focused AR/EN route and canonical adjust tests
+        working-directory: dashboard
+        run: >-
+          npm run test --
+          src/test/dispatch-p0-route-stock-safety.test.tsx
+          src/test/dispatch-adjust-load.test.tsx
+          src/test/dispatch-product-discovery.test.tsx
+      - name: Ownership and whitespace
+        run: |
+          base="$(git merge-base origin/main HEAD)"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os, subprocess
+          paths = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"], text=True,
+          ).splitlines())
+          allowed = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/field-authorization-phase3.yml",
+              ".github/workflows/v1-return-cost-fidelity-closure.yml",
+              "dashboard/e2e/dispatch-p0-wire.config.ts",
+              "dashboard/e2e/dispatch-p0-wire.spec.ts",
+              "dashboard/src/components/dispatch/AdjustInventoryModal.tsx",
+              "dashboard/src/components/dispatch/RouteManagementModal.tsx",
+              "dashboard/src/features/dispatch/adjustLoad.ts",
+              "dashboard/src/features/dispatch/routeStatusPayload.ts",
+              "dashboard/src/features/dispatch/useAdjustLoadCommand.ts",
+              "dashboard/src/features/dispatch/useAdjustLoadProducts.ts",
+              "dashboard/src/i18n/dispatchAdjustLoad.ts",
+              "dashboard/src/i18n/dispatchRouteSafety.ts",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-adjust-load.test.tsx",
+              "dashboard/src/test/dispatch-p0-route-stock-safety.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/types/dispatch.ts",
+              "docs/operations/DISPATCH_P0_LEGACY_ADJUST_RECOVERY_DECISION.md",
+              "wa_backend/alembic/versions/a6f9c3d7e210_adjust_load_cancellation_context.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/models.py",
+              "wa_backend/schemas.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/dispatch_p0_wire_fixture.py",
+              "wa_backend/tests/test_dispatch_adjust_load_uom.py",
+              "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+          }
+          assert paths <= allowed, f"Forbidden P0 scope: {sorted(paths - allowed)}"
+          print("DISPATCH_P0_OWNERSHIP=PASS")
+          PY
+
+  real-dashboard-wire:
+    name: dispatch-dashboard-real-http-pg16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 28
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: P0DispatchRealBrowserPG16Test1234567890123456789012345
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_wire_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_WIRE_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_wire_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_DISPATCH_P0_WIRE_STATE: /tmp/dispatch-p0-wire.json
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+      PYTHON: python
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install backend and compile isolated wire fixture
+        run: |
+          python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+          python -m py_compile wa_backend/tests/dispatch_p0_wire_fixture.py
+      - name: Start isolated PostgreSQL16
+        run: |
+          docker run --detach --name dispatch-p0-wire-pg \
+            --env POSTGRES_USER=p0_dispatch_wire_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-p0-wire-pg pg_isready -U p0_dispatch_wire_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-p0-wire-pg
+          exit 1
+      - name: Create non-bypass runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database only
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant ordinary runtime DML with FORCE RLS
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Seed canonical two-lot stock and waiting Route
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/dispatch_p0_wire_fixture.py::test_seed_dispatch_browser
+          --junitxml=dispatch-p0-wire-seed.xml
+      - name: Start actual FastAPI and verify health
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-p0-wire-api.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-p0-wire-api.log
+          exit 1
+      - name: Install locked Dashboard and Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build actual Dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: npm run build
+      - name: Serve actual Dashboard against FastAPI
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-p0-wire-dashboard.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/dispatch >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-p0-wire-dashboard.log
+          exit 1
+      - name: Exact real Dashboard to HTTP to PG16 physical acceptance
+        working-directory: dashboard
+        run: npx playwright test --config e2e/dispatch-p0-wire.config.ts
+      - name: Retain real UI request and server evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-p0-real-dashboard-wire-${{ github.sha }}
+          path: |
+            dashboard/node_modules/.cache/dispatch-p0-wire
+            wa_backend/dispatch-p0-wire-seed.xml
+            /tmp/dispatch-p0-wire-api.log
+            /tmp/dispatch-p0-wire-dashboard.log
+          if-no-files-found: warn

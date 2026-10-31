@@ -1,5 +1,5 @@
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from ws_manager import dispatch_manager
 from sqlalchemy.future import select
@@ -94,6 +94,7 @@ from models import (
     ProductBatch,
     ProductLocation,
     InventoryMovement,
+    OperationIdempotency,
     SessionInventorySnapshot,
 )
 from services import (
@@ -108,6 +109,8 @@ from services import (
     warehouse_setup_required_detail,
     begin_idempotent_operation,
     complete_idempotent_operation,
+    recover_idempotent_operation,
+    OperationIdempotencyError,
 )
 from uuid import uuid4
 from product_lifecycle import (
@@ -2584,6 +2587,135 @@ async def _dispatch_sync_route_plan_to_current_vehicle(
             )
         )
 
+def _dispatch_adjust_request_hash(route_id: int, payload: AdjustRouteInventoryRequest) -> str:
+    canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
+    deltas = sorted((
+        {
+            "product_id": int(item.product_id),
+            **({"delta_base": canonical_quantity(item.delta_base)} if canonical_base
+               else {"delta_cartons": int(item.delta_cartons)}),
+        }
+        for item in payload.deltas
+    ), key=lambda item: item["product_id"])
+    # Historical route-only requests keep their exact pre-cutover hash forever.
+    body: dict[str, object] = {"route_id": int(route_id), "deltas": deltas}
+    if payload.context is not None:
+        body = {
+            "version": payload.context.version,
+            "route_id": int(route_id),
+            "physical_context": {
+                "vehicle_id": int(payload.context.vehicle_id),
+                "source_warehouse_id": int(payload.context.source_warehouse_id),
+                "work_session_id": (
+                    int(payload.context.work_session_id)
+                    if payload.context.work_session_id is not None else None
+                ),
+                "route_context_revision": int(payload.context.route_context_revision),
+            },
+            "deltas": deltas,
+        }
+    return hashlib.sha256(json.dumps(
+        body,
+        sort_keys=True, separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")).hexdigest()
+
+
+@router.post("/dispatch/route/{route_id}/adjust_inventory/recovery", status_code=200)
+async def inspect_route_adjust_recovery(
+    route_id: int,
+    payload: AdjustRouteInventoryRequest,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    """Inspect the exact legacy request under the canonical idempotency lock."""
+    await require_route(access, "dispatch.execute", route_id)
+    request_id = str(payload.request_id)
+    request_hash = _dispatch_adjust_request_hash(route_id, payload)
+    try:
+        state, response = await recover_idempotent_operation(
+            db,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
+            operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
+            request_id=request_id,
+            request_hash=request_hash,
+            cancel_if_absent=False,
+        )
+        result = {"state": state, "request_id": request_id}
+        if state == "COMMITTED":
+            result["response"] = response
+        return result
+    except OperationIdempotencyError as exc:
+        code = (
+            "DISPATCH_RECOVERY_PAYLOAD_CONFLICT"
+            if exc.code == "IDEMPOTENCY_PAYLOAD_CONFLICT"
+            else "DISPATCH_RECOVERY_ACTOR_CONFLICT"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(code, str(exc)),
+        ) from exc
+    finally:
+        await db.rollback()
+
+
+@router.post("/dispatch/route/{route_id}/adjust_inventory/recovery/cancel", status_code=200)
+async def cancel_route_adjust_recovery(
+    route_id: int,
+    payload: AdjustRouteInventoryRequest,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    """Permanently fence an exact NOT_CONFIRMED legacy request; never move stock."""
+    await require_route(access, "dispatch.execute", route_id)
+    request_id = str(payload.request_id)
+    request_hash = _dispatch_adjust_request_hash(route_id, payload)
+    try:
+        state, response = await recover_idempotent_operation(
+            db,
+            company_id=access.company_id,
+            actor_id=legacy_actor.id,
+            operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
+            request_id=request_id,
+            request_hash=request_hash,
+            cancel_if_absent=True,
+        )
+        if state == "INDETERMINATE":
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "DISPATCH_RECOVERY_INDETERMINATE",
+                    "The original request has incomplete evidence and cannot be cancelled automatically.",
+                ),
+            )
+        result = {"state": state, "request_id": request_id}
+        if state == "COMMITTED":
+            result["response"] = response
+            await db.rollback()
+        else:
+            await db.commit()
+        return result
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        code = (
+            "DISPATCH_RECOVERY_PAYLOAD_CONFLICT"
+            if exc.code == "IDEMPOTENCY_PAYLOAD_CONFLICT"
+            else "DISPATCH_RECOVERY_ACTOR_CONFLICT"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(code, str(exc)),
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception:
+        await db.rollback()
+        raise
+
+
 @router.put("/dispatch/route/{route_id}/adjust_inventory", status_code=200)
 async def adjust_route_inventory(
     route_id: int,
@@ -2591,32 +2723,84 @@ async def adjust_route_inventory(
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+    request: Request = None,
 ):
     await require_route(access, 'dispatch.execute', route_id)
 
     company_id = access.company_id
     use_canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
-    canonical_deltas = sorted(
-        (
-            {
-                "product_id": int(item.product_id),
-                **({"delta_base": canonical_quantity(item.delta_base)} if use_canonical_base
-                   else {"delta_cartons": int(item.delta_cartons)}),
-            }
-            for item in payload.deltas
-        ),
-        key=lambda item: item["product_id"],
-    )
-    request_hash = hashlib.sha256(
-        json.dumps(
-            {"route_id": int(route_id), "deltas": canonical_deltas},
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-    ).hexdigest()
+
+    # Backward-compatible trusted in-process callers (there are no production
+    # callers outside this module's HTTP route) are upgraded to the same V2
+    # canonical identity rather than retaining a context-less execution path.
+    # This snapshot is only an expected context: the normal locked validation
+    # below re-checks it before any stock mutation, so a concurrent/ABA change
+    # fails closed through the monotonic route_context_revision.
+    if payload.context is None and request is None:
+        route_snapshot = (
+            await db.execute(
+                select(DispatchRoute).filter_by(company_id=company_id, id=route_id)
+            )
+        ).scalar_one_or_none()
+        if (
+            route_snapshot is None
+            or route_snapshot.vehicle_id is None
+            or route_snapshot.source_location_id is None
+        ):
+            raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مكتمل.")
+        payload = AdjustRouteInventoryRequest(
+            request_id=payload.request_id,
+            context={
+                "version": "ADJUST_LOAD_CONTEXT_V2",
+                "vehicle_id": int(route_snapshot.vehicle_id),
+                "source_warehouse_id": int(route_snapshot.source_location_id),
+                "work_session_id": (
+                    int(route_snapshot.work_session_id)
+                    if route_snapshot.work_session_id is not None else None
+                ),
+                "route_context_revision": int(route_snapshot.adjustment_context_revision),
+            },
+            deltas=payload.deltas,
+        )
+
+    request_hash = _dispatch_adjust_request_hash(route_id, payload)
 
     try:
+        # Context-less bodies are historical identities only. They may observe an
+        # already-persisted terminal/forensic outcome, but an absent UUID must
+        # never become a brand-new executable command after a physical-context
+        # transition (including ABA back to the same visible Vehicle/Warehouse).
+        if payload.context is None:
+            legacy_state, legacy_response = await recover_idempotent_operation(
+                db,
+                company_id=company_id,
+                actor_id=legacy_actor.id,
+                operation="DISPATCH_ADJUST_ROUTE_INVENTORY",
+                request_id=str(payload.request_id),
+                request_hash=request_hash,
+                cancel_if_absent=False,
+            )
+            if legacy_state == "COMMITTED":
+                await db.rollback()
+                return legacy_response
+            if legacy_state == "CANCELLED":
+                raise OperationIdempotencyError(
+                    "IDEMPOTENCY_CANCELLED",
+                    "هذا الطلب ملغى نهائياً ولا يجوز تنفيذه أو إعادة تشغيله.",
+                )
+            if legacy_state == "INDETERMINATE":
+                raise OperationIdempotencyError(
+                    "IDEMPOTENCY_INDETERMINATE",
+                    "هذا الطلب يحمل دليلاً غير مكتمل ويجب عزله للمراجعة.",
+                )
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "DISPATCH_ADJUSTMENT_CONTEXT_REQUIRED",
+                    "A new load-adjustment request must include its immutable physical context.",
+                ),
+            )
+
         idempotency_record, replay_response = await begin_idempotent_operation(
             db,
             company_id=company_id,
@@ -2639,6 +2823,24 @@ async def adjust_route_inventory(
         ).scalar_one_or_none()
         if route is None or route.driver_id is None or route.vehicle_id is None:
             raise HTTPException(status_code=404, detail="خط السير غير موجود أو غير مكتمل.")
+
+        # Every executable new command is context-bound inside its canonical hash.
+        context = payload.context
+        current_session_id = int(bound_context) if bound_context is not None else None
+        if (
+            int(context.vehicle_id) != int(route.vehicle_id)
+            or int(context.source_warehouse_id) != int(route.source_location_id)
+            or (
+                int(context.work_session_id)
+                if context.work_session_id is not None else None
+            ) != current_session_id
+            or int(context.route_context_revision)
+            != int(route.adjustment_context_revision)
+        ):
+            raise HTTPException(status_code=409, detail=inventory_business_error(
+                "DISPATCH_ROUTE_CONTEXT_CHANGED",
+                "The physical route/session context changed. Reopen Adjust Load.",
+            ))
 
         if getattr(route, "work_session_id", None) != bound_context:
             raise HTTPException(status_code=409, detail=inventory_business_error(
@@ -2772,6 +2974,25 @@ async def adjust_route_inventory(
         raise HTTPException(status_code=409, detail={
             "code": exc.code, "message": exc.message, "context": exc.context,
         }) from exc
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        if exc.code == "IDEMPOTENCY_CANCELLED":
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "DISPATCH_ADJUSTMENT_CANCELLED",
+                    "This load-adjustment request was permanently cancelled and cannot execute.",
+                ),
+            ) from exc
+        if exc.code == "IDEMPOTENCY_INDETERMINATE":
+            raise HTTPException(
+                status_code=409,
+                detail=inventory_business_error(
+                    "DISPATCH_ADJUSTMENT_INDETERMINATE",
+                    "This request has incomplete evidence and is quarantined for forensic review.",
+                ),
+            ) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except InventoryMutationError as exc:
         await db.rollback()
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -3722,6 +3943,8 @@ async def get_active_routes(
             "status": r.status,
             "sessionEnded": session_ended,
             "sessionBound": r.work_session_id is not None,
+            "workSessionId": str(r.work_session_id) if r.work_session_id is not None else None,
+            "adjustmentContextRevision": int(r.adjustment_context_revision),
             "can_execute": executable_routes[r.id],
             "commercial_context": commercial_context_by_route.get(r.id),
         })
@@ -3741,6 +3964,19 @@ async def update_route_status(
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_route(access, 'dispatch.execute', route_id)
+
+    # Route status and assignments are never inventory commands. Reject even
+    # an empty legacy target map: callers must use the canonical Adjust Load
+    # endpoint with explicit base-unit deltas and a stable request identity.
+    if payload.inventory is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "DISPATCH_ROUTE_STATUS_INVENTORY_FORBIDDEN",
+                "message": "Route status and assignment cannot change vehicle stock. Use Adjust Load.",
+                "context": {"route_id": route_id, "operation": "adjust_inventory"},
+            },
+        )
 
     company_id = access.company_id
     operational_statuses = {"active", "waiting", "postponed"}
@@ -4172,6 +4408,11 @@ async def update_route_status(
         if driver_changed:
             route.driver_id = target_driver_id
 
+        if driver_changed or vehicle_changed:
+            # Invalidates every pre-change Adjust Load command, including ABA
+            # reassignment back to the same visible driver/vehicle later.
+            route.adjustment_context_revision += 1
+
         if vehicle_changed:
             route.vehicle_id = target_vehicle_id
             if payload.inventory is None:
@@ -4183,21 +4424,9 @@ async def update_route_status(
                     updated_by=legacy_actor.id,
                 )
 
+        # No physical movement is ever posted by a Route status/assignment.
+        # Explicit stock edits remain owned by /adjust_inventory.
         inventory_mode = "NO_CHANGE"
-        if payload.inventory is not None:
-            if bound_session is not None and bound_session.end_time is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="لا يمكن تعديل حمولة خط سير بعد انتهاء WorkSession.",
-                )
-            inventory_mode = await _dispatch_absolute_targets(
-                db,
-                company_id=company_id,
-                route=route,
-                legacy_actor_id=legacy_actor.id,
-                session=active_session,
-                inventory=payload.inventory,
-            )
 
         company_local_date = await get_company_local_date(db, company_id)
 

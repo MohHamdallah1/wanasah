@@ -28,6 +28,8 @@ export interface PendingRoute {
   status: RouteStatus;
   sessionEnded: boolean; // +++ إضافة حالة الجلسة (للتراجع عن إنهاء العمل) +++
   sessionBound: boolean;
+  workSessionId?: string | null;
+  adjustmentContextRevision?: number;
   can_execute: boolean;
   commercial_context: RouteCommercialContext | null;
 }

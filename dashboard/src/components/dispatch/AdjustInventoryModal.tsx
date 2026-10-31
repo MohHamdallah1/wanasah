@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { apiErrorMessage } from "@/lib/apiErrors";
+import { durableScope } from "@/lib/durableOperations";
 import { addQuantity, subtractQuantity, compareQuantity } from "@/lib/quantity";
 import { formatLocaleDecimal } from "@/lib/localeNumbers";
 import { currentLocale } from "@/i18n";
@@ -30,12 +31,31 @@ export function AdjustInventoryModal({
   isOpen, onClose, route, onSuccess, companyId, principalId,
 }: AdjustInventoryModalProps) {
   const { t, i18n } = useTranslation();
-  const command = useAdjustLoadCommand(isOpen ? route?.id : undefined, companyId, principalId);
+  const loadContext = JSON.stringify([
+    route?.id,
+    route?.vehicleId,
+    route?.sourceWarehouseId,
+    route?.workSessionId ?? null,
+    route?.adjustmentContextRevision ?? 1,
+  ]);
+  const command = useAdjustLoadCommand(isOpen ? route?.id : undefined, companyId, principalId, loadContext);
+  const legacyScope = isOpen && route?.id && Number.isSafeInteger(companyId) && (companyId ?? 0) > 0 &&
+    Number.isSafeInteger(principalId) && (principalId ?? 0) > 0
+    ? durableScope(companyId!, principalId!, "dispatch-adjust-base", route.id) : null;
   const [draftDeltas, setDeltas] = useState<Record<string, string>>({});
   const [draftScope, setDraftScope] = useState<string | null>(null);
   const [draftError, setDraftError] = useState(false);
-  const loadContext = JSON.stringify([route?.id, route?.vehicleId, route?.sourceWarehouseId]);
+  const [pendingContext, setPendingContext] = useState<{
+    scope: string; context: string; deltas: Record<string, string>;
+  } | null>(null);
+  const [reviewOld, setReviewOld] = useState(false);
+  const [closePrompt, setClosePrompt] = useState(false);
+  const [cancelLegacyPrompt, setCancelLegacyPrompt] = useState(false);
   const contextScope = command.scope ? `${command.scope}:${loadContext}` : null;
+  // Storage and execution are bound to the precise physical context. Never
+  // reuse a draft for the same route after changing its Vehicle or Warehouse.
+  const draftKey = (scope: string, context: string) =>
+    `${scope}:draft:${encodeURIComponent(context)}`;
   const deltas = draftScope === contextScope ? draftDeltas : {};
   const [search, setSearch] = useLoadProductSearchText(JSON.stringify([isOpen, contextScope]));
   const [step, setStep] = useState<"edit" | "review">("edit");
@@ -46,28 +66,137 @@ export function AdjustInventoryModal({
 
   useEffect(() => {
     setStep("edit");
+    setCancelLegacyPrompt(false);
   }, [isOpen, loadContext]);
 
   useEffect(() => {
-    setDraftScope(null); setDraftError(false);
-    if (!isOpen || !command.scope) return;
+    setDraftError(false);
+    setClosePrompt(false);
+    if (!isOpen || !command.scope || !contextScope) {
+      setDraftScope(null);
+      setPendingContext(null);
+      setReviewOld(false);
+      return;
+    }
+    // Capture the previous scope BEFORE loading the new one. Changing a route,
+    // physical custody location, or signed-in principal must never erase edits.
+    if (draftScope && draftScope !== contextScope &&
+        Object.values(draftDeltas).some(hasAdjustmentDraft)) {
+      const separator = draftScope.lastIndexOf(":[");
+      const oldScope = separator >= 0 ? draftScope.slice(0, separator) : "";
+      const oldContext = separator >= 0 ? draftScope.slice(separator + 1) : "";
+      if (oldScope && oldContext) {
+        try { localStorage.setItem(draftKey(oldScope, oldContext), JSON.stringify(draftDeltas)); }
+        catch { setDraftError(true); }
+        setPendingContext((previous) => previous ?? { scope: oldScope, context: oldContext, deltas: { ...draftDeltas } });
+      }
+    }
     try {
-      const storedContext = localStorage.getItem(`${command.scope}:draft-context`);
-      const rawDraft = storedContext && storedContext !== loadContext ? null : localStorage.getItem(`${command.scope}:draft`);
-      setDeltas(Object.fromEntries(Object.entries(parseAdjustmentDraft(rawDraft))
-        .filter(([, value]) => hasAdjustmentDraft(value))));
+      const migratedContextKey = legacyScope ? `${legacyScope}:migrated-draft-context-v2` : null;
+      const storedContext = legacyScope ? localStorage.getItem(`${legacyScope}:draft-context`) : null;
+      const oldValue = legacyScope ? localStorage.getItem(`${legacyScope}:draft`) : null;
+      const legacyDraft = oldValue && storedContext ? Object.fromEntries(
+        Object.entries(parseAdjustmentDraft(oldValue)).filter(([, value]) => hasAdjustmentDraft(value))
+      ) : {};
+
+      // Pre-V2 drafts knew only Route/Vehicle/source-Warehouse. Move them once
+      // into a discoverable quarantine slot; never attach them to a different
+      // physical custody or silently drop them when the V2 scope changes.
+      if (storedContext && Object.keys(legacyDraft).length) {
+        const identity = JSON.parse(storedContext) as unknown;
+        if (!Array.isArray(identity) || identity.length !== 3 || identity[0] !== route?.id) {
+          throw new Error("Legacy draft physical identity is invalid");
+        }
+        const oldCommandScope = durableScope(companyId!, principalId!, "dispatch-adjust-base",
+          `${route!.id}:${storedContext}`);
+        const migratedKey = draftKey(oldCommandScope, storedContext);
+        if (localStorage.getItem(migratedKey) === null) {
+          localStorage.setItem(migratedKey, JSON.stringify(legacyDraft));
+        }
+        if (migratedContextKey) localStorage.setItem(migratedContextKey, storedContext);
+        // Preserve the durable request-id key: only retire the obsolete draft slots.
+        localStorage.removeItem(`${legacyScope}:draft`);
+        localStorage.removeItem(`${legacyScope}:draft-context`);
+      }
+
+      const quarantinedContext = migratedContextKey
+        ? localStorage.getItem(migratedContextKey) : null;
+      if (quarantinedContext) {
+        const identity = JSON.parse(quarantinedContext) as unknown;
+        const currentIdentity = JSON.parse(loadContext) as unknown;
+        if (!Array.isArray(identity) || identity.length !== 3 ||
+            !Array.isArray(currentIdentity) || currentIdentity.length !== 5 ||
+            identity[0] !== route?.id) {
+          throw new Error("Migrated draft physical identity is invalid");
+        }
+        const oldCommandScope = durableScope(companyId!, principalId!, "dispatch-adjust-base",
+          `${route!.id}:${quarantinedContext}`);
+        const migratedKey = draftKey(oldCommandScope, quarantinedContext);
+        const migratedDraft = Object.fromEntries(
+          Object.entries(parseAdjustmentDraft(localStorage.getItem(migratedKey)))
+            .filter(([, value]) => hasAdjustmentDraft(value))
+        );
+        const sameOriginalPhysicalCustody =
+          identity[0] === currentIdentity[0] &&
+          identity[1] === currentIdentity[1] &&
+          identity[2] === currentIdentity[2];
+        const safePreSessionV2Baseline =
+          currentIdentity[3] === null && currentIdentity[4] === 1;
+
+        if (Object.keys(migratedDraft).length &&
+            sameOriginalPhysicalCustody && safePreSessionV2Baseline) {
+          const currentKey = draftKey(command.scope, loadContext);
+          const currentDraft = Object.fromEntries(
+            Object.entries(parseAdjustmentDraft(localStorage.getItem(currentKey)))
+              .filter(([, value]) => hasAdjustmentDraft(value))
+          );
+          const allIds = new Set([...Object.keys(currentDraft), ...Object.keys(migratedDraft)]);
+          const sameDraft = [...allIds].every((id) => currentDraft[id] === migratedDraft[id]);
+
+          if (!Object.values(currentDraft).some(hasAdjustmentDraft)) {
+            localStorage.setItem(currentKey, JSON.stringify(migratedDraft));
+            localStorage.removeItem(migratedKey);
+            if (migratedContextKey) localStorage.removeItem(migratedContextKey);
+          } else if (sameDraft) {
+            // The V2 slot already contains the exact unsent values; retiring the
+            // duplicate legacy copy loses no operator intent.
+            localStorage.removeItem(migratedKey);
+            if (migratedContextKey) localStorage.removeItem(migratedContextKey);
+          } else {
+            // Two different unsent drafts must never overwrite one another.
+            setPendingContext((previous) => previous ?? {
+              scope: oldCommandScope, context: quarantinedContext, deltas: migratedDraft,
+            });
+          }
+        } else if (Object.keys(migratedDraft).length) {
+          setPendingContext((previous) => previous ?? {
+            scope: oldCommandScope, context: quarantinedContext, deltas: migratedDraft,
+          });
+        } else if (migratedContextKey) {
+          localStorage.removeItem(migratedContextKey);
+        }
+      }
+
+      const rawDraft = localStorage.getItem(draftKey(command.scope, loadContext));
+      const restored = Object.fromEntries(Object.entries(parseAdjustmentDraft(rawDraft))
+        .filter(([, value]) => hasAdjustmentDraft(value)));
+      setDeltas(restored);
       setDraftScope(contextScope);
-    } catch { setDraftError(true); }
-  }, [isOpen, command.scope, contextScope, loadContext]);
+    } catch { setDraftError(true); setDraftScope(null); setDeltas({}); }
+  // Only scope transitions load a different draft; editing deltas must not rehydrate.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, contextScope]);
   useEffect(() => {
     if (isOpen && command.scope && draftScope === contextScope && !draftError) {
-      localStorage.setItem(`${command.scope}:draft`, JSON.stringify(draftDeltas));
-      localStorage.setItem(`${command.scope}:draft-context`, loadContext);
+      try {
+        localStorage.setItem(draftKey(command.scope, loadContext), JSON.stringify(draftDeltas));
+      } catch { setDraftError(true); }
     }
   }, [command.scope, contextScope, loadContext, draftDeltas, draftError, draftScope, isOpen]);
 
   const blocked = !command.scope || !command.ready || loading || command.busy ||
-    command.recoveryRequired || !!command.recoveryError || draftError || !!products.error;
+    command.recoveryRequired || !!command.recoveryError || draftError || !!products.error ||
+    !!pendingContext || draftScope !== contextScope;
   const update = (id: string, value: string) => {
     if (blocked) return;
     setDeltas((current) => {
@@ -96,12 +225,42 @@ export function AdjustInventoryModal({
       if (payload && !payload.deltas.length) return;
       const mode = await command.execute(payload);
       if (!mode) return;
-      if (command.scope) localStorage.removeItem(`${command.scope}:draft`);
+      if (command.scope) {
+        localStorage.removeItem(draftKey(command.scope, loadContext));
+      }
       setDeltas({});
       toast.success(t(mode === "HANDSHAKE" ? "dispatchAdjustLoad.handshake" : "dispatchAdjustLoad.saved"));
       await onSuccess();
       onClose();
     } catch (error) { toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.saveError"))); }
+  };
+  const previousOwnIdentity = !!pendingContext && !!command.scope &&
+    pendingContext.scope.split(":").slice(0, 5).join(":") ===
+    command.scope.split(":").slice(0, 5).join(":");
+  const hasUnsent = Object.values(deltas).some(hasAdjustmentDraft);
+  const requestClose = () => {
+    if (command.busy) return;
+    if (hasUnsent || command.recoveryRequired) setClosePrompt(true);
+    else onClose();
+  };
+  const discardCurrent = () => {
+    if (!command.scope || command.recoveryRequired || command.busy) return;
+    try {
+      localStorage.removeItem(draftKey(command.scope, loadContext));
+      setDeltas({});
+      setClosePrompt(false);
+      onClose();
+    } catch { setDraftError(true); }
+  };
+  const resolvePrevious = (discard: boolean) => {
+    if (!pendingContext || command.busy || command.recoveryRequired) return;
+    // A different account may not read or delete a previous account's draft.
+    if (discard && !previousOwnIdentity) return;
+    try {
+      if (discard) localStorage.removeItem(draftKey(pendingContext.scope, pendingContext.context));
+      setPendingContext(null);
+      setReviewOld(false);
+    } catch { setDraftError(true); }
   };
   const reviewRows = inventory.filter((item) => compareQuantity(deltas[item.product_id] || "0", "0") !== 0);
   const renderRow = (item: AdjustLoadItem) => {
@@ -139,17 +298,96 @@ export function AdjustInventoryModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { if (!command.busy) onClose(); }}
+    <Modal isOpen={isOpen} onClose={requestClose}
       title={t(step === "edit" ? "dispatchAdjustLoad.title" : "dispatchAdjustLoad.reviewTitle")}>
       <div dir={i18n.dir()} className="space-y-4">
         {!command.online && <p role="status">{t("dispatchAdjustLoad.offline")}</p>}
         {(command.recoveryError || draftError) && <p role="alert">{t("dispatchAdjustLoad.unknown")}</p>}
         {command.busy && !command.recoveryRequired && <p role="status">{t("dispatchAdjustLoad.saving")}</p>}
-        {command.recoveryRequired ? <div role="alert" className="space-y-3">
+        {pendingContext && <section role="alertdialog" aria-label={t("dispatchAdjustLoad.contextChangedTitle")}
+          className="space-y-3 rounded-xl border border-amber-300 p-3" data-adjust-context-review>
+          <strong>{t("dispatchAdjustLoad.contextChangedTitle")}</strong>
+          <p>{t("dispatchAdjustLoad.contextChangedBody")}</p>
+          {previousOwnIdentity && <>
+            <button type="button" onClick={() => setReviewOld((value) => !value)}>{t("dispatchAdjustLoad.reviewPrevious")}</button>
+            {reviewOld && <ul data-adjust-old-draft>{Object.entries(pendingContext.deltas).map(([id, amount]) =>
+              <li key={id} dir="ltr">{id}: {amount}</li>)}</ul>}
+          </>}
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => resolvePrevious(false)}>{t("dispatchAdjustLoad.keepPrevious")}</button>
+            {previousOwnIdentity && <button type="button" onClick={() => resolvePrevious(true)}>
+              {t("dispatchAdjustLoad.discardPrevious")}
+            </button>}
+          </div>
+        </section>}
+        {closePrompt && <section role="alertdialog" aria-label={t("dispatchAdjustLoad.closeTitle")}
+          className="space-y-3 rounded-xl border border-amber-300 p-3" data-adjust-close-review>
+          <strong>{t("dispatchAdjustLoad.closeTitle")}</strong>
+          <p>{t("dispatchAdjustLoad.closeBody")}</p>
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => setClosePrompt(false)}>{t("dispatchAdjustLoad.continueEditing")}</button>
+            <button type="button" onClick={onClose}>{t("dispatchAdjustLoad.keepAndClose")}</button>
+            {!command.recoveryRequired && <button type="button" onClick={discardCurrent}>{t("dispatchAdjustLoad.discardAndClose")}</button>}
+          </div>
+        </section>}
+        {command.legacyPending && <section role="alert" className="space-y-3 rounded-xl border p-3"
+          data-adjust-legacy-recovery>
+          <strong>{t("dispatchAdjustLoad.legacyRecoveryTitle")}</strong>
+          <p>{t("dispatchAdjustLoad.legacyRecoveryHint")}</p>
+          <button type="button" disabled={!command.online || command.checkingLegacy}
+            onClick={() => void command.inspectLegacy().catch((error) =>
+              toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.legacyVerifyError"))))}>
+            {t("dispatchAdjustLoad.legacyVerify")}
+          </button>
+          {command.legacyOutcome === "COMMITTED" && <>
+            <p role="status">{t("dispatchAdjustLoad.legacyCommitted")}</p>
+            <button type="button" onClick={command.acknowledgeCommittedLegacy}>
+              {t("dispatchAdjustLoad.legacyAcknowledge")}
+            </button>
+          </>}
+          {command.legacyOutcome === "NOT_CONFIRMED" && <>
+            <p role="status">{t("dispatchAdjustLoad.legacyNotConfirmed")}</p>
+            <button type="button" disabled={!command.online || command.checkingLegacy || command.cancellingLegacy}
+              onClick={() => setCancelLegacyPrompt(true)}>
+              {t("dispatchAdjustLoad.legacyCancel")}
+            </button>
+          </>}
+          {command.legacyOutcome === "INDETERMINATE" && <p role="status">
+            {t("dispatchAdjustLoad.legacyIndeterminate")}
+          </p>}
+          {command.legacyOutcome === "CANCELLED" && <>
+            <p role="status">{t("dispatchAdjustLoad.legacyCancelled")}</p>
+            <button type="button" onClick={command.acknowledgeCancelledLegacy}>
+              {t("dispatchAdjustLoad.legacyCancelledAcknowledge")}
+            </button>
+          </>}
+          {cancelLegacyPrompt && command.legacyOutcome === "NOT_CONFIRMED" && <div
+            role="alertdialog" aria-label={t("dispatchAdjustLoad.legacyCancelTitle")}
+            className="space-y-3 rounded-lg border border-amber-300 p-3">
+            <strong>{t("dispatchAdjustLoad.legacyCancelTitle")}</strong>
+            <p>{t("dispatchAdjustLoad.legacyCancelHint")}</p>
+            <div className="flex flex-wrap gap-3">
+              <button type="button" disabled={command.cancellingLegacy}
+                onClick={() => setCancelLegacyPrompt(false)}>
+                {t("dispatchAdjustLoad.back")}
+              </button>
+              <button type="button" disabled={command.cancellingLegacy || !command.online}
+                onClick={() => void command.cancelLegacy().then((state) => {
+                  setCancelLegacyPrompt(false);
+                  if (state === "CANCELLED") toast.success(t("dispatchAdjustLoad.legacyCancelSuccess"));
+                  else if (state === "COMMITTED") toast.info(t("dispatchAdjustLoad.legacyCommittedBeforeCancel"));
+                }).catch((error) =>
+                  toast.error(apiErrorMessage(error, t("dispatchAdjustLoad.legacyCancelError"))))}>
+                {t(command.cancellingLegacy ? "dispatchAdjustLoad.legacyCancelling" : "dispatchAdjustLoad.legacyCancelConfirm")}
+              </button>
+            </div>
+          </div>}
+        </section>}
+        {command.recoveryRequired && !command.legacyPending ? <div role="alert" className="space-y-3">
           <p>{t("dispatchAdjustLoad.unknown")}</p>
           <button type="button" onClick={() => void save(true)}
             disabled={command.busy || !command.online || !!command.recoveryError}>{t("common.retry")}</button>
-        </div> : <form onSubmit={(event) => {
+        </div> : !command.legacyPending && <form onSubmit={(event) => {
           event.preventDefault();
           if (blocked) return;
           if (step === "edit") review(); else void save();
@@ -175,7 +413,7 @@ export function AdjustInventoryModal({
           </>}
           {route?.sessionBound && <p>{t("dispatchAdjustLoad.handshake")}</p>}
           <div className="flex gap-3 border-t pt-4">
-            <button type="button" disabled={command.busy} onClick={() => step === "review" ? setStep("edit") : onClose()}>
+            <button type="button" disabled={command.busy} onClick={() => step === "review" ? setStep("edit") : requestClose()}>
               {t(step === "review" ? "dispatchAdjustLoad.back" : "common.cancel")}
             </button>
             <button type="submit" disabled={blocked || !command.online} className="rounded bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">

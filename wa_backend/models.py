@@ -1378,6 +1378,8 @@ class DispatchRoute(Base):
                         name='chk_dispatch_route_session_requires_driver'),
         CheckConstraint('work_session_id IS NULL OR vehicle_id IS NOT NULL',
                         name='chk_dispatch_route_session_requires_vehicle'),
+        CheckConstraint('adjustment_context_revision > 0',
+                        name='chk_dispatch_route_adjustment_context_revision'),
     )
 
     id                 = Column(Integer, primary_key=True)
@@ -1389,6 +1391,7 @@ class DispatchRoute(Base):
     source_location_id = Column(Integer, nullable=False, index=True)
     dispatch_date      = Column(Date, nullable=False, default=lambda: utc_now().date(), index=True)
     status             = Column(String(50), nullable=False, default='waiting', index=True)
+    adjustment_context_revision = Column(Integer, nullable=False, default=1, server_default='1')
     created_at         = Column(DateTime, nullable=False, default=utc_now)
 
     zone    = relationship('Zone', foreign_keys=[zone_id], lazy='raise')
@@ -2555,6 +2558,12 @@ class OperationIdempotency(Base):
             ondelete='RESTRICT',
             name='fk_operation_idempotency_tenant_actor'
         ),
+        ForeignKeyConstraint(
+            ['company_id', 'cancelled_by'],
+            ['drivers.company_id', 'drivers.id'],
+            ondelete='RESTRICT',
+            name='fk_operation_idempotency_tenant_canceller'
+        ),
         CheckConstraint(
             "length(trim(operation)) > 0",
             name='chk_operation_idempotency_operation_not_blank'
@@ -2572,6 +2581,20 @@ class OperationIdempotency(Base):
             "(response_json IS NOT NULL AND completed_at IS NOT NULL))",
             name='chk_operation_idempotency_completion_pair'
         ),
+        CheckConstraint(
+            "state IS NULL OR state IN ('PENDING', 'COMMITTED', 'CANCELLED')",
+            name='chk_operation_idempotency_state'
+        ),
+        CheckConstraint(
+            "(((state IS NULL) AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
+            "(state = 'PENDING' AND response_json IS NULL AND completed_at IS NULL "
+            "AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
+            "(state = 'COMMITTED' AND response_json IS NOT NULL AND completed_at IS NOT NULL "
+            "AND cancelled_at IS NULL AND cancelled_by IS NULL) OR "
+            "(state = 'CANCELLED' AND response_json IS NULL AND completed_at IS NULL "
+            "AND cancelled_at IS NOT NULL AND cancelled_by IS NOT NULL))",
+            name='chk_operation_idempotency_lifecycle'
+        ),
     )
 
     id            = Column(Integer, primary_key=True)
@@ -2586,8 +2609,13 @@ class OperationIdempotency(Base):
     request_hash  = Column(String(64), nullable=False)
     created_by    = Column(Integer, nullable=False, index=True)
     response_json = Column(JSON, nullable=True)
+    # NULL is reserved for backward-compatible legacy direct writers. New
+    # canonical operations always persist an explicit lifecycle state.
+    state         = Column(String(16), nullable=True)
     created_at    = Column(DateTime, nullable=False, default=utc_now, index=True)
     completed_at  = Column(DateTime, nullable=True)
+    cancelled_at  = Column(DateTime, nullable=True)
+    cancelled_by  = Column(Integer, nullable=True)
 
 
 class ProductBatch(Base):
