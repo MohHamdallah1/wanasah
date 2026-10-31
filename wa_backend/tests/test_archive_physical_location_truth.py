@@ -115,7 +115,7 @@ def test_vehicle_archive_evidence_stays_on_vehicle_without_route_authority():
                 "id": 40,
                 "company_id": 1,
                 "stocktake_session_id": 30,
-                "product_variant_id": 101,
+                "product_variant_id": None,
                 "released_at": None,
             },
         )
@@ -206,7 +206,7 @@ def test_vehicle_stocktake_requires_location_read_at_vehicle_location():
                 "id": 40,
                 "company_id": 1,
                 "stocktake_session_id": 30,
-                "product_variant_id": 101,
+                "product_variant_id": None,
                 "released_at": None,
             },
         )
