@@ -15,6 +15,7 @@ on:
       - "wa_backend/tests/test_live_stock_v1_route_sale_unload_postgres.py"
       - "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py"
       - "wa_backend/tests/test_live_stock_canonical_cutover.py"
+      - "wa_backend/tests/test_live_stock_r4_negative_filter_contract.py"
       - "wa_backend/scripts/gate_stage821_live_stock_projector_core.py"
       - "wa_backend/scripts/gate_live_stock_filter_contract.py"
       - "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md"
@@ -75,6 +76,7 @@ jobs:
             tests/test_live_stock_v1_route_sale_unload_postgres.py \
             tests/test_live_stock_v1_remaining_consistency_postgres.py \
             tests/test_live_stock_canonical_cutover.py
+            tests/test_live_stock_r4_negative_filter_contract.py \
 
       - name: Run static physical-location contract gates
         working-directory: wa_backend
@@ -82,6 +84,7 @@ jobs:
           python scripts/gate_stage821_live_stock_projector_core.py
           python scripts/gate_live_stock_filter_contract.py
           python -B -m pytest -p no:cacheprovider -q tests/test_live_stock_canonical_cutover.py
+          python -B -m pytest -p no:cacheprovider -q tests/test_live_stock_r4_negative_filter_contract.py
 
       - name: Start disposable PostgreSQL 16
         run: |
@@ -207,6 +210,7 @@ jobs:
               "wa_backend/scripts/gate_live_stock_filter_contract.py",
               "wa_backend/scripts/gate_stage821_live_stock_projector_core.py",
               "wa_backend/tests/test_live_stock_canonical_cutover.py",
+              "wa_backend/tests/test_live_stock_r4_negative_filter_contract.py",
               "wa_backend/tests/test_live_stock_r1_http_postgres.py",
               "wa_backend/tests/test_live_stock_r1_snapshot_postgres.py",
               "wa_backend/tests/test_live_stock_v1_quantity_reconciliation_postgres.py",
