@@ -19,6 +19,7 @@ from sqlalchemy.pool import NullPool
 
 from api.warehouse import live_stock
 from api.warehouse._shared import _encode_variant_cursor
+from domains.live_stock_projection.service import rebuild_live_stock_company
 from models import ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from tests import test_live_stock_v1_r4_query_optimization_postgres as accepted
@@ -324,6 +325,16 @@ async def _run():
     try:
         await _runtime_identity(before, fixture)
         await _runtime_identity(after, fixture)
+
+        # R3 projection v2 deliberately rejects persisted v1 state. Prepare
+        # both cloned comparison databases identically before measurements.
+        for engine in (before, after):
+            async with r4.session(engine, fixture["company_id"]) as db:
+                await rebuild_live_stock_company(
+                    db,
+                    company_id=int(fixture["company_id"]),
+                )
+                await db.commit()
 
         # First compare exactly the two remaining #675 negative-filter families
         # on the accepted 50k fixture before adding semantic edge rows.
