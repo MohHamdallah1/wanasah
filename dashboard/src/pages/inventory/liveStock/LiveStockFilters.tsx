@@ -169,7 +169,7 @@ export function LiveStockFilters({
         if (controller.signal.aborted || familyRequestSeq.current !== requestSeq) return;
         const page = parseLiveStockFamilies(raw);
         if (page.next_cursor === requestCursor) {
-          throw new Error("Non-advancing family cursor");
+          throw new Error("LIVE_STOCK_FAMILY_CURSOR_NON_ADVANCING");
         }
         setFamilies((previous) => {
           const seen = new Set(previous.map((item) => item.id));
@@ -182,10 +182,11 @@ export function LiveStockFilters({
             (error instanceof Error && error.name === "AbortError")) return;
         const fallback = t("inventoryLive.errors.familyLoadFailed");
         setFamilyMoreError(
-          error instanceof Error &&
+          apiErrorCode(error) === "LIVE_STOCK_FAMILY_CURSOR_NON_ADVANCING" ||
+          (error instanceof Error &&
           !apiErrorCode(error) &&
           !apiErrorRequestId(error) &&
-          apiErrorStatus(error) === undefined
+          apiErrorStatus(error) === undefined)
             ? fallback
             : apiErrorMessage(error, fallback),
         );

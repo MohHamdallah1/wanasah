@@ -1382,19 +1382,19 @@ export function Tab2Inbound({
             </colgroup>
             <thead>
               <tr>
-                <th className="inventory-inbound-number-head">#</th>
-                <th className="text-start">{t("inventoryInbound.product")}</th>
-                <th className="text-start">
+                <th scope="col" className="inventory-inbound-number-head">#</th>
+                <th scope="col" className="text-start">{t("inventoryInbound.product")}</th>
+                <th scope="col" className="text-start">
                   {t("inventoryInbound.purchaseCost")}
                   <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
                 </th>
-                <th className="text-start">
+                <th scope="col" className="text-start">
                   {t("inventoryInbound.quantityAndUnit")}
                   <span aria-hidden="true" className="ms-1 text-rose-600">*</span>
                 </th>
-                <th className="text-start">{t("inventoryInbound.productionDate")}</th>
-                <th className="text-start">{t("inventoryInbound.expiryDate")}</th>
-                <th className="text-start">{t("inventoryInbound.batchNumber")}</th>
+                <th scope="col" className="text-start">{t("inventoryInbound.productionDate")}</th>
+                <th scope="col" className="text-start">{t("inventoryInbound.expiryDate")}</th>
+                <th scope="col" className="text-start">{t("inventoryInbound.batchNumber")}</th>
               </tr>
             </thead>
             <tbody className="divide-y">

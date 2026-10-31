@@ -137,20 +137,55 @@ jobs:
               failed={(c.get("classname"),c.get("name")) for c in cases if c.find("failure") is not None}
               print(label+" historical failures="+repr(sorted(failed)))
               results.append((len(cases),failed))
-          assert results[0]==results[1],"New regression differs from exact approved base"
-          print("PHASE3_EXACT_BASE_PARITY=PASS; historical failures are NOT claimed green")
+          # New passing cases/subtests are not regressions. Compare the historical
+          # failure identities, not the total count of collected testcases.
+          base_count, base_failed = results[0]
+          head_count, head_failed = results[1]
+          assert head_count >= base_count, "Previously covered cases were lost"
+          assert head_failed == base_failed, (
+              "Historical failures changed; investigate genuine new or hidden regressions",
+              sorted(base_failed), sorted(head_failed),
+          )
+          print(
+              "PHASE3_REGRESSION_PARITY=PASS; "
+              f"historical_failed_cases={len(head_failed)} STILL FAIL; "
+              f"base_cases={base_count} head_cases={head_count}"
+          )
           PY
-      - name: Exact ownership and whitespace
+      - name: Current PR whitespace and Phase 3 owned-file deletion guard
         if: ${{ !cancelled() }}
         run: |
-          git diff --check 8892eff045d79a76b10aacdba0e511391967082a HEAD
-          python - <<'PY'
-          import subprocess
-          expected=["wa_backend/tests/test_field_read_contracts.py","wa_backend/tests/test_driver_session_field_context_cutover.py","wa_backend/tests/test_driver_mixed_visit_authorization_cutover.py","wa_backend/tests/test_legacy_field_transport_boundary.py","wa_backend/api/driver.py","wa_backend/api/field_contracts.py","wa_backend/api/reconciliation.py","wa_backend/api/authentication/field_transfer_authorization.py","wa_backend/tests/field_authorization_phase3_fixture.py","wa_backend/tests/field_authorization_phase3_matrix.py","wa_backend/tests/test_field_authorization_phase3_http.py","wa_backend/tests/test_field_authorization_phase3_routes.py",".github/workflows/field-authorization-phase3.yml"]
-          changed=subprocess.check_output(["git","diff","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).splitlines()
-          assert set(changed)==set(expected),(changed,expected)
-          assert not subprocess.check_output(["git","diff","--diff-filter=D","--name-only","8892eff045d79a76b10aacdba0e511391967082a","HEAD"],text=True).strip()
-          print("PHASE3_OWNERSHIP=PASS")
+          # The original Phase 3 13-file ownership snapshot was specific to
+          # its historical PR; later accounting PRs legitimately change driver.py.
+          # Keep actual PR whitespace + no Phase 3 file deletion safeguards.
+          pr_base="$(git merge-base '${{ github.event.pull_request.base.sha }}' HEAD)"
+          git diff --check "$pr_base" HEAD
+          PR_DIFF_BASE="$pr_base" python - <<'PY'
+          import os,subprocess
+          base=os.environ["PR_DIFF_BASE"]
+          owned={
+              "wa_backend/tests/test_field_read_contracts.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_driver_mixed_visit_authorization_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/api/field_contracts.py",
+              "wa_backend/api/reconciliation.py",
+              "wa_backend/api/authentication/field_transfer_authorization.py",
+              "wa_backend/tests/field_authorization_phase3_fixture.py",
+              "wa_backend/tests/field_authorization_phase3_matrix.py",
+              "wa_backend/tests/test_field_authorization_phase3_http.py",
+              "wa_backend/tests/test_field_authorization_phase3_routes.py",
+              ".github/workflows/field-authorization-phase3.yml",
+          }
+          changed=set(subprocess.check_output(
+              ["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          deleted=set(subprocess.check_output(
+              ["git","diff","--diff-filter=D","--name-only",base,"HEAD"],
+              text=True).splitlines())
+          assert not (deleted & owned), "Cannot delete frozen Phase 3 authority"
+          print("PHASE3_PR_SCOPE_OWNED_FILES="+repr(sorted(changed & owned)))
+          print("PHASE3_PR_WHITESPACE=PASS; original historical ownership list is not current PR scope")
           PY
       - name: Retain exact acceptance evidence and historical failure logs
         if: always()

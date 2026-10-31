@@ -2,10 +2,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { useState, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resources } from "@/i18n/resources";
 import { LiveStockFilters } from "@/pages/inventory/liveStock/LiveStockFilters";
 import { parseLiveStockFamilies } from "@/pages/inventory/liveStock/contracts";
 
-const mock = vi.hoisted(() => ({ fetch: vi.fn(), language: "en" }));
+const mock = vi.hoisted(() => ({ fetch: vi.fn(), language: "en", localizedError: false }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => mock.fetch }));
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -15,6 +16,8 @@ vi.mock("@/components/ui/popover", () => ({
   ),
 }));
 const translate = (key: string, options?: { name?: string; count?: number }) =>
+  mock.localizedError && key === "inventoryLive.errors.familyLoadFailed"
+    ? resources[mock.language as "ar" | "en"].translation.inventoryLive.errors.familyLoadFailed :
   options?.name ? `${key}: ${options.name}` :
   options?.count !== undefined ? `${key}: ${options.count}` : key;
 vi.mock("react-i18next", () => ({
@@ -55,7 +58,7 @@ function FilterHarness({ locationId = 11 }: { locationId?: number }) {
 const more = () => screen.getByRole("button", { name: "inventoryLive.familyLoadMore" });
 const searchFamily = () => screen.getByRole("searchbox", { name: "inventoryLive.familySearch" });
 
-beforeEach(() => { mock.fetch.mockReset(); mock.language = "en"; });
+beforeEach(() => { mock.fetch.mockReset(); mock.language = "en"; mock.localizedError = false; });
 afterEach(cleanup);
 
 describe("F5/UI-03 bounded family cursor and selected identity", () => {
@@ -194,4 +197,40 @@ describe("F5/UI-03 bounded family cursor and selected identity", () => {
     more().focus();
     expect(more()).toHaveFocus();
   });
+  it.each(["ar", "en"] as const)("rejects a non-advancing family cursor and retries without loss in %s", async (locale) => {
+    mock.language = locale;
+    mock.localizedError = true;
+    const all = options(101);
+    let repeated = false;
+    mock.fetch.mockImplementation((url: string) => {
+      const cursor = readParams(url).get("cursor");
+      if (cursor === "opaque-50" && !repeated) {
+        repeated = true;
+        // A valid-shaped page with the same next cursor must never be appended.
+        return Promise.resolve({ ...response(all, 50), next_cursor: "opaque-50" });
+      }
+      return Promise.resolve(response(all, cursor ? Number(cursor.slice(7)) : 0));
+    });
+    render(<FilterHarness />);
+    await screen.findByRole("button", { name: /Family 050/ });
+    fireEvent.click(more());
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      resources[locale].translation.inventoryLive.errors.familyLoadFailed,
+    );
+    expect(screen.queryByText("LIVE_STOCK_FAMILY_CURSOR_NON_ADVANCING")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".live-stock-family-option strong")).toHaveLength(50);
+    expect(screen.queryByRole("button", { name: /Family 051/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "inventoryLive.familyRetryMore" }));
+    await screen.findByRole("button", { name: /Family 100/ });
+    expect(readParams(mock.fetch.mock.calls[1][0]).get("cursor")).toBe("opaque-50");
+    expect(readParams(mock.fetch.mock.calls[2][0]).get("cursor")).toBe("opaque-50");
+    fireEvent.click(more());
+    await screen.findByRole("button", { name: /Family 101/ });
+    const names = Array.from(document.querySelectorAll(".live-stock-family-option strong"), e => e.textContent);
+    expect(names).toEqual(all.map(family => family.name));
+    expect(new Set(names).size).toBe(101);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "inventoryLive.familyLoadMore" })).not.toBeInTheDocument();
+  });
+
 });

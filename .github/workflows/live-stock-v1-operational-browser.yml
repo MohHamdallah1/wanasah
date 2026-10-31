@@ -161,6 +161,25 @@ jobs:
           src/test/live-stock-warm-authority.test.tsx
           src/test/inventory-cp13-shell-polish.test.tsx
 
+      - name: Lint operational frontend changes
+        working-directory: dashboard
+        run: >-
+          npx eslint
+          e2e/live-stock-operational.config.ts
+          e2e/live-stock-operational.journey.ts
+          e2e/live-stock-operational.spec.ts
+          e2e/live-stock-operational.support.ts
+          e2e/live-stock-ux-closure.fixtures.ts
+          e2e/live-stock-ux-closure.spec.ts
+          src/pages/inventory/InventoryTopDock.tsx
+          src/pages/inventory/MainInventory.tsx
+          src/pages/inventory/Tab1LiveStock.tsx
+          src/pages/inventory/inventoryTopDockController.ts
+          src/pages/inventory/liveStock/BatchDetailPanel.tsx
+          src/pages/inventory/liveStock/useLiveStockBatchDetail.ts
+          src/test/inventory-cp13-shell-polish.test.tsx
+          src/test/live-stock-batch-detail-freshness.test.tsx
+
       - name: Typecheck app and focused browser proof
         working-directory: dashboard
         run: |
@@ -201,7 +220,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha || github.sha }}" python - <<'PY'
           import os, subprocess
-          allowed = ["dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","wa_backend/tests/live_stock_operational_browser_support.py","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.config.ts",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml",".github/workflows/inventory-cp13-shell-polish.yml","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md"]
+          allowed = [".github/workflows/inventory-cp13-shell-polish.yml",".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",".github/workflows/live-stock-v1-operational-browser.yml",".github/workflows/live-stock-v1-ux-closure.yml","dashboard/e2e/live-stock-operational.config.ts","dashboard/e2e/live-stock-operational.journey.ts","dashboard/e2e/live-stock-operational.spec.ts","dashboard/e2e/live-stock-operational.support.ts","dashboard/e2e/live-stock-ux-closure.fixtures.ts","dashboard/e2e/live-stock-ux-closure.spec.ts","dashboard/src/components/dashboard/WorkspaceTopBar.css","dashboard/src/pages/inventory/InventoryTopDock.tsx","dashboard/src/pages/inventory/MainInventory.tsx","dashboard/src/pages/inventory/Tab1LiveStock.tsx","dashboard/src/pages/inventory/inventoryShellPolish.css","dashboard/src/pages/inventory/inventoryTopDockController.ts","dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx","dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts","dashboard/src/test/inventory-cp13-shell-polish.test.tsx","dashboard/src/test/live-stock-batch-detail-freshness.test.tsx","docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md","wa_backend/tests/live_stock_operational_browser_support.py"]
           import json, re, urllib.request
           head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
           base_ref = os.environ["BASE"]

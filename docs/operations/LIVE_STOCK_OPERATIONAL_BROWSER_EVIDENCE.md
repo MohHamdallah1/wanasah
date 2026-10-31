@@ -1,5 +1,5 @@
 # Live Stock operational browser closure
-Base: `a07dfa6e06acbd9c0c8a1dfe6974f6eb53fb9f84`. The executed gate and final PASS/OPEN verdicts are recorded in PR#673. No checklist completion is inferred from this static proof design.
+Original base: `a07dfa6e06acbd9c0c8a1dfe6974f6eb53fb9f84`; accepted integration main: `ae858c10f04832aaf99df55db15507571986b53e` (includes #678). The executed gate and final PASS/OPEN verdicts are recorded in PR#673. No checklist completion is inferred from this static proof design.
 
 This wave unblocks the frozen V1 warehouse Live Stock read workflow. It reuses #660 PostgreSQL/session/auth foundations and #665's visual matrix. It does not change backend production code or the lead-owned closure plan, and excludes #668's accounting/date/snapshot proof.
 
@@ -20,7 +20,7 @@ The final checkbox → genuine evidence → PASS/OPEN → reason matrix, impleme
 - #668/#670 merged independently after the approved base. Their backend files and the closure plan are not modified here.
 - R3/R4, actual company-midnight transition, comprehensive concurrent browser snapshots, external initial family-ID name resolution, 5xx/outage recovery and owner visual/release approval are not closed by this wave.
 - The focused fixture uses FIFO once per disposable run. This frontend wave does not re-run the accepted moving-average financial journeys or the 50k benchmark.
-- The CP13 workflow still runs its existing CP12 checks unchanged. At the approved base, the i18n scanner flags existing warehouse placeholders plus the internal family-cursor Error, and the responsive source test expects old inbound CSS literals. Those unchanged files remain outside this PR; these failures stay RED and are linked in the PR.
+- The inherited CP12 failures were corrected independently in merged #678. Integration preserves its AR/EN resources, family-cursor guard/recovery, responsive structure assertions, native inbound column-header semantics and current-contract narrow-browser fixtures. The integrated CP12/CP13 result is recorded in the PR; prior failures are not waived.
 - Ownership checks retain explicit allowlists and whitespace validation. GitHub's compare API supplies the PR common base; runner Git returned1 for merge-base despite the API proving the approved common ancestor. No scope is inferred from a stale historical fixed base.
 
 ## CI and artifacts

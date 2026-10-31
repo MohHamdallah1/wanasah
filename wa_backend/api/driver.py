@@ -96,6 +96,7 @@ from domains.sales_calculation.driver_sale import (
 )
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
+from domains.inventory_costing.service import resolve_linked_return_cost_sources
 
 from api.field_transfer_contracts import (
     field_transfer_batch_route, transfer_batch_error, attributed_transfer_error,
@@ -967,6 +968,46 @@ async def update_visit(
             visit=visit, session=active_session, proofs=return_proofs,
         )
 
+        linked_return_cost_sources: dict[
+            tuple[int, int], tuple[int, Decimal]
+        ] = {}
+        if (
+            visit.status == "Completed"
+            and visit.outcome == "Sale"
+            and visit.current_sales_revision_id is not None
+            and payload.returns
+        ):
+            current_revision_id = int(visit.current_sales_revision_id)
+            frozen_variant_counts: dict[int, int] = {}
+            for original_item in visit.items:
+                if (
+                    not original_item.is_cancelled
+                    and original_item.sales_revision_id == current_revision_id
+                    and original_item.financial_evidence_version == 4
+                    and original_item.financial_evidence_frozen_at is not None
+                ):
+                    variant_id = int(original_item.product_variant_id)
+                    frozen_variant_counts[variant_id] = (
+                        frozen_variant_counts.get(variant_id, 0) + 1
+                    )
+
+            return_key_counts: dict[tuple[int, int], int] = {}
+            for ret in payload.returns:
+                key = (int(ret.product_variant_id), int(ret.batch_id))
+                return_key_counts[key] = return_key_counts.get(key, 0) + 1
+
+            unique_return_keys = [
+                key
+                for key, count in return_key_counts.items()
+                if count == 1 and frozen_variant_counts.get(key[0]) == 1
+            ]
+            linked_return_cost_sources = await resolve_linked_return_cost_sources(
+                db,
+                company_id=company_id,
+                visit_id=int(visit.id),
+                return_keys=unique_return_keys,
+            )
+
         if visit.status == "Completed":
             correction_audit_before = {
                 "request_id": str(payload.request_id),
@@ -1558,12 +1599,22 @@ async def update_visit(
                 )
                 + total_return_base_quantity
             )
+            source = linked_return_cost_sources.get(
+                (int(ret.product_variant_id), int(ret.batch_id))
+            )
+            source_movement_id = (
+                int(source[0])
+                if source is not None
+                and total_return_base_quantity <= Decimal(source[1])
+                else None
+            )
             return_contexts.append(
                 {
                     "return_index": return_index,
                     "ret": ret,
                     "variant": variant,
                     "total_return_base_quantity": total_return_base_quantity,
+                    "cost_source_movement_id": source_movement_id,
                 }
             )
 
@@ -1799,16 +1850,18 @@ async def update_visit(
                     }
                 )
 
-        # المرتجع: البديل الصالح يخرج FEFO، والمرتجع نفسه يدخل DAMAGED على Batch الممسوح.
+        # المرتجع: البديل الصالح يخرج FEFO، والمرتجع نفسه يدخل DAMAGED
+        # على الـBatch الفيزيائي المثبت. عند تصحيح Sale مكتمل، يمكن للـBackend
+        # ربط تكلفة المرتجع بحركة البيع الأصلية فقط إذا أثبت محرك التكلفة أن
+        # المصدر واحد ودقيق. أي غموض يبقي CURRENT_AVERAGE_ESTIMATE كما هو.
         for ctx in return_contexts:
             ret = ctx["ret"]
             total_return_base_quantity = ctx["total_return_base_quantity"]
-            for segment_index, (batch_id, qty) in enumerate(
-                consume_fefo(
-                    ret.product_variant_id,
-                    total_return_base_quantity,
-                )
-            ):
+            exchange_segments = consume_fefo(
+                ret.product_variant_id,
+                total_return_base_quantity,
+            )
+            for segment_index, (batch_id, qty) in enumerate(exchange_segments):
                 movement_specs.append(
                     {
                         "product_variant_id": ret.product_variant_id,
@@ -1833,29 +1886,33 @@ async def update_visit(
                     }
                 )
 
-            movement_specs.append(
-                {
-                    "product_variant_id": ret.product_variant_id,
-                    "batch_id": ret.batch_id,
-                    "quantity": total_return_base_quantity,
-                    "movement_kind": "PHYSICAL",
-                    "reference_type": "VISIT_RETURN_IN",
-                    "reference_id": str(visit.id),
-                    "idempotency_key": (
-                        f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-B{ret.batch_id}"
-                    ),
-                    "source_location_id": None,
-                    "destination_location_id": veh_loc_id,
-                    "source_stock_status": None,
-                    "destination_stock_status": "DAMAGED",
-                    "work_session_id": active_session.id,
-                    "notes": (
-                        f"استلام مرتجع {ret.return_type} من المحل {shop.name}; "
-                        f"Batch={ret.batch_id}. "
-                        f"{('السبب: ' + ret.reason) if ret.reason else ''}"
-                    ).strip(),
-                }
-            )
+            return_spec = {
+                "product_variant_id": ret.product_variant_id,
+                "batch_id": ret.batch_id,
+                "quantity": total_return_base_quantity,
+                "movement_kind": "PHYSICAL",
+                "reference_type": "VISIT_RETURN_IN",
+                "reference_id": str(visit.id),
+                "idempotency_key": (
+                    f"VIS-{visit.id}-{request_token}-R{ctx['return_index']}-"
+                    f"B{ret.batch_id}"
+                ),
+                "source_location_id": None,
+                "destination_location_id": veh_loc_id,
+                "source_stock_status": None,
+                "destination_stock_status": "DAMAGED",
+                "work_session_id": active_session.id,
+                "notes": (
+                    f"استلام مرتجع {ret.return_type} من المحل {shop.name}; "
+                    f"Batch={ret.batch_id}. "
+                    f"{('السبب: ' + ret.reason) if ret.reason else ''}"
+                ).strip(),
+            }
+            if ctx["cost_source_movement_id"] is not None:
+                return_spec["cost_source_movement_id"] = int(
+                    ctx["cost_source_movement_id"]
+                )
+            movement_specs.append(return_spec)
 
             db.add(
                 VisitReturn(

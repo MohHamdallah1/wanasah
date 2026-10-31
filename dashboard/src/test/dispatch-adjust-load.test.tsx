@@ -269,7 +269,7 @@ describe("Bounded Adjust Load discovery", () => {
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.endsWith("adjust_inventory"))).toBe(true));
     const sent = JSON.parse(fake.fetch.mock.calls.find(([url]) => url.endsWith("adjust_inventory"))![1].body);
     expect(sent.deltas).toEqual([{ product_id: 1000, delta_base: "2" }, { product_id: 1499, delta_base: "5" }]);
-  });
+  }, 15_000); // 500-row cursor/DOM acceptance under shared CI runner; preserve every assertion.
 
   it("debounces paged source search and keeps loaded and drafted rows stable across searches", async () => {
     fake.fetch.mockImplementation(async (url: string) => url.includes("?search=") ? page([extra]) : [loaded]);

@@ -1,0 +1,249 @@
+name: V1 financial return cost fidelity closure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/models.py"
+      - "wa_backend/services.py"
+      - "wa_backend/api/driver.py"
+      - "wa_backend/domains/inventory_costing/service.py"
+      - "wa_backend/alembic/versions/e1b7c4d9a203_linked_return_cost_provenance.py"
+      - "wa_backend/tests/test_return_cost_fidelity_c3_c5_postgres.py"
+      - "wa_backend/tests/test_legacy_field_transport_boundary.py"
+      - "wa_backend/tests/purchase_reference_pg_support.py"
+      - "wa_backend/scripts/gate_stage74_inventory_costing.py"
+      - ".github/workflows/v1-return-cost-fidelity-closure.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-return-cost-fidelity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  committed-return-cost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [FIFO, MOVING_AVERAGE]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: return_cost_admin
+          POSTGRES_DB: wanasah_field_contracts
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["55476:5432"]
+        options: >-
+          --health-cmd "pg_isready -U return_cost_admin -d wanasah_field_contracts"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ReturnCostFidelityOnlyKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://return_cost_runtime@127.0.0.1:55476/wanasah_field_contracts
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://return_cost_admin@127.0.0.1:55476/wanasah_field_contracts
+      WANASAH_FIELD_CONTRACT_PG_GATE: "1"
+      WANASAH_RETURN_COST_FIDELITY_PG_GATE: "1"
+      WANASAH_RETURN_COST_FIDELITY_METHOD: ${{ matrix.method }}
+      WANASAH_REMAINING_ACCOUNTING_PG_GATE: "1"
+      PYTHONPATH: ".:tests"
+
+    defaults:
+      run:
+        working-directory: wa_backend
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile production and focused accounting proof
+        run: |
+          python -m py_compile \
+            models.py \
+            services.py \
+            api/driver.py \
+            domains/inventory_costing/service.py \
+            tests/test_return_cost_fidelity_c3_c5_postgres.py \
+            tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py \
+            tests/test_costed_driver_customer_return_c2_db.py \
+            tests/test_costed_driver_sale_correction_real_c2_db.py \
+            tests/test_legacy_field_transport_boundary.py \
+            tests/purchase_reference_pg_support.py
+          python scripts/gate_stage74_inventory_costing.py
+
+      - name: Existing FIELD frozen-boundary regression
+        if: matrix.method == 'FIFO'
+        run: python -m pytest -q tests/test_legacy_field_transport_boundary.py
+
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect(
+              "postgresql://return_cost_admin@127.0.0.1:55476/wanasah_field_contracts",
+              autocommit=True,
+          ) as db:
+              db.execute(
+                  "CREATE ROLE return_cost_runtime LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Canonical fresh Alembic schema and parity
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO return_cost_runtime")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO return_cost_runtime"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO return_cost_runtime"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO return_cost_runtime"
+              )
+          PY
+
+      - name: Seed isolated synthetic FIELD fixture
+        run: python -m tests.field_contract_postgres_fixture
+
+      - name: Merged #668 continuous accounting reconciliation
+        if: matrix.method == 'FIFO'
+        run: >-
+          python -m pytest -q -s
+          tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py
+          --junitxml=cross-reconcile-668.xml
+
+      - name: Existing C2 sale and return regression
+        if: matrix.method == 'FIFO'
+        run: >-
+          python -m pytest -q -s
+          tests/test_costed_driver_customer_return_c2_db.py
+          tests/test_costed_driver_sale_correction_real_c2_db.py
+          --junitxml=return-cost-existing-c2.xml
+
+      - name: Committed PostgreSQL 16 return-cost fidelity
+        run: >-
+          python -m pytest -q -s
+          tests/test_return_cost_fidelity_c3_c5_postgres.py
+          --junitxml=return-cost-${{ matrix.method }}.xml
+
+      - name: Reject skips failures and empty committed execution
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          method = os.environ["WANASAH_RETURN_COST_FIDELITY_METHOD"]
+          path = f"return-cost-{method}.xml"
+          root = ET.parse(path).getroot()
+          cases = list(root.iter("testcase"))
+          assert cases, "No committed return-cost PostgreSQL acceptance executed"
+          assert not list(root.iter("skipped")), "Committed return-cost acceptance must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), (
+              "Committed return-cost PostgreSQL acceptance failed"
+          )
+          assert len(cases) == 1, f"Expected one committed journey for {method}, got {len(cases)}"
+          if method == "FIFO":
+              cross = ET.parse("cross-reconcile-668.xml").getroot()
+              cross_cases = list(cross.iter("testcase"))
+              assert len(cross_cases) == 2, f"Expected two #668 continuous cases, got {len(cross_cases)}"
+              assert not list(cross.iter("skipped"))
+              assert not list(cross.iter("failure")) and not list(cross.iter("error"))
+              c2 = ET.parse("return-cost-existing-c2.xml").getroot()
+              old_cases = list(c2.iter("testcase"))
+              assert len(old_cases) == 4, f"Expected four focused existing C2 cases, got {len(old_cases)}"
+              assert not list(c2.iter("skipped"))
+              assert not list(c2.iter("failure")) and not list(c2.iter("error"))
+          print(f"RETURN_COST_FIDELITY_EXECUTED=PASS method={method}")
+          PY
+
+      - name: Exact ownership scope
+        if: always()
+        working-directory: .
+        run: |
+          # Preserve historic implementation ancestry, but enforce scope and
+          # whitespace on only this PR's actual branch changes.
+          implementation_base="8a74834fc80e434c15eec99de45cb1c96cdeed56"
+          git cat-file -e "$implementation_base^{commit}"
+          git merge-base --is-ancestor "$implementation_base" HEAD
+          pr_base="$(git merge-base "${{ github.event.pull_request.base.sha || github.sha }}" HEAD)"
+          git diff --check "$pr_base" HEAD --
+          BASE="$pr_base" python - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {
+              ".github/workflows/v1-return-cost-fidelity-closure.yml",
+              ".github/workflows/purchase-reference-e2e-postgres.yml",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/inventory_costing/service.py",
+              "wa_backend/alembic/versions/e1b7c4d9a203_linked_return_cost_provenance.py",
+              "wa_backend/tests/test_return_cost_fidelity_c3_c5_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+              "wa_backend/tests/purchase_reference_pg_support.py",
+              "wa_backend/scripts/gate_stage74_inventory_costing.py",
+          }
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+              text=True,
+          ).splitlines())
+          extra = changed - allowed
+          if extra:
+              raise SystemExit(f"RETURN_COST_SCOPE=FAIL extra={sorted(extra)}")
+          forbidden = {
+              "wa_backend/tests/test_live_stock_v1_remaining_consistency_postgres.py",
+              "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+          }
+          overlap = changed & forbidden
+          if overlap or any(
+              path.startswith("dashboard/") or path.startswith("wanasah_frontend/")
+              for path in changed
+          ):
+              raise SystemExit(f"RETURN_COST_SCOPE=FAIL forbidden={sorted(overlap)}")
+          print(f"RETURN_COST_SCOPE=PASS files={len(changed)}")
+          PY
+
+      - name: Retain committed financial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: return-cost-fidelity-${{ matrix.method }}-${{ github.sha }}
+          path: |
+            wa_backend/return-cost-${{ matrix.method }}.xml
+            wa_backend/return-cost-existing-c2.xml
+            wa_backend/cross-reconcile-668.xml
+          if-no-files-found: warn
