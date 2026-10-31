@@ -56,6 +56,7 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_REAL_BROWSER_GATE: "1"
       WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_REMAINING_CONSISTENCY_PG_GATE: "1"
       WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://real_browser_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_REAL_BROWSER_STATE: /tmp/live-stock-real-browser-state.json
@@ -211,6 +212,13 @@ jobs:
               )
           PY
 
+      - name: Prove independent reads, persisted revocation and company-local midnight on PG16
+        working-directory: backend-under-test/wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_remaining_consistency_postgres.py
+          --junitxml=/tmp/live-stock-remaining-consistency.xml
+
       - name: Seed canonical inbound and exact expected truth
         working-directory: backend-under-test/wa_backend
         run: >-
@@ -249,6 +257,7 @@ jobs:
           npx vitest run
           src/test/live-stock-batch-detail-freshness.test.tsx
           src/test/live-stock-batch-refresh-integration.test.tsx
+          src/test/live-stock-local-failure.test.tsx
           src/test/live-stock-warm-authority.test.tsx
           src/test/inventory-cp13-shell-polish.test.tsx
           src/test/inventory-cp6-minimum-stock-dashboard.test.tsx
@@ -364,6 +373,7 @@ jobs:
             dashboard/node_modules/.cache/live-stock-operational
             dashboard/node_modules/.cache/live-stock-physical-custody
             dashboard/node_modules/.cache/live-stock-contracts.xml
+            /tmp/live-stock-remaining-consistency.xml
             /tmp/live-stock-sha-provenance.json
             /tmp/live-stock-real-api.log
             /tmp/live-stock-real-dashboard.log
