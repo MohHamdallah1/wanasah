@@ -728,7 +728,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       ]);
 
       if (_sellableAccessDenied ||
-          authorityEpoch != _custodyAuthorityEpoch) return;
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -754,7 +756,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       }
     } catch (e) {
       if (_sellableAccessDenied ||
-          authorityEpoch != _custodyAuthorityEpoch) return;
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Custody transfer response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال رد العهدة. أعد المحاولة.'));
       emit(snapshot);
@@ -777,7 +781,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     try {
       final outcome = await _custodyCoordinator.respond(event.decisions);
       if (_sellableAccessDenied ||
-          authorityEpoch != _custodyAuthorityEpoch) return;
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (outcome.anyBlocked) {
         emit(
           DashboardError(
@@ -803,7 +809,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       }
     } catch (e) {
       if (_sellableAccessDenied ||
-          authorityEpoch != _custodyAuthorityEpoch) return;
+          authorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Custody batch response failed: $e');
       emit(DashboardError(message: 'تعذر إكمال ردود العهدة. أعد المحاولة.'));
       emit(snapshot);
