@@ -150,6 +150,10 @@ OP_ALLOWED = {
 # Issue #706: a bounded auth repair also retains the original Live Stock evidence.
 SESSION_ISOLATION_ALLOWED = {
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    "dashboard/src/App.tsx",
+    "dashboard/src/components/operations/DashboardLayout.tsx",
+    "dashboard/src/hooks/useInventoryAccess.ts",
     "dashboard/src/test/live-stock-warm-authority.test.tsx",
     "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
     "dashboard/e2e/live-stock-inflight.config.ts",
