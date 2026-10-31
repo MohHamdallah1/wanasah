@@ -9,6 +9,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/live-stock-g03-main-integration.yml"
+      - "LIVE_STOCK_V1_CLOSURE_PLAN.md"  # One final exact-main acceptance when closing G04/G06 technical evidence
   workflow_dispatch:
     inputs:
       target_sha:
