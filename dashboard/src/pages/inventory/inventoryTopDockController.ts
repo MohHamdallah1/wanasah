@@ -55,6 +55,7 @@ export function createInventoryTopDockController(
   const canAnimate = () =>
     !reducedQuery.matches &&
     root.clientWidth > 0 &&
+    root.scrollWidth <= root.clientWidth + 1 &&
     window.innerWidth > 600 &&
     precisionQuery.matches;
 

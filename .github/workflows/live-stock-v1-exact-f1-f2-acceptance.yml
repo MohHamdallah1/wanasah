@@ -1,0 +1,152 @@
+name: Live Stock V1 exact F1 F2 acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/test_live_stock_v1_exact_f1_f2_acceptance_postgres.py"
+      - ".github/workflows/live-stock-v1-exact-f1-f2-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-v1-exact-f1-f2-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockExactF1F2Key123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://exact_f1_f2_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_EXACT_F1_F2_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://exact_f1_f2_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile focused exact acceptance
+        working-directory: wa_backend
+        run: >-
+          python -m py_compile
+          tests/test_live_stock_v1_exact_f1_f2_acceptance_postgres.py
+
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name live-stock-exact-f1-f2-postgres \
+            --env POSTGRES_USER=exact_f1_f2_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-exact-f1-f2-postgres pg_isready \
+              -U exact_f1_f2_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-exact-f1-f2-postgres
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh schema and migration parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Run exact F1 F2 numeric acceptance only
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v1_exact_f1_f2_acceptance_postgres.py
+          --junitxml=live-stock-v1-exact-f1-f2.xml
+
+      - name: Reject skips failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("live-stock-v1-exact-f1-f2.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 4, f"Expected 4 exact PG16 cases, got {len(cases)}"
+          assert not list(root.iter("skipped")), "Exact F1/F2 acceptance must not skip"
+          assert not list(root.iter("failure")) and not list(root.iter("error")), \
+              "Exact F1/F2 PostgreSQL acceptance failed"
+          print("EXACT_F1_F2_POSTGRES_EXECUTED=" + str(len(cases)))
+          PY
+
+      - name: Exact requested-base diff check
+        run: git diff --check 4c100550ac3dc3fcf16ecd174e285f3dc84c941f...HEAD
+
+      - name: Retain exact acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-v1-exact-f1-f2-${{ github.event.pull_request.head.sha || github.sha }}
+          path: wa_backend/live-stock-v1-exact-f1-f2.xml
+          if-no-files-found: error

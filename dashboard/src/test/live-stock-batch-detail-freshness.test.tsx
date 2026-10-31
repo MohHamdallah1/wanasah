@@ -248,4 +248,30 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(screen.getByRole("button", { name: "مصدر الرصيد والحجوزات" }))
       .toHaveAttribute("aria-expanded", "true");
   });
+
+  it("propagates an authorization denial to the warehouse disclosure owner", async () => {
+    const denied = vi.fn();
+    mocks.authFetch.mockImplementation((url: string) => url.includes("/source?")
+      ? Promise.reject(Object.assign(new Error("revoked"), { status: 403 }))
+      : Promise.resolve(batchPage()));
+    const { result } = renderHook(() => useLiveStockBatchDetail(
+      11, "Batch load failed", "Stale", denied));
+    act(() => result.current.open(product));
+    await waitFor(() => expect(result.current.page).not.toBeNull());
+    act(() => result.current.loadSource(71));
+    await waitFor(() => expect(denied).toHaveBeenCalledTimes(1));
+    expect(result.current.page).toBeNull();
+    expect(result.current.sourceByBatch).toEqual({});
+  });
+
+  it("offers an in-dialog refresh without closing or reusing source evidence", () => {
+    const onRefresh = vi.fn();
+    render(<BatchDetailPanel product={product} batches={[]} hasMore={false}
+      loading={false} error={null} sourceByBatch={{}} sourceLoadingId={null}
+      sourceErrorId={null} onClose={vi.fn()} onRetry={vi.fn()}
+      onLoadMore={vi.fn()} onLoadSource={vi.fn()} onRefresh={onRefresh} />);
+    fireEvent.click(screen.getByRole("button", { name: "inventoryShell.refreshNow" }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
 });

@@ -42,6 +42,8 @@ interface Props {
   onLocationChange: (value: string) => void;
   onRefresh: () => void;
   onRetryPage: () => void;
+  onRetrySummary?: () => void;
+  onReadDenied?: () => void;
   onSearchChange: (search: string) => void;
   onStockStateChange: (value: LiveStockStockState) => void;
   onIndicatorsChange: (value: LiveStockIndicator[]) => void;
@@ -69,6 +71,8 @@ export function Tab1LiveStock({
   onLocationChange,
   onRefresh,
   onRetryPage,
+  onRetrySummary = onRetryPage,
+  onReadDenied,
   onSearchChange,
   onStockStateChange,
   onIndicatorsChange,
@@ -242,6 +246,7 @@ export function Tab1LiveStock({
     locationId,
     t("inventoryLive.errors.batchLoadFailed"),
     getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language).staleBatchDetails,
+    onReadDenied,
   );
 
   const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
@@ -465,13 +470,17 @@ export function Tab1LiveStock({
           </div>
         ) : null}
 
-        {!pageError && summaryError ? (
+        {summaryError ? (
           <div
             role="status"
             data-cp13-state="summary-unavailable"
             className="mx-3 mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600"
           >
             {t("inventoryLive.errors.summaryUnavailable")}
+            <button type="button" onClick={onRetrySummary}
+              className="ms-3 rounded-lg border px-2 py-1 focus-visible:ring-2 focus-visible:ring-amber-400">
+              {t("common.retry")}
+            </button>
           </div>
         ) : null}
 
@@ -563,6 +572,8 @@ export function Tab1LiveStock({
         sourceLoadingId={detail.sourceLoadingId}
         sourceErrorId={detail.sourceErrorId}
         onClose={detail.close}
+        onRefresh={refreshWithDetail}
+        refreshing={loading || detail.loading}
         onRetry={detail.retry}
         onLoadMore={detail.loadMore}
         onLoadSource={detail.loadSource}
