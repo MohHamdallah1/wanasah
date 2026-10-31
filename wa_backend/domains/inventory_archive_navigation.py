@@ -116,8 +116,8 @@ def inventory_archive_target_query(access, variant_id, samples):
                 session.id,
                 session.location_id,
                 reason=case(
-                    (vehicle_recon, "INVENTORY_SOURCE"),
                     (unsupported_state, "STOCKTAKE_STATE"),
+                    (vehicle_recon, "INVENTORY_SOURCE"),
                     else_=cast(literal(None), String),
                 ),
             )
