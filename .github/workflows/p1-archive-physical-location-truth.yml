@@ -6,6 +6,7 @@ on:
     paths:
       - "wa_backend/domains/inventory_archive_navigation.py"
       - "wa_backend/tests/test_archive_physical_location_truth.py"
+      - "wa_backend/tests/test_archive_physical_location_truth_postgres.py"
       - ".github/workflows/p1-archive-physical-location-truth.yml"
   workflow_dispatch:
 
@@ -15,18 +16,29 @@ permissions:
 jobs:
   focused:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: ArchivePhysicalLocationTruthKey123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://archive_pg_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_ARCHIVE_PHYSICAL_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://archive_pg_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install backend test dependencies
-        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
 
       - name: Compile focused source
         working-directory: wa_backend
@@ -34,8 +46,9 @@ jobs:
           python -m py_compile
           domains/inventory_archive_navigation.py
           tests/test_archive_physical_location_truth.py
+          tests/test_archive_physical_location_truth_postgres.py
 
-      - name: Run archive navigation acceptance
+      - name: Run bounded archive navigation contract acceptance
         working-directory: wa_backend
         env:
           PYTHONPATH: .:tests
@@ -46,17 +59,113 @@ jobs:
           tests/test_catalog_canonical_boundary.py
           tests/test_catalog_canonical_cutover.py
 
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name archive-physical-pg \
+            --env POSTGRES_USER=archive_pg_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec archive-physical-pg pg_isready \
+              -U archive_pg_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs archive-physical-pg
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Migrate disposable database and verify parity
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = (
+              make_url(os.environ["DATABASE_URL_MIGRATION"])
+              .set(drivername="postgresql")
+              .render_as_string(hide_password=False)
+          )
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Run real PostgreSQL 16 G6 archive acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_archive_physical_location_truth_postgres.py
+          --junitxml=archive-physical-location-postgres.xml
+
+      - name: Reject PostgreSQL skips, failures and empty execution
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse("archive-physical-location-postgres.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 2, (
+              "Expected FIFO + MOVING_AVERAGE G6 cases, "
+              f"got {len(cases)}"
+          )
+          assert not list(root.iter("skipped")), "G6 PostgreSQL acceptance must not skip"
+          assert not list(root.iter("failure")), "G6 PostgreSQL acceptance has failures"
+          assert not list(root.iter("error")), "G6 PostgreSQL acceptance has errors"
+          print("P1_ARCHIVE_G6_POSTGRES_EXECUTED=" + str(len(cases)))
+          PY
+
       - name: Physical-location and scope guard
         run: |
-          git diff --check main...HEAD
-          python - <<'PY'
+          base="$(git merge-base origin/main HEAD)"
+          test -n "$base"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os
           import pathlib
           import subprocess
 
-          base = subprocess.check_output(
-              ["git", "merge-base", "origin/main", "HEAD"],
-              text=True,
-          ).strip()
+          base = os.environ["BASE"]
           changed = set(
               subprocess.check_output(
                   ["git", "diff", "--name-only", base, "HEAD"],
@@ -67,6 +176,7 @@ jobs:
               ".github/workflows/p1-archive-physical-location-truth.yml",
               "wa_backend/domains/inventory_archive_navigation.py",
               "wa_backend/tests/test_archive_physical_location_truth.py",
+              "wa_backend/tests/test_archive_physical_location_truth_postgres.py",
           }
           assert changed <= allowed, sorted(changed - allowed)
 
@@ -76,5 +186,18 @@ jobs:
           assert "DispatchRoute" not in source
           assert "route.source_location_id" not in source
           assert "warehouse shell" not in source.lower()
+
+          pg_test = pathlib.Path(
+              "wa_backend/tests/test_archive_physical_location_truth_postgres.py"
+          ).read_text(encoding="utf-8")
+          for forbidden in (
+              "db.add(InventoryBalance",
+              "InventoryBalance.__table__.insert",
+              "InventoryBalance.__table__.update",
+              "inventory_balances SET",
+              "INSERT INTO inventory_balances",
+          ):
+              assert forbidden not in pg_test, forbidden
+
           print("P1_ARCHIVE_PHYSICAL_LOCATION_SCOPE=PASS")
           PY
