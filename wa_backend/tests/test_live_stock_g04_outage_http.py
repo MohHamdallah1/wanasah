@@ -146,6 +146,22 @@ async def test_g04_real_pg16_outage_revocation_and_recovery_fail_closed():
 
             ready = await client.get("/ready")
             assert ready.status_code == 503
+
+            failed_action = await client.put(
+                "/warehouse/inventory/minimum-stock/bulk",
+                headers={"Authorization": f"Bearer {owner_token}"},
+                json={
+                    "request_id": "00000000-0000-4000-8000-000000000404",
+                    "location_id": state["warehouse"],
+                    "scope": "ALL",
+                    "family_ids": [],
+                    "product_variant_ids": [],
+                    "minimum_quantity": "9",
+                    "apply_mode": "OVERWRITE",
+                },
+            )
+            _assert_outage_response(failed_action, state)
+
             for path in (
                 f"/warehouse/inventory/cursor?location_id={state['warehouse']}&search=OP-MULTI",
                 f"/warehouse/inventory/summary?location_id={state['warehouse']}",
