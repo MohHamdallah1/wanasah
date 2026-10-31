@@ -360,7 +360,10 @@ async def _run():
                 after, fixture, actor, head_function,
                 limit=50, search=None, **filters,
             )
-            assert new["payload"] == old["payload"], (actor, name)
+            accepted._assert_r3_location_contract(new["payload"])
+            assert accepted._r3_stable_payload(
+                new["payload"]
+            ) == accepted._r3_stable_payload(old["payload"]), (actor, name)
             assert new["sql_count"] == old["sql_count"], (actor, name)
 
             old_relations = old["plan"]["relations"]
@@ -417,7 +420,10 @@ async def _run():
                 limit=50, search=None, stock_state="out_of_stock",
                 warmups=1, samples=2,
             )
-            assert out_new["payload"] == out_old["payload"]
+            accepted._assert_r3_location_contract(out_new["payload"])
+            assert accepted._r3_stable_payload(
+                out_new["payload"]
+            ) == accepted._r3_stable_payload(out_old["payload"])
             out_ids = _ids(out_new["payload"])
             assert special["missing_early"] in out_ids
             assert special["missing_deep"] in out_ids
@@ -436,7 +442,10 @@ async def _run():
                 limit=50, search=None, minimum_unset=True,
                 warmups=1, samples=2,
             )
-            assert min_new["payload"] == min_old["payload"]
+            accepted._assert_r3_location_contract(min_new["payload"])
+            assert accepted._r3_stable_payload(
+                min_new["payload"]
+            ) == accepted._r3_stable_payload(min_old["payload"])
             min_ids = _ids(min_new["payload"])
             assert special["missing_early"] in min_ids
             assert special["unset_positive"] in min_ids
@@ -499,7 +508,10 @@ async def _run():
                     limit=50, search=None, cursor=cursor,
                     warmups=1, samples=2, **filters,
                 )
-                assert new["payload"] == old["payload"], (actor, name)
+                accepted._assert_r3_location_contract(new["payload"])
+            assert accepted._r3_stable_payload(
+                new["payload"]
+            ) == accepted._r3_stable_payload(old["payload"]), (actor, name)
                 keys = [
                     (row["name"], int(row["id"]))
                     for row in new["payload"]["items"]
