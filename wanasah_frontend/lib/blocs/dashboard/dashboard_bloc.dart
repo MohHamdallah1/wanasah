@@ -651,7 +651,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     }
 
     try {
-      nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody();
+      nonSellableCustody = await _custodyCoordinator.loadNonSellableCustody(
+        expectedSessionId: authoritySessionId,
+      );
       nonSellableDisclosure = StockDisclosure.verified;
     } catch (e) {
       if (_isCustodyDenied(e)) {
