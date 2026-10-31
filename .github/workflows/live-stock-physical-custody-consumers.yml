@@ -18,5 +18,5 @@ jobs:
     uses: ./.github/workflows/live-stock-v1-operational-browser.yml
     with:
       # Explicit dependency proof, not a claim that main already contains #687.
-      backend_ref: "dcea79a6fcabd13a7102119c81c62136808f910a"
+      backend_ref: "e6fecb0adc1bbf271a2b23f2971d944d5318e62a"
       scenario: physical-custody
