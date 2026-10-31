@@ -319,7 +319,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     WorkSessionRecoveryResult? restartRecovery;
     if (!_workSessionRecoveryCompleted) {
       restartRecovery = await _workSessionCoordinator.recoverActiveSession();
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (restartRecovery.succeeded) {
         _workSessionRecoveryCompleted = true;
       }
@@ -328,7 +330,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
     try {
       // +++  لـ Bug 2: الاعتماد على المستودع لجلب البيانات +++
       final response = await _dashboardRepo.fetchDashboardRaw();
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       // +++ الدرع النوعي النخبوي (Elite Cast): منع كراش الـ TypeError بدون طرد المندوب ظلماً بسبب تعقيدات Dart +++
       if (response.data is! Map) {
@@ -430,7 +434,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         'cached_is_active_session': sessionIsActive.toString(),
         'cached_session_start_time': startTimeStr ?? '',
       });
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       try {
         // +++   احترام قفل المزامنة الموحد (الـ bool) وتوثيق التخطي الصامت +++
@@ -446,9 +452,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         );
       }
 
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       final localData = await _loadFromLocal(isOffline: false);
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
 
       emit(
         DashboardLoaded(
@@ -528,7 +538,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         add(CheckPendingTransfers());
       }
     } on DioException catch (e) {
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
         _custodyAuthorityEpoch++;
         _custodySessionId = null;
@@ -574,7 +586,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
               restartRecovery!.session!,
             );
           }
-          if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+          if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+            return;
+          }
           emit(
             localData.copyWith(
               refreshIssue: DashboardRefreshIssue(
@@ -604,7 +618,9 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
         ),
       );
     } catch (e) {
-      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) return;
+      if (expectedAuthorityEpoch != _custodyAuthorityEpoch) {
+        return;
+      }
       developer.log('[DashboardBloc] Parsing Error: $e');
       emit(DashboardError(message: 'dashboard_processing_failure'));
     }
