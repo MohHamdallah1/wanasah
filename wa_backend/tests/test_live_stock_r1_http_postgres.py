@@ -132,7 +132,8 @@ async def test_real_http_bearer_owner_reader_scope_revocation_and_no_cost_leak(h
         item = row_for(page, variant)
         assert D(item["on_hand_quantity"]) == D("10")
         assert D(item["vehicle_quantity"]) == D("10")
-        assert D(item["total_quantity"]) == D("20")
+        assert D(item["total_quantity"]) == D("10")
+        assert item["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
         assert Decimal(item["average_cost_display"]) == D("2")
         assert Decimal(item["last_purchase_cost"]) == D("2")
         assert foreign.variant_id not in {item["id"] for item in page["items"]}
@@ -176,7 +177,8 @@ async def test_real_http_bearer_owner_reader_scope_revocation_and_no_cost_leak(h
     assert hidden.status_code == 200, hidden.text
     hidden_item = row_for(hidden.json(), variant)
     assert D(hidden_item["on_hand_quantity"]) == D("10")
-    assert D(hidden_item["vehicle_quantity"]) == D("0")
+    assert hidden_item["vehicle_quantity"] is None
+    assert hidden_item["vehicle_quantity_scope"] == "NO_ACCESS"
     assert D(hidden_item["total_quantity"]) == D("10")
     vehicle_filter = await read(client, g.reader, c.warehouse_id, has_vehicle="true")
     assert vehicle_filter.status_code == 200, vehicle_filter.text
@@ -236,7 +238,8 @@ async def test_http_combined_statement_keeps_precommit_snapshot_after_real_trans
     assert response.status_code == 200, response.text
     item = row_for(response.json(), c.tenant.variant_id)
     assert (D(item["on_hand_quantity"]), D(item["vehicle_quantity"])) == (D("10"), D("10"))
-    assert D(item["total_quantity"]) == D("20")
+    assert D(item["total_quantity"]) == D("10")
+    assert item["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
     await assert_truth(c, warehouse="20", vehicle="0")
     subsequent = await read(g.client, g.reader, c.warehouse_id)
     assert subsequent.status_code == 200, subsequent.text
