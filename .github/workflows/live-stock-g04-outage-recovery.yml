@@ -1,0 +1,263 @@
+name: Live Stock G04 real outage and fail-closed recovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/tests/live_stock_g04_outage_support.py"
+      - "wa_backend/tests/test_live_stock_g04_outage_http.py"
+      - "dashboard/e2e/live-stock-g04-outage.*"
+      - ".github/workflows/live-stock-g04-outage-recovery.yml"
+      - "wa_backend/main.py"
+      - "wa_backend/api/authentication/dependencies.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-stock-g04-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-outage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockG04DisposablePg16OnlyKey12345678901234567890
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://g04_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_REAL_BROWSER_GATE: "1"
+      WANASAH_G04_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://g04_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_OPERATIONAL_BROWSER_STATE: /tmp/live-stock-g04-state.json
+      WANASAH_G04_REVOKED_STATE: /tmp/live-stock-g04-revoked.json
+      WANASAH_G04_API: http://127.0.0.1:4174
+      WANASAH_G04_DB_CONTAINER: live-stock-g04-pg
+      R3_BACKEND_ROOT: ${{ github.workspace }}/wa_backend
+      VITE_API_URL: http://127.0.0.1:4174
+      PYTHON: python
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Compile dedicated G04 evidence
+        run: |
+          python -m py_compile \
+            wa_backend/tests/live_stock_g04_outage_support.py \
+            wa_backend/tests/test_live_stock_g04_outage_http.py
+
+      - name: Start disposable PostgreSQL16
+        run: |
+          for attempt in 1 2 3; do
+            if docker pull postgres:16; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Unable to pull postgres:16 after bounded retries"
+              exit 1
+            fi
+            sleep 2
+          done
+          docker run --detach --pull=never --name live-stock-g04-pg \
+            --env POSTGRES_USER=g04_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 40); do
+            if docker exec live-stock-g04-pg pg_isready -U g04_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+
+      - name: Fresh schema and scoped runtime grants
+        run: |
+          cd wa_backend
+          alembic upgrade head
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+              db.execute("INSERT INTO permissions(code) VALUES ('inventory.read'), ('location.read'), ('inbound.create') ON CONFLICT(code) DO NOTHING")
+          dsn = make_url(os.environ["DATABASE_URL"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as db:
+              assert db.execute("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone() == (False, False)
+              rows = db.execute("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname IN ('inventory_balances','inventory_movements','inventory_cost_events','inventory_cost_states','operation_idempotency')").fetchall()
+              assert len(rows) == 5 and all(a and b for a,b in rows)
+          print("G04_RUNTIME_ROLE_AND_FORCE_RLS PASS")
+          PY
+
+      - name: Reuse canonical operational fixture
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/live_stock_operational_browser_support.py::test_prepare_operational_browser
+          --junitxml=/tmp/live-stock-g04-fixture.xml
+
+      - name: Reuse canonical physical Vehicle custody
+        run: |
+          python dashboard/e2e/live-stock-physical-custody.fixture.py setup
+          python dashboard/e2e/live-stock-physical-custody.fixture.py grant
+          python dashboard/e2e/live-stock-physical-custody.fixture.py load
+
+      - name: Start actual FastAPI
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/live-stock-g04-api.log 2>&1 &
+          echo $! > /tmp/live-stock-g04-api.pid
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/live-stock-g04-api.log
+          exit 1
+
+      - name: Real PG16 outage, 5xx, revocation and fresh recovery
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_g04_outage_http.py
+          --junitxml=/tmp/live-stock-g04-http.xml
+
+      - name: Install locked Dashboard and Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+          npx playwright install --with-deps chromium
+
+      - name: Typecheck and lint only dedicated G04 browser evidence
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit --skipLibCheck --target es2022 --module esnext \
+            --moduleResolution bundler --types node --lib es2022,dom \
+            e2e/live-stock-g04-outage.config.ts e2e/live-stock-g04-outage.spec.ts
+          npx eslint e2e/live-stock-g04-outage.config.ts e2e/live-stock-g04-outage.spec.ts
+
+      - name: Build actual Dashboard against actual FastAPI
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Start isolated built Dashboard
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/live-stock-g04-dashboard.log 2>&1 &
+          echo $! > /tmp/live-stock-g04-dashboard.pid
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/live-stock-g04-dashboard.log
+          exit 1
+
+      - name: Real Chromium outage, dropped network, late response and session recovery
+        working-directory: dashboard
+        run: npx playwright test --config e2e/live-stock-g04-outage.config.ts
+
+      - name: Require complete no-skip execution and bounded ownership
+        if: always()
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import os, re, subprocess, xml.etree.ElementTree as ET
+          for path, expected in [
+              ("/tmp/live-stock-g04-fixture.xml", 1),
+              ("/tmp/live-stock-g04-http.xml", 1),
+              ("dashboard/node_modules/.cache/live-stock-g04-outage.xml", 1),
+          ]:
+              root = ET.parse(path).getroot()
+              cases = list(root.iter("testcase"))
+              assert len(cases) == expected, (path, len(cases))
+              assert not list(root.iter("skipped")), path
+              assert not list(root.iter("failure")) and not list(root.iter("error")), path
+              print(f"G04_CASES PASS file={path} cases={len(cases)} skipped=0")
+
+          baseline = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", baseline)
+          base = subprocess.check_output(["git", "merge-base", baseline, "HEAD"], text=True).strip()
+          files = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          allowed = {
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              "wa_backend/tests/live_stock_g04_outage_support.py",
+              "wa_backend/tests/test_live_stock_g04_outage_http.py",
+              "dashboard/e2e/live-stock-g04-outage.config.ts",
+              "dashboard/e2e/live-stock-g04-outage.spec.ts",
+              "wa_backend/main.py",
+              "wa_backend/api/authentication/dependencies.py",
+          }
+          assert files <= allowed, sorted(files - allowed)
+          forbidden = [
+              p for p in files
+              if p.startswith("dashboard/src/")
+              or p == ".github/scripts/live_stock_ci_ownership.py"
+              or p == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
+          ]
+          assert not forbidden, forbidden
+          subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
+          print("G04_SCOPE PASS files=" + str(len(files)))
+          PY
+
+      - name: Verify service recovered after all fault injection
+        if: always()
+        run: |
+          docker start live-stock-g04-pg >/dev/null 2>&1 || true
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/ready >/dev/null; then
+              echo "G04_FINAL_READY PASS"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/live-stock-g04-api.log
+          exit 1
+
+      - name: Retain sanitized G04 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-g04-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            /tmp/live-stock-g04-fixture.xml
+            /tmp/live-stock-g04-http.xml
+            dashboard/node_modules/.cache/live-stock-g04-outage.xml
+            dashboard/node_modules/.cache/live-stock-g04-outage
+            /tmp/live-stock-g04-api.log
+            /tmp/live-stock-g04-dashboard.log
+          if-no-files-found: warn
