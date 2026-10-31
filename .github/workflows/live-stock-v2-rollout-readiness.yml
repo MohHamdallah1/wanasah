@@ -111,8 +111,28 @@ jobs:
               "docs/operations/LIVE_STOCK_V2_ROLLOUT_READINESS_RUNBOOK.md",
               "wa_backend/tests/test_live_stock_v2_rollout_readiness_postgres.py",
           }
-          assert files <= owned, f"Unowned V2 rollout changes: {sorted(files - owned)}"
-          print("LIVE_STOCK_V2_SCOPE=PASS")
+          # A complete disposable restore-proof pair may accompany the original
+          # #700 rollout contract. All other production/business files stay forbidden.
+          restore_owned = {
+              ".github/workflows/live-stock-v2-restore-rehearsal.yml",
+              "wa_backend/tests/test_live_stock_v2_restore_rehearsal_postgres.py",
+          }
+          def check_scope(candidate):
+              has_restore = bool(candidate & restore_owned)
+              if has_restore:
+                  assert restore_owned <= candidate, "Incomplete V2 restore proof scope"
+              allowed = owned | (restore_owned if has_restore else set())
+              unexpected = candidate - allowed
+              assert not unexpected, f"Unowned V2 rollout changes: {sorted(unexpected)}"
+          check_scope(files)
+          for probe in ("wa_backend/services.py", "wa_backend/domains/inventory/services.py"):
+              try:
+                  check_scope(files | {probe})
+              except AssertionError as exc:
+                  assert probe in str(exc)
+              else:
+                  raise AssertionError("Unsafe V2 ownership probe passed: " + probe)
+          print("LIVE_STOCK_V2_SCOPE=PASS strict_restore_pair=1 negative_probes=2")
           PY
       - name: Retain proof logs
         if: always()
