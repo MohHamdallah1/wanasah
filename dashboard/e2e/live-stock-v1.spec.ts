@@ -152,7 +152,7 @@ test("batch details show bounded partial/truncated owners, quantities and fresh 
   await loadList(page);
   await openFirst(page);
   const dialog = page.getByRole("dialog");
-  const sourceButton = dialog.getByRole("button", { name: "Stock source and reservations" });
+  const sourceButton = dialog.getByRole("button", { name: "Actionable Warehouse source and reservations" });
   await sourceButton.focus();
   await sourceButton.press("Enter");
   await expect(sourceButton).toHaveAttribute("aria-expanded", "true");
@@ -188,7 +188,7 @@ test("loading, retry, failed source and refresh invalidate old reservation evide
   await expect(rows(page)).toHaveCount(2);
   await openFirst(page);
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Stock source and reservations" }).click();
+  await dialog.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
   await expect(dialog.getByText("Source evidence could not be loaded for this warehouse.")).toBeVisible();
   await expect(dialog.getByText("RES-9001")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Retry" }).click();
