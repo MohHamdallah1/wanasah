@@ -43,6 +43,19 @@ export function LiveStockMobileCards({
   );
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
   const locale = resolveI18nLocale(i18n);
+  const formatDate = (value: string): string => {
+    try {
+      return new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        numberingSystem: "latn",
+        timeZone: "UTC",
+      }).format(new Date(`${value}T00:00:00Z`));
+    } catch {
+      return value;
+    }
+  };
 
   return (
     <div
@@ -74,8 +87,8 @@ export function LiveStockMobileCards({
             })
           : null;
         const costs = [
-          ["lastCompanyPurchase", product.last_purchase_cost, lastPurchaseUom, "last-purchase"],
-          ["companyAverage", product.average_cost_display, displayName, "average"],
+          ["lastCompanyPurchase", product.last_purchase_cost, lastPurchaseUom, "last-purchase", product.last_purchase_date],
+          ["companyAverage", product.average_cost_display, displayName, "average", null],
         ] as const;
         const hasMinimum = compareQuantity(product.minimum_quantity, "0") > 0;
         const isAlert = product.is_low_stock;
@@ -150,10 +163,11 @@ export function LiveStockMobileCards({
               </div>
             </dl>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 border-t border-slate-100 pt-2 text-[10px]">
-              {costs.map(([label, value, unit, metric]) => {
+              {costs.map(([label, value, unit, metric, purchaseDate]) => {
                 const known = value !== null && unit !== null;
                 const perUnit = known ? t("inventoryLive.perUnit", { unit }) : null;
                 const exact = known ? formatMoneyExact(value, product.currency_code, locale) : null;
+                const dateEvidence = known && purchaseDate ? formatDate(purchaseDate) : null;
                 return (
                   <div key={label} className="min-w-0">
                     <dt className="truncate font-bold text-slate-500" title={t(`inventoryLive.${label}Hint`)}>
@@ -165,15 +179,21 @@ export function LiveStockMobileCards({
                           <span
                             className="block truncate font-black tabular-nums text-slate-900"
                             dir="auto"
-                            title={`${exact} · ${perUnit}`}
+                            title={`${exact} · ${perUnit}${dateEvidence ? ` · ${dateEvidence}` : ""}`}
                             aria-hidden="true"
                           >
                             {formatMoneyDisplay(value, product.currency_code, locale)}
                           </span>
-                          <span className="block truncate text-[9px] font-semibold text-slate-500" title={perUnit ?? undefined} aria-hidden="true">
-                            {perUnit}
+                          <span
+                            className="block truncate text-[9px] font-semibold text-slate-500"
+                            title={dateEvidence ? `${perUnit} · ${dateEvidence}` : perUnit ?? undefined}
+                            aria-hidden="true"
+                          >
+                            {perUnit}{dateEvidence ? ` · ${dateEvidence}` : ""}
                           </span>
-                          <span className="sr-only">{exact} · {perUnit}</span>
+                          <span className="sr-only">
+                            {exact} · {perUnit}{dateEvidence ? ` · ${dateEvidence}` : ""}
+                          </span>
                         </>
                       ) : (
                         <span className="font-black text-slate-400">—</span>
