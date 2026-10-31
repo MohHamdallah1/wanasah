@@ -74,14 +74,22 @@ check(
     "projection.warehouse_reserved" in warehouse
     and "projection.damaged_packs" in warehouse
     and "projection.recalled_packs" in warehouse
-    and "projection.vehicle_packs" in warehouse,
-    "filters reuse projection facts instead of reaggregating ledger rows",
+    and "projection.vehicle_packs" not in warehouse,
+    "Warehouse filters reuse Warehouse projection facts and never route-attributed Vehicle projection",
 )
 check(
-    "if company_wide_inventory_read:" in warehouse
-    and "_readable_vehicle_locations_subquery(" in warehouse
-    and "variant.id.in_(readable_vehicle_variants)" in warehouse,
-    "vehicle filter remains permission-aware for restricted actors",
+    "_readable_vehicle_locations_subquery(" in warehouse
+    and "variant.id.in_(readable_vehicle_variants)" in warehouse
+    and "_latest_readable_vehicle_sources_subquery" not in warehouse
+    and "DispatchRoute" not in warehouse,
+    "vehicle filter reads authorized physical Vehicle custody without Route attribution",
+)
+check(
+    "vehicle_quantity_scope" in schemas
+    and "total_quantity_scope" in schemas
+    and '"WAREHOUSE_PHYSICAL"' in schemas
+    and '"NO_ACCESS"' in schemas,
+    "response contract distinguishes Warehouse physical totals from permission-scoped Vehicle custody",
 )
 check(
     '"/warehouse/inventory/families"' in warehouse
