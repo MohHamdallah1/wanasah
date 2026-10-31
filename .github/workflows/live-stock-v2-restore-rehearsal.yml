@@ -237,12 +237,12 @@ jobs:
     env:
       ENVIRONMENT: test
       SECRET_KEY: LiveStockG07RolloutPg16IsolatedOnly123456789012345678
-      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55440/wanasah_no_lot_contract_test
-      DATABASE_URL_MIGRATION: postgresql+asyncpg://g07_rollout_admin@127.0.0.1:55440/wanasah_no_lot_contract_test
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://g07_rollout_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_GATE: "1"
       WANASAH_LIVE_STOCK_V2_ROLLOUT_PG_GATE: "1"
-      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55440/wanasah_no_lot_contract_test
-      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://g07_rollout_admin@127.0.0.1:55440/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://g07_rollout_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -275,9 +275,9 @@ jobs:
 
       - name: Start disposable PostgreSQL16
         run: |
-          docker run --detach --name live-stock-g07-rollout             --env POSTGRES_USER=g07_rollout_admin             --env POSTGRES_DB=wanasah_no_lot_contract_test             --env POSTGRES_HOST_AUTH_METHOD=trust             --publish 127.0.0.1:55440:55440             postgres:16 -p 55440
+          docker run --detach --name live-stock-g07-rollout             --env POSTGRES_USER=g07_rollout_admin             --env POSTGRES_DB=wanasah_no_lot_contract_test             --env POSTGRES_HOST_AUTH_METHOD=trust             --publish 127.0.0.1:55439:55439             postgres:16 -p 55439
           for attempt in $(seq 1 40); do
-            if docker exec live-stock-g07-rollout pg_isready               -U g07_rollout_admin -d wanasah_no_lot_contract_test -p 55440; then
+            if docker exec live-stock-g07-rollout pg_isready               -U g07_rollout_admin -d wanasah_no_lot_contract_test -p 55439; then
               exit 0
             fi
             sleep 1
