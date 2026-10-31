@@ -330,7 +330,13 @@ def _build_visible_inventory_stmt(
     ordering = _live_stock_ordering(sort=sort) if limit is not None else ()
     descending = sort == "name_desc"
 
-    if company_wide_inventory_read and not extra_candidate_filters:
+    # The no-extra-filter candidate streams are permission-safe for both
+    # company-wide and location-restricted readers. Warehouse presence is
+    # selected-warehouse projection truth, while Vehicle visibility remains
+    # independently constrained by readable_vehicle_locations below. Keeping
+    # restricted readers on the generic branch needlessly scans the full
+    # ProductVariant catalog to prove the absence of non-ACTIVE rows.
+    if not extra_candidate_filters:
         stream_limit = limit + 1 if limit is not None else None
         active_stream = (
             select(

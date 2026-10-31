@@ -5,9 +5,14 @@ import json
 from pathlib import Path
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from domains.identity.models import CompanyPrincipal
+from domains.live_stock_projection.service import (
+    assert_live_stock_projection_ready,
+    rebuild_live_stock_company,
+)
 from models import Company, InventoryLocation, ProductBatch, ProductVariant
 from scripts import gate_r4_live_stock_perf_50k as r4
 from tests.canonical_actor_fixtures import seed_company_owner_fixture
@@ -132,6 +137,35 @@ async def build(root, size, admin):
                                   "username": foreign_name, "password": "R4ForeignReader123"}
         fixture["foreign_company_id"], fixture["foreign_warehouse_id"] = int(foreign_company.id), int(foreign_location.id)
         await db.commit()
+
+    # Direct bulk fixture writes are deliberately outside runtime mutation
+    # authority. Finish the synthetic setup only through the canonical current
+    # projection rebuild; never fabricate projection_version/READY in SQL.
+    runtime = create_async_engine(
+        r4.seed.checked_url("DATABASE_URL"),
+        poolclass=NullPool,
+    )
+    try:
+        async with AsyncSession(runtime, expire_on_commit=False) as db:
+            await db.execute(
+                text("SELECT set_config('app.current_tenant',:c,false)"),
+                {"c": str(c)},
+            )
+            report = await rebuild_live_stock_company(
+                db,
+                company_id=c,
+                batch_size=10000,
+            )
+            assert report.company_id == c
+            await assert_live_stock_projection_ready(
+                db,
+                company_id=c,
+                warehouse_location_id=w,
+            )
+            await db.commit()
+    finally:
+        await runtime.dispose()
+
     async with admin.begin() as conn:
         for table in ("products", "product_variants", "product_batches", "inventory_balances",
                       "inventory_locations", "inventory_live_stock_projection"):
@@ -142,7 +176,14 @@ async def build(root, size, admin):
 
 
 async def fingerprint(engine, fixture):
+    """Read-only authority fingerprint around every performance measurement.
+
+    Location-type totals stay separate; there is deliberately no Route join and
+    no Warehouse+Vehicle compatibility total. Cost/movement/idempotency evidence
+    is independent from the Live Stock projection.
+    """
     async with r4.session(engine, fixture["company_id"]) as db:
+        company_id = fixture["company_id"]
         row = (await db.execute(text("""
             SELECT
               (SELECT count(*) FROM product_variants WHERE company_id=:c),
@@ -152,8 +193,38 @@ async def fingerprint(engine, fixture):
               (SELECT sum(reserved_quantity) FROM inventory_balances WHERE company_id=:c),
               (SELECT count(*) FROM inventory_movements WHERE company_id=:c),
               (SELECT count(*) FROM inventory_cost_events WHERE company_id=:c),
+              (SELECT count(*) FROM inventory_cost_layers WHERE company_id=:c),
+              (SELECT count(*) FROM operation_idempotency WHERE company_id=:c),
               (SELECT sum(warehouse_on_hand) FROM inventory_live_stock_projection WHERE company_id=:c),
-              (SELECT sum(warehouse_reserved) FROM inventory_live_stock_projection WHERE company_id=:c)
-        """), {"c": fixture["company_id"]})).one()
-        assert row[0] == fixture["products"] and row[5] == row[6] == 0
-        return [str(x) for x in row]
+              (SELECT sum(warehouse_reserved) FROM inventory_live_stock_projection WHERE company_id=:c),
+              (SELECT count(*) FROM dispatch_routes WHERE company_id=:c)
+        """), {"c": company_id})).one()
+        physical = (await db.execute(text("""
+            SELECT l.location_type,
+                   count(*) AS balance_rows,
+                   coalesce(sum(b.on_hand_quantity),0) AS on_hand,
+                   coalesce(sum(b.reserved_quantity),0) AS reserved
+            FROM inventory_balances b
+            JOIN inventory_locations l
+              ON l.company_id=b.company_id AND l.id=b.location_id
+            WHERE b.company_id=:c
+            GROUP BY l.location_type
+            ORDER BY l.location_type
+        """), {"c": company_id})).mappings().all()
+        costing = (await db.execute(text("""
+            SELECT count(*) AS states,
+                   coalesce(sum(quantity),0) AS quantity,
+                   coalesce(sum(inventory_value),0) AS inventory_value
+            FROM inventory_cost_states
+            WHERE company_id=:c
+        """), {"c": company_id})).mappings().one()
+        assert row[0] == fixture["products"]
+        assert row[5] == row[6] == row[7] == row[8] == 0
+        return {
+            "authority": [str(x) for x in row],
+            "physical_by_location_type": [
+                {key: str(value) for key, value in item.items()}
+                for item in physical
+            ],
+            "cost_state": {key: str(value) for key, value in costing.items()},
+        }

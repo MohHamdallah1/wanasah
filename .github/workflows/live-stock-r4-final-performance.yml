@@ -5,6 +5,8 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, labeled]
     paths:
+      - "wa_backend/api/warehouse/live_stock.py"
+      - "wa_backend/domains/live_stock_projection/service.py"
       - "wa_backend/scripts/live_stock_r4_final_*.py"
       - "wa_backend/scripts/gate_live_stock_r4_final.py"
       - "wa_backend/tests/test_live_stock_r4_final_metrics.py"
@@ -31,7 +33,7 @@ jobs:
       R4_EVIDENCE_DIR: /tmp/r4-evidence
       R4_FINAL_EVIDENCE_DIR: /tmp/r4-final-evidence
       R4_FINAL_SCALE: ${{ github.event.action == 'labeled' && '50000' || '240' }}
-      R4_FINAL_BASE_SHA: 2dc164adce223679d80199e0c255a000cd4c2185
+      R4_FINAL_BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
       R4_FINAL_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +46,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install focused dependencies
-        run: python -m pip install -r wa_backend/requirements.txt alembic pytest httpx
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
 
       - name: Compile owned performance infrastructure
         working-directory: wa_backend
@@ -59,6 +61,10 @@ jobs:
         run: >-
           python -B -m pytest -p no:cacheprovider -q
           tests/test_live_stock_r4_plan_metrics.py tests/test_live_stock_r4_final_metrics.py
+          tests/test_live_stock_r4_query_contract.py
+          tests/test_live_stock_r4_negative_filter_contract.py
+          tests/test_live_stock_canonical_cutover.py
+          tests/test_whole_product_quality_preview_contract.py
           tests/test_cp7_live_stock_contract.py
 
       - name: Start isolated PostgreSQL 16
@@ -138,10 +144,161 @@ jobs:
           mkdir -p /tmp/r4-final-evidence
           docker stats --no-stream --format '{{json .}}' r4-perf-postgres | tee /tmp/r4-final-evidence/postgres-container-stats.json
 
+      - name: Verify bounded ownership and whitespace
+        if: always()
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.sha }}"
+          git diff --check "$base" HEAD --
+          BASE="$base" python - <<'PY'
+          import os, subprocess
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"], text=True,
+          ).splitlines())
+          allowed = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/domains/live_stock_projection/service.py",
+              "wa_backend/scripts/live_stock_r4_final_fixture.py",
+              "wa_backend/scripts/live_stock_r4_final_metrics.py",
+              "wa_backend/scripts/live_stock_r4_final_profile.py",
+              "wa_backend/scripts/gate_live_stock_r4_final.py",
+              "wa_backend/tests/test_live_stock_r4_final_metrics.py",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+          }
+          unexpected = files - allowed
+          assert not unexpected, f"Unowned Live Stock performance changes: {sorted(unexpected)}"
+          for probe in (
+              "wa_backend/services.py",
+              "wa_backend/domains/inventory_costing/service.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+          ):
+              assert probe not in files, f"Forbidden performance-wave file: {probe}"
+          print("LIVE_STOCK_PERFORMANCE_SCOPE=PASS")
+          PY
+
       - name: Retain real HTTP, SQL, EXPLAIN and memory evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: r4-final-${{ env.R4_FINAL_SCALE }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: /tmp/r4-final-evidence/
+          if-no-files-found: error
+
+  physical-authority-pg16:
+    name: physical-cost-authority-pg16
+    if: github.event.action == 'labeled' && github.event.label.name == 'r4-final-acceptance'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: LiveStockPerfPhysicalPg16Only12345678901234567890123
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://perf_physical_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_LIVE_STOCK_V2_ROLLOUT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://perf_physical_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install focused backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+
+      - name: Start disposable PostgreSQL16
+        run: |
+          docker run --detach --name live-stock-perf-physical \
+            --env POSTGRES_USER=perf_physical_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec live-stock-perf-physical pg_isready \
+              -U perf_physical_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs live-stock-perf-physical
+          exit 1
+
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+
+      - name: Fresh schema and runtime grants
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute(
+                  "GRANT SELECT, INSERT, UPDATE, DELETE "
+                  "ON ALL TABLES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT USAGE, SELECT, UPDATE "
+                  "ON ALL SEQUENCES IN SCHEMA public TO wanasah_app"
+              )
+              conn.execute(
+                  "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app"
+              )
+          PY
+
+      - name: Real physical custody costing and bearer RLS compatibility
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_live_stock_v2_rollout_readiness_postgres.py
+          --junitxml=live-stock-performance-physical.xml
+
+      - name: Reject skips failures or incomplete physical proof
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("live-stock-performance-physical.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 2, f"Expected FIFO + MOVING_AVERAGE: {len(cases)}"
+          assert not list(root.iter("failure"))
+          assert not list(root.iter("error"))
+          assert not list(root.iter("skipped"))
+          print("LIVE_STOCK_PHYSICAL_COST_AUTHORITY=PASS cases=2 skipped=0")
+          PY
+
+      - name: Retain physical authority evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-stock-performance-physical-${{ github.sha }}
+          path: wa_backend/live-stock-performance-physical.xml
           if-no-files-found: error
