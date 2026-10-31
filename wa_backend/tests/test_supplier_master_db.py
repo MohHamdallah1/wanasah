@@ -419,7 +419,7 @@ async def test_legacy_commands_replay_but_new_manual_operations_are_rejected(api
         api.db.add(OperationIdempotency(company_id=api.actor.company_id, operation=operation, request_id=payload["request_id"],
             request_hash=_stable_request_hash(model(**payload), context=context,
                 exclude_fields={"supplier_id"} if credential_in_hash else {"supplier_id", "confirmation_password"}),
-            created_by=api.actor.id, state="COMMITTED", completed_at=utc_now(), response_json=response))
+            created_by=api.actor.id, completed_at=utc_now(), response_json=response))
     await api.db.commit()
     assert (await api.client.post("/warehouse/inbound", json=old_inbound)).status_code == 201
     path = f"/warehouse/quality/products/{api.gate.variants[0].id}/resolve-all"
