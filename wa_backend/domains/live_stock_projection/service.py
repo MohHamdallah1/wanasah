@@ -2608,13 +2608,8 @@ async def _set_warehouse_summary_exact(
                                 and_(
                                     InventoryLiveStockProjection.lifecycle_status
                                     != "ACTIVE",
-                                    or_(
-                                        InventoryLiveStockProjection.has_warehouse_presence.is_(
-                                            True
-                                        ),
-                                        InventoryLiveStockProjection.has_vehicle_presence.is_(
-                                            True
-                                        ),
+                                    InventoryLiveStockProjection.has_warehouse_presence.is_(
+                                        True
                                     ),
                                 ),
                                 1,
