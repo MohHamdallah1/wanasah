@@ -182,6 +182,56 @@ def assert_counts_and_selective(report, fixture):
         subset = [r for r in final if r["spec"]["actor"] == actor and r["spec"]["kind"] == "stock_sources"]
         assert len(subset) == 2 and len({r["sql_count"] for r in subset}) == 1
     if fixture["products"] == 50000:
+        base = [r for r in report["results"] if r["implementation"] == "accepted_main"]
+        restricted_initial_head = [
+            r for r in final
+            if r["spec"]["actor"] == "restricted"
+            and r["spec"]["kind"] == "list"
+            and r["spec"]["name"] == "initial"
+        ]
+        restricted_initial_base = [
+            r for r in base
+            if r["spec"]["actor"] == "restricted"
+            and r["spec"]["kind"] == "list"
+            and r["spec"]["name"] == "initial"
+        ]
+        assert len(restricted_initial_head) == len(restricted_initial_base) == 3
+
+        def catalog_variant_work(result):
+            return max(
+                (
+                    int(node["emitted_plus_filter_rows_x_loops"])
+                    for node in result["page_work"]
+                    if node.get("Relation Name") == "product_variants"
+                    and node.get("catalog_sized_work")
+                ),
+                default=0,
+            )
+
+        before_work = {
+            r["spec"]["limit"]: catalog_variant_work(r)
+            for r in restricted_initial_base
+        }
+        after_work = {
+            r["spec"]["limit"]: catalog_variant_work(r)
+            for r in restricted_initial_head
+        }
+        assert all(before_work[limit] >= fixture["products"] for limit in (1, 50, 200)), before_work
+        assert all(after_work[limit] == 0 for limit in (1, 50, 200)), after_work
+        base50 = next(r for r in restricted_initial_base if r["spec"]["limit"] == 50)
+        head50 = next(r for r in restricted_initial_head if r["spec"]["limit"] == 50)
+        report["restricted_initial_permission_scan_fix"] = {
+            "status": "PASS",
+            "before_catalog_variant_work": before_work,
+            "after_catalog_variant_work": after_work,
+            "limit50_before_http": base50["http"],
+            "limit50_after_http": head50["http"],
+            "authority": (
+                "Payload/cursor parity is mandatory in the paired measurement; "
+                "Vehicle visibility remains readable-location scoped."
+            ),
+        }
+
         rare = [r for r in final if r["spec"]["kind"] == "list" and r["spec"]["name"] == "rare"]
         assert len(rare) == 6
         for result in rare:
