@@ -12,6 +12,7 @@ on:
       - "dashboard/e2e/live-stock-operational-workflow.test.py"
       - ".github/workflows/live-stock-physical-custody-consumers.yml"
       - ".github/workflows/live-stock-v1-operational-browser.yml"
+      - ".github/scripts/live_stock_ci_ownership.py"
 permissions:
   contents: read
 jobs:
