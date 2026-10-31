@@ -110,6 +110,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # A terminal cancellation is permanent evidence. Refuse any schema downgrade
+    # that would drop the fence/audit columns while such evidence exists.
+    bind = op.get_bind()
+    if bind.execute(
+        sa.text(
+            "SELECT 1 FROM operation_idempotency "
+            "WHERE state = 'CANCELLED' LIMIT 1"
+        )
+    ).first() is not None:
+        raise RuntimeError(
+            "Cannot downgrade: permanent CANCELLED idempotency fences exist."
+        )
+
     op.drop_constraint(
         "chk_dispatch_route_adjustment_context_revision",
         "dispatch_routes",
