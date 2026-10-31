@@ -72,7 +72,7 @@ def upgrade() -> None:
         CREATE FUNCTION guard_cancelled_operation_idempotency()
         RETURNS trigger
         LANGUAGE plpgsql
-        AS $
+        AS $guard$
         BEGIN
             IF OLD.state = 'CANCELLED' THEN
                 RAISE EXCEPTION 'CANCELLED idempotency fence is immutable'
@@ -80,7 +80,7 @@ def upgrade() -> None:
             END IF;
             RETURN NEW;
         END;
-        $
+        $guard$
         """
     )
     op.execute(
