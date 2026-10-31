@@ -181,14 +181,13 @@ class _SeededDashboardBloc extends DashboardBloc {
     required DashboardRepository repository,
     required WorkSessionCoordinator session,
     CustodyCoordinator? custody,
-    LocalDatabase? db,
+    super.db,
     RecoveryReader? recovery,
     SyncRepository? sync,
   }) : super(
     dashboardRepo: repository,
     workSessionCoordinator: session,
     syncRepository: sync ?? _UnusedSyncRepository(),
-    db: db,
     recoveryReader: recovery,
     custodyCoordinator: custody ?? _UnusedCustodyCoordinator(),
   );
