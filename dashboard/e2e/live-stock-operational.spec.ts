@@ -629,6 +629,22 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
       if (view.mobile) {
         await expect(page.locator("[data-cp13-stock-card]").first()).toBeVisible();
         await expect(page.locator(".live-stock-table")).toHaveCount(0);
+        const contextPanel = surface.locator(".live-stock-context-panel");
+        const locationContext = contextPanel.locator(".live-stock-context-location");
+        const statusContext = contextPanel.locator(".live-stock-context-status");
+        const [panelBox, locationBox, statusBox] = await Promise.all([
+          contextPanel.boundingBox(),
+          locationContext.boundingBox(),
+          statusContext.boundingBox(),
+        ]);
+        expect(panelBox).not.toBeNull();
+        expect(locationBox).not.toBeNull();
+        expect(statusBox).not.toBeNull();
+        expect(locationBox!.y + locationBox!.height).toBeLessThanOrEqual(statusBox!.y + 1);
+        expect(locationBox!.x).toBeGreaterThanOrEqual(panelBox!.x - 1);
+        expect(statusBox!.x).toBeGreaterThanOrEqual(panelBox!.x - 1);
+        expect(locationBox!.x + locationBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 1);
+        expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 1);
       } else {
         await expect(page.locator(".live-stock-table")).toBeVisible();
       }
