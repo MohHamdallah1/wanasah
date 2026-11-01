@@ -32,8 +32,6 @@ const batch = (id: number) => ({
 const page = (overrides: Record<string, unknown> = {}) => ({
   location_id: 119,
   product_variant_id: 211352,
-  lifecycle_status: "ACTIVE",
-  operational_hold: "NONE",
   currency_code: "JOD",
   batches: [batch(1)],
   next_cursor: null,
