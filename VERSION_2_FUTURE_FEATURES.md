@@ -843,3 +843,17 @@ An operator may forget where an infrequently used setting lives (for example, **
 - [ ] Add focused acceptance for correct destination, inaccessible item omission, revocation/session switching, stale routes, deep-link guards, navigation without mutations, and performance with a growing configuration registry.
 
 **Scope boundary:** This is an interface-discoverability/navigation feature for V2, not a new settings authority and not a request to move the current minimum-stock workflow or change any V1 page now.
+
+---
+
+## 16. Product-facing minimum-stock entry points — owner discussion 2026-11-01
+
+**Status:** DEFERRED V2 UX IDEA — not implemented, no V1 scope change.
+
+- [ ] **Keep Warehouse Management as the primary policy owner:** choose one warehouse and configure minimum-stock thresholds in bulk across active company-catalog products, families or selected SKUs. This remains a per-company, per-warehouse, per-variant policy, not a global property of the Product.
+- [ ] **Optional Product detail/edit entry point:** from a Product's details or edit actions, show that Product's configured minimum quantity separately for each authorized warehouse; allow a permitted operator to navigate or edit the same canonical warehouse policy without creating a separate Product-level threshold or business authority.
+- [ ] **Optional Product creation step:** after the Product is otherwise valid, optionally offer to configure minimum-stock values for selected warehouses, but never require it to create/publish a Product. Missing minimum is genuinely unset rather than auto-generated stock or assignment. The new Product must be saved first so policy writes use its authoritative variant identity; failure/skip of this optional step must not make Product creation ambiguous.
+- [ ] **One canonical backend policy and authorization path:** both Warehouse Management and Product entry points reuse inventory policy validation, UOM conversion, company/location capability and scope, audit, idempotency/concurrency and refresh behavior; no duplicate React policy calculations, no automatic ProductLocation assignment, no stock movement, no vehicle/route-derived location.
+- [ ] **Acceptance:** Arabic/English, RTL/LTR, responsive/keyboard accessibility, policy consistency across entry points, multi-warehouse and zero-stock variants, unavailable/revoked warehouses, and safe partial completion of the optional creation step.
+
+**Scope boundary:** Only document future discoverability/convenience. Do not move the current Warehouse Management minimum-stock control or add new Product creation/edit fields in V1 under this note.
