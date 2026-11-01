@@ -19,7 +19,7 @@ type Props = {
   onProductFocus?: (productId: number) => void;
   onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
-  onOpenUnavailable: (product: WarehouseProduct) => void;
+  onOpenUnavailable?: (product: WarehouseProduct) => void;
 };
 
 export function LiveStockMobileCards({
@@ -155,7 +155,7 @@ export function LiveStockMobileCards({
                       title={rendered.secondary ?? undefined}
                     >
                       {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
-                        <button type="button" onClick={() => onOpenUnavailable(product)}
+                        <button type="button" onClick={() => (onOpenUnavailable ?? onOpen)(product)}
                           data-live-stock-unavailable-open={product.id}
                           aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
                           title={copy.unavailableBreakdown}
