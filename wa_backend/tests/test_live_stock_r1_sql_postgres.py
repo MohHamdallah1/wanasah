@@ -376,6 +376,34 @@ async def test_actual_sql_page_bounds_filters_and_plans(r1case):
             assert zero_id in {
                 row["id"] for row in low_page["items"] if row["is_low_stock"]
             }, "Unassigned zero stock with minimum must rank in low-stock group"
+
+            # In warehouse-only mode catalog zeroes must disappear from
+            # membership, while explicit catalog mode retains them.
+            physical, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "warehouse", "sort": "stock_first",
+                    "search": "ZZZ Zero",
+                },
+            )
+            catalog, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "catalog", "sort": "stock_first",
+                    "search": "ZZZ Zero",
+                },
+            )
+            assert physical["items"] == []
+            assert [r["id"] for r in catalog["items"]] == [zero_id]
+            alert, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "catalog",
+                    "stock_state": "low_stock",
+                    "search": "ZZZ Zero",
+                },
+            )
+            assert [r["id"] for r in alert["items"]] == [zero_id]
     finally:
         output.write_text(json.dumps({
             "method": case.pg.method, "products": target, "evidence": evidence,
