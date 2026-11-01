@@ -274,7 +274,10 @@ export function TabWarehouseLocations({ active = true, selectedLocationId, onLoc
       if (page.total !== null) setTotal(page.total);
     } catch (error: unknown) {
       if (seq !== requestSeq.current) return;
-      if (cursor === null) setItems([]);
+      if (cursor === null || [401, 403].includes(Number((error as { status?: unknown } | null)?.status))) {
+        setItems([]);
+        setTotal(null);
+      }
       setNextCursor(null);
       const message = apiErrorMessage(error, loadFailedMessage) || presentation.listLoadFailed;
       setLoadIssue(message);
