@@ -338,6 +338,17 @@ async def test_cp7_list_and_batch_detail_share_product_sale_gate(pg):
             detail = await live_stock.get_warehouse_inventory_batches(
                 a.variant_id, a.location_id, None, 100, db, access
             )
+            gate = await live_stock_source_detail.get_live_stock_product_sale_gate(
+                a.variant_id,
+                a.location_id,
+                db,
+                access,
+            )
+            assert gate["location_id"] == a.location_id
+            assert gate["product_variant_id"] == a.variant_id
+            assert gate["lifecycle_status"] == lifecycle
+            assert gate["operational_hold"] == hold
+            assert gate["lifecycle_revision"] > 0
             assert detail["batches"]
             assert Decimal(row["on_hand_quantity"]) == expected_physical
             assert Decimal(row["reserved_quantity"]) == expected_reserved
@@ -499,12 +510,21 @@ async def test_cp7_sql_statement_count_does_not_grow_per_returned_row(pg):
                 access,
             )
         )
+        _, gate_count = await count_call(
+            lambda: live_stock_source_detail.get_live_stock_product_sale_gate(
+                a.variant_id,
+                a.location_id,
+                db,
+                access,
+            )
+        )
 
     assert len(large["items"]) > len(small["items"])
     assert large_count <= small_count + 1
     assert summary_count < 20
     assert detail_count < 20
     assert source_count < 20
+    assert gate_count < 10
     print(
         "CP7_SQL_COUNTS",
         {
