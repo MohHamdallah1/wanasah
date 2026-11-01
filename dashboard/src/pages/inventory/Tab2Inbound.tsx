@@ -425,7 +425,7 @@ export function Tab2Inbound({
     const requestedIds = requestedDraftVariantIds.current;
     ids.forEach((id) => requestedIds.add(id));
     const controller = new AbortController();
-    let active = true;
+    let requestActive = true;
     let finished = false;
     authenticatedFetch("/catalog/variants/resolve", {
       method: "POST",
@@ -435,7 +435,7 @@ export function Tab2Inbound({
       .then(parseVariants)
       .then((page) => {
         finished = true;
-        if (!active) return;
+        if (!requestActive) return;
         const resolved = new Map(
           page.items.map((variant) => [variant.id, variant] as const)
         );
@@ -461,13 +461,13 @@ export function Tab2Inbound({
       })
       .catch((error) => {
         finished = true;
-        if (active && !(error instanceof Error && error.name === "AbortError")) {
+        if (requestActive && !(error instanceof Error && error.name === "AbortError")) {
           ids.forEach((id) => requestedIds.delete(id));
           toast.error(apiErrorMessage(error, t("inventoryInbound.errors.catalogLoad")));
         }
       });
     return () => {
-      active = false;
+      requestActive = false;
       controller.abort();
       // Cancelled requests may be safely retried. Missing/inactive IDs must
       // not cause an endless resolve loop.
