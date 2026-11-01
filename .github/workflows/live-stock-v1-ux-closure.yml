@@ -55,6 +55,7 @@ jobs:
         working-directory: dashboard
         run: |
           npx vitest run \
+            src/test/inventory-it03-it04-batch-reentry.test.tsx \
             src/test/live-stock-render-windowing.test.tsx \
             src/test/live-stock-family-cursor.test.tsx \
             src/test/live-stock-ui-stability.test.ts \
@@ -89,6 +90,10 @@ jobs:
       - name: Chromium UX accessibility and recovery acceptance
         working-directory: dashboard
         run: npx playwright test --config e2e/live-stock-ux-closure.config.ts
+
+      - name: Real Chromium batch reentry AR EN desktop tablet phone
+        working-directory: dashboard
+        run: node src/test/inventory-cp13-batches-browser.mjs
 
       - name: Require visual evidence matrix
         run: |
@@ -126,5 +131,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: live-stock-v1-ux-visual-evidence
-          path: dashboard/node_modules/.cache/live-stock-ux-closure
+          path: |
+            dashboard/node_modules/.cache/live-stock-ux-closure
+            dashboard/cp13-*.png
           if-no-files-found: warn
