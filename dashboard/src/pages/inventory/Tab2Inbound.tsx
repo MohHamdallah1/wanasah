@@ -328,7 +328,6 @@ export function Tab2Inbound({
   const {
     options: uomOptions,
     asOfDate: companyAsOfDate,
-    ensure: ensureInboundOptions,
     preload: preloadInboundOptions,
     refresh: refreshInboundOptions,
   } = useInboundOptions(authenticatedFetch, `${companyId}:${actorId}`);
@@ -583,20 +582,23 @@ export function Tab2Inbound({
     });
   }, [visibleCatalog]);
 
-  const visibleOptionIds = useMemo(() => visibleCatalog.map((item) => item.id).slice(0, 200), [visibleCatalog]);
-  const visibleOptionIdsKey = visibleOptionIds.join(",");
+  const visibleOptionIdsKey = visibleCatalog.map((item) => item.id).slice(0, 200).join(",");
+  const visibleOptionIds = useMemo(
+    () => visibleOptionIdsKey ? visibleOptionIdsKey.split(",").map(Number) : [],
+    [visibleOptionIdsKey],
+  );
   const lastOptionsRefreshAt = useRef(0);
   useEffect(() => {
     if (visibleOptionIds.length) preloadInboundOptions(visibleOptionIds);
-  }, [preloadInboundOptions, visibleOptionIdsKey]);
+  }, [preloadInboundOptions, visibleOptionIds]);
 
   useEffect(() => {
     if (!visibleOptionIds.length) return;
     const revalidate = (onFocus: boolean) => {
       if (document.visibilityState === "hidden") return;
       const now = Date.now();
-      const dateChanged = Boolean(companyTimeZone && companyAsOfDate &&
-        companyLocalDate(companyTimeZone) !== companyAsOfDate);
+      const localDate = companyTimeZone ? companyLocalDate(companyTimeZone) : null;
+      const dateChanged = Boolean(localDate && companyAsOfDate && localDate !== companyAsOfDate);
       // No polling API calls: check the clock locally, fetch only at company
       // midnight, on return to the page, or when references reach their TTL.
       const interval = onFocus ? 30_000 : 5 * 60_000;
@@ -618,7 +620,7 @@ export function Tab2Inbound({
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [companyAsOfDate, companyTimeZone, refreshInboundOptions, visibleOptionIdsKey]);
+  }, [companyAsOfDate, companyTimeZone, refreshInboundOptions, visibleOptionIds]);
 
   useEffect(() => {
     let active = true;
