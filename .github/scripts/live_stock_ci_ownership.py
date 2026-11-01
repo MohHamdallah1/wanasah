@@ -76,6 +76,10 @@ UX_ALLOWED = {
 R3_ALLOWED = {
     R3_WORKFLOW,
     HELPER,
+    # Exact migration-owned search artifacts; RLS/cost/UI/plan remain excluded.
+    "wa_backend/alembic/env.py",
+    "wa_backend/alembic/versions/c9a1e4d7b630_live_stock_arabic_exact_name_search.py",
+    "wa_backend/tests/test_live_stock_arabic_exact_search.py",
     ".github/workflows/flutter-v1-backend-field-contracts.yml",
     "docs/operations/LIVE_STOCK_V1_R3_PHYSICAL_LOCATION_TRUTH.md",
     SHARED_DISPATCH,
@@ -206,6 +210,10 @@ PERFORMANCE_ACCEPTANCE_ROOTS = {
 }
 PERFORMANCE_ACCEPTANCE_ALLOWED = PERFORMANCE_ACCEPTANCE_ROOTS | {
     HELPER,
+    # Exact migration-owned search artifacts; RLS/cost/UI/plan remain excluded.
+    "wa_backend/alembic/env.py",
+    "wa_backend/alembic/versions/c9a1e4d7b630_live_stock_arabic_exact_name_search.py",
+    "wa_backend/tests/test_live_stock_arabic_exact_search.py",
     "wa_backend/api/warehouse/live_stock.py",
 }
 
