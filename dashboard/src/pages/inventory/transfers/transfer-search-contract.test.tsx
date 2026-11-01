@@ -44,7 +44,7 @@ describe("IT-02 transfer API search contract", () => {
     expect(result.current.searchTooShort).toBe(true);
     expect(result.current.items).toEqual([]);
     expect(result.current.loading).toBe(false);
-    act(() => { result.current.refreshTransfers(); result.current.retry(); result.current.loadMore(); });
+    act(() => { result.current.refreshTransfers(); result.current.retry(); result.current.loadMore(); result.current.setStatus("IN_TRANSIT"); });
     await waitFor(() => expect(result.current.searchPending).toBe(false));
     expect(mocks.fetch).toHaveBeenCalledTimes(1);
     expect(urls().every((url) => !url.searchParams.has("search"))).toBe(true);
