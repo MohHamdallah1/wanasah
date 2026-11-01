@@ -14,12 +14,15 @@ import {
   type LiveStockFamilyOption,
   type LiveStockIndicator,
   type LiveStockStockState,
+  type LiveStockView,
 } from "./contracts";
 
 type Props = {
   locationId: number;
   alertCount: number | null;
   stockState: LiveStockStockState;
+  view: LiveStockView;
+  onViewChange: (view: LiveStockView) => void;
   indicators: LiveStockIndicator[];
   familyId: number | null;
   onSearchChange: (search: string) => void;
@@ -32,6 +35,8 @@ export function LiveStockFilters({
   locationId,
   alertCount,
   stockState,
+  view,
+  onViewChange,
   indicators,
   familyId,
   onSearchChange,
@@ -201,6 +206,7 @@ export function LiveStockFilters({
 
   const activeFilterCount =
     (stockState !== "all" ? 1 : 0) +
+    (view !== "warehouse" ? 1 : 0) +
     indicators.length +
     (familyId !== null ? 1 : 0) +
     (searchInput.trim().length >= 2 ? 1 : 0);
@@ -226,6 +232,7 @@ export function LiveStockFilters({
     setSelectedFamilyOption(null);
     onFamilyChange(null);
     onStockStateChange("all");
+    onViewChange("warehouse");
     onIndicatorsChange([]);
   };
 
@@ -259,6 +266,24 @@ export function LiveStockFilters({
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={8} dir={i18n.dir()} className="live-stock-filter-popover live-stock-filter-popover--compact">
+          <div role="group" aria-label={t("inventoryLive.viewScopeLabel")} className="mb-2">
+            <p className="mb-1 text-xs font-semibold">{t("inventoryLive.viewScopeLabel")}</p>
+            <div className="live-stock-filter-choice-grid live-stock-filter-choice-grid--compact">
+              {(["warehouse", "catalog"] as const).map((value) => (
+                <button key={value} type="button"
+                  className="live-stock-filter-option live-stock-filter-option--compact"
+                  aria-pressed={view === value}
+                  data-active={view === value}
+                  onClick={() => onViewChange(value)}>
+                  <span>{t(value === "warehouse" ? "inventoryLive.viewWarehouse" : "inventoryLive.viewCatalog")}</span>
+                  {view === value ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : null}
+                </button>
+              ))}
+            </div>
+            {(stockState === "low_stock" || stockState === "out_of_stock") && (
+              <p className="mt-1 text-xs text-slate-500">{t("inventoryLive.viewZeroFilterHint")}</p>
+            )}
+          </div>
           <div className="live-stock-filter-choice-grid live-stock-filter-choice-grid--compact">
             {(
               [
