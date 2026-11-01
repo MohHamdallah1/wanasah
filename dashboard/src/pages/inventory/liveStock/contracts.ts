@@ -317,8 +317,6 @@ export interface WarehouseBatchDetailResponse {
   location_id: number;
   product_variant_id: number;
   currency_code: string;
-  lifecycle_status: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED";
-  operational_hold: "NONE" | "SALES_HOLD" | "RECALL";
   batches: WarehouseBatchInventoryItem[];
   next_cursor: string | null;
   has_more: boolean;
@@ -774,15 +772,6 @@ export function parseBatchDetailResponse(
     return contractError(code);
   }
 
-  const lifecycleStatus = str(page.lifecycle_status, code, 20);
-  if (!["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"].includes(lifecycleStatus)) {
-    return contractError(code);
-  }
-  const operationalHold = str(page.operational_hold, code, 20);
-  if (!["NONE", "SALES_HOLD", "RECALL"].includes(operationalHold)) {
-    return contractError(code);
-  }
-
   return {
     location_id: int(page.location_id, code, 1),
     product_variant_id: int(
@@ -791,8 +780,6 @@ export function parseBatchDetailResponse(
       1,
     ),
     currency_code: str(page.currency_code, code, 10),
-    lifecycle_status: lifecycleStatus as WarehouseBatchDetailResponse["lifecycle_status"],
-    operational_hold: operationalHold as WarehouseBatchDetailResponse["operational_hold"],
     batches,
     next_cursor: nextCursor,
     has_more: page.has_more,
