@@ -276,6 +276,55 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
       .toHaveAttribute("aria-expanded", "true");
   });
 
+  it("shows a focused unavailable-for-sale breakdown with the exact product gate", () => {
+    const unavailableProduct = {
+      ...product,
+      unavailable_quantity: "30",
+    } as WarehouseProduct;
+    const parsed = parseBatchDetailResponse({
+      ...batchPage("30"),
+      lifecycle_status: "ACTIVE",
+      operational_hold: "NONE",
+      batches: [{
+        ...batchRaw("30"),
+        reserved_quantity: "0",
+        available_for_sale_quantity: "0",
+        unavailable_quantity: "30",
+        restricted_quantity: "20",
+        expiry_unavailable_quantity: "20",
+        recalled_quantity: "10",
+      }],
+    });
+
+    render(
+      <BatchDetailPanel
+        product={unavailableProduct}
+        batches={parsed.batches}
+        mode="unavailable"
+        lifecycleStatus={parsed.lifecycle_status}
+        operationalHold={parsed.operational_hold}
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceOpenId={null}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("live-stock-unavailable-breakdown")).toBeInTheDocument();
+    expect(screen.getByText("Total unavailable for sale")).toBeInTheDocument();
+    expect(screen.getByText(/Active · No product-level hold/)).toBeInTheDocument();
+    expect(screen.getByText("Of which: expiry-policy restricted")).toBeInTheDocument();
+    expect(screen.getByText("Recalled")).toBeInTheDocument();
+    expect(screen.queryByText("Quarantined")).not.toBeInTheDocument();
+  });
+
   it("propagates an authorization denial to the warehouse disclosure owner", async () => {
     const denied = vi.fn();
     mocks.authFetch.mockImplementation((url: string) => url.includes("/source?")
