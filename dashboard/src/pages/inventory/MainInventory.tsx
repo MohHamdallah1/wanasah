@@ -437,7 +437,33 @@ export default function MainInventory() {
   }, [selectedLocationId]);
   const access = useInventoryAccess();
   const locationAccess = useInventoryAccess(selectedLocationId);
-  // A cached React Query success is not a fresh canonical admission.
+  const [
+    permissionRevalidationFloor,
+    setPermissionRevalidationFloor,
+  ] = useState<{ global: number; location: number } | null>(null);
+
+  useEffect(() => {
+    const markPermissionRevalidation = () => {
+      setPermissionRevalidationFloor({
+        global: Number(access.dataUpdatedAt ?? 0),
+        location: Number(locationAccess.dataUpdatedAt ?? 0),
+      });
+    };
+    window.addEventListener(
+      "inventory-permission-denied",
+      markPermissionRevalidation,
+    );
+    return () => window.removeEventListener(
+      "inventory-permission-denied",
+      markPermissionRevalidation,
+    );
+  }, [access.dataUpdatedAt, locationAccess.dataUpdatedAt]);
+
+  // A cached React Query success is not a fresh canonical admission. Once a
+  // same-session scope has been freshly admitted, however, an ordinary
+  // background refetch from another mounted dashboard page must not revoke
+  // that admission just because React Query toggled isFetching. A real 403
+  // signal still fails closed until strictly newer access reads complete.
   const matchesSession = (data: typeof access.data) =>
     !!data &&
     data.company_id === Number(companyId) &&
@@ -448,20 +474,84 @@ export default function MainInventory() {
     localStorage.getItem("backoffice_user_id") === backofficeUserId &&
     mountedScopeKey.current === warmScopeKey &&
     warmScopeKey !== null && !identityChanged;
+
+  const globalAccessMatches =
+    access.isSuccess && !access.isError && matchesSession(access.data);
+  const globalAccessFresh =
+    globalAccessMatches && access.isFetchedAfterMount && !access.isFetching;
+  const admittedGlobalAccessScope = useRef<string | null>(null);
+  if (globalAccessFresh) {
+    admittedGlobalAccessScope.current = warmScopeKey;
+  }
   const globalAccessVerified =
-    access.isSuccess && access.isFetchedAfterMount &&
-    !access.isFetching && !access.isError && matchesSession(access.data);
+    permissionRevalidationFloor === null &&
+    globalAccessMatches &&
+    (
+      globalAccessFresh ||
+      (
+        access.isFetching &&
+        admittedGlobalAccessScope.current === warmScopeKey
+      )
+    );
+
+  const locationAccessMatches =
+    locationAccess.isSuccess && !locationAccess.isError &&
+    matchesSession(locationAccess.data) &&
+    locationAccess.data?.location_id === selectedLocationId;
+  const locationAccessFresh =
+    locationAccessMatches &&
+    locationAccess.isFetchedAfterMount &&
+    !locationAccess.isFetching;
+  const locationAccessScope =
+    warmScopeKey !== null && selectedLocationId !== null
+      ? `${warmScopeKey}:${selectedLocationId}`
+      : null;
+  const admittedLocationAccessScope = useRef<string | null>(null);
+  if (locationAccessFresh) {
+    admittedLocationAccessScope.current = locationAccessScope;
+  }
+  const locationAccessVerified =
+    globalAccessVerified &&
+    permissionRevalidationFloor === null &&
+    locationAccessMatches &&
+    (
+      locationAccessFresh ||
+      (
+        locationAccess.isFetching &&
+        admittedLocationAccessScope.current === locationAccessScope
+      )
+    );
+
+  useEffect(() => {
+    if (permissionRevalidationFloor === null) return;
+    const globalReadAdvanced =
+      globalAccessFresh &&
+      Number(access.dataUpdatedAt ?? 0) > permissionRevalidationFloor.global;
+    const locationReadAdvanced =
+      selectedLocationId === null ||
+      (
+        locationAccessFresh &&
+        Number(locationAccess.dataUpdatedAt ?? 0) >
+          permissionRevalidationFloor.location
+      );
+    if (globalReadAdvanced && locationReadAdvanced) {
+      setPermissionRevalidationFloor(null);
+    }
+  }, [
+    access.dataUpdatedAt,
+    globalAccessFresh,
+    locationAccess.dataUpdatedAt,
+    locationAccessFresh,
+    permissionRevalidationFloor,
+    selectedLocationId,
+  ]);
+
   const globalAdmissionEpoch = useRef(0);
   const priorGlobalAdmission = useRef(false);
   if (priorGlobalAdmission.current && !globalAccessVerified) {
     globalAdmissionEpoch.current += 1;
   }
   priorGlobalAdmission.current = globalAccessVerified;
-  const locationAccessVerified =
-    globalAccessVerified && locationAccess.isSuccess &&
-    locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
-    !locationAccess.isError && matchesSession(locationAccess.data) &&
-    locationAccess.data?.location_id === selectedLocationId;
   const [serverVerifiedLocationId, setServerVerifiedLocationId] =
     useState<number | null>(null);
   const [selectorAdmissionEpoch, setSelectorAdmissionEpoch] =
