@@ -144,7 +144,13 @@ export function BatchDetailPanel({
         ) : null}
 
         {batches.length > 0 && !loading ? (
-          <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
+          <>
+            <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
+            <p role="note" className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950"
+              data-live-stock-unavailable-explanation="true">
+              {copy.unavailableBreakdownNote}
+            </p>
+          </>
         ) : null}
 
         {batches.map((batch) => {
@@ -170,6 +176,11 @@ export function BatchDetailPanel({
                   {copy.dispositionLabels[batch.disposition]}
                 </span>
               </div>
+              {batch.disposition_reason ? (
+                <p className="mt-2 break-words text-xs font-semibold text-amber-900">
+                  {copy.dispositionReason}: {batch.disposition_reason}
+                </p>
+              ) : null}
 
               <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:grid-cols-5">
                 {[
@@ -177,6 +188,8 @@ export function BatchDetailPanel({
                   [t("inventoryLive.reserved"), batch.reserved_quantity],
                   [t("inventoryLive.availableForSale"), batch.available_for_sale_quantity],
                   [t("inventoryLive.unavailable"), batch.unavailable_quantity],
+                  [copy.restrictedQuantity, batch.restricted_quantity],
+                  [copy.expiryUnavailable, batch.expiry_unavailable_quantity],
                   [t("inventoryLive.indicatorDamaged"), batch.damaged_quantity],
                   [copy.stockStatusLabels.QUARANTINED, batch.quarantined_quantity],
                   [copy.stockStatusLabels.BLOCKED, batch.blocked_quantity],
