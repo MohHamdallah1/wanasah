@@ -344,6 +344,8 @@ export async function installUxApi(
       return fulfill(route, {
         location_id: location,
         product_variant_id: Number(batchMatch[1]),
+        lifecycle_status: "ACTIVE",
+        operational_hold: "NONE",
         currency_code: "JOD",
         batches,
         next_cursor: null,
