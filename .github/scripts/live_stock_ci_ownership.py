@@ -546,6 +546,7 @@ SEAMLESS_REENTRY_EXPLANATION_ALLOWED = (
         "dashboard/e2e/live-stock-v1.fixtures.ts",
         "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
         "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+        "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
     }
 )
 
