@@ -145,6 +145,8 @@ describe("Live Stock visual stability regressions", () => {
 
     expect(tab).toContain('setDetailMode("batches")');
     expect(tab).toContain('setDetailMode("unavailable")');
+    expect(tab).toContain("detail.prefetchSource(firstUnavailable.batch_id)");
+    expect(tab).toContain("detail.sourceByBatch");
     expect(table).toContain("onClick={() => onOpen(product)}");
     expect(table).toContain("onClick={() => onOpenUnavailable(product)}");
     expect(mobile).toContain("onClick={() => onOpenUnavailable(product)}");
