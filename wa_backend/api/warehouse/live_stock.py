@@ -2186,8 +2186,6 @@ async def get_warehouse_inventory_batches(
             await db.execute(
                 select(
                     ProductVariant.id.label("variant_id"),
-                    ProductVariant.lifecycle_status.label("lifecycle_status"),
-                    ProductVariant.operational_hold.label("operational_hold"),
                     Company.currency_code.label("currency_code"),
                     Company.timezone.label("company_timezone"),
                     func.timezone(
@@ -2732,8 +2730,6 @@ async def get_warehouse_inventory_batches(
             "location_id": location_id,
             "product_variant_id": product_variant_id,
             "currency_code": str(currency_code).upper(),
-            "lifecycle_status": str(variant_company_row.lifecycle_status),
-            "operational_hold": str(variant_company_row.operational_hold),
             "batches": batches,
             "next_cursor": next_cursor,
             "has_more": has_more,
