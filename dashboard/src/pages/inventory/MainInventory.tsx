@@ -979,11 +979,20 @@ export default function MainInventory() {
       setWarehouseSetup(null);
       setLocationsTruncated(false);
       setWarehouseNextCursor(null);
+      setLocationError(false);
+      setLoadingLocations(false);
+
+      if (accessDenied) {
+        // The denial path already purged stock/cost evidence. Preserve only
+        // the numeric selected-location state long enough to render the
+        // explicit access-changed disclosure; do not reset "denied" to
+        // "initial" through prepareLocationChange().
+        return;
+      }
+
       prepareLocationChange(null);
       selectedLocationIdRef.current = null;
       setSelectedLocationId(null);
-      setLocationError(false);
-      setLoadingLocations(false);
       return;
     }
 
@@ -1001,6 +1010,7 @@ export default function MainInventory() {
     globalAccessVerified,
     canDiscoverInventory,
     canDiscoverLocations,
+    accessDenied,
     warehouseCursor,
     warehouseSearch,
     warmScopeKey,
