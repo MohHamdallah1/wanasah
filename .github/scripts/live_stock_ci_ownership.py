@@ -14,6 +14,9 @@ OP_WORKFLOW = ".github/workflows/live-stock-v1-operational-browser.yml"
 PHYSICAL_CALLER = ".github/workflows/live-stock-physical-custody-consumers.yml"
 
 POLICY_FILES = {HELPER, UX_WORKFLOW, R3_WORKFLOW, OP_WORKFLOW, PHYSICAL_CALLER}
+# A P0 ownership policy edit is only compatible with a verified,
+# specifically owned inventory minimum UX + test + AR/EN copy change.
+MINIMUM_UX_CROSSOVER = {".github/workflows/dispatch-p0-route-stock-safety.yml"}
 
 SHARED_RESOURCES = "dashboard/src/i18n/resources.ts"
 SHARED_SCHEMA = "wa_backend/schemas.py"
@@ -22,7 +25,6 @@ SHARED_DISPATCH = "wa_backend/api/dispatch.py"
 UX_ALLOWED = {
     # The dedicated in-flight workflow validates this view's freshness state.
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
-    ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-v1-browser-acceptance.yml",
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
@@ -117,7 +119,6 @@ OP_ALLOWED = {
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
     PHYSICAL_CALLER,
-    ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-v1-browser-acceptance.yml",
     OP_WORKFLOW,
     UX_WORKFLOW,
@@ -513,7 +514,7 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         mode == "r3"
         and not changed <= POLICY_FILES
         and not (changed & (R3_ALLOWED - POLICY_FILES))
-        and changed <= (UX_ALLOWED | POLICY_FILES)
+        and changed <= (UX_ALLOWED | POLICY_FILES | MINIMUM_UX_CROSSOVER)
     ):
         return "not-applicable", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
@@ -524,6 +525,13 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
     if not owned:
         return "not-applicable", []
     effective_allowed = set(allowed)
+    if (
+        mode in {"ux", "operational"}
+        and "dashboard/src/pages/inventory/StockMinimumManager.tsx" in changed
+        and "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in changed
+        and SHARED_RESOURCES in relevant_shared
+    ):
+        effective_allowed |= MINIMUM_UX_CROSSOVER
     if OP_WORKFLOW in changed and mode in {"ux", "operational"}:
         effective_allowed |= WORKER1_COMBINED_CLOSURE
     for path in shared:
@@ -639,6 +647,9 @@ def selftest() -> None:
     assert len(_object_sections(minimum_resources, "inventoryMinimum")) == 2
     assert _resource_signature(minimum_resources) != _resource_signature(updated_minimum_resources)
     live_sem = {**none, SHARED_RESOURCES: True}
+    assert classify("ux", minimum_ux_scope, live_sem)[0] == "owned"
+    assert classify("operational", minimum_ux_scope, live_sem)[0] == "owned"
+    _expect_fail("ux", minimum_ux_scope | {"dashboard/src/pages/DispatchBoard.tsx"}, live_sem)
     assert classify("ux", {SHARED_RESOURCES}, live_sem)[0] == "owned"
     _expect_fail("ux", {SHARED_RESOURCES, "dashboard/src/pages/DispatchBoard.tsx"}, live_sem)
     assert classify("operational", {SHARED_RESOURCES}, live_sem)[0] == "owned"
