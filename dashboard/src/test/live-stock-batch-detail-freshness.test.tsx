@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -317,12 +317,12 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
       />,
     );
 
-    expect(screen.getByTestId("live-stock-unavailable-breakdown")).toBeInTheDocument();
-    expect(screen.getByText("Total unavailable for sale")).toBeInTheDocument();
-    expect(screen.getByText(/Active · No product-level hold/)).toBeInTheDocument();
-    expect(screen.getByText("Of which: expiry-policy restricted")).toBeInTheDocument();
-    expect(screen.getByText("Recalled")).toBeInTheDocument();
-    expect(screen.queryByText("Quarantined")).not.toBeInTheDocument();
+    const breakdown = within(screen.getByTestId("live-stock-unavailable-breakdown"));
+    expect(breakdown.getByText("Total unavailable for sale")).toBeInTheDocument();
+    expect(breakdown.getByText(/Active · No product-level hold/)).toBeInTheDocument();
+    expect(breakdown.getByText("Of which: expiry-policy restricted")).toBeInTheDocument();
+    expect(breakdown.getByText("Recalled")).toBeInTheDocument();
+    expect(breakdown.queryByText("Quarantined")).not.toBeInTheDocument();
   });
 
   it("propagates an authorization denial to the warehouse disclosure owner", async () => {
