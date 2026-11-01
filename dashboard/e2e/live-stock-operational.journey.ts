@@ -131,6 +131,16 @@ export async function detailFreshness(p: Page, info: TestInfo) {
 
 export async function searchFailures(p: Page, log: ReturnType<typeof record>) {
   const search = stock(p).getByRole("searchbox").first();
+  // The operator's default now shows only physical warehouse custody.
+  // This journey intentionally verifies full-catalog cursor continuity,
+  // so explicitly opt in instead of weakening the 105-ID assertion.
+  expect(log.requests.some(url => url.includes("/warehouse/inventory/cursor") &&
+    new URL(url).searchParams.get("view") === "warehouse")).toBe(true);
+  await stock(p).getByRole("button", { name: "Filter", exact: true }).click();
+  const catalogView = p.getByRole("button", { name: "All company products" });
+  await expect(catalogView).toBeVisible();
+  await catalogView.click();
+  await p.keyboard.press("Escape");
   const badSummary = await validationFault(p, "/warehouse/inventory/summary?");
   const summaryFailed = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 422 && r.url().includes("/inventory/summary?"));
   await stock(p).locator(".live-stock-context-refresh").click();

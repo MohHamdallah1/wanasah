@@ -672,6 +672,16 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     await expect(liveStatus).toHaveAttribute("role", "status");
     await expect(liveStatus).toHaveAttribute("aria-live", "polite");
 
+    // Full-catalog pagination is an explicit operator choice now. Verify
+    // the default first, then switch scope without changing backend truths.
+    const initialWarehouseRead = await api(page,
+      "/warehouse/inventory/cursor?location_id=" + state.warehouse + "&view=warehouse&limit=50");
+    expect(initialWarehouseRead.status).toBe(200);
+    await surface.getByRole("button", { name: "Filter", exact: true }).click();
+    const allCompanyProducts = page.getByRole("button", { name: "All company products" });
+    await expect(allCompanyProducts).toBeVisible();
+    await allCompanyProducts.click();
+    await page.keyboard.press("Escape");
     await search.fill("Paging");
     await expect(item(page, "Paging Item 001")).toBeVisible();
     const list = surface.locator("[data-cp13-stock-list]");

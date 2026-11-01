@@ -147,7 +147,8 @@ jobs:
       - name: Verify bounded ownership and whitespace
         if: always()
         run: |
-          base="${{ github.event.pull_request.base.sha || github.sha }}"
+          base_ref="${{ github.event.pull_request.base.sha || github.sha }}"
+          base="$(git merge-base "$base_ref" HEAD)"
           git diff --check "$base" HEAD --
           BASE="$base" python - <<'PY'
           import os, subprocess
@@ -171,15 +172,54 @@ jobs:
               "wa_backend/tests/test_live_stock_r4_final_metrics.py",
               ".github/workflows/live-stock-r4-final-performance.yml",
           }
-          unexpected = files - allowed
-          assert not unexpected, f"Unowned Live Stock performance changes: {sorted(unexpected)}"
+          # Owner-approved inventory minimum + physical warehouse visibility
+          # change is a separate, exact crossover: keep normal R4 scope strict.
+          minimum_view_required = {
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
+              "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
+          }
+          minimum_view_allowed = minimum_view_required | {
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              "wa_backend/scripts/live_stock_r4_final_profile.py",
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/inventory/liveStock/contracts.ts",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+              "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+              "dashboard/src/test/live-stock-count-freshness-semantics.test.tsx",
+              "dashboard/src/test/live-stock-family-cursor.test.tsx",
+              "dashboard/src/test/live-stock-local-failure.test.tsx",
+              "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
+              "dashboard/src/test/live-stock-render-windowing.test.tsx",
+          }
+          if minimum_view_required <= files:
+              unexpected = files - minimum_view_allowed
+              assert not unexpected, f"Unexpected minimum/view crossover: {sorted(unexpected)}"
+              mode = "MINIMUM_VIEW_EXACT"
+          else:
+              unexpected = files - allowed
+              assert not unexpected, f"Unowned Live Stock performance changes: {sorted(unexpected)}"
+              assert "dashboard/src/pages/inventory/MainInventory.tsx" not in files
+              mode = "R4_STRICT"
           for probe in (
               "wa_backend/services.py",
               "wa_backend/domains/inventory_costing/service.py",
-              "dashboard/src/pages/inventory/MainInventory.tsx",
           ):
               assert probe not in files, f"Forbidden performance-wave file: {probe}"
-          print("LIVE_STOCK_PERFORMANCE_SCOPE=PASS")
+          print("LIVE_STOCK_PERFORMANCE_SCOPE=PASS", mode)
           PY
 
       - name: Retain real HTTP, SQL, EXPLAIN and memory evidence

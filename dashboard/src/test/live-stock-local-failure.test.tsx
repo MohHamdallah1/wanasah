@@ -108,6 +108,10 @@ const baseProps = {
   matchingTotal: 1,
   hasMore: false,
   stockState: "all" as const,
+  sort: "stock_first" as const,
+  onSortChange: vi.fn(),
+  view: "warehouse" as const,
+  onViewChange: vi.fn(),
   indicators: [],
   familyId: null,
   canManageMinimum: false,
@@ -122,6 +126,27 @@ const baseProps = {
 };
 
 describe("Live Stock local failure states", () => {
+  it("offers server sort selection without client-only row reordering", () => {
+    const onSortChange = vi.fn();
+    render(
+      <Tab1LiveStock
+        {...baseProps}
+        products={[]}
+        pageReady
+        pageError={null}
+        summaryError={null}
+        onSortChange={onSortChange}
+      />,
+    );
+    const sort = screen.getByRole("combobox", { name: "inventoryLive.sortLabel" });
+    expect(sort).toHaveValue("stock_first");
+    fireEvent.change(sort, { target: { value: "low_stock_first" } });
+    expect(onSortChange).toHaveBeenCalledWith("low_stock_first");
+    fireEvent.change(sort, { target: { value: "name_asc" } });
+    expect(onSortChange).toHaveBeenCalledWith("name_asc");
+  });
+
+
   it("shows a local first-load failure instead of an empty-data message", () => {
     const onRetryPage = vi.fn();
 

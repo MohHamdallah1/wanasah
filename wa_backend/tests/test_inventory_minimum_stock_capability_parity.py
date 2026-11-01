@@ -37,7 +37,6 @@ from models import (
     InventoryLocation,
     InventoryStockPolicy,
     Permission,
-    ProductLocation,
     SystemAuditLog,
     UserLocationAccess,
     UserRole,
@@ -423,9 +422,8 @@ class InventoryMinimumStockCapabilityParityTests(unittest.IsolatedAsyncioTestCas
         self.assertEqual(response.json()["entered_quantity"], "2")
         self.assertEqual(current.minimum_quantity, Decimal("5"))
 
-    async def test_single_product_location_version_target_and_precision_guards_remain(self):
+    async def test_single_unassigned_catalog_product_and_version_target_precision_guards(self):
         cases = (
-            ({"assigned": False}, {}, 409, "STOCK_MINIMUM_PRODUCT_LOCATION_REQUIRED"),
             ({}, {"expected_minimum_quantity": "0"}, 409, "STOCK_MINIMUM_VERSION_CONFLICT"),
             ({"target": "1"}, {}, 409, "STOCK_MINIMUM_EXCEEDS_TARGET"),
             ({"active": False}, {}, 409, "STOCK_MINIMUM_POLICY_INACTIVE"),
@@ -448,6 +446,25 @@ class InventoryMinimumStockCapabilityParityTests(unittest.IsolatedAsyncioTestCas
                 self.refresh.assert_not_awaited()
                 self.complete.assert_not_called()
 
+    async def test_active_unassigned_catalog_product_accepts_minimum_without_provisioning(self):
+        # A threshold is policy, not ProductLocation assignment or physical stock.
+        # All three entry points must accept a company-owned ACTIVE variant.
+        for kind in ("preview", "bulk", "single"):
+            with self.subTest(kind=kind):
+                db, current = self._business(kind, assigned=False)
+                response = await self._request(kind, db=db)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json().get("matched_count", 1), 1)
+                if kind != "preview":
+                    self.assertEqual(current.minimum_quantity, Decimal("2"))
+                    db.commit.assert_awaited_once()
+                    self.refresh.assert_awaited_once()
+                statements = [
+                    str(call.args[0]) for call in db.execute.await_args_list
+                ]
+                self.assertTrue(statements)
+                self.assertFalse(any("product_locations" in query for query in statements))
+
     async def test_bulk_conflicts_remain_atomic_before_audit_projection_and_commit(self):
         for setup in ({"target": "1"}, {"active": False}, {"step": "3"}):
             with self.subTest(setup=setup):
@@ -461,7 +478,7 @@ class InventoryMinimumStockCapabilityParityTests(unittest.IsolatedAsyncioTestCas
                 db.rollback.assert_awaited_once()
                 self.refresh.assert_not_awaited()
 
-    async def test_bulk_assignment_and_tenant_predicates_are_preserved(self):
+    async def test_bulk_company_catalog_candidates_and_tenant_predicates(self):
         for kind in ("preview", "bulk"):
             db, _ = self._business(kind)
             response = await self._request(kind, db=db)
@@ -472,9 +489,9 @@ class InventoryMinimumStockCapabilityParityTests(unittest.IsolatedAsyncioTestCas
             ]
             self.assertEqual(len(statements), 1)
             sql = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
-            self.assertIn(ProductLocation.__tablename__, sql)
-            self.assertIn("product_locations.company_id = 77", sql)
-            self.assertIn("product_locations.location_id = 55", sql)
+            self.assertIn("FROM product_variants", sql)
+            self.assertNotIn("product_locations", sql)
+            self.assertIn("product_variants.company_id = 77", sql)
             self.assertIn("product_variants.lifecycle_status = 'ACTIVE'", sql)
 
     async def test_projection_failure_preserves_transaction_rollback(self):

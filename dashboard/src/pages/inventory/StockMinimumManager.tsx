@@ -399,11 +399,10 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
 
       if (applied.affected_count === 0) {
         setPlan(applied);
-        // The server's ALL scope intentionally includes only ProductLocation
-        // assignments in this warehouse, not every company-catalog variant.
-        // Zero matches is NOT evidence that all catalog minimums are set.
+        // Zero matches means that the selected catalog scope has no active
+        // variants, not that the warehouse has no operational assignments.
         if (applied.matched_count === 0) {
-          toast.error(t("inventoryMinimum.noLinkedProducts"));
+          toast.error(t("inventoryMinimum.noActiveProducts"));
         } else {
           toast.info(t("inventoryMinimum.noChangesSame"));
         }

@@ -34,7 +34,6 @@ from models import (
     InventoryLocation,
     InventoryStockPolicy,
     Product,
-    ProductLocation,
     ProductUomConversion,
     ProductVariant,
     SystemAuditLog,
@@ -380,14 +379,10 @@ async def _load_bulk_minimum_candidates(
                 "display_factor_to_base"
             ),
         )
-        .select_from(ProductLocation)
-        .join(
-            ProductVariant,
-            and_(
-                ProductVariant.company_id == ProductLocation.company_id,
-                ProductVariant.id == ProductLocation.product_variant_id,
-            ),
-        )
+        # Minimum-stock policy is per warehouse and company-catalog variant.
+        # ProductLocation is an independent operational assignment: setting a
+        # threshold must never provision inbound/outbound authority or stock.
+        .select_from(ProductVariant)
         .join(
             Product,
             and_(
@@ -405,8 +400,7 @@ async def _load_bulk_minimum_candidates(
             ),
         )
         .where(
-            ProductLocation.company_id == company_id,
-            ProductLocation.location_id == int(payload.location_id),
+            ProductVariant.company_id == company_id,
             ProductVariant.lifecycle_status == "ACTIVE",
         )
         .group_by(
@@ -823,22 +817,6 @@ async def update_minimum_stock(
                 detail=_error(
                     "STOCK_MINIMUM_PRODUCT_NOT_FOUND",
                     "المنتج المحدد غير موجود ضمن هذه الشركة.",
-                ),
-            )
-
-        product_location_exists = await db.scalar(
-            select(ProductLocation.id).where(
-                ProductLocation.company_id == company_id,
-                ProductLocation.location_id == int(payload.location_id),
-                ProductLocation.product_variant_id == int(product_variant_id),
-            ).limit(1)
-        )
-        if product_location_exists is None:
-            raise HTTPException(
-                status_code=409,
-                detail=_error(
-                    "STOCK_MINIMUM_PRODUCT_LOCATION_REQUIRED",
-                    "اربط المنتج بالمستودع قبل تحديد الحد الأدنى له.",
                 ),
             )
 

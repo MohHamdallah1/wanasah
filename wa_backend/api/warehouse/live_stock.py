@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
-from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, literal_column, or_, select, true, tuple_, union, union_all
+from sqlalchemy import Date, Integer, String, and_, bindparam, case, func, literal, literal_column, or_, select, true, tuple_, union, union_all
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
 from database import get_db
@@ -1169,7 +1169,8 @@ async def get_warehouse_inventory(
     has_recalled: bool = False,
     has_vehicle: bool = False,
     minimum_unset: bool = False,
-    sort: Literal["name_asc", "name_desc"] = "name_asc",
+    view: Literal["catalog", "warehouse"] = "catalog",
+    sort: Literal["name_asc", "name_desc", "stock_first", "low_stock_first"] = "name_asc",
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
@@ -1240,6 +1241,10 @@ async def get_warehouse_inventory(
             f"{int(has_reserved)}{int(has_unavailable)}"
             f"{int(has_damaged)}{int(has_recalled)}"
             f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
+            # Keep the original catalog cursor scope byte-for-byte so old
+            # clients/continuations remain compatible. Warehouse-only
+            # cursors are deliberately not valid for catalog requests.
+            f"{'|warehouse' if view == 'warehouse' else ''}"
         )
 
         search_probe = None
@@ -1310,6 +1315,22 @@ async def get_warehouse_inventory(
             )
 
         candidate_filters = []
+        if view == "warehouse":
+            # This mode restricts LIST membership to products physically
+            # present in the selected WAREHOUSE. Vehicle stock and route
+            # history never qualify; zero-stock catalog rows require the
+            # explicit catalog view. Keep older API clients on the original
+            # catalog default by requiring an explicit query parameter.
+            candidate_filters.append(
+                ProductVariant.id.in_(
+                    select(InventoryLiveStockProjection.product_variant_id)
+                    .where(
+                        InventoryLiveStockProjection.company_id == company_id,
+                        InventoryLiveStockProjection.warehouse_location_id == location_id,
+                        InventoryLiveStockProjection.has_warehouse_presence.is_(True),
+                    )
+                )
+            )
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
@@ -1421,21 +1442,36 @@ async def get_warehouse_inventory(
                     ProductVariant.id.in_(filtered_ids)
                 )
 
+        cursor_rank = None
+        cursor_name = None
+        cursor_id = None
         if cursor is not None:
             cursor_name, cursor_id = _decode_variant_cursor(
                 cursor,
                 expected_kind="warehouse-inventory",
                 expected_scope=scope,
             )
-            cursor_key = tuple_(ProductVariant.name, ProductVariant.id)
-            cursor_value = tuple_(cursor_name, cursor_id)
-            candidate_filters.append(
-                cursor_key < cursor_value
-                if sort == "name_desc"
-                else cursor_key > cursor_value
-            )
+            if sort in {"stock_first", "low_stock_first"}:
+                prefix, separator, name = cursor_name.partition("|")
+                if separator != "|" or prefix not in {"0", "1"}:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=inventory_business_error(
+                            "LIVE_STOCK_CURSOR_INVALID",
+                            "مؤشر ترتيب الرصيد الحي غير صالح.",
+                        ),
+                    )
+                cursor_rank, cursor_name = int(prefix), name
+            else:
+                cursor_key = tuple_(ProductVariant.name, ProductVariant.id)
+                cursor_value = tuple_(cursor_name, cursor_id)
+                candidate_filters.append(
+                    cursor_key < cursor_value
+                    if sort == "name_desc"
+                    else cursor_key > cursor_value
+                )
 
-        def candidate_page_stmt(extra_filters=(), *, alert_suffix=""):
+        def candidate_name_stmt(extra_filters=(), *, alert_suffix=""):
             scoped_filters = [*candidate_filters, *extra_filters]
             if use_alert_fast_path:
                 alerts = _build_inventory_alert_variants_stmt(
@@ -1484,6 +1520,77 @@ async def get_warehouse_inventory(
                 sort=sort,
             )
 
+        def candidate_page_stmt(extra_filters=(), *, alert_suffix=""):
+            if sort not in {"stock_first", "low_stock_first"}:
+                return candidate_name_stmt(
+                    extra_filters, alert_suffix=alert_suffix,
+                )
+            if view == "warehouse" and sort == "stock_first":
+                # Every eligible item is already physically present: avoid
+                # a redundant second zero-stock catalog stream entirely.
+                bounded = candidate_name_stmt(
+                    extra_filters, alert_suffix=alert_suffix,
+                ).subquery(f"warehouse_present_candidates{alert_suffix}")
+                return select(
+                    bounded.c.id,
+                    bounded.c.variant_name,
+                    literal(0).label("sort_rank"),
+                ).order_by(
+                    bounded.c.variant_name.asc(), bounded.c.id.asc(),
+                ).limit(limit + 1)
+
+            # Presence is physical custody in the selected warehouse only.
+            # Vehicles, route history and other warehouses never rank a SKU.
+            positive_variant_ids = (
+                select(InventoryLiveStockProjection.product_variant_id)
+                .where(
+                    InventoryLiveStockProjection.company_id == company_id,
+                    InventoryLiveStockProjection.warehouse_location_id == location_id,
+                    (
+                        InventoryLiveStockProjection.is_low_stock.is_(True)
+                        if sort == "low_stock_first"
+                        else InventoryLiveStockProjection.has_warehouse_presence.is_(True)
+                    ),
+                )
+            )
+            present_here = ProductVariant.id.in_(positive_variant_ids)
+            streams = []
+            for rank, group_filter in ((0, present_here), (1, ~present_here)):
+                if cursor_rank is not None and rank < cursor_rank:
+                    continue
+                filters = [*extra_filters, group_filter]
+                if cursor_rank == rank:
+                    filters.append(
+                        tuple_(ProductVariant.name, ProductVariant.id)
+                        > tuple_(cursor_name, cursor_id)
+                    )
+                group = candidate_name_stmt(
+                    filters, alert_suffix=f"{alert_suffix}_stock_{rank}",
+                ).subquery(f"inventory_stock_group_{rank}{alert_suffix}")
+                streams.append(
+                    select(
+                        group.c.id,
+                        group.c.variant_name,
+                        literal(rank).label("sort_rank"),
+                    )
+                )
+            # The second (zero-stock) stream is always available for a valid
+            # cursor; each stream is bounded before the final global LIMIT.
+            ranked = union_all(*streams).subquery(
+                f"inventory_ranked_candidates{alert_suffix}"
+            ) if len(streams) > 1 else streams[0].subquery(
+                f"inventory_ranked_candidates{alert_suffix}"
+            )
+            return (
+                select(ranked.c.id, ranked.c.variant_name, ranked.c.sort_rank)
+                .order_by(
+                    ranked.c.sort_rank.asc(),
+                    ranked.c.variant_name.asc(),
+                    ranked.c.id.asc(),
+                )
+                .limit(limit + 1)
+            )
+
         if search_probe is None:
             candidate_stmt = candidate_page_stmt()
         else:
@@ -1517,6 +1624,7 @@ async def get_warehouse_inventory(
                 )
                 if sort == "name_desc"
                 else (
+                    *((search_candidates.c.sort_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
                     search_candidates.c.variant_name.asc(),
                     search_candidates.c.id.asc(),
                 )
@@ -1525,6 +1633,7 @@ async def get_warehouse_inventory(
                 select(
                     search_candidates.c.id,
                     search_candidates.c.variant_name,
+                    *((search_candidates.c.sort_rank,) if sort in {"stock_first", "low_stock_first"} else ()),
                 )
                 .order_by(*search_order)
                 .limit(limit + 1)
@@ -1538,12 +1647,16 @@ async def get_warehouse_inventory(
         candidate_order = (
             (candidates.c.variant_name.desc(), candidates.c.id.desc())
             if sort == "name_desc"
-            else (candidates.c.variant_name.asc(), candidates.c.id.asc())
+            else (
+                *((candidates.c.sort_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
+                candidates.c.variant_name.asc(), candidates.c.id.asc(),
+            )
         )
         detail_key_scope = (
             select(
                 candidates.c.id.label("product_variant_id"),
                 candidates.c.variant_name.label("cursor_name"),
+                *((candidates.c.sort_rank.label("cursor_rank"),) if sort in {"stock_first", "low_stock_first"} else ()),
             )
             .order_by(*candidate_order)
             .limit(limit)
@@ -1639,6 +1752,7 @@ async def get_warehouse_inventory(
                 ProductVariant.sku.label("sku"),
                 ProductVariant.product_id.label("product_id"),
                 Product.name.label("family_name"),
+                *((detail_key_scope.c.cursor_rank,) if sort in {"stock_first", "low_stock_first"} else ()),
                 ProductVariant.base_uom_id.label("base_uom_id"),
                 ProductVariant.quantity_scale.label("quantity_scale"),
                 ProductVariant.quantity_step.label("quantity_step"),
@@ -1730,6 +1844,7 @@ async def get_warehouse_inventory(
             .outerjoin(latest_purchase_one, true())
             .outerjoin(display_uom_one, true())
             .order_by(
+                *((detail_key_scope.c.cursor_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
                 detail_key_scope.c.cursor_name.desc()
                 if sort == "name_desc" else detail_key_scope.c.cursor_name.asc(),
                 ProductVariant.id.desc()
@@ -1956,7 +2071,11 @@ async def get_warehouse_inventory(
             last_candidate = detail_rows[-1]
             next_cursor = _encode_variant_cursor(
                 kind="warehouse-inventory",
-                variant_name=str(last_candidate["cursor_name"]),
+                variant_name=(
+                    f'{int(last_candidate["cursor_rank"])}|{last_candidate["cursor_name"]}'
+                    if sort in {"stock_first", "low_stock_first"}
+                    else str(last_candidate["cursor_name"])
+                ),
                 variant_id=int(last_candidate["variant_id"]),
                 scope=scope,
             )

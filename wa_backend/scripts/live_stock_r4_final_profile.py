@@ -90,9 +90,20 @@ def route_implementation(function):
     route = next(r for r in app.routes if getattr(r, "path", None) == LIST
                  and "GET" in (getattr(r, "methods", None) or ()))
     original = route.dependant.call
+    # FastAPI now passes the optional "view" keyword to the current endpoint.
+    # The historical endpoint never accepted it: compare the same catalog
+    # behavior, and fail rather than reinterpret a warehouse-only request.
+    import inspect
+    if "view" not in inspect.signature(function).parameters:
+        async def baseline_call(**kwargs):
+            assert kwargs.get("view") == "catalog", "Historical baseline supports catalog view only"
+            return await function(**{key: val for key, val in kwargs.items() if key != "view"})
+        measured_call = baseline_call
+    else:
+        measured_call = function
     # Only the benchmark control's list callable changes. All real middleware,
     # response schemas, persisted bearer/session/capability/RLS dependencies stay.
-    route.dependant.call = function
+    route.dependant.call = measured_call
     try:
         yield
     finally:

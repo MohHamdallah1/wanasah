@@ -240,6 +240,42 @@ async def test_actual_sql_page_bounds_filters_and_plans(r1case):
                         assert keys == sorted(keys, reverse=True)
                     emit("sql_plan", products=target, **{
                         k: v for k, v in record.items() if k != "statements"})
+            # Exercise both new server-owned rank sorts with real PG16/RLS,
+            # materialized candidate snapshot and exact keyset continuation.
+            for priority_sort in ("stock_first", "low_stock_first"):
+                page, record = await measured_page(
+                    case, owner=owner,
+                    filters={"limit": 200, "sort": priority_sort},
+                )
+                evidence.append(record)
+                assert len(page["items"]) == 200
+                rank = (
+                    (lambda item: 0 if item["is_low_stock"] else 1)
+                    if priority_sort == "low_stock_first"
+                    else (lambda item: 0 if D(item["on_hand_quantity"]) > 0 else 1)
+                )
+                keys = [(rank(row), row["name"], row["id"]) for row in page["items"]]
+                assert keys == sorted(keys), (priority_sort, "first-page order")
+                assert page["next_cursor"] and page["has_more"]
+                continuation, next_record = await measured_page(
+                    case, owner=owner,
+                    filters={
+                        "limit": 200, "sort": priority_sort,
+                        "cursor": page["next_cursor"],
+                    },
+                )
+                evidence.append(next_record)
+                next_keys = [
+                    (rank(row), row["name"], row["id"])
+                    for row in continuation["items"]
+                ]
+                assert next_keys == sorted(next_keys), (priority_sort, "continuation order")
+                assert next_keys and keys[-1] < next_keys[0], (
+                    priority_sort, "keyset boundary", keys[-1], next_keys[0],
+                )
+                assert {row["id"] for row in page["items"]}.isdisjoint(
+                    {row["id"] for row in continuation["items"]}
+                )
             # Compare the narrow transaction-local alternative using the real old SQL.
             for size in (1, 50, 200):
                 for selected in ({}, {"stock_state": "sellable"},
@@ -267,6 +303,107 @@ async def test_actual_sql_page_bounds_filters_and_plans(r1case):
                 case, owner=owner, filters={"limit": 50, "cursor": cursor})
             evidence.append(record)
             assert len(page["items"]) == 50
+
+        # Add an ACTIVE company-catalog SKU without operational assignment or
+        # warehouse/vehicle stock. Its threshold is independent of both.
+        async with case.pg.session() as db:
+            unassigned = ProductVariant(
+                company_id=case.tenant.company_id, product_id=family,
+                name="ZZZ Zero Warehouse Presence", sku="R1-NO-ASSIGNMENT",
+                base_uom_id=case.tenant.uom_id, quantity_scale=6,
+                quantity_step=D("0.000001"), lot_control_mode="OPTIONAL",
+                expiry_control_mode="OPTIONAL", lifecycle_status="ACTIVE",
+                published_at=utc_now(),
+            )
+            db.add(unassigned)
+            await db.flush()
+            zero_id = unassigned.id
+            await apply_live_stock_active_variant_delta(
+                db, company_id=case.tenant.company_id, delta=1,
+            )
+            db.add(InventoryStockPolicy(
+                company_id=case.tenant.company_id,
+                location_id=case.warehouse_id,
+                product_variant_id=zero_id,
+                minimum_quantity=D("2"),
+            ))
+            await db.flush()
+            await refresh_live_stock_keys(
+                db, company_id=case.tenant.company_id,
+                keys=[(case.warehouse_id, zero_id)],
+            )
+            # The key is the last physically present product; all next items
+            # must be in the zero-warehouse-presence group regardless of name.
+            last_physical = (await db.execute(
+                select(ProductVariant.name, ProductVariant.id)
+                .where(
+                    ProductVariant.company_id == case.tenant.company_id,
+                    ProductVariant.id != zero_id,
+                )
+                .order_by(ProductVariant.name.desc(), ProductVariant.id.desc())
+                .limit(1)
+            )).one()
+            await db.commit()
+
+        base_scope = (
+            f"inventory|{case.tenant.company_id}|{case.warehouse_id}"
+            "||all|0|000000|stock_first"
+        )
+        across_group = _encode_variant_cursor(
+            kind="warehouse-inventory",
+            variant_name=f"0|{last_physical.name}",
+            variant_id=last_physical.id, scope=base_scope,
+        )
+        for owner in (True, False):
+            zero_page, record = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "sort": "stock_first",
+                    "cursor": across_group,
+                },
+            )
+            evidence.append(record)
+            zero = next((row for row in zero_page["items"] if row["id"] == zero_id), None)
+            assert zero is not None, "Unassigned zero-stock company SKU must remain visible"
+            assert D(zero["on_hand_quantity"]) == 0
+            assert D(zero["minimum_quantity"]) == D("2")
+            assert all(D(row["on_hand_quantity"]) == 0 for row in zero_page["items"])
+            low_page, record = await measured_page(
+                case, owner=owner,
+                filters={"limit": 200, "sort": "low_stock_first"},
+            )
+            evidence.append(record)
+            assert zero_id in {
+                row["id"] for row in low_page["items"] if row["is_low_stock"]
+            }, "Unassigned zero stock with minimum must rank in low-stock group"
+
+            # In warehouse-only mode catalog zeroes must disappear from
+            # membership, while explicit catalog mode retains them.
+            physical, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "warehouse", "sort": "stock_first",
+                    "search": "ZZZ Zero",
+                },
+            )
+            catalog, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "catalog", "sort": "stock_first",
+                    "search": "ZZZ Zero",
+                },
+            )
+            assert physical["items"] == []
+            assert [r["id"] for r in catalog["items"]] == [zero_id]
+            alert, _ = await measured_page(
+                case, owner=owner,
+                filters={
+                    "limit": 50, "view": "catalog",
+                    "stock_state": "low_stock",
+                    "search": "ZZZ Zero",
+                },
+            )
+            assert [r["id"] for r in alert["items"]] == [zero_id]
     finally:
         output.write_text(json.dumps({
             "method": case.pg.method, "products": target, "evidence": evidence,

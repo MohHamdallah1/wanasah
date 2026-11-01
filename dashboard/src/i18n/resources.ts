@@ -1728,10 +1728,10 @@ export const resources = {
         button: "الحد الأدنى للمخزون",
         title: "إدارة الحد الأدنى للمخزون",
         description:
-          "حدد الحد الأدنى للمنتجات الفعالة المربوطة بالمستودع، كلها أو العائلات والأصناف التي تختارها.",
-        scopeAll: "المنتجات المرتبطة بالمستودع",
+          "حدد الحد الأدنى للمنتجات النشطة في كتالوج الشركة لهذا المستودع، كلها أو العائلات والأصناف التي تختارها.",
+        scopeAll: "كل المنتجات النشطة",
         scopeAllHint:
-          "يشمل التطبيق الأصناف المربوطة بهذا المستودع فقط، ولا يشمل كل أصناف كتالوج الشركة.",
+          "يشمل كل أصناف كتالوج الشركة النشطة، حتى غير المربوطة بهذا المستودع أو التي رصيدها صفر. لا ينشئ ربطاً ولا يغير الرصيد.",
         scopeFamily: "عائلات محددة",
         scopeProduct: "منتجات محددة",
         searchFamily: "ابحث عن عائلة...",
@@ -1766,8 +1766,8 @@ export const resources = {
         applied: "تم تحديث الحد الأدنى لـ {{count}} منتج.",
         noChangesSame:
           "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي للمنتجات المشمولة.",
-        noLinkedProducts:
-          "لم يتم ضبط حد أدنى لأي منتج: لا توجد منتجات فعالة مربوطة بهذا المستودع ضمن النطاق المحدد. راجع ربط المنتجات وحالتها أولاً.",
+        noActiveProducts:
+          "لم يتم ضبط حد أدنى: لا توجد منتجات نشطة في كتالوج الشركة ضمن النطاق المحدد.",
         errors: {
           preview: "تعذر معاينة تطبيق الحد الأدنى.",
           apply: "تعذر تطبيق الحد الأدنى للمخزون.",
@@ -1775,6 +1775,14 @@ export const resources = {
         },
       },
       inventoryLive: {
+        viewScopeLabel: "عرض المنتجات",
+        viewWarehouse: "الموجود فعلياً في المستودع",
+        viewCatalog: "جميع منتجات الشركة",
+        viewZeroFilterHint: "فلاتر النواقص والنفاد والحد الأدنى غير المحدد تشمل أصناف كتالوج الشركة الصفرية أيضاً.",
+        sortLabel: "الترتيب",
+        sortStockFirst: "الموجود أولاً",
+        sortLowFirst: "الناقص أولاً",
+        sortName: "الاسم أبجدياً",
         product: "المنتج",
         searchPlaceholder: "ابحث عن منتج أو SKU...",
         warehouseBalance: "داخل المستودع",
@@ -4142,10 +4150,10 @@ export const resources = {
         button: "Minimum stock",
         title: "Manage minimum stock",
         description:
-          "Set minimum stock for active products assigned to this warehouse, or selected families and products.",
-        scopeAll: "Products assigned to this warehouse",
+          "Set minimum stock for active company-catalog products at the selected warehouse, across all or selected families and products.",
+        scopeAll: "All active products",
         scopeAllHint:
-          "Applies only to products assigned to this warehouse, not every item in the company catalog.",
+          "Includes all active company-catalog variants, even if unassigned to this warehouse or at zero stock. Does not assign products or move stock.",
         scopeFamily: "Selected families",
         scopeProduct: "Selected products",
         searchFamily: "Search family...",
@@ -4180,8 +4188,8 @@ export const resources = {
         applied: "Minimum stock updated for {{count}} products.",
         noChangesSame:
           "Nothing changed: the value already matches the minimum for the included products.",
-        noLinkedProducts:
-          "No product minimums were set: there are no active products assigned to this warehouse in this scope. Check assignments and product status first.",
+        noActiveProducts:
+          "No minimums were set: there are no active company-catalog products in the selected scope.",
         errors: {
           preview: "Could not preview the minimum-stock update.",
           apply: "Could not apply minimum stock.",
@@ -4189,6 +4197,14 @@ export const resources = {
         },
       },
       inventoryLive: {
+        viewScopeLabel: "Show products",
+        viewWarehouse: "Physically present in this warehouse",
+        viewCatalog: "All company products",
+        viewZeroFilterHint: "Low-stock, out-of-stock and unset-minimum filters include zero-stock company-catalog items, including those never received here.",
+        sortLabel: "Sort",
+        sortStockFirst: "In stock first",
+        sortLowFirst: "Low stock first",
+        sortName: "Name A–Z",
         product: "Product",
         searchPlaceholder: "Search by product or SKU...",
         warehouseBalance: "Inside warehouse",
