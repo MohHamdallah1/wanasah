@@ -201,7 +201,7 @@ async def _require_live_stock_read_model_ready(
         status_code=503,
         detail=inventory_business_error(
             "LIVE_STOCK_PROJECTION_NOT_READY",
-            "الرصيد الحي قيد التحديث. أعد المحاولة بعد لحظات.",
+            "بيانات الرصيد الحي غير جاهزة. يلزم فحص جاهزية الإسقاط وإعادة بنائه عند الحاجة؛ إعادة المحاولة وحدها قد لا تكفي.",
         ),
     ) from failure
 
