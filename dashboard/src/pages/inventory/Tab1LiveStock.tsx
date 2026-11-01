@@ -507,36 +507,36 @@ export function Tab1LiveStock({
           className="custom-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto md:overflow-x-auto"
           data-cp13-stock-list="true"
         >
-          {products.length > 0 ? (
-            <>
-              {isNarrowViewport ? (
-                <LiveStockMobileCards
-                  products={renderedWindow.products}
-                  totalCount={products.length}
-                  startIndex={renderedWindow.start}
-                  topSpacerHeight={renderedWindow.topSpacerHeight}
-                  bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
-                  onItemMeasure={handleItemMeasure}
-                  onProductFocus={handleProductFocus}
-                  onProductBlur={handleProductBlur}
-                  onOpen={detail.open}
-                />
-              ) : (
-                <LiveStockTable
-                  products={renderedWindow.products}
-                  totalCount={products.length}
-                  startIndex={renderedWindow.start}
-                  topSpacerHeight={renderedWindow.topSpacerHeight}
-                  bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
-                  onItemMeasure={handleItemMeasure}
-                  onProductFocus={handleProductFocus}
-                  onProductBlur={handleProductBlur}
-                  loading={loading}
-                  onOpen={detail.open}
-                />
-              )}
-            </>
-          ) : (
+          {/* On desktop the real table header is always mounted, including
+              initial loading, empty and failure states. No header jump. */}
+          {!isNarrowViewport && (
+            <LiveStockTable
+              products={renderedWindow.products}
+              totalCount={products.length}
+              startIndex={renderedWindow.start}
+              topSpacerHeight={renderedWindow.topSpacerHeight}
+              bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
+              onItemMeasure={handleItemMeasure}
+              onProductFocus={handleProductFocus}
+              onProductBlur={handleProductBlur}
+              loading={loading}
+              onOpen={detail.open}
+            />
+          )}
+          {isNarrowViewport && products.length > 0 && (
+            <LiveStockMobileCards
+              products={renderedWindow.products}
+              totalCount={products.length}
+              startIndex={renderedWindow.start}
+              topSpacerHeight={renderedWindow.topSpacerHeight}
+              bottomSpacerHeight={renderedWindow.bottomSpacerHeight}
+              onItemMeasure={handleItemMeasure}
+              onProductFocus={handleProductFocus}
+              onProductBlur={handleProductBlur}
+              onOpen={detail.open}
+            />
+          )}
+          {products.length === 0 && (
             <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
               {pageError && !pageReady ? (
                 <div
