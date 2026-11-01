@@ -7,6 +7,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   type LiveStockIndicator,
   type LiveStockStockState,
+  type LiveStockSort,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import { BatchDetailPanel } from "./liveStock/BatchDetailPanel";
@@ -37,6 +38,8 @@ interface Props {
   matchingTotal: number | null;
   hasMore: boolean;
   stockState: LiveStockStockState;
+  sort: LiveStockSort;
+  onSortChange: (value: LiveStockSort) => void;
   indicators: LiveStockIndicator[];
   familyId: number | null;
   onLocationChange: (value: string) => void;
@@ -66,6 +69,8 @@ export function Tab1LiveStock({
   matchingTotal,
   hasMore,
   stockState,
+  sort,
+  onSortChange,
   indicators,
   familyId,
   onLocationChange,
@@ -405,6 +410,22 @@ export function Tab1LiveStock({
               onFamilyChange(value);
             }}
           />
+          <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-700">
+            <span className="whitespace-nowrap">{t("inventoryLive.sortLabel")}</span>
+            <select
+              aria-label={t("inventoryLive.sortLabel")}
+              value={sort}
+              onChange={(event) => {
+                resetRenderWindow();
+                onSortChange(event.target.value as LiveStockSort);
+              }}
+              className="min-w-0 max-w-[11rem] rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              <option value="stock_first">{t("inventoryLive.sortStockFirst")}</option>
+              <option value="low_stock_first">{t("inventoryLive.sortLowFirst")}</option>
+              <option value="name_asc">{t("inventoryLive.sortName")}</option>
+            </select>
+          </label>
           <LiveStockWarehouseContext
             locationId={locationId}
             locations={locations}
