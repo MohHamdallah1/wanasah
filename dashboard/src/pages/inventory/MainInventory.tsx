@@ -1700,7 +1700,8 @@ export default function MainInventory() {
       )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {((selectedLocationId === null && loadingLocations) ||
+        {((activeTab === "live" && access.isPending) ||
+          (selectedLocationId === null && loadingLocations) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
             activeTab !== "permissions" && locationAccess.isPending)) && (
