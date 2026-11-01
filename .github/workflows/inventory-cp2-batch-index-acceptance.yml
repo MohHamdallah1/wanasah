@@ -204,6 +204,7 @@ jobs:
               "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
               "dashboard/src/test/auth-session-page-boundary.test.tsx",
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-ui-stability.test.ts",
               "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
               "dashboard/src/test/live-stock-warm-authority.test.tsx",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
