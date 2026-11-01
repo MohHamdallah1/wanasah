@@ -228,6 +228,83 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(screen.getByText(/2\.500001/)).toBeInTheDocument();
   });
 
+  it("routes unavailable quantity to its own explanation action", () => {
+    const open = vi.fn();
+    const explain = vi.fn();
+    const affected = { ...product, unavailable_quantity: "10" as const };
+
+    render(
+      <LiveStockTable
+        products={[affected]}
+        loading={false}
+        onOpen={open}
+        onOpenUnavailable={explain}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "Why is this quantity unavailable for sale? — Product 41",
+    }));
+    expect(explain).toHaveBeenCalledWith(affected);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("explains unavailable quantity with exact product gate and batch causes", () => {
+    const affected = {
+      ...product,
+      on_hand_quantity: "30" as const,
+      available_for_sale_quantity: "0" as const,
+      available_quantity: "0" as const,
+      unavailable_quantity: "30" as const,
+      total_quantity: "30" as const,
+      recalled_quantity: "10" as const,
+      blocked_quantity: "20" as const,
+    };
+    const affectedBatch = {
+      ...batch,
+      batch_number: "LOT-EXPIRED",
+      expiry_date: "2026-10-27",
+      days_to_expiry: -5,
+      on_hand_quantity: "30" as const,
+      reserved_quantity: "0" as const,
+      available_for_sale_quantity: "0" as const,
+      unavailable_quantity: "30" as const,
+      restricted_quantity: "20" as const,
+      expiry_unavailable_quantity: "20" as const,
+      recalled_quantity: "10" as const,
+    };
+
+    render(
+      <BatchDetailPanel
+        product={affected}
+        batches={[affectedBatch]}
+        mode="unavailable"
+        lifecycleStatus="ACTIVE"
+        operationalHold="NONE"
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Total unavailable for sale")).toBeInTheDocument();
+    expect(screen.getByText("There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.")).toBeInTheDocument();
+    expect(screen.getByText("Expiry restriction")).toBeInTheDocument();
+    expect(screen.getByText("Recalled")).toBeInTheDocument();
+    expect(screen.getByText("LOT-EXPIRED")).toBeInTheDocument();
+    expect(screen.getByTestId("live-stock-batch-detail")).toHaveAttribute(
+      "data-live-stock-detail-mode",
+      "unavailable",
+    );
+  });
+
   it("renders anonymous lot without leaking internal identity in batch detail", () => {
     render(
       <BatchDetailPanel
