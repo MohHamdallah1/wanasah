@@ -194,6 +194,7 @@ jobs:
           }
           live_stock_route_extension_allowed = live_stock_route_extension_required | {
               ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               ".github/workflows/live-stock-r4-final-performance.yml",
               "dashboard/e2e/live-stock-v1.spec.ts",
               "dashboard/src/App.tsx",
