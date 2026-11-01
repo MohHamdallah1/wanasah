@@ -179,8 +179,7 @@ export async function installLiveStockApi(page: Page, rows = 2): Promise<Fixture
     if (batchMatch) {
       if (state.denyAccess) return fulfill(route, {}, 403);
       return fulfill(route, {
-        location_id: location, product_variant_id: Number(batchMatch[1]),
-        lifecycle_status: "ACTIVE", operational_hold: "NONE", currency_code: "JOD",
+        location_id: location, product_variant_id: Number(batchMatch[1]), currency_code: "JOD",
         batches: [batch], next_cursor: null, has_more: false,
       });
     }
