@@ -22,6 +22,7 @@ SHARED_DISPATCH = "wa_backend/api/dispatch.py"
 UX_ALLOWED = {
     # The dedicated in-flight workflow validates this view's freshness state.
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-v1-browser-acceptance.yml",
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
@@ -41,6 +42,7 @@ UX_ALLOWED = {
     "dashboard/src/components/dashboard/WorkspaceTopBar.css",
     "dashboard/src/pages/inventory/InventoryTopDock.tsx",
     "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
     "dashboard/src/pages/inventory/Tab2Inbound.tsx",
@@ -115,6 +117,7 @@ OP_ALLOWED = {
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
     PHYSICAL_CALLER,
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-v1-browser-acceptance.yml",
     OP_WORKFLOW,
     UX_WORKFLOW,
@@ -135,6 +138,7 @@ OP_ALLOWED = {
     SHARED_RESOURCES,
     "dashboard/src/pages/inventory/InventoryTopDock.tsx",
     "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
     "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -331,6 +335,12 @@ def _resource_signature(source: str) -> tuple[str, ...]:
     entries.extend(
         f"inventoryLive[{index}]={section}"
         for index, section in enumerate(_object_sections(source, "inventoryLive"))
+    )
+    # Minimum-stock UX is an inventory-owned surface too. Whitelist only its
+    # exact AR/EN object sections; unrelated shared i18n remains unowned.
+    entries.extend(
+        f"inventoryMinimum[{index}]={section}"
+        for index, section in enumerate(_object_sections(source, "inventoryMinimum"))
     )
     return tuple(entries)
 
@@ -599,6 +609,16 @@ def selftest() -> None:
     assert _resource_signature(base_resources) != _resource_signature(warehouse_hint_resources)
     assert _resource_signature(base_resources) != _resource_signature(vehicle_hint_resources)
     assert _resource_signature(base_resources) != _resource_signature(vehicle_scope_resources)
+    minimum_resources = (
+        base_resources
+        + 'inventoryMinimum: { scopeAll: "AR assigned products" },\n'
+        + 'inventoryMinimum: { scopeAll: "EN assigned products" },\n'
+    )
+    updated_minimum_resources = minimum_resources.replace(
+        "AR assigned products", "AR warehouse-assigned products"
+    )
+    assert len(_object_sections(minimum_resources, "inventoryMinimum")) == 2
+    assert _resource_signature(minimum_resources) != _resource_signature(updated_minimum_resources)
     live_sem = {**none, SHARED_RESOURCES: True}
     assert classify("ux", {SHARED_RESOURCES}, live_sem)[0] == "owned"
     _expect_fail("ux", {SHARED_RESOURCES, "dashboard/src/pages/DispatchBoard.tsx"}, live_sem)

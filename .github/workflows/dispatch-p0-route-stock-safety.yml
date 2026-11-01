@@ -163,6 +163,7 @@ jobs:
           ).splitlines())
           p0_allowed = {
               ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/field-authorization-phase3.yml",
               ".github/workflows/v1-return-cost-fidelity-closure.yml",
               "dashboard/e2e/dispatch-p0-wire.config.ts",
