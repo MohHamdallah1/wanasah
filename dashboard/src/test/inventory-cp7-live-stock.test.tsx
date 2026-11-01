@@ -93,6 +93,8 @@ const sourcePayload = () => ({
   location_name: "Warehouse A1",
   product_variant_id: 41,
   batch_id: 71,
+  lifecycle_status: "ACTIVE",
+  operational_hold: "NONE",
   statuses: [
     {
       stock_status: "AVAILABLE",
@@ -535,6 +537,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     const stock = parseLiveStockWarehouseSource({
       location_id: 11, location_name: "Warehouse A1",
       product_variant_id: 41, batch_id: 71,
+      lifecycle_status: "ACTIVE", operational_hold: "NONE",
       statuses: [{
         stock_status: "AVAILABLE", on_hand_quantity: "40",
         reserved_quantity: reservation.coverage === "NONE" ? "0" : "26",
@@ -604,6 +607,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     }] });
     expect(() => parseLiveStockWarehouseSource({
       location_id: 11, location_name: "Warehouse A1", product_variant_id: 41, batch_id: 71,
+      lifecycle_status: "ACTIVE", operational_hold: "NONE",
       statuses: [{ stock_status: "AVAILABLE", on_hand_quantity: "40",
         reserved_quantity: "26", movable_quantity: "14", reservation_evidence: overLimit }],
     })).toThrow("LIVE_STOCK_SOURCE_RESPONSE_INVALID");
