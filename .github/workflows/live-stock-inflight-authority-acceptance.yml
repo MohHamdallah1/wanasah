@@ -233,6 +233,7 @@ jobs:
               # Exact seamless-reentry + unavailable-explanation crossover.
               ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
               ".github/workflows/live-stock-r4-final-performance.yml",
+              ".github/workflows/live-stock-v1-browser-acceptance.yml",
               "dashboard/e2e/live-stock-v1.spec.ts",
               "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
               "dashboard/src/test/live-stock-ui-stability.test.ts",
