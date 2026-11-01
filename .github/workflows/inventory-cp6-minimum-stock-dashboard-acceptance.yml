@@ -121,7 +121,30 @@ jobs:
               "dashboard/src/hooks/useDashboardSession.ts",
           }
 
+          warehouse_minimum_sort_allowed = cp6_allowed | {
+              ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+              "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+              "dashboard/src/test/live-stock-count-freshness-semantics.test.tsx",
+              "dashboard/src/test/live-stock-local-failure.test.tsx",
+          }
+          warehouse_minimum_sort_required = {
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+          }
+
           def ownership_mode(candidate):
+              if warehouse_minimum_sort_required <= candidate and candidate <= warehouse_minimum_sort_allowed:
+                  return "WAREHOUSE_MINIMUM_SORT_STRICT"
               if candidate <= cp6_allowed:
                   return "CP6_STRICT"
               unexpected = candidate - (cp6_allowed | auth_session_allowed)
