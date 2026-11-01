@@ -90,6 +90,8 @@ class LiveStockWarehouseSourceResponse(BaseModel):
     base_uom_code: str = Field(min_length=1, max_length=20)
     quantity_scale: int = Field(ge=0, le=6)
     quantity_step: str
+    lifecycle_status: Literal["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"]
+    operational_hold: Literal["NONE", "SALES_HOLD", "RECALL"]
     statuses: list[LiveStockWarehouseSourceStatus] = Field(max_length=6)
 
 
@@ -317,5 +319,7 @@ async def get_live_stock_batch_source(
         "base_uom_code": str(metadata.base_uom_code),
         "quantity_scale": int(metadata.quantity_scale),
         "quantity_step": canonical_quantity(Decimal(metadata.quantity_step)),
+        "lifecycle_status": str(metadata.lifecycle_status),
+        "operational_hold": str(metadata.operational_hold),
         "statuses": statuses,
     }

@@ -21,6 +21,7 @@ type Props = {
   onProductFocus?: (productId: number) => void;
   onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
+  onOpenUnavailable?: (product: WarehouseProduct) => void;
 };
 
 function HeaderHelp({ text }: { text: string }) {
@@ -58,6 +59,7 @@ export function LiveStockTable({
   onProductFocus = () => undefined,
   onProductBlur = () => undefined,
   onOpen,
+  onOpenUnavailable,
 }: Props) {
   const { t, i18n } = useTranslation();
   const measureRow = useCallback(
@@ -220,7 +222,8 @@ export function LiveStockTable({
                     {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
                       <button
                         type="button"
-                        onClick={() => onOpen(product)}
+                        onClick={() => (onOpenUnavailable ?? onOpen)(product)}
+                        data-live-stock-unavailable-open={product.id}
                         aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
                         title={copy.unavailableBreakdown}
                         className="rounded-md px-1 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"

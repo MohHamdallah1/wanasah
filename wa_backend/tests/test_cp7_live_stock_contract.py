@@ -30,6 +30,10 @@ def test_live_stock_source_route_uses_canonical_inventory_read_without_shortcuts
     assert "is_company_owner" not in source
     assert "access.company_id" in source
     assert "reservation_owner_projection(" in source
+    assert "ProductVariant.lifecycle_status" in source
+    assert "ProductVariant.operational_hold" in source
+    assert '"lifecycle_status": str(metadata.lifecycle_status)' in source
+    assert '"operational_hold": str(metadata.operational_hold)' in source
 
 
 def test_live_stock_source_route_is_read_only_and_does_not_duplicate_business_truth():

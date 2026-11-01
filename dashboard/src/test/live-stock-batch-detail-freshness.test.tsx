@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -52,6 +52,7 @@ const batchPage = (qty = "2.500001") => ({
 const sourcePayload = (qty = "2.500001", batchId = 71, locationId = 11) => ({
   location_id: locationId, product_variant_id: 41, batch_id: batchId,
   location_name: "Warehouse 11",
+  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   statuses: [{
     stock_status: "AVAILABLE", on_hand_quantity: qty,
     reserved_quantity: "0.500001", movable_quantity: "2",
@@ -273,6 +274,53 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(onRetrySource).toHaveBeenCalledWith(71);
     expect(screen.getByRole("button", { name: "دليل مصدر المستودع القابل للإجراء والحجوزات" }))
       .toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("shows a focused unavailable-for-sale breakdown with the exact product gate", () => {
+    const unavailableProduct = {
+      ...product,
+      unavailable_quantity: "30",
+    } as WarehouseProduct;
+    const parsed = parseBatchDetailResponse({
+      ...batchPage("30"),
+      batches: [{
+        ...batchRaw("30"),
+        reserved_quantity: "0",
+        available_for_sale_quantity: "0",
+        unavailable_quantity: "30",
+        restricted_quantity: "20",
+        expiry_unavailable_quantity: "20",
+        recalled_quantity: "10",
+      }],
+    });
+
+    render(
+      <BatchDetailPanel
+        product={unavailableProduct}
+        batches={parsed.batches}
+        mode="unavailable"
+        lifecycleStatus="ACTIVE"
+        operationalHold="NONE"
+        hasMore={false}
+        loading={false}
+        error={null}
+        sourceByBatch={{}}
+        sourceOpenId={null}
+        sourceLoadingId={null}
+        sourceErrorId={null}
+        onClose={vi.fn()}
+        onRetry={vi.fn()}
+        onLoadMore={vi.fn()}
+        onLoadSource={vi.fn()}
+      />,
+    );
+
+    const breakdown = within(screen.getByTestId("live-stock-unavailable-breakdown"));
+    expect(breakdown.getByText("Total unavailable for sale")).toBeInTheDocument();
+    expect(breakdown.getByText(/Active · No product-level hold/)).toBeInTheDocument();
+    expect(breakdown.getByText("Of which: expiry-policy restricted")).toBeInTheDocument();
+    expect(breakdown.getByText("Recalled")).toBeInTheDocument();
+    expect(breakdown.queryByText("Quarantined")).not.toBeInTheDocument();
   });
 
   it("propagates an authorization denial to the warehouse disclosure owner", async () => {

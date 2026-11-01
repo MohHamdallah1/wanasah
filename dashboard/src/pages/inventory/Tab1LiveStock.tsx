@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { compareQuantity } from "@/lib/quantity";
 
 import {
   type LiveStockIndicator,
@@ -32,6 +33,7 @@ interface Props {
   isAuditLocked: boolean;
   products: WarehouseProduct[];
   loading: boolean;
+  verificationPending?: boolean;
   pageReady: boolean;
   pageError: string | null;
   summaryError: string | null;
@@ -65,6 +67,7 @@ export function Tab1LiveStock({
   isAuditLocked,
   products,
   loading,
+  verificationPending = false,
   pageReady,
   pageError,
   summaryError,
@@ -258,24 +261,46 @@ export function Tab1LiveStock({
     getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language).staleBatchDetails,
     onReadDenied,
   );
+  const [detailMode, setDetailMode] = useState<"batches" | "unavailable">("batches");
+  const openBatchDetails = useCallback((product: WarehouseProduct) => {
+    setDetailMode("batches");
+    detail.open(product);
+  }, [detail.open]);
+  const openUnavailableBreakdown = useCallback((product: WarehouseProduct) => {
+    setDetailMode("unavailable");
+    detail.open(product);
+  }, [detail.open]);
+
+  useEffect(() => {
+    if (detailMode !== "unavailable" || !detail.page) return;
+    const firstUnavailable = detail.page.batches.find(
+      (batch) => compareQuantity(batch.unavailable_quantity, "0") > 0,
+    );
+    if (firstUnavailable) detail.prefetchSource(firstUnavailable.batch_id);
+  }, [detail.page, detail.prefetchSource, detailMode]);
 
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
+    const selectedMode = detailMode;
     detail.close();
     if (selectedId === undefined) return;
 
     // A manual refresh replaces the entire inventory row while the modal is
-    // open. The generic dialog hook can only restore an attached trigger;
-    // locate the freshly mounted trigger instead, without reviving stale rows.
+    // open. Restore the exact trigger kind when it still exists.
     window.requestAnimationFrame(() => {
-      const target = scrollRef.current?.querySelector<HTMLElement>(
-        `[data-live-stock-product-open="${selectedId}"]`,
-      ) ?? document.querySelector<HTMLElement>(
-        '[data-cp13-surface="live-stock"] .live-stock-search input',
-      );
+      const selector = selectedMode === "unavailable"
+        ? `[data-live-stock-unavailable-open="${selectedId}"]`
+        : `[data-live-stock-product-open="${selectedId}"]`;
+      const target = scrollRef.current?.querySelector<HTMLElement>(selector)
+        ?? scrollRef.current?.querySelector<HTMLElement>(
+          `[data-live-stock-product-open="${selectedId}"]`,
+        )
+        ?? document.querySelector<HTMLElement>(
+          '[data-cp13-surface="live-stock"] .live-stock-search input',
+        );
       target?.focus({ preventScroll: true });
     });
-  }, [detail.close, detail.product?.id]);
+  }, [detail.close, detail.product?.id, detailMode]);
 
   const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
   const selectionRead = useRef<{
@@ -386,6 +411,7 @@ export function Tab1LiveStock({
       className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-2"
       data-cp13-density="compact"
       data-cp13-surface="live-stock"
+      data-live-verifying={verificationPending ? "true" : "false"}
     >
       <section className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl pt-0">
         <div
@@ -551,7 +577,8 @@ export function Tab1LiveStock({
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
               loading={loading}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableBreakdown}
             />
           )}
           {isNarrowViewport && products.length > 0 && (
@@ -564,12 +591,17 @@ export function Tab1LiveStock({
               onItemMeasure={handleItemMeasure}
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableBreakdown}
             />
           )}
           {products.length === 0 && (
             <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
-              {pageError && !pageReady ? (
+              {verificationPending ? (
+                <span data-cp13-state="verifying" role="status" className="sr-only">
+                  {t("common.loading")}
+                </span>
+              ) : pageError && !pageReady ? (
                 <div
                   role="alert"
                   data-cp13-state="error"
@@ -613,6 +645,9 @@ export function Tab1LiveStock({
       <BatchDetailPanel
         product={detail.product}
         batches={detail.page?.batches ?? []}
+        mode={detailMode}
+        lifecycleStatus={Object.values(detail.sourceByBatch)[0]?.lifecycle_status ?? null}
+        operationalHold={Object.values(detail.sourceByBatch)[0]?.operational_hold ?? null}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}

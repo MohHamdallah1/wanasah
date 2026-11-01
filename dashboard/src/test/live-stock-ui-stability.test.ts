@@ -89,8 +89,8 @@ describe("Live Stock visual stability regressions", () => {
     expect(fetchStock).not.toContain("toast.error(");
     expect(fetchSummary).toContain("setStockSummaryError(");
     expect(fetchSummary).not.toContain("toast.error(");
-    expect(main).toContain("pageError={stockPageError}");
-    expect(main).toContain("summaryError={stockSummaryError}");
+    expect(main).toContain("pageError={liveVisible ? stockPageError : null}");
+    expect(main).toContain("summaryError={liveVisible ? stockSummaryError : null}");
   });
 
   it("defers Live Stock list and summary requests while another inventory tab is active", () => {
@@ -121,13 +121,37 @@ describe("Live Stock visual stability regressions", () => {
       "const liveVisible = liveAuthorityVerified && !accessDenied && !locationError && liveReadPhase !== \"denied\";",
     );
     expect(main).toContain(
-      'activeTab === "live" && selectedLocationId !== null && liveVisible && tabAllowed("live")',
+      'activeTab === "live" && selectedLocationId !== null && tabAllowed("live") && !accessDenied && !locationAccess.isError',
     );
     expect(main).toContain(
       "locationAccess.isSuccess && locationAccess.isFetchedAfterMount && !locationAccess.isFetching",
     );
     expect(main).not.toContain("canShowWarmLiveDuringAccessRefresh");
-    expect(main).toContain("pageReady={stockPageReady}");
-    expect(live).toContain("loading && !pageReady");
+    expect(main).toContain("products={liveVisible ? stockItems : []}");
+    expect(main).toContain("locations={liveVisible ? locations : []}");
+    expect(main).toContain(
+      "verificationPending={!liveVisible || (!stockPageReady && loadingStock)}",
+    );
+    expect(main).toContain("pageReady={liveVisible && stockPageReady}");
+    expect(live).toContain('data-live-verifying={verificationPending ? "true" : "false"}');
+    expect(live).toContain("verificationPending ?");
+  });
+
+  it("keeps unavailable-for-sale as a distinct reason flow from product batch details", () => {
+    const tab = readSource("../pages/inventory/Tab1LiveStock.tsx");
+    const table = readSource("../pages/inventory/liveStock/LiveStockTable.tsx");
+    const mobile = readSource("../pages/inventory/liveStock/LiveStockMobileCards.tsx");
+    const panel = readSource("../pages/inventory/liveStock/BatchDetailPanel.tsx");
+
+    expect(tab).toContain('setDetailMode("batches")');
+    expect(tab).toContain('setDetailMode("unavailable")');
+    expect(tab).toContain("detail.prefetchSource(firstUnavailable.batch_id)");
+    expect(tab).toContain("detail.sourceByBatch");
+    expect(table).toContain("onClick={() => onOpen(product)}");
+    expect(tab).toContain("onOpenUnavailable={openUnavailableBreakdown}");
+    expect(table).toContain("(onOpenUnavailable ?? onOpen)(product)");
+    expect(mobile).toContain("(onOpenUnavailable ?? onOpen)(product)");
+    expect(panel).toContain('data-testid="live-stock-unavailable-breakdown"');
+    expect(panel).toContain('mode === "unavailable"');
   });
 });

@@ -379,10 +379,15 @@ export default function MainInventory() {
     const cachedLocations = initialWarmShell?.locations ?? [];
     const savedRaw = localStorage.getItem(selectedLocationStorageKey);
     const savedId = savedRaw ? Number(savedRaw) : null;
+    // The persisted location id is only a provisional UI/request hint.
+    // It is never disclosure authority: selector admission + location access
+    // must still succeed before any stock, cost, total or location label is shown.
+    // Keeping the id here prevents a route re-entry from falling back to the
+    // whole-page pending skeleton when inventory-only users have no setup cache.
     if (
       savedId !== null &&
       Number.isSafeInteger(savedId) &&
-      cachedLocations.some((location) => location.id === savedId)
+      savedId > 0
     ) {
       return savedId;
     }
@@ -464,6 +469,15 @@ export default function MainInventory() {
     globalAdmissionEpoch.current += 1;
   }
   priorGlobalAdmission.current = globalAccessVerified;
+  // Cached scoped access is only a shell-continuity hint. It never admits
+  // rows, costs, totals or location labels; fresh verification below remains
+  // the sole disclosure authority. A first visit has no such scoped cache,
+  // while a same-session route re-entry normally does.
+  const hasPriorLocationAccessHint =
+    selectedLocationId !== null &&
+    !!locationAccess.data &&
+    matchesSession(locationAccess.data) &&
+    locationAccess.data.location_id === selectedLocationId;
   const locationAccessVerified =
     globalAccessVerified && locationAccess.isSuccess &&
     locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
@@ -1695,8 +1709,9 @@ export default function MainInventory() {
       )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {((selectedLocationId === null && loadingLocations) ||
-          (selectedLocationId !== null && activeTab === "live" && !liveVisible && !accessDenied && !locationAccess.isError) ||
+        {((activeTab === "live" && !hasPriorLocationAccessHint &&
+            !accessDenied && !locationAccess.isError) ||
+          (selectedLocationId === null && loadingLocations) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
             activeTab !== "permissions" && locationAccess.isPending)) && (
@@ -1758,18 +1773,19 @@ export default function MainInventory() {
           </div>
         )}
         {activeTab === "live" && selectedLocationId !== null &&
-          liveVisible && tabAllowed("live") && (
+          tabAllowed("live") && !accessDenied && !locationAccess.isError && (
           <Tab1LiveStock
             locationId={selectedLocationId}
-            locations={locations}
-            stockTotal={liveSummaryFresh ? stockTotal : null}
-            lastSync={lastSync}
-            isAuditLocked={displayAuditLocked}
-            products={stockItems}
-            loading={loadingStock}
-            pageReady={stockPageReady}
-            pageError={stockPageError}
-            summaryError={stockSummaryError}
+            locations={liveVisible ? locations : []}
+            stockTotal={liveVisible && liveSummaryFresh ? stockTotal : null}
+            lastSync={liveVisible ? lastSync : null}
+            isAuditLocked={liveVisible ? displayAuditLocked : false}
+            products={liveVisible ? stockItems : []}
+            loading={!liveVisible || loadingStock}
+            verificationPending={!liveVisible || (!stockPageReady && loadingStock)}
+            pageReady={liveVisible && stockPageReady}
+            pageError={liveVisible ? stockPageError : null}
+            summaryError={liveVisible ? stockSummaryError : null}
             onLocationChange={handleLocationChange}
             onRefresh={() => {
               refreshStock();
@@ -1778,9 +1794,9 @@ export default function MainInventory() {
             onRetryPage={retryStockPage}
             onRetrySummary={() => { void fetchStockSummary(); }}
             onReadDenied={rejectLiveStockEvidence}
-            alertCount={liveSummaryFresh ? stockAlertCount : null}
-            matchingTotal={stockMatchingTotal}
-            hasMore={!!stockNextCursor}
+            alertCount={liveVisible && liveSummaryFresh ? stockAlertCount : null}
+            matchingTotal={liveVisible ? stockMatchingTotal : null}
+            hasMore={liveVisible && !!stockNextCursor}
             stockState={stockState}
             sort={stockSort}
             onSortChange={handleStockSortChange}

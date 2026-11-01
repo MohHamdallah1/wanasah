@@ -65,6 +65,7 @@ UX_ALLOWED = {
     "dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx",
     "dashboard/src/pages/inventory/liveStock/contracts.ts",
     "dashboard/src/pages/inventory/liveStock/i18n.ts",
+    "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
     "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
     "dashboard/src/pages/inventory/warehouse-locations/presentation/i18n.ts",
     "dashboard/src/test/inventory-access.test.ts",
@@ -74,6 +75,7 @@ UX_ALLOWED = {
     "dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx",
     "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
     "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+    "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
     "dashboard/src/test/live-stock-family-cursor.test.tsx",
     "dashboard/src/test/live-stock-local-failure.test.tsx",
     "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
@@ -82,6 +84,9 @@ UX_ALLOWED = {
     "dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx",
     "dashboard/src/test/live-stock-warm-authority.test.tsx",
     "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
+    "wa_backend/tests/test_cp7_live_stock_contract.py",
+    "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
@@ -155,6 +160,7 @@ OP_ALLOWED = {
     "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
     "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
     "dashboard/src/pages/inventory/liveStock/i18n.ts",
+    "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
     "dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx",
     "dashboard/src/pages/inventory/liveStock/contracts.ts",
     "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
@@ -164,12 +170,17 @@ OP_ALLOWED = {
     "dashboard/src/test/inventory-cp7-live-stock-parity.test.tsx",
     "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
     "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+    "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
     "dashboard/src/test/live-stock-local-failure.test.tsx",
     "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
     "dashboard/src/test/live-stock-render-windowing.test.tsx",
+    "dashboard/src/test/live-stock-ui-stability.test.ts",
     "dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx",
     "dashboard/src/test/live-stock-warm-authority.test.tsx",
     "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
+    "wa_backend/tests/test_cp7_live_stock_contract.py",
+    "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
@@ -474,7 +485,12 @@ def _spec(mode: str):
         allowed = UX_ALLOWED
         shared = {SHARED_RESOURCES}
         forbidden: Callable[[str], bool] = lambda p: (
-            (p.startswith("wa_backend/") and p != "wa_backend/tests/live_stock_operational_browser_support.py")
+            (p.startswith("wa_backend/") and p not in {
+                "wa_backend/api/warehouse/live_stock_source_detail.py",
+                "wa_backend/tests/test_cp7_live_stock_contract.py",
+                "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
+                "wa_backend/tests/live_stock_operational_browser_support.py",
+            })
             or p == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
             or p.startswith(("flutter_app/", "wanasah_frontend/"))
         )

@@ -53,10 +53,10 @@ describe("CP13.2 Inventory shell polish", () => {
   it("keeps the pending data panel inside the shell, never as a flex sibling above all tabs", () => {
     const shell = read("src/pages/inventory/MainInventory.tsx");
     expect(shell).toContain('data-inventory-pending-surface="true"');
-    expect(shell).toContain('activeTab === "live" && !liveVisible');
+    expect(shell).toContain('activeTab === "live" && !hasPriorLocationAccessHint');
     expect(shell).toContain('activeTab !== "live" &&');
     expect(shell).not.toContain('if (loadingLocations && warehouseSetup === null && selectedLocationId === null) {');
-    expect(shell).not.toMatch(/selectedLocationId !== null &&\s*!liveVisible &&\s*!accessDenied && \(/);
+    expect(shell).not.toMatch(/selectedLocationId !== null &&\s*activeTab === "live" &&\s*!liveVisible/);
     expect(shell).toContain('!loadingLocations && activeTab !== "warehouses"');
   });
 

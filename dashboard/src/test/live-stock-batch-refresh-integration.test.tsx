@@ -80,6 +80,7 @@ const batchPage = (qty: string) => ({
 });
 const source = () => ({
   location_id: 11, product_variant_id: 41, batch_id: 71, location_name: "Warehouse 11",
+  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   statuses: [{
     stock_status: "AVAILABLE", on_hand_quantity: "2.500001", reserved_quantity: "0",
     movable_quantity: "2.500001",
