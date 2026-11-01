@@ -160,7 +160,7 @@ jobs:
           import xml.etree.ElementTree as ET
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 122),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 126),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
@@ -230,6 +230,16 @@ jobs:
               "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
               "wa_backend/tests/live_stock_operational_browser_support.py",
+              # Exact seamless-reentry + unavailable-explanation crossover.
+              ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+              "dashboard/e2e/live-stock-v1.spec.ts",
+              "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+              "dashboard/src/test/live-stock-ui-stability.test.ts",
+              "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+              "wa_backend/tests/test_cp7_live_stock_postgres.py",
           }
           assert files <= owned, sorted(files - owned)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
