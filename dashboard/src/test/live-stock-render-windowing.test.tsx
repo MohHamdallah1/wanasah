@@ -180,6 +180,8 @@ function tabProps(onLoadMore = vi.fn()) {
     stockState: "all" as LiveStockStockState,
     sort: "stock_first" as const,
     onSortChange: vi.fn(),
+    view: "warehouse" as const,
+    onViewChange: vi.fn(),
     indicators: [],
     familyId: null,
     onLocationChange: vi.fn(),
