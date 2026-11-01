@@ -238,7 +238,7 @@ export function BatchDetailPanel({
                 : batch.disposition !== "RELEASED"
                   ? `${copy.disposition}: ${copy.dispositionLabels[batch.disposition]}`
                   : copy.otherSaleRestriction;
-          const unavailableCauses: Array<[string, Quantity]> = [
+          const unavailableCauseCandidates: Array<[string, Quantity]> = [
             [copy.expiryUnavailable, batch.expiry_unavailable_quantity],
             [copy.stockStatusLabels.QUARANTINED, batch.quarantined_quantity],
             [copy.stockStatusLabels.BLOCKED, batch.blocked_quantity],
@@ -246,7 +246,10 @@ export function BatchDetailPanel({
             [copy.stockStatusLabels.DAMAGED, batch.damaged_quantity],
             [copy.stockStatusLabels.DISPOSAL_PENDING, batch.disposal_pending_quantity],
             [otherRestrictionLabel, otherRestriction],
-          ].filter(([, value]) => compareQuantity(value, "0") > 0);
+          ];
+          const unavailableCauses = unavailableCauseCandidates.filter(
+            ([, value]) => compareQuantity(value, "0") > 0,
+          );
           return (
             <article
               key={batch.batch_id}
