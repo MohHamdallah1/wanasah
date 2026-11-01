@@ -420,7 +420,7 @@ export function Tab1LiveStock({
               onFamilyChange(value);
             }}
           />
-          <label className="flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-700">
+          <label className="live-stock-sort flex min-w-0 items-center gap-2 text-xs font-semibold text-slate-700">
             <span className="whitespace-nowrap">{t("inventoryLive.sortLabel")}</span>
             <select
               aria-label={t("inventoryLive.sortLabel")}
