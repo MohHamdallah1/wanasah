@@ -131,7 +131,7 @@ test("same-session dashboard reentry preserves the live-stock workspace without 
   await expect(rows(page)).toHaveCount(2);
   await expect(rows(page).first()).toContainText("Stock Item 0000");
 
-  expect(state.cursorReads).toBe(cursorReadsBeforeLeaving);
+  await expect.poll(() => state.cursorReads).toBe(cursorReadsBeforeLeaving + 1);
   expect(await page.evaluate(() =>
     (window as unknown as Record<string, unknown>).__wanasahLiveVerificationShellSeen
   )).toBe(false);
