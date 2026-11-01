@@ -618,6 +618,27 @@ export default function MainInventory() {
     if (id === 'inbound') return canAtLocation('inbound.create') && canAtLocation('catalog.read');
     return canAtLocation(TAB_PERMISSION[id]);
   }, [isCompanyOwner, canAny, can, canAtLocation, selectedLocationId]);
+
+  // IT-03 V1: retain only a visited, freshly authorized tab for this exact
+  // principal/company/location; never carry a panel into another scope.
+  const locationTabScope = locationAccessVerified && selectedLocationId !== null && warmScopeKey
+    ? `${warmScopeKey}:${selectedLocationId}`
+    : null;
+  const globalTabScope = globalAccessVerified && warmScopeKey
+    ? `${warmScopeKey}:${selectedLocationId ?? "none"}`
+    : null;
+  const [visitedTabScopes, setVisitedTabScopes] = useState<Partial<Record<TabId, string>>>({});
+  useEffect(() => {
+    const scope = activeTab === "transfers" || activeTab === "warehouses"
+      ? globalTabScope : locationTabScope;
+    if (!["inbound", "stocktake", "ledger", "transfers", "warehouses"].includes(activeTab) ||
+        scope === null || !tabAllowed(activeTab)) return;
+    setVisitedTabScopes((old) => old[activeTab] === scope ? old : { ...old, [activeTab]: scope });
+  }, [activeTab, locationTabScope, globalTabScope, tabAllowed]);
+  const retainTab = (tab: TabId, scope: string | null) =>
+    scope !== null && tabAllowed(tab) &&
+    (activeTab === tab || visitedTabScopes[tab] === scope);
+
   useEffect(() => {
     if (
       !access.isSuccess ||
@@ -2088,68 +2109,90 @@ export default function MainInventory() {
             />
           </div>
         )}
-        {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
-          <Tab2Inbound
-            key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
-            companyId={locationAccess.data.company_id}
-            actorId={locationAccess.data.backoffice_user_id}
-            locationId={selectedLocationId}
-            locations={locations}
-            onLocationChange={handleLocationChange}
-            isAuditLocked={displayAuditLocked && auditLockReference !== null}
-            auditLockReference={auditLockReference}
-            authenticatedFetch={authFetch}
-            onSuccess={async () => {
-              refreshStock();
-              setLedgerRefreshKey((value) => value + 1);
-            }}
-          />
+        {retainTab("inbound", locationTabScope) && (
+          <div key={`inbound:${locationTabScope}`} hidden={activeTab !== "inbound"}
+            className={activeTab === "inbound" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-it03-retained-tab="inbound">
+            <Tab2Inbound
+              active={activeTab === "inbound"}
+              companyId={locationAccess.data!.company_id}
+              actorId={locationAccess.data!.backoffice_user_id}
+              locationId={selectedLocationId!}
+              locations={locations}
+              onLocationChange={handleLocationChange}
+              isAuditLocked={displayAuditLocked && auditLockReference !== null}
+              auditLockReference={auditLockReference}
+              authenticatedFetch={authFetch}
+              onSuccess={async () => {
+                refreshStock();
+                setLedgerRefreshKey((value) => value + 1);
+              }}
+            />
+          </div>
         )}
-        {!locationAccess.isPending && activeTab === "stocktake" && tabAllowed("stocktake") && selectedLocationId !== null && locationAccess.data && (
-          <Tab3Stocktake
-            key={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}:${selectedLocationId}`}
-            locationId={selectedLocationId} // +++ سحق ملاحظة P1: تمرير الموقع للمحرك המوحد +++
-            companyId={`${locationAccess.data.company_id}:${locationAccess.data.backoffice_user_id}`}
-            isAuditLocked={effectiveAuditLocked}
-            authenticatedFetch={authFetch}
-            onStocktakeChanged={async () => {
-              refreshStock();
-              setLedgerRefreshKey((value) => value + 1);
-              await fetchStatus();
-            }}
-          />
+        {retainTab("stocktake", locationTabScope) && (
+          <div key={`stocktake:${locationTabScope}`} hidden={activeTab !== "stocktake"}
+            className={activeTab === "stocktake" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-it03-retained-tab="stocktake">
+            <Tab3Stocktake
+              active={activeTab === "stocktake"}
+              locationId={selectedLocationId!}
+              companyId={`${locationAccess.data!.company_id}:${locationAccess.data!.backoffice_user_id}`}
+              isAuditLocked={effectiveAuditLocked}
+              authenticatedFetch={authFetch}
+              onStocktakeChanged={async () => {
+                refreshStock();
+                setLedgerRefreshKey((value) => value + 1);
+                await fetchStatus();
+              }}
+            />
+          </div>
         )}
-        {!locationAccess.isPending && activeTab === "ledger" && tabAllowed("ledger") && selectedLocationId !== null && (
-          <Tab4Ledger
-            key={selectedLocationId}
-            locationId={selectedLocationId}
-            refreshKey={ledgerRefreshKey}
-            onInventoryChanged={() => {
-              refreshStock();
-              setLedgerRefreshKey((value) => value + 1);
-            }}
-          />
+        {retainTab("ledger", locationTabScope) && (
+          <div key={`ledger:${locationTabScope}`} hidden={activeTab !== "ledger"}
+            className={activeTab === "ledger" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-it03-retained-tab="ledger">
+            <Tab4Ledger
+              active={activeTab === "ledger"}
+              locationId={selectedLocationId!}
+              refreshKey={ledgerRefreshKey}
+              onInventoryChanged={() => {
+                refreshStock();
+                setLedgerRefreshKey((value) => value + 1);
+              }}
+            />
+          </div>
         )}
 
-        {activeTab === "transfers" && tabAllowed("transfers") && (
-          <TabTransfers
-            focus={transferFocus}
-            onFocusConsumed={() => setTransferFocus(null)}
-            onInventoryChanged={async () => {
-              setStockRefreshKey((value) => value + 1);
-              setLedgerRefreshKey((value) => value + 1);
-              if (selectedLocationId !== null) await fetchStatus();
-            }}
-          />
+        {retainTab("transfers", globalTabScope) && (
+          <div key={`transfers:${globalTabScope}`} hidden={activeTab !== "transfers"}
+            className={activeTab === "transfers" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-it03-retained-tab="transfers">
+            <TabTransfers
+              active={activeTab === "transfers"}
+              focus={activeTab === "transfers" ? transferFocus : null}
+              onFocusConsumed={() => setTransferFocus(null)}
+              onInventoryChanged={async () => {
+                setStockRefreshKey((value) => value + 1);
+                setLedgerRefreshKey((value) => value + 1);
+                if (selectedLocationId !== null) await fetchStatus();
+              }}
+            />
+          </div>
         )}
 
         {activeTab === "permissions" && access.isCompanyOwner && <TabInventoryAccess />}
-        {activeTab === "warehouses" && tabAllowed("warehouses") && (
-          <TabWarehouseLocations
-            selectedLocationId={selectedLocationId}
-            onLocationsChanged={fetchLocations}
-            onMinimumApplied={refreshStock}
-          />
+        {retainTab("warehouses", globalTabScope) && (
+          <div key={`warehouses:${globalTabScope}`} hidden={activeTab !== "warehouses"}
+            className={activeTab === "warehouses" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-it03-retained-tab="warehouses">
+            <TabWarehouseLocations
+              active={activeTab === "warehouses"}
+              selectedLocationId={selectedLocationId}
+              onLocationsChanged={fetchLocations}
+              onMinimumApplied={refreshStock}
+            />
+          </div>
         )}
       </div>
     </div>
