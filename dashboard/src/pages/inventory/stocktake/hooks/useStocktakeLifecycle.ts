@@ -46,7 +46,7 @@ interface UseStocktakeLifecycleArgs {
 
 export function useStocktakeLifecycle({
   active = true,
-  durableIdentity:
+  durableIdentity,
   focusSessionId,
   onFocusUnavailable,
   locationId,
