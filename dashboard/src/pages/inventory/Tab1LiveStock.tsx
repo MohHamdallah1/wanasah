@@ -101,6 +101,8 @@ export function Tab1LiveStock({
   const measuredItemExtentsRef = useRef<Map<number, number>>(new Map());
   const [measurementRevision, setMeasurementRevision] = useState(0);
   const [viewportWidthBucket, setViewportWidthBucket] = useState(0);
+  const [detailMode, setDetailMode] =
+    useState<"details" | "unavailable">("details");
   const fallbackItemExtent = isNarrowViewport
     ? LIVE_STOCK_FALLBACK_MOBILE_CARD_PX
     : LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX;
@@ -259,9 +261,26 @@ export function Tab1LiveStock({
     onReadDenied,
   );
 
+  const openBatchDetails = useCallback(
+    (product: WarehouseProduct) => {
+      setDetailMode("details");
+      detail.open(product);
+    },
+    [detail.open],
+  );
+
+  const openUnavailableExplanation = useCallback(
+    (product: WarehouseProduct) => {
+      setDetailMode("unavailable");
+      detail.open(product);
+    },
+    [detail.open],
+  );
+
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
     detail.close();
+    setDetailMode("details");
     if (selectedId === undefined) return;
 
     // A manual refresh replaces the entire inventory row while the modal is
@@ -551,7 +570,8 @@ export function Tab1LiveStock({
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
               loading={loading}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableExplanation}
             />
           )}
           {isNarrowViewport && products.length > 0 && (
@@ -564,7 +584,8 @@ export function Tab1LiveStock({
               onItemMeasure={handleItemMeasure}
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableExplanation}
             />
           )}
           {products.length === 0 && (
@@ -613,6 +634,9 @@ export function Tab1LiveStock({
       <BatchDetailPanel
         product={detail.product}
         batches={detail.page?.batches ?? []}
+        mode={detailMode}
+        lifecycleStatus={detail.page?.lifecycle_status ?? null}
+        operationalHold={detail.page?.operational_hold ?? null}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}
