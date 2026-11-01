@@ -64,6 +64,8 @@ function TabTransfersWorkspace({
     setStatus,
     searchInput,
     setSearchInput,
+    searchTooShort,
+    searchPending,
     total,
     loading,
     loadingMore,
@@ -118,7 +120,7 @@ function TabTransfersWorkspace({
     onCompleted: refreshTransfers,
   });
 
-  const visibleItems = focusedTransfer
+  const visibleItems = searchTooShort || searchPending ? [] : focusedTransfer
     ? [
         items.find((item) => item.id === focusedTransfer.id) ?? focusedTransfer,
         ...items.filter((item) => item.id !== focusedTransfer.id),
@@ -156,6 +158,7 @@ function TabTransfersWorkspace({
               aria-label={t("inventoryTransfers.search")}
               placeholder={t("inventoryTransfers.search")}
               maxLength={100}
+              aria-describedby={searchTooShort ? "transfer-search-min-length" : undefined}
               className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-xs font-bold text-slate-800 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
             />
           </div>
@@ -210,7 +213,11 @@ function TabTransfersWorkspace({
           </div>
         ) : null}
 
-        <TransferTable
+        {searchTooShort ? (
+          <div id="transfer-search-min-length" role="status" data-cp13-state="search-min-length" className="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-xs font-semibold text-slate-500">
+            {t("inventoryTransfers.searchMinLength")}
+          </div>
+        ) : <TransferTable
           items={visibleItems}
           loading={loading}
           loadingMore={loadingMore}
@@ -219,7 +226,7 @@ function TabTransfersWorkspace({
           onLoadMore={loadMore}
           onOpenDetail={async (transfer) => { await openDetail(transfer); }}
           onOpenAction={openAction}
-        />
+        />}
       </section>
 
       {transferCreate.command.pending && !transferCreate.createOpen ? (
