@@ -32,6 +32,7 @@ interface Props {
   isAuditLocked: boolean;
   products: WarehouseProduct[];
   loading: boolean;
+  verificationPending?: boolean;
   pageReady: boolean;
   pageError: string | null;
   summaryError: string | null;
@@ -65,6 +66,7 @@ export function Tab1LiveStock({
   isAuditLocked,
   products,
   loading,
+  verificationPending = false,
   pageReady,
   pageError,
   summaryError,
@@ -400,6 +402,7 @@ export function Tab1LiveStock({
       className="inventory-view inventory-live-stock flex min-h-0 flex-1 flex-col gap-2"
       data-cp13-density="compact"
       data-cp13-surface="live-stock"
+      data-live-verifying={verificationPending ? "true" : "false"}
     >
       <section className="glass-card inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl pt-0">
         <div
@@ -585,7 +588,11 @@ export function Tab1LiveStock({
           )}
           {products.length === 0 && (
             <div className="flex min-h-40 items-center justify-center p-4 text-center text-sm font-bold text-slate-500">
-              {pageError && !pageReady ? (
+              {verificationPending ? (
+                <span data-cp13-state="verifying" role="status" className="sr-only">
+                  {t("common.loading")}
+                </span>
+              ) : pageError && !pageReady ? (
                 <div
                   role="alert"
                   data-cp13-state="error"
