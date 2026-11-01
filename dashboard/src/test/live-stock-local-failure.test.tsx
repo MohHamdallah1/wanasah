@@ -110,6 +110,8 @@ const baseProps = {
   stockState: "all" as const,
   sort: "stock_first" as const,
   onSortChange: vi.fn(),
+  view: "warehouse" as const,
+  onViewChange: vi.fn(),
   indicators: [],
   familyId: null,
   canManageMinimum: false,
