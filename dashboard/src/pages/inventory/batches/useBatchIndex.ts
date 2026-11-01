@@ -16,6 +16,8 @@ interface UseBatchIndexArgs {
   locationId: number;
   filters: BatchIndexFilters;
   expiryWarningDays: number;
+  active?: boolean;
+  refreshKey?: number;
 }
 
 export interface UseBatchIndexResult {
@@ -41,17 +43,30 @@ const scopeMismatch = (code: string): Error & { code: string } => {
   return error;
 };
 
+const mustDropRetainedData = (error: unknown): boolean => {
+  const status = Number((error as { status?: unknown } | null)?.status);
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    [401, 403, 404].includes(status) ||
+    code === "BATCH_INDEX_LOCATION_SCOPE_MISMATCH" ||
+    code === "BATCH_INDEX_SUMMARY_LOCATION_SCOPE_MISMATCH" ||
+    code === "BATCH_INDEX_RESPONSE_INVALID"
+  );
+};
+
 export function useBatchIndex({
   locationId,
   filters,
   expiryWarningDays,
+  active = true,
+  refreshKey = 0,
 }: UseBatchIndexArgs): UseBatchIndexResult {
   const authFetch = useAuthFetch();
   const [items, setItems] = useState<WarehouseBatchIndexItem[]>([]);
   const [summary, setSummary] = useState<WarehouseBatchIndexSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(active);
   const [listError, setListError] = useState(false);
-  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(active);
   const [summaryError, setSummaryError] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [continuationError, setContinuationError] = useState(false);
@@ -63,7 +78,31 @@ export function useBatchIndex({
   const listAbortRef = useRef<AbortController | null>(null);
   const summaryAbortRef = useRef<AbortController | null>(null);
 
+  // These refs separate "what the controls currently request" from the last
+  // data scope that is safe to display. That prevents a one-frame flash of
+  // rows from an old filter/location before the effect starts its new read.
+  const visibleListScopeRef = useRef<string | null>(null);
+  const visibleSummaryScopeRef = useRef<string | null>(null);
+  const freshListScopeRef = useRef<string | null>(null);
+  const freshSummaryScopeRef = useRef<string | null>(null);
+  const freshListRefreshKeyRef = useRef<number | null>(null);
+  const freshSummaryRefreshKeyRef = useRef<number | null>(null);
+
+  const listScopeKey = buildBatchIndexCursorParams(
+    locationId,
+    filters,
+    expiryWarningDays,
+  ).toString();
+  const summaryScopeKey = buildBatchIndexSummaryParams(
+    locationId,
+    filters,
+    expiryWarningDays,
+  ).toString();
+
   const loadFirstPage = useCallback(async () => {
+    const requestScope = listScopeKey;
+    const requestRefreshKey = refreshKey;
+    const sameVisibleScope = visibleListScopeRef.current === requestScope;
     const requestSeq = ++listRequestSeq.current;
     listAbortRef.current?.abort();
     const controller = new AbortController();
@@ -73,18 +112,15 @@ export function useBatchIndex({
     setListError(false);
     setLoadingMore(false);
     setContinuationError(false);
-    setItems([]);
-    setNextCursor(null);
-    setHasMore(false);
+    if (!sameVisibleScope) {
+      setItems([]);
+      setNextCursor(null);
+      setHasMore(false);
+    }
 
     try {
-      const params = buildBatchIndexCursorParams(
-        locationId,
-        filters,
-        expiryWarningDays,
-      );
       const page = parseBatchIndexCursorPage(
-        await authFetch(`/warehouse/inventory/batches/cursor?${params.toString()}`, {
+        await authFetch(`/warehouse/inventory/batches/cursor?${requestScope}`, {
           signal: controller.signal,
         }),
       );
@@ -92,23 +128,35 @@ export function useBatchIndex({
       if (page.location_id !== locationId) {
         throw scopeMismatch("BATCH_INDEX_LOCATION_SCOPE_MISMATCH");
       }
+      visibleListScopeRef.current = requestScope;
+      freshListScopeRef.current = requestScope;
+      freshListRefreshKeyRef.current = requestRefreshKey;
       setItems(page.items);
       setNextCursor(page.next_cursor);
       setHasMore(page.has_more);
     } catch (error) {
       if (requestSeq !== listRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setItems([]);
-      setNextCursor(null);
-      setHasMore(false);
+
+      freshListScopeRef.current = null;
+      freshListRefreshKeyRef.current = null;
+      if (!sameVisibleScope || mustDropRetainedData(error)) {
+        visibleListScopeRef.current = requestScope;
+        setItems([]);
+        setNextCursor(null);
+        setHasMore(false);
+      }
       setListError(true);
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
       if (requestSeq === listRequestSeq.current) setLoading(false);
     }
-  }, [authFetch, expiryWarningDays, filters, locationId]);
+  }, [authFetch, listScopeKey, locationId, refreshKey]);
 
   const loadSummary = useCallback(async () => {
+    const requestScope = summaryScopeKey;
+    const requestRefreshKey = refreshKey;
+    const sameVisibleScope = visibleSummaryScopeRef.current === requestScope;
     const requestSeq = ++summaryRequestSeq.current;
     summaryAbortRef.current?.abort();
     const controller = new AbortController();
@@ -116,16 +164,11 @@ export function useBatchIndex({
 
     setSummaryLoading(true);
     setSummaryError(false);
-    setSummary(null);
+    if (!sameVisibleScope) setSummary(null);
 
     try {
-      const params = buildBatchIndexSummaryParams(
-        locationId,
-        filters,
-        expiryWarningDays,
-      );
       const parsed = parseBatchIndexSummary(
-        await authFetch(`/warehouse/inventory/batches/summary?${params.toString()}`, {
+        await authFetch(`/warehouse/inventory/batches/summary?${requestScope}`, {
           signal: controller.signal,
         }),
       );
@@ -133,40 +176,88 @@ export function useBatchIndex({
       if (parsed.location_id !== locationId) {
         throw scopeMismatch("BATCH_INDEX_SUMMARY_LOCATION_SCOPE_MISMATCH");
       }
+      visibleSummaryScopeRef.current = requestScope;
+      freshSummaryScopeRef.current = requestScope;
+      freshSummaryRefreshKeyRef.current = requestRefreshKey;
       setSummary(parsed);
     } catch (error) {
       if (requestSeq !== summaryRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setSummary(null);
+
+      freshSummaryScopeRef.current = null;
+      freshSummaryRefreshKeyRef.current = null;
+      if (!sameVisibleScope || mustDropRetainedData(error)) {
+        visibleSummaryScopeRef.current = requestScope;
+        setSummary(null);
+      }
       setSummaryError(true);
     } finally {
       if (summaryAbortRef.current === controller) summaryAbortRef.current = null;
       if (requestSeq === summaryRequestSeq.current) setSummaryLoading(false);
     }
-  }, [authFetch, expiryWarningDays, filters.familyId, filters.productVariantId, filters.search, locationId]);
+  }, [authFetch, locationId, refreshKey, summaryScopeKey]);
 
   useEffect(() => {
+    if (!active) {
+      listRequestSeq.current += 1;
+      listAbortRef.current?.abort();
+      listAbortRef.current = null;
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+    if (
+      freshListScopeRef.current === listScopeKey &&
+      freshListRefreshKeyRef.current === refreshKey
+    ) {
+      setLoading(false);
+      return;
+    }
     void loadFirstPage();
     return () => {
       listRequestSeq.current += 1;
       listAbortRef.current?.abort();
       listAbortRef.current = null;
     };
-  }, [loadFirstPage]);
+  }, [active, listScopeKey, loadFirstPage, refreshKey]);
 
   useEffect(() => {
+    if (!active) {
+      summaryRequestSeq.current += 1;
+      summaryAbortRef.current?.abort();
+      summaryAbortRef.current = null;
+      setSummaryLoading(false);
+      return;
+    }
+    if (
+      freshSummaryScopeRef.current === summaryScopeKey &&
+      freshSummaryRefreshKeyRef.current === refreshKey
+    ) {
+      setSummaryLoading(false);
+      return;
+    }
     void loadSummary();
     return () => {
       summaryRequestSeq.current += 1;
       summaryAbortRef.current?.abort();
       summaryAbortRef.current = null;
     };
-  }, [loadSummary]);
+  }, [active, loadSummary, refreshKey, summaryScopeKey]);
 
   const loadMore = useCallback(async () => {
-    if (!nextCursor || !hasMore || loading || loadingMore) return;
+    if (
+      !active ||
+      visibleListScopeRef.current !== listScopeKey ||
+      !nextCursor ||
+      !hasMore ||
+      loading ||
+      loadingMore
+    ) {
+      return;
+    }
 
     const cursor = nextCursor;
+    const requestScope = listScopeKey;
     const requestSeq = ++listRequestSeq.current;
     listAbortRef.current?.abort();
     const controller = new AbortController();
@@ -175,18 +266,19 @@ export function useBatchIndex({
     setContinuationError(false);
 
     try {
-      const params = buildBatchIndexCursorParams(
-        locationId,
-        filters,
-        expiryWarningDays,
-        cursor,
-      );
+      const params = new URLSearchParams(requestScope);
+      params.set("cursor", cursor);
       const page = parseBatchIndexCursorPage(
         await authFetch(`/warehouse/inventory/batches/cursor?${params.toString()}`, {
           signal: controller.signal,
         }),
       );
-      if (requestSeq !== listRequestSeq.current) return;
+      if (
+        requestSeq !== listRequestSeq.current ||
+        visibleListScopeRef.current !== requestScope
+      ) {
+        return;
+      }
       if (page.location_id !== locationId) {
         throw scopeMismatch("BATCH_INDEX_LOCATION_SCOPE_MISMATCH");
       }
@@ -196,28 +288,51 @@ export function useBatchIndex({
     } catch (error) {
       if (requestSeq !== listRequestSeq.current) return;
       if (error instanceof Error && error.name === "AbortError") return;
-      setContinuationError(true);
+      if (mustDropRetainedData(error)) {
+        visibleListScopeRef.current = requestScope;
+        freshListScopeRef.current = null;
+        freshListRefreshKeyRef.current = null;
+        setItems([]);
+        setNextCursor(null);
+        setHasMore(false);
+        setListError(true);
+      } else {
+        setContinuationError(true);
+      }
     } finally {
       if (listAbortRef.current === controller) listAbortRef.current = null;
       if (requestSeq === listRequestSeq.current) setLoadingMore(false);
     }
-  }, [authFetch, expiryWarningDays, filters, hasMore, loading, loadingMore, locationId, nextCursor]);
+  }, [
+    active,
+    authFetch,
+    hasMore,
+    listScopeKey,
+    loading,
+    loadingMore,
+    locationId,
+    nextCursor,
+  ]);
 
   const refresh = useCallback(async () => {
+    if (!active) return;
     await Promise.all([loadFirstPage(), loadSummary()]);
-  }, [loadFirstPage, loadSummary]);
+  }, [active, loadFirstPage, loadSummary]);
+
+  const listScopeVisible = visibleListScopeRef.current === listScopeKey;
+  const summaryScopeVisible = visibleSummaryScopeRef.current === summaryScopeKey;
 
   return {
-    items,
-    summary,
-    loading,
-    listError,
-    summaryLoading,
-    summaryError,
-    loadingMore,
-    continuationError,
-    hasMore,
-    nextCursor,
+    items: listScopeVisible ? items : [],
+    summary: summaryScopeVisible ? summary : null,
+    loading: active && (!listScopeVisible || loading),
+    listError: listScopeVisible ? listError : false,
+    summaryLoading: active && (!summaryScopeVisible || summaryLoading),
+    summaryError: summaryScopeVisible ? summaryError : false,
+    loadingMore: listScopeVisible ? loadingMore : false,
+    continuationError: listScopeVisible ? continuationError : false,
+    hasMore: listScopeVisible ? hasMore : false,
+    nextCursor: listScopeVisible ? nextCursor : null,
     loadMore,
     refresh,
     retryList: loadFirstPage,
