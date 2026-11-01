@@ -1169,6 +1169,7 @@ async def get_warehouse_inventory(
     has_recalled: bool = False,
     has_vehicle: bool = False,
     minimum_unset: bool = False,
+    view: Literal["catalog", "warehouse"] = "catalog",
     sort: Literal["name_asc", "name_desc", "stock_first", "low_stock_first"] = "name_asc",
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
@@ -1239,7 +1240,7 @@ async def get_warehouse_inventory(
             f"{effective_stock_state}|{family_id or 0}|"
             f"{int(has_reserved)}{int(has_unavailable)}"
             f"{int(has_damaged)}{int(has_recalled)}"
-            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{view}|{sort}"
         )
 
         search_probe = None
@@ -1310,6 +1311,22 @@ async def get_warehouse_inventory(
             )
 
         candidate_filters = []
+        if view == "warehouse":
+            # This mode restricts LIST membership to products physically
+            # present in the selected WAREHOUSE. Vehicle stock and route
+            # history never qualify; zero-stock catalog rows require the
+            # explicit catalog view. Keep older API clients on the original
+            # catalog default by requiring an explicit query parameter.
+            candidate_filters.append(
+                ProductVariant.id.in_(
+                    select(InventoryLiveStockProjection.product_variant_id)
+                    .where(
+                        InventoryLiveStockProjection.company_id == company_id,
+                        InventoryLiveStockProjection.warehouse_location_id == location_id,
+                        InventoryLiveStockProjection.has_warehouse_presence.is_(True),
+                    )
+                )
+            )
         if family_id is not None:
             candidate_filters.append(ProductVariant.product_id == family_id)
 
@@ -1500,7 +1517,7 @@ async def get_warehouse_inventory(
             )
 
         def candidate_page_stmt(extra_filters=(), *, alert_suffix=""):
-            if sort != "stock_first":
+            if sort not in {"stock_first", "low_stock_first"}:
                 return candidate_name_stmt(
                     extra_filters, alert_suffix=alert_suffix,
                 )
