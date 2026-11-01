@@ -240,6 +240,42 @@ async def test_actual_sql_page_bounds_filters_and_plans(r1case):
                         assert keys == sorted(keys, reverse=True)
                     emit("sql_plan", products=target, **{
                         k: v for k, v in record.items() if k != "statements"})
+            # Exercise both new server-owned rank sorts with real PG16/RLS,
+            # materialized candidate snapshot and exact keyset continuation.
+            for priority_sort in ("stock_first", "low_stock_first"):
+                page, record = await measured_page(
+                    case, owner=owner,
+                    filters={"limit": 200, "sort": priority_sort},
+                )
+                evidence.append(record)
+                assert len(page["items"]) == 200
+                rank = (
+                    (lambda item: 0 if item["is_low_stock"] else 1)
+                    if priority_sort == "low_stock_first"
+                    else (lambda item: 0 if D(item["on_hand_quantity"]) > 0 else 1)
+                )
+                keys = [(rank(row), row["name"], row["id"]) for row in page["items"]]
+                assert keys == sorted(keys), (priority_sort, "first-page order")
+                assert page["next_cursor"] and page["has_more"]
+                continuation, next_record = await measured_page(
+                    case, owner=owner,
+                    filters={
+                        "limit": 200, "sort": priority_sort,
+                        "cursor": page["next_cursor"],
+                    },
+                )
+                evidence.append(next_record)
+                next_keys = [
+                    (rank(row), row["name"], row["id"])
+                    for row in continuation["items"]
+                ]
+                assert next_keys == sorted(next_keys), (priority_sort, "continuation order")
+                assert next_keys and keys[-1] < next_keys[0], (
+                    priority_sort, "keyset boundary", keys[-1], next_keys[0],
+                )
+                assert {row["id"] for row in page["items"]}.isdisjoint(
+                    {row["id"] for row in continuation["items"]}
+                )
             # Compare the narrow transaction-local alternative using the real old SQL.
             for size in (1, 50, 200):
                 for selected in ({}, {"stock_state": "sellable"},
