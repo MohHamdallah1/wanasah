@@ -14,6 +14,9 @@ OP_WORKFLOW = ".github/workflows/live-stock-v1-operational-browser.yml"
 PHYSICAL_CALLER = ".github/workflows/live-stock-physical-custody-consumers.yml"
 
 POLICY_FILES = {HELPER, UX_WORKFLOW, R3_WORKFLOW, OP_WORKFLOW, PHYSICAL_CALLER}
+# A P0 ownership policy edit is only compatible with a verified,
+# specifically owned inventory minimum UX + test + AR/EN copy change.
+MINIMUM_UX_CROSSOVER = {".github/workflows/dispatch-p0-route-stock-safety.yml"}
 
 SHARED_RESOURCES = "dashboard/src/i18n/resources.ts"
 SHARED_SCHEMA = "wa_backend/schemas.py"
@@ -41,6 +44,7 @@ UX_ALLOWED = {
     "dashboard/src/components/dashboard/WorkspaceTopBar.css",
     "dashboard/src/pages/inventory/InventoryTopDock.tsx",
     "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
     "dashboard/src/pages/inventory/Tab2Inbound.tsx",
@@ -135,6 +139,7 @@ OP_ALLOWED = {
     SHARED_RESOURCES,
     "dashboard/src/pages/inventory/InventoryTopDock.tsx",
     "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
     "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -332,6 +337,12 @@ def _resource_signature(source: str) -> tuple[str, ...]:
         f"inventoryLive[{index}]={section}"
         for index, section in enumerate(_object_sections(source, "inventoryLive"))
     )
+    # Minimum-stock UX is an inventory-owned surface too. Whitelist only its
+    # exact AR/EN object sections; unrelated shared i18n remains unowned.
+    entries.extend(
+        f"inventoryMinimum[{index}]={section}"
+        for index, section in enumerate(_object_sections(source, "inventoryMinimum"))
+    )
     return tuple(entries)
 
 
@@ -496,6 +507,22 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         if extra:
             return "fail", [f"LIVE_STOCK_PERFORMANCE_SCOPE=FAIL extra={extra}"]
         return "performance-acceptance", []
+    # A shared CI policy helper can accompany an inventory-only UX correction
+    # without claiming the R3 physical-stock backend as an owner. Never use
+    # this exception for actual R3-owned paths, session roots, or foreign files.
+    if (
+        mode == "r3"
+        and HELPER in changed
+        and "dashboard/src/pages/inventory/StockMinimumManager.tsx" in changed
+        and "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in changed
+    ):
+        # Whitelist this exact inventory UI crossover only; any backend or
+        # unrelated presentation file fails instead of being silently ignored.
+        extras = sorted(changed - (UX_ALLOWED | POLICY_FILES | MINIMUM_UX_CROSSOVER))
+        if extras:
+            return "fail", [f"P0_R3_SCOPE=FAIL extra={extras}"]
+        if not changed & (R3_ALLOWED - POLICY_FILES):
+            return "not-applicable", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
@@ -504,6 +531,13 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
     if not owned:
         return "not-applicable", []
     effective_allowed = set(allowed)
+    if (
+        mode in {"ux", "operational"}
+        and "dashboard/src/pages/inventory/StockMinimumManager.tsx" in changed
+        and "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in changed
+        and SHARED_RESOURCES in relevant_shared
+    ):
+        effective_allowed |= MINIMUM_UX_CROSSOVER
     if OP_WORKFLOW in changed and mode in {"ux", "operational"}:
         effective_allowed |= WORKER1_COMBINED_CLOSURE
     for path in shared:
@@ -558,6 +592,15 @@ def selftest() -> None:
 
     assert classify("ux", {"dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx"}, none)[0] == "owned"
     _expect_fail("ux", {"dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx", "dashboard/src/pages/DispatchBoard.tsx"}, none)
+    minimum_ux_scope = {
+        HELPER,
+        ".github/workflows/dispatch-p0-route-stock-safety.yml",
+        "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+        "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+        SHARED_RESOURCES,
+    }
+    assert classify("r3", minimum_ux_scope, none)[0] == "not-applicable"
+    _expect_fail("r3", minimum_ux_scope | {"wa_backend/api/dispatch.py"}, none)
     assert classify("r3", {"wa_backend/domains/live_stock_projection/service.py"}, none)[0] == "owned"
     _expect_fail("r3", {"wa_backend/domains/live_stock_projection/service.py", "dashboard/src/pages/DispatchBoard.tsx"}, none)
 
@@ -599,7 +642,20 @@ def selftest() -> None:
     assert _resource_signature(base_resources) != _resource_signature(warehouse_hint_resources)
     assert _resource_signature(base_resources) != _resource_signature(vehicle_hint_resources)
     assert _resource_signature(base_resources) != _resource_signature(vehicle_scope_resources)
+    minimum_resources = (
+        base_resources
+        + 'inventoryMinimum: { scopeAll: "AR assigned products" },\n'
+        + 'inventoryMinimum: { scopeAll: "EN assigned products" },\n'
+    )
+    updated_minimum_resources = minimum_resources.replace(
+        "AR assigned products", "AR warehouse-assigned products"
+    )
+    assert len(_object_sections(minimum_resources, "inventoryMinimum")) == 2
+    assert _resource_signature(minimum_resources) != _resource_signature(updated_minimum_resources)
     live_sem = {**none, SHARED_RESOURCES: True}
+    assert classify("ux", minimum_ux_scope, live_sem)[0] == "owned"
+    assert classify("operational", minimum_ux_scope, live_sem)[0] == "owned"
+    _expect_fail("ux", minimum_ux_scope | {"dashboard/src/pages/DispatchBoard.tsx"}, live_sem)
     assert classify("ux", {SHARED_RESOURCES}, live_sem)[0] == "owned"
     _expect_fail("ux", {SHARED_RESOURCES, "dashboard/src/pages/DispatchBoard.tsx"}, live_sem)
     assert classify("operational", {SHARED_RESOURCES}, live_sem)[0] == "owned"

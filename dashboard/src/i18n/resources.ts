@@ -1728,10 +1728,10 @@ export const resources = {
         button: "الحد الأدنى للمخزون",
         title: "إدارة الحد الأدنى للمخزون",
         description:
-          "حدد الحد الأدنى للمخزون في المستودع الحالي لكل المنتجات أو لعائلات ومنتجات تختارها.",
-        scopeAll: "كل المنتجات",
+          "حدد الحد الأدنى للمنتجات الفعالة المربوطة بالمستودع، كلها أو العائلات والأصناف التي تختارها.",
+        scopeAll: "المنتجات المرتبطة بالمستودع",
         scopeAllHint:
-          "سيشمل التطبيق جميع منتجات المستودع الحالي.",
+          "يشمل التطبيق الأصناف المربوطة بهذا المستودع فقط، ولا يشمل كل أصناف كتالوج الشركة.",
         scopeFamily: "عائلات محددة",
         scopeProduct: "منتجات محددة",
         searchFamily: "ابحث عن عائلة...",
@@ -1765,7 +1765,9 @@ export const resources = {
           "{{count}} منتج لديه تعارض يمنع التطبيق الآمن. عدّل الإعداد قبل التنفيذ.",
         applied: "تم تحديث الحد الأدنى لـ {{count}} منتج.",
         noChangesSame:
-          "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي في النطاق المختار.",
+          "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي للمنتجات المشمولة.",
+        noLinkedProducts:
+          "لم يتم ضبط حد أدنى لأي منتج: لا توجد منتجات فعالة مربوطة بهذا المستودع ضمن النطاق المحدد. راجع ربط المنتجات وحالتها أولاً.",
         errors: {
           preview: "تعذر معاينة تطبيق الحد الأدنى.",
           apply: "تعذر تطبيق الحد الأدنى للمخزون.",
@@ -4140,10 +4142,10 @@ export const resources = {
         button: "Minimum stock",
         title: "Manage minimum stock",
         description:
-          "Set minimum stock for the current warehouse across all products or selected families and products.",
-        scopeAll: "All products",
+          "Set minimum stock for active products assigned to this warehouse, or selected families and products.",
+        scopeAll: "Products assigned to this warehouse",
         scopeAllHint:
-          "The update will include every product in the current warehouse.",
+          "Applies only to products assigned to this warehouse, not every item in the company catalog.",
         scopeFamily: "Selected families",
         scopeProduct: "Selected products",
         searchFamily: "Search family...",
@@ -4177,7 +4179,9 @@ export const resources = {
           "{{count}} products have conflicts that block a safe update. Resolve them before applying.",
         applied: "Minimum stock updated for {{count}} products.",
         noChangesSame:
-          "Nothing changed: the entered value already matches the current minimum in the selected scope.",
+          "Nothing changed: the value already matches the minimum for the included products.",
+        noLinkedProducts:
+          "No product minimums were set: there are no active products assigned to this warehouse in this scope. Check assignments and product status first.",
         errors: {
           preview: "Could not preview the minimum-stock update.",
           apply: "Could not apply minimum stock.",

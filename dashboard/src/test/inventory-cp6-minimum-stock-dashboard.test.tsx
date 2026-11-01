@@ -239,6 +239,41 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     ).toBeTruthy();
   });
 
+  it("does not falsely call zero eligible assigned products 'already configured'", async () => {
+    mocks.authFetch.mockResolvedValue({ ...minimumResponse, matched_count: 0, affected_count: 0 });
+    const onApplied = vi.fn();
+    render(
+      <StockMinimumManager
+        locations={[{ id: LOCATION, name: "Main warehouse", code: "MAIN" }]}
+        preferredLocationId={LOCATION}
+        onApplied={onApplied}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.button" }));
+    expect(screen.getByText("inventoryMinimum.scopeAllHint")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.apply" }));
+    await waitFor(() => expect(applyCalls()).toHaveLength(1));
+    expect(mocks.toastError).toHaveBeenCalledWith("inventoryMinimum.noLinkedProducts");
+    expect(mocks.toastInfo).not.toHaveBeenCalledWith("inventoryMinimum.noChangesSame");
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(onApplied).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes truly unchanged assigned products from zero matches", async () => {
+    mocks.authFetch.mockResolvedValue(minimumResponse);
+    render(
+      <StockMinimumManager
+        locations={[{ id: LOCATION, name: "Main warehouse", code: "MAIN" }]}
+        preferredLocationId={LOCATION}
+        onApplied={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.button" }));
+    fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.apply" }));
+    await waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledWith("inventoryMinimum.noChangesSame"));
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
   it("retries an ambiguous apply with the same payload and request_id, then rotates the id after confirmed success", async () => {
     let attempt = 0;
     mocks.authFetch.mockImplementation(async (url: string) => {

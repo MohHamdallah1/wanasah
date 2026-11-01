@@ -163,6 +163,8 @@ jobs:
           ).splitlines())
           p0_allowed = {
               ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/field-authorization-phase3.yml",
               ".github/workflows/v1-return-cost-fidelity-closure.yml",
               "dashboard/e2e/dispatch-p0-wire.config.ts",
@@ -177,6 +179,10 @@ jobs:
               "dashboard/src/i18n/dispatchRouteSafety.ts",
               "dashboard/src/i18n/resources.ts",
               "dashboard/src/pages/DispatchBoard.tsx",
+              # A presentation-only minimum-stock label / zero-match fix can
+              # accompany shared AR/EN copy without touching route authority.
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
               "dashboard/src/test/dispatch-adjust-load.test.tsx",
               "dashboard/src/test/dispatch-p0-route-stock-safety.test.tsx",
               "dashboard/src/test/dispatch-product-discovery.test.tsx",

@@ -399,7 +399,14 @@ export function StockMinimumManager({ locations, preferredLocationId = null, onA
 
       if (applied.affected_count === 0) {
         setPlan(applied);
-        toast.info(t("inventoryMinimum.noChangesSame"));
+        // The server's ALL scope intentionally includes only ProductLocation
+        // assignments in this warehouse, not every company-catalog variant.
+        // Zero matches is NOT evidence that all catalog minimums are set.
+        if (applied.matched_count === 0) {
+          toast.error(t("inventoryMinimum.noLinkedProducts"));
+        } else {
+          toast.info(t("inventoryMinimum.noChangesSame"));
+        }
         return;
       }
 
