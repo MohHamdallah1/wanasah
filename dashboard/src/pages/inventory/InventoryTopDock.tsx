@@ -20,6 +20,7 @@ type InventoryDockItem = {
 };
 
 interface InventoryTopDockProps {
+  loading?: boolean;
   items: readonly InventoryDockItem[];
   activeId: string;
   ariaLabel: string;
@@ -69,6 +70,7 @@ function DockIcon({
 
 export function InventoryTopDock({
   items,
+  loading = false,
   activeId,
   ariaLabel,
   onChange,
@@ -137,10 +139,17 @@ export function InventoryTopDock({
         aria-label={ariaLabel}
         aria-orientation="horizontal"
         role="tablist"
+        aria-busy={loading}
         data-dock-state="idle"
         data-dock-max="0.00"
       >
-        {items.map(({ id, label, icon }, index) => {
+        {loading ? (
+          <div className="flex h-10 w-full min-w-0 items-center gap-2 px-3" aria-hidden="true" data-inventory-dock-loading="true">
+            {[0, 1, 2, 3, 4, 5].map((slot) => (
+              <span key={slot} className="h-7 w-20 shrink-0 animate-pulse rounded-lg bg-white/10 sm:w-24" />
+            ))}
+          </div>
+        ) : items.map(({ id, label, icon }, index) => {
           const active = activeId === id;
           return (
             <button

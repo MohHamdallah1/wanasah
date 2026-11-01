@@ -280,6 +280,32 @@ const isTabId = (value: string | null): value is TabId =>
   TABS.some((tab) => tab.id === value);
 
 
+// Keep the workspace geometry stable while an authorized list is pending.
+// This surface never renders cached inventory, permissions or protected data.
+function InventoryPendingSurface({ label }: { label: string }) {
+  return (
+    <div className="inventory-view flex min-h-0 flex-1 flex-col" data-inventory-pending-surface="true">
+      <section className="inventory-surface inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white">
+        <div aria-hidden="true" className="flex h-14 shrink-0 items-center gap-3 border-b border-slate-100 px-4">
+          <span className="h-5 w-32 animate-pulse rounded-md bg-slate-100" />
+          <span className="h-8 w-44 max-w-[35%] animate-pulse rounded-md bg-slate-100" />
+        </div>
+        <div className="relative min-h-0 flex-1">
+          <div aria-hidden="true" className="flex h-10 items-center gap-4 border-b border-slate-200 bg-slate-50/95 px-4">
+            <span className="h-3 w-1/4 rounded bg-slate-200" />
+            <span className="h-3 w-1/5 rounded bg-slate-200" />
+            <span className="h-3 w-1/5 rounded bg-slate-200" />
+          </div>
+          <div role="status" aria-live="polite" className="absolute inset-x-0 top-12 flex items-center justify-center gap-2 px-4 py-5 text-sm font-semibold text-slate-500">
+            <RefreshCcw aria-hidden="true" className="h-4 w-4 animate-spin" />
+            {label}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function MainInventory() {
   const authFetch = useAuthFetch();
@@ -1405,15 +1431,6 @@ export default function MainInventory() {
       }} />;
   }
 
-  if (loadingLocations && warehouseSetup === null && selectedLocationId === null) {
-    return (
-      <div className="flex items-center justify-center h-full w-full text-slate-500 font-bold">
-        <RefreshCcw className="w-5 h-5 ml-2 animate-spin" />
-        {t("inventoryShell.loadingWarehouses")}
-      </div>
-    );
-  }
-
   if (locationError) {
     return (
       <div className="flex flex-col items-center justify-center h-full w-full bg-slate-50/50 rounded-3xl border border-red-200 p-8 text-center">
@@ -1443,6 +1460,7 @@ export default function MainInventory() {
     >
 
       <InventoryTopDock
+        loading={access.isPending || (selectedLocationId !== null && locationAccess.isPending)}
         items={TABS.filter((tab) => tabAllowed(tab.id)).map(
           ({ id, labelKey, icon }) => ({
             id,
@@ -1607,15 +1625,14 @@ export default function MainInventory() {
       )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {selectedLocationId !== null &&
-          !liveVisible &&
-          !accessDenied && (
-          <div className="inventory-empty-state flex flex-1 items-center justify-center gap-2 px-6 text-center font-bold text-slate-500">
-            <RefreshCcw className="h-5 w-5 animate-spin" />
-            {t("common.loading")}
-          </div>
+        {((selectedLocationId === null && loadingLocations) ||
+          (selectedLocationId !== null && activeTab === "live" && !liveVisible && !accessDenied && !locationAccess.isError) ||
+          (selectedLocationId !== null && activeTab !== "live" &&
+            activeTab !== "transfers" && activeTab !== "warehouses" &&
+            activeTab !== "permissions" && locationAccess.isPending)) && (
+          <InventoryPendingSurface label={t("common.loading")} />
         )}
-        {selectedLocationId === null && activeTab !== "warehouses" && activeTab !== "permissions" && (
+        {selectedLocationId === null && !loadingLocations && activeTab !== "warehouses" && activeTab !== "permissions" && (
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
               {warehouseSetup?.warehouse_ready === false

@@ -17,6 +17,8 @@ interface Props {
   language: string;
   locale: string;
   entries: LedgerEntry[];
+  loading?: boolean;
+  error?: boolean;
   canAdjust: boolean;
   onOpenReference: (entry: LedgerEntry) => void;
   onOpenNotes: (entry: LedgerEntry, trigger: HTMLButtonElement) => void;
@@ -28,6 +30,8 @@ export function LedgerTable({
   language,
   locale,
   entries,
+  loading = false,
+  error = false,
   canAdjust,
   onOpenReference,
   onOpenNotes,
@@ -48,6 +52,14 @@ export function LedgerTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
+          {!error && entries.length === 0 && (
+            <tr>
+              <td colSpan={12} role="status" data-cp13-state={loading ? "loading" : "empty"}
+                className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
+                {text(loading ? "loading" : "empty")}
+              </td>
+            </tr>
+          )}
           {entries.map((entry) => {
             const locations = ledgerLocationEvidence(t, language, entry);
             const outgoing = compareQuantity(entry.quantity, "0") < 0;

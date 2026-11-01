@@ -108,34 +108,22 @@ export function BatchIndexTable({
     </button>
   );
 
-  if (loading) {
-    return (
-      <div role="status" aria-busy="true" className="flex min-h-24 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-500">
-        <RefreshCcw className="h-4 w-4 animate-spin" />
-        {text("loading")}
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div role="alert" className="flex min-h-24 flex-col items-center justify-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-center text-sm font-semibold text-red-800">
-        <AlertTriangle className="h-6 w-6" />
-        <span>{text("loadError")}</span>
-        <button type="button" onClick={onRetry} className="rounded-lg border border-red-200 bg-white px-3 py-2 font-bold outline-none focus-visible:ring-2 focus-visible:ring-red-300">
+  // The header and scroll frame stay mounted throughout first load/retry.
+  // Do not disclose rows from a superseded scope during initial fetch.
+  const showRows = !loading && !error && items.length > 0;
+  const stateContents = (
+    <div role={error ? "alert" : "status"} data-cp13-state={error ? "error" : loading ? "loading" : "empty"}
+      className="flex min-h-24 flex-col items-center justify-center gap-2 p-4 text-center text-sm font-semibold text-slate-500">
+      {loading ? <RefreshCcw className="h-4 w-4 animate-spin" aria-hidden="true" /> :
+        error ? <AlertTriangle className="h-5 w-5 text-red-600" aria-hidden="true" /> : null}
+      <span>{text(error ? "loadError" : loading ? "loading" : "noRows")}</span>
+      {error ? (
+        <button type="button" onClick={onRetry} className="rounded-lg border border-red-200 bg-white px-3 py-2 text-red-800 outline-none focus-visible:ring-2 focus-visible:ring-red-300">
           {text("retry")}
         </button>
-      </div>
-    );
-  }
-
-  if (items.length === 0) {
-    return (
-      <div role="status" className="flex min-h-24 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white px-4 text-center text-sm font-semibold text-slate-500">
-        {text("noRows")}
-      </div>
-    );
-  }
+      ) : null}
+    </div>
+  );
 
   return (
     <section aria-label={text("loadedCount", { count: number(items.length) })} className="min-h-0">
@@ -153,7 +141,10 @@ export function BatchIndexTable({
             </tr>
           </thead>
           <tbody>
-            {items.map((item) => (
+            {!showRows && (
+              <tr><td colSpan={7}>{stateContents}</td></tr>
+            )}
+            {showRows && items.map((item) => (
               <tr key={item.batch_id} className="border-t border-slate-100 align-top hover:bg-slate-50/60 focus-within:bg-slate-50">
                 <th scope="row" className="max-w-40 break-words px-3 py-2 text-start font-bold text-slate-900">{formatPublicBatchNumber(item.batch_number, text("noLotSupplied"))}</th>
                 <td className="max-w-48 break-words px-3 py-2 font-semibold text-slate-900">{item.product_name}</td>
@@ -169,7 +160,7 @@ export function BatchIndexTable({
       </div>
 
       <div className="divide-y divide-slate-200 md:hidden">
-        {items.map((item) => (
+        {!showRows ? stateContents : items.map((item) => (
           <article key={item.batch_id} className="min-w-0 space-y-2 p-2.5">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0 flex-1 break-words">
@@ -194,7 +185,7 @@ export function BatchIndexTable({
         ))}
       </div>
 
-      {continuationError ? (
+      {showRows && continuationError ? (
         <div role="alert" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
           <span>{text("continuationError")}</span>
           <button type="button" onClick={onLoadMore} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
@@ -203,7 +194,7 @@ export function BatchIndexTable({
         </div>
       ) : null}
 
-      {hasMore && !continuationError ? (
+      {showRows && hasMore && !continuationError ? (
         <div className="mt-2 flex justify-center">
           <button
             type="button"

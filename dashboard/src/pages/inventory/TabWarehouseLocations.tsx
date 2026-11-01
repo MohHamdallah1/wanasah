@@ -675,8 +675,6 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
           </div>
         ) : null}
 
-        {loading && items.length === 0 ? <p role="status" className="p-6 text-center text-xs font-semibold text-slate-500">{t("common.loading")}</p> : null}
-
         <div className="min-h-0 flex-1 overflow-auto" data-cp13-phone-list="true">
           <table className={`w-full min-w-0 text-sm md:min-w-[760px] ${isArabic ? "text-right" : "text-left"}`}>
             <thead className="hidden bg-slate-50/95 md:table-header-group">
@@ -717,6 +715,14 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
                   <td className="mt-1 block border-t border-slate-100 px-2 pt-2 md:table-cell md:border-0 md:px-3 md:py-2">{rowActions(location)}</td>
                 </tr>
               ))}
+              {loading && items.length === 0 && (
+                <tr className="block md:table-row">
+                  <td colSpan={7} role="status" data-cp13-state="loading"
+                    className="block p-8 text-center text-xs font-semibold text-slate-500 md:table-cell">
+                    {t("common.loading")}
+                  </td>
+                </tr>
+              )}
               {!loading && items.length === 0 && !loadIssue && (
                 <tr className="block md:table-row">
                   <td colSpan={7} className="block p-8 text-center text-sm text-slate-400 md:table-cell md:p-10">
