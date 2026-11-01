@@ -55,7 +55,7 @@ export const buildLedgerCursorUrl = ({
   return `/warehouse/ledger/cursor?${params.toString()}`;
 };
 
-export function useLedgerQuery(locationId: number, refreshKey: number): LedgerQueryState {
+export function useLedgerQuery(locationId: number, refreshKey: number, active = true): LedgerQueryState {
   const authFetch = useAuthFetch();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -72,6 +72,7 @@ export function useLedgerQuery(locationId: number, refreshKey: number): LedgerQu
 
   const requestSeq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const loadedScope = useRef<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -142,13 +143,23 @@ export function useLedgerQuery(locationId: number, refreshKey: number): LedgerQu
   }, [loadPage]);
 
   useEffect(() => {
-    resetAndLoad();
+    if (!active) return;
+    if (loadedScope.current !== scopeKey) {
+      loadedScope.current = scopeKey;
+      resetAndLoad();
+    } else {
+      // Same-query tab reentry revalidates the visible page, without
+      // destroying the retained authorized rows or filter/page selection.
+      void loadPage(cursorHistory[pageIndex] ?? null, pageIndex, false);
+    }
     return () => {
       requestSeq.current += 1;
       abortRef.current?.abort();
       abortRef.current = null;
     };
-  }, [resetAndLoad, scopeKey]);
+    // Page clicks are handled explicitly below; changing page is not a
+    // reason to re-enter or repeat the first-page read.
+  }, [active, resetAndLoad, scopeKey]);
 
   const goNext = useCallback(() => {
     if (!hasMore || !nextCursor || loading) return;
