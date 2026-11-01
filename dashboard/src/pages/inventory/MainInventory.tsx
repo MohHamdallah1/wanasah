@@ -350,6 +350,15 @@ export default function MainInventory() {
   const locale = resolveI18nLocale(i18n);
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();
+  const inventoryRouteActive = routeLocation.pathname === "/inventory";
+  const inventoryRouteActiveRef = useRef(inventoryRouteActive);
+  inventoryRouteActiveRef.current = inventoryRouteActive;
+  const previousInventoryRouteActiveRef = useRef(inventoryRouteActive);
+  const returningToInventory =
+    inventoryRouteActive && !previousInventoryRouteActiveRef.current;
+  useEffect(() => {
+    previousInventoryRouteActiveRef.current = inventoryRouteActive;
+  }, [inventoryRouteActive]);
   const initialNavigationIntentRef = useRef(
     parseInventoryNavigationState(routeLocation.state),
   );
@@ -948,10 +957,21 @@ export default function MainInventory() {
     t, warehouseCursor, warehouseSearch, warmScopeKey, companyId, principalId, backofficeUserId,
   ]);
 
-  useEffect(() => {
-    if (!globalAccessVerified) return;
+  const fetchLocationsRef = useRef(fetchLocations);
+  fetchLocationsRef.current = fetchLocations;
+  const selectorRefreshDeferredRef = useRef(false);
+  const canDiscoverInventory = canAny("inventory.read");
+  const canDiscoverLocations = canAny("location.read");
 
-    if (!canAny('inventory.read') && !canAny('location.read')) {
+  useEffect(() => {
+    if (!globalAccessVerified) {
+      if (!inventoryRouteActiveRef.current) {
+        selectorRefreshDeferredRef.current = true;
+      }
+      return;
+    }
+
+    if (!canDiscoverInventory && !canDiscoverLocations) {
       locationRequestSeq.current += 1;
       locationAbortRef.current?.abort();
       clearInventoryWarmScope(warmScopeKey);
@@ -967,14 +987,37 @@ export default function MainInventory() {
       return;
     }
 
-    void fetchLocations();
+    if (!inventoryRouteActiveRef.current) {
+      // A hidden, already-admitted workspace must not re-run selector reads
+      // merely because Router changed callback identities. Genuine authority,
+      // search or pagination changes are remembered and refreshed on return.
+      selectorRefreshDeferredRef.current = true;
+      return;
+    }
+
+    selectorRefreshDeferredRef.current = false;
+    void fetchLocationsRef.current();
   }, [
     globalAccessVerified,
-    canAny,
-    fetchLocations,
-    prepareLocationChange,
+    canDiscoverInventory,
+    canDiscoverLocations,
+    warehouseCursor,
+    warehouseSearch,
     warmScopeKey,
+    prepareLocationChange,
   ]);
+
+  useEffect(() => {
+    if (
+      !returningToInventory ||
+      !selectorRefreshDeferredRef.current ||
+      !globalAccessVerified
+    ) {
+      return;
+    }
+    selectorRefreshDeferredRef.current = false;
+    void fetchLocationsRef.current();
+  }, [globalAccessVerified, returningToInventory]);
 
   const handleLocationChange = useCallback(
     (value: string) => {
@@ -1549,10 +1592,22 @@ export default function MainInventory() {
     warmScopeKey,
   ]);
 
-  // ── on mount ────────────────────────────────────────────────────────────────
+  // ── on mount / meaningful read triggers ──────────────────────────────────
+  const fetchStatusRef = useRef(fetchStatus);
+  fetchStatusRef.current = fetchStatus;
+  const fetchStockRef = useRef(fetchStock);
+  fetchStockRef.current = fetchStock;
+  const fetchStockSummaryRef = useRef(fetchStockSummary);
+  fetchStockSummaryRef.current = fetchStockSummary;
+
   useEffect(() => {
-    void fetchStatus();
-  }, [fetchStatus]);
+    if (!inventoryRouteActiveRef.current) return;
+    void fetchStatusRef.current();
+  }, [
+    selectedLocationId,
+    canReadStatus,
+    locationAccess.isPending,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1569,22 +1624,65 @@ export default function MainInventory() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === "live" && selectedLocationId !== null) {
-      void fetchStock();
+    if (
+      !inventoryRouteActiveRef.current ||
+      activeTab !== "live" ||
+      selectedLocationId === null
+    ) {
+      return;
     }
+    void fetchStockRef.current();
   }, [
     activeTab,
     selectedLocationId,
-    fetchStock,
+    stockCursor,
+    stockSearch,
+    stockState,
+    stockSort,
+    stockView,
+    stockIndicators,
+    stockFamilyId,
+    canReadStock,
+    liveAuthorityVerified,
     stockRefreshKey,
     stockPageRetryKey,
   ]);
 
   useEffect(() => {
-    if (activeTab === "live" && selectedLocationId !== null) {
-      void fetchStockSummary();
+    if (
+      !inventoryRouteActiveRef.current ||
+      activeTab !== "live" ||
+      selectedLocationId === null
+    ) {
+      return;
     }
-  }, [activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]);
+    void fetchStockSummaryRef.current();
+  }, [
+    activeTab,
+    selectedLocationId,
+    canReadStock,
+    liveAuthorityVerified,
+    stockRefreshKey,
+  ]);
+
+  useEffect(() => {
+    if (!returningToInventory) return;
+
+    // Same-session re-entry keeps the verified rows mounted, then refreshes
+    // the first page and summary in the background. This preserves freshness
+    // without a blank/skeleton transition. A stale selector/authority takes
+    // the fail-closed path above instead.
+    void fetchStatusRef.current();
+    if (
+      activeTab === "live" &&
+      selectedLocationId !== null &&
+      stockPageReady &&
+      liveAuthorityVerified
+    ) {
+      setStockCursor(null);
+      setStockRefreshKey((value) => value + 1);
+    }
+  }, [returningToInventory]);
 
   const requiresFirstWarehouse =
     !loadingLocations &&
