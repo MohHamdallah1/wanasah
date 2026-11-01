@@ -1629,8 +1629,6 @@ class WarehouseInventoryBatchDetailResponse(BaseModel):
     location_id: PositiveDbInt
     product_variant_id: PositiveDbInt
     currency_code: str = Field(..., min_length=1, max_length=10)
-    lifecycle_status: Literal["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"]
-    operational_hold: Literal["NONE", "SALES_HOLD", "RECALL"]
     batches: List[WarehouseInventoryBatchItem] = Field(
         default_factory=list,
         max_length=200,
