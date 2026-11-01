@@ -469,6 +469,15 @@ export default function MainInventory() {
     globalAdmissionEpoch.current += 1;
   }
   priorGlobalAdmission.current = globalAccessVerified;
+  // Cached scoped access is only a shell-continuity hint. It never admits
+  // rows, costs, totals or location labels; fresh verification below remains
+  // the sole disclosure authority. A first visit has no such scoped cache,
+  // while a same-session route re-entry normally does.
+  const hasPriorLocationAccessHint =
+    selectedLocationId !== null &&
+    !!locationAccess.data &&
+    matchesSession(locationAccess.data) &&
+    locationAccess.data.location_id === selectedLocationId;
   const locationAccessVerified =
     globalAccessVerified && locationAccess.isSuccess &&
     locationAccess.isFetchedAfterMount && !locationAccess.isFetching &&
@@ -1700,7 +1709,8 @@ export default function MainInventory() {
       )}
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
-        {((activeTab === "live" && access.isPending) ||
+        {((activeTab === "live" && !hasPriorLocationAccessHint &&
+            !accessDenied && !locationAccess.isError) ||
           (selectedLocationId === null && loadingLocations) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
