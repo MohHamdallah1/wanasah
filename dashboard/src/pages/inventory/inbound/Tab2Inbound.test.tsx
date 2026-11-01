@@ -38,6 +38,12 @@ vi.mock("./useInboundPosting", () => ({
   }),
 }));
 
+// Inbound receives the already-authorized company timezone from the tenant
+// identity hook; this component test supplies that dependency explicitly.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, timezone: "Asia/Amman" } }),
+}));
+
 vi.mock("@/features/suppliers/SupplierSelector", () => ({
   SupplierSelector: ({
     onChange,
