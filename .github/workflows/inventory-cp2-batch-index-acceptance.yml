@@ -181,6 +181,34 @@ jobs:
           }
           cp2_workflow = ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
           shared_schema = "wa_backend/schemas.py"
+          route_extensions = "wa_backend/scripts/warehouse_route_manifest_extensions.json"
+
+          live_stock_route_extension_required = {
+              cp2_workflow,
+              route_extensions,
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+          }
+          live_stock_route_extension_allowed = live_stock_route_extension_required | {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+              "dashboard/e2e/live-stock-v1.spec.ts",
+              "dashboard/src/App.tsx",
+              "dashboard/src/components/operations/DashboardLayout.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+              "dashboard/src/test/auth-session-page-boundary.test.tsx",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+              "dashboard/src/test/live-stock-warm-authority.test.tsx",
+              "wa_backend/tests/test_cp7_live_stock_postgres.py",
+          }
+
           cp2_schema_roots = {
               "BatchIndexTrackingMode",
               "BatchIndexDisposition",
@@ -281,6 +309,15 @@ jobs:
               return cp2_schema_contract_from_source(source)
 
           def classify(changed, *, is_pr, cp2_schema_changed=False):
+              if is_pr and live_stock_route_extension_required <= changed:
+                  extra = changed - live_stock_route_extension_allowed
+                  if extra:
+                      raise ValueError(
+                          "CP2_SCOPE=FAIL live-stock route-extension crossover\n"
+                          f"extra={sorted(extra)}"
+                      )
+                  return "live-stock-route-extension"
+
               if not is_pr:
                   if changed != expected:
                       raise ValueError(
@@ -386,6 +423,31 @@ jobs:
                   cp2_schema_changed=schema_changed,
               ) == expected_mode
 
+          assert classify(
+              live_stock_route_extension_allowed,
+              is_pr=True,
+              cp2_schema_changed=False,
+          ) == "live-stock-route-extension"
+          for foreign in (
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/services.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "flutter_app/lib/main.dart",
+          ):
+              try:
+                  classify(
+                      live_stock_route_extension_allowed | {foreign},
+                      is_pr=True,
+                      cp2_schema_changed=False,
+                  )
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError(
+                      "CP2 live-stock crossover accepted foreign file: "
+                      f"{foreign}"
+                  )
+
           negative_cases = (
               ({"wa_backend/api/warehouse/batch_index.py", "dashboard/unrelated.tsx"}, False),
               ({shared_schema, "wa_backend/api/warehouse/live_stock.py"}, True),
@@ -452,7 +514,10 @@ jobs:
                   out.write("applies=false\n")
           else:
               forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
-              if any(path.startswith(forbidden_prefixes) for path in changed):
+              if (
+                  scope != "live-stock-route-extension"
+                  and any(path.startswith(forbidden_prefixes) for path in changed)
+              ):
                   raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
               print(f"CP2_SCOPE=PASS mode={scope} files={len(changed)}")
               with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
