@@ -117,7 +117,7 @@ export function useInboundOptions(
       }
 
       if (missing.length) {
-        const request = authenticatedFetch("/warehouse/inbound/options", {
+        const request: Promise<InboundOptionsResponse> = authenticatedFetch("/warehouse/inbound/options", {
           method: "POST",
           body: JSON.stringify({ ids: missing }),
         })
