@@ -79,6 +79,16 @@ class LiveStockWarehouseSourceStatus(BaseModel):
     )
 
 
+class LiveStockProductSaleGateResponse(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid")
+
+    location_id: int = Field(gt=0)
+    product_variant_id: int = Field(gt=0)
+    lifecycle_status: Literal["DRAFT", "ACTIVE", "RETIRING", "ARCHIVED"]
+    operational_hold: Literal["NONE", "SALES_HOLD", "RECALL"]
+    lifecycle_revision: int = Field(gt=0)
+
+
 class LiveStockWarehouseSourceResponse(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
 
@@ -91,6 +101,59 @@ class LiveStockWarehouseSourceResponse(BaseModel):
     quantity_scale: int = Field(ge=0, le=6)
     quantity_step: str
     statuses: list[LiveStockWarehouseSourceStatus] = Field(max_length=6)
+
+
+@router.get(
+    "/warehouse/inventory/{product_variant_id}/sale-gate",
+    response_model=LiveStockProductSaleGateResponse,
+    status_code=200,
+)
+async def get_live_stock_product_sale_gate(
+    product_variant_id: int,
+    location_id: int = Query(gt=0),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(
+        get_current_backoffice_capability_access
+    ),
+):
+    """Return the current product-level sale gate for one authorized warehouse."""
+    if product_variant_id <= 0:
+        raise HTTPException(status_code=422, detail="Invalid inventory identity.")
+
+    company_id = access.company_id
+    await _require_live_stock_warehouse_read(
+        db,
+        company_id=company_id,
+        location_id=location_id,
+        access=access,
+    )
+    row = (
+        await db.execute(
+            select(
+                ProductVariant.lifecycle_status,
+                ProductVariant.operational_hold,
+                ProductVariant.lifecycle_revision,
+            ).where(
+                ProductVariant.company_id == company_id,
+                ProductVariant.id == product_variant_id,
+            )
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=inventory_business_error(
+                "LIVE_STOCK_PRODUCT_NOT_FOUND",
+                "The selected product is unavailable.",
+            ),
+        )
+    return {
+        "location_id": location_id,
+        "product_variant_id": product_variant_id,
+        "lifecycle_status": str(row.lifecycle_status),
+        "operational_hold": str(row.operational_hold),
+        "lifecycle_revision": int(row.lifecycle_revision),
+    }
 
 
 @router.get(
