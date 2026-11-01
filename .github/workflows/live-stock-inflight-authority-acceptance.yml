@@ -160,7 +160,7 @@ jobs:
           import xml.etree.ElementTree as ET
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 122),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 123),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
@@ -228,7 +228,13 @@ jobs:
               "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
               "dashboard/src/pages/inventory/liveStock/i18n.ts",
               "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+              "dashboard/src/test/live-stock-ui-stability.test.ts",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/tests/test_cp7_live_stock_contract.py",
+              "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
               "wa_backend/tests/live_stock_operational_browser_support.py",
           }
           assert files <= owned, sorted(files - owned)
