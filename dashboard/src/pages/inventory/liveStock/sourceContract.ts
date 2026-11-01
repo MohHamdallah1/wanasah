@@ -40,6 +40,8 @@ export type LiveStockWarehouseSource = {
   location_name: string;
   product_variant_id: number;
   batch_id: number;
+  lifecycle_status: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED";
+  operational_hold: "NONE" | "SALES_HOLD" | "RECALL";
   statuses: LiveStockWarehouseSourceStatus[];
 };
 
@@ -188,11 +190,31 @@ export function parseLiveStockWarehouseSource(
     };
   });
 
+  const lifecycleStatus = row.lifecycle_status;
+  const operationalHold = row.operational_hold;
+  if (
+    lifecycleStatus !== "DRAFT" &&
+    lifecycleStatus !== "ACTIVE" &&
+    lifecycleStatus !== "RETIRING" &&
+    lifecycleStatus !== "ARCHIVED"
+  ) {
+    return invalid();
+  }
+  if (
+    operationalHold !== "NONE" &&
+    operationalHold !== "SALES_HOLD" &&
+    operationalHold !== "RECALL"
+  ) {
+    return invalid();
+  }
+
   return {
     location_id: positiveInt(row.location_id),
     location_name: row.location_name.trim(),
     product_variant_id: positiveInt(row.product_variant_id),
     batch_id: positiveInt(row.batch_id),
+    lifecycle_status: lifecycleStatus,
+    operational_hold: operationalHold,
     statuses: parsedStatuses,
   };
 }
