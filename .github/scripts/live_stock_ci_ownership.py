@@ -526,27 +526,21 @@ SEAMLESS_REENTRY_EXPLANATION_REQUIRED = {
     "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
     "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
     "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
-    "dashboard/src/pages/inventory/liveStock/contracts.ts",
     "dashboard/src/pages/inventory/liveStock/i18n.ts",
-    "dashboard/e2e/live-stock-v1.spec.ts",
-    "dashboard/src/test/auth-session-page-boundary.test.tsx",
-    "dashboard/src/test/inventory-batches-pagination.test.ts",
-    "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
-    "dashboard/src/test/live-stock-warm-authority.test.tsx",
-    "wa_backend/api/warehouse/live_stock.py",
-    SHARED_SCHEMA,
-    "wa_backend/tests/test_cp7_live_stock_contract.py",
-    "wa_backend/tests/test_cp7_live_stock_postgres.py",
+    "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+    "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
 }
 SEAMLESS_REENTRY_EXPLANATION_ALLOWED = (
     SEAMLESS_REENTRY_EXPLANATION_REQUIRED
     | {
         HELPER,
-        "dashboard/e2e/live-stock-ux-closure.fixtures.ts",
-        "dashboard/e2e/live-stock-v1.fixtures.ts",
-        "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
-        "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+        "dashboard/e2e/live-stock-v1.spec.ts",
+        "dashboard/src/test/auth-session-page-boundary.test.tsx",
+        "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+        "dashboard/src/test/live-stock-warm-authority.test.tsx",
         "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+        "wa_backend/tests/test_cp7_live_stock_postgres.py",
     }
 )
 
