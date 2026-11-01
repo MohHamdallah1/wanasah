@@ -8,7 +8,9 @@ import {
   type WarehouseProduct,
 } from "./contracts";
 import {
+  parseLiveStockProductSaleGate,
   parseLiveStockWarehouseSource,
+  type LiveStockProductSaleGate,
   type LiveStockWarehouseSource,
 } from "./sourceContract";
 
@@ -39,11 +41,17 @@ export function useLiveStockBatchDetail(
   const [sourceOpenId, setSourceOpenId] = useState<number | null>(null);
   const [sourceLoadingId, setSourceLoadingId] = useState<number | null>(null);
   const [sourceErrorId, setSourceErrorId] = useState<number | null>(null);
+  const [saleGate, setSaleGate] =
+    useState<LiveStockProductSaleGate | null>(null);
+  const [saleGateLoading, setSaleGateLoading] = useState(false);
+  const [saleGateError, setSaleGateError] = useState(false);
 
   const requestSeq = useRef(0);
   const requestAbort = useRef<AbortController | null>(null);
   const sourceSeq = useRef(0);
   const sourceAbort = useRef<AbortController | null>(null);
+  const saleGateSeq = useRef(0);
+  const saleGateAbort = useRef<AbortController | null>(null);
 
   const stopRequests = useCallback(() => {
     requestSeq.current += 1;
@@ -52,6 +60,9 @@ export function useLiveStockBatchDetail(
     sourceSeq.current += 1;
     sourceAbort.current?.abort();
     sourceAbort.current = null;
+    saleGateSeq.current += 1;
+    saleGateAbort.current?.abort();
+    saleGateAbort.current = null;
   }, []);
 
   const close = useCallback(() => {
@@ -64,12 +75,75 @@ export function useLiveStockBatchDetail(
     setSourceOpenId(null);
     setSourceLoadingId(null);
     setSourceErrorId(null);
+    setSaleGate(null);
+    setSaleGateLoading(false);
+    setSaleGateError(false);
   }, [stopRequests]);
 
   useEffect(() => close, [close]);
   useEffect(() => {
     close();
   }, [close, locationId]);
+
+  const readSaleGate = useCallback(
+    async (selected: WarehouseProduct) => {
+      const sequence = ++saleGateSeq.current;
+      saleGateAbort.current?.abort();
+      const controller = new AbortController();
+      saleGateAbort.current = controller;
+      setSaleGate(null);
+      setSaleGateLoading(true);
+      setSaleGateError(false);
+
+      try {
+        const raw = await authFetch(
+          `/warehouse/inventory/${encodeURIComponent(
+            String(selected.id),
+          )}/sale-gate?location_id=${encodeURIComponent(String(locationId))}`,
+          { signal: controller.signal },
+        );
+        if (sequence !== saleGateSeq.current) return;
+        const parsed = parseLiveStockProductSaleGate(raw);
+        if (
+          parsed.location_id !== locationId ||
+          parsed.product_variant_id !== selected.id
+        ) {
+          throw new Error("LIVE_STOCK_SALE_GATE_RESPONSE_INVALID");
+        }
+        setSaleGate(parsed);
+      } catch (error: unknown) {
+        if (sequence !== saleGateSeq.current) return;
+        if (error instanceof Error && error.name === "AbortError") return;
+        if (isAuthorityDenial(error)) {
+          onReadDenied?.();
+          stopRequests();
+          setPage(null);
+          setLoading(false);
+          setLoadError({
+            message: apiErrorMessage(error, fallbackMessage),
+            kind: "initial",
+          });
+          setSourceByBatch({});
+          setSourceOpenId(null);
+          setSourceLoadingId(null);
+          setSourceErrorId(null);
+          setSaleGate(null);
+        } else {
+          setSaleGateError(true);
+        }
+      } finally {
+        if (saleGateAbort.current === controller) saleGateAbort.current = null;
+        if (sequence === saleGateSeq.current) setSaleGateLoading(false);
+      }
+    },
+    [
+      authFetch,
+      fallbackMessage,
+      locationId,
+      onReadDenied,
+      stopRequests,
+    ],
+  );
 
   const readPage = useCallback(
     async (
@@ -130,6 +204,12 @@ export function useLiveStockBatchDetail(
           setSourceOpenId(null);
           setSourceLoadingId(null);
           setSourceErrorId(null);
+          saleGateSeq.current += 1;
+          saleGateAbort.current?.abort();
+          saleGateAbort.current = null;
+          setSaleGate(null);
+          setSaleGateLoading(false);
+          setSaleGateError(false);
           setPage(null);
         }
         setLoadError({
@@ -145,7 +225,7 @@ export function useLiveStockBatchDetail(
   );
 
   const refresh = useCallback(
-    (selected?: WarehouseProduct) => {
+    (selected?: WarehouseProduct, includeSaleGate = false) => {
       const current = selected ?? product;
       if (!current) return;
       stopRequests();
@@ -157,11 +237,15 @@ export function useLiveStockBatchDetail(
       setSourceOpenId(null);
       setSourceLoadingId(null);
       setSourceErrorId(null);
-      // Detail is an independent bounded read; never imply the list and detail
-      // are one database snapshot or retain old source evidence as verified.
+      setSaleGate(null);
+      setSaleGateLoading(false);
+      setSaleGateError(false);
+      // Detail and sale-gate reads are independent bounded reads; never imply
+      // they are one database snapshot or retain old evidence as verified.
       void readPage(current, null, false);
+      if (includeSaleGate) void readSaleGate(current);
     },
-    [product, readPage, stopRequests],
+    [product, readPage, readSaleGate, stopRequests],
   );
 
   const invalidate = useCallback(() => {
@@ -174,9 +258,12 @@ export function useLiveStockBatchDetail(
     setSourceOpenId(null);
     setSourceLoadingId(null);
     setSourceErrorId(null);
+    setSaleGate(null);
+    setSaleGateLoading(false);
+    setSaleGateError(false);
   }, [product, staleMessage, stopRequests]);
 
-  const open = useCallback(
+  const prepareOpen = useCallback(
     (selected: WarehouseProduct) => {
       stopRequests();
       setProduct(selected);
@@ -187,9 +274,28 @@ export function useLiveStockBatchDetail(
       setSourceOpenId(null);
       setSourceLoadingId(null);
       setSourceErrorId(null);
+      setSaleGate(null);
+      setSaleGateLoading(false);
+      setSaleGateError(false);
+    },
+    [stopRequests],
+  );
+
+  const open = useCallback(
+    (selected: WarehouseProduct) => {
+      prepareOpen(selected);
       void readPage(selected, null, false);
     },
-    [readPage, stopRequests],
+    [prepareOpen, readPage],
+  );
+
+  const openUnavailable = useCallback(
+    (selected: WarehouseProduct) => {
+      prepareOpen(selected);
+      void readPage(selected, null, false);
+      void readSaleGate(selected);
+    },
+    [prepareOpen, readPage, readSaleGate],
   );
 
   const retry = useCallback(() => {
@@ -303,7 +409,11 @@ export function useLiveStockBatchDetail(
     sourceOpenId,
     sourceLoadingId,
     sourceErrorId,
+    saleGate,
+    saleGateLoading,
+    saleGateError,
     open,
+    openUnavailable,
     close,
     refresh,
     invalidate,
