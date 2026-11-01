@@ -1426,7 +1426,7 @@ export default function MainInventory() {
       ? (stockPageReady ? "warmUnverified" : "loadingVerification")
       : liveReadPhase === "failed" || stockPageError || stockSummaryError
         ? "refreshFailed"
-        : livePageFresh
+        : livePageFresh && liveSummaryFresh
           ? "verifiedFresh"
           : stockPageReady
             ? "warmUnverified"
@@ -1675,7 +1675,7 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "live" && selectedLocationId !== null && (
+        {activeTab === "live" && selectedLocationId !== null && liveDisclosureKey !== "verifiedFresh" && (
           <div
             role={accessDenied && !locationAccess.isError ? "alert" : "status"}
             aria-live={accessDenied || liveReadPhase === "denied" ? "assertive" : "polite"}

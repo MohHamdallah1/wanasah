@@ -179,8 +179,9 @@ describe("UI-04: cache is never its own access authority", () => {
     // The previously stored row is visible only with a stale label, never as current.
     await waitFor(() => expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument());
     await act(async () => response.resolve(resultPage));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.verifiedFresh"));
-    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument());
+    // The silent success state must never leave a false freshness notice.
+    expect(document.querySelector("[data-live-authority]")).toBeNull();
   });
 
   it("fails closed when the same-location permission is revoked on revalidation", async () => {
@@ -304,7 +305,8 @@ describe("in-flight admission and independent response ordering", () => {
     expect(banner).toHaveAttribute("data-live-authority", "warmUnverified");
     expect(banner).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
     await act(async () => page.resolve(resultPage));
-    await waitFor(() => expect(banner).toHaveAttribute("data-live-authority", "verifiedFresh"));
+    await waitFor(() => expect(document.querySelector("[data-live-authority]")).toBeNull());
+    expect(screen.getByText("total=0")).toBeInTheDocument();
   });
 
   it("never lets a delayed pre-revocation Vehicle value replace a newer NO_ACCESS/null page", async () => {
