@@ -1144,7 +1144,9 @@ describe("Checkpoint 1 inbound UI", () => {
       expect(screen.getByRole("button", { name: "Preparing receipt..." })).toBeDisabled()
     );
     expect(mocks.post).not.toHaveBeenCalled();
-    expect(fetch.mock.calls.filter(([url]) => url === "/warehouse/inbound/options")).toHaveLength(1);
+    // The submission intentionally performs a fresh read, even while an older
+    // passive preload is unresolved; posting must wait for that newest read.
+    expect(fetch.mock.calls.filter(([url]) => url === "/warehouse/inbound/options")).toHaveLength(2);
 
     resolveOptions?.({
       currency_code: "JOD",
