@@ -185,7 +185,9 @@ export function useTransferList() {
     loadingMore: !searchPending && !searchTooShort && loadingMore,
     hasMore: Boolean(current?.next),
     failure: scopedFailure,
-    retry: () => void fetchPage(lastAttempt.current),
+    retry: () => {
+      if (!searchPending && !searchTooShort) void fetchPage(lastAttempt.current);
+    },
     detail,
     detailLoading,
     inTransitCount,
