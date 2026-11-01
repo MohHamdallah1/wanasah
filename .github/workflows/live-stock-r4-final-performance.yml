@@ -172,6 +172,34 @@ jobs:
               "wa_backend/tests/test_live_stock_r4_final_metrics.py",
               ".github/workflows/live-stock-r4-final-performance.yml",
           }
+          # Same-session Live Stock re-entry plus unavailable-cause
+          # explanation is a separate exact crossover. It deliberately keeps
+          # the R4-owned live_stock.py query family unchanged; only this scope
+          # classifier is extended.
+          seamless_required = {
+              "dashboard/src/App.tsx",
+              "dashboard/src/components/operations/DashboardLayout.tsx",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+              "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+          }
+          seamless_allowed = seamless_required | {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+              "dashboard/e2e/live-stock-v1.spec.ts",
+              "dashboard/src/test/auth-session-page-boundary.test.tsx",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+              "dashboard/src/test/live-stock-warm-authority.test.tsx",
+              "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+              "wa_backend/tests/test_cp7_live_stock_postgres.py",
+          }
+
           # Owner-approved inventory minimum + physical warehouse visibility
           # change is a separate, exact crossover: keep normal R4 scope strict.
           minimum_view_required = {
@@ -205,7 +233,12 @@ jobs:
               "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
               "dashboard/src/test/live-stock-render-windowing.test.tsx",
           }
-          if minimum_view_required <= files:
+          if seamless_required <= files:
+              unexpected = files - seamless_allowed
+              assert not unexpected, f"Unexpected seamless/explanation crossover: {sorted(unexpected)}"
+              assert "wa_backend/api/warehouse/live_stock.py" not in files
+              mode = "SEAMLESS_REENTRY_EXPLANATION_EXACT"
+          elif minimum_view_required <= files:
               unexpected = files - minimum_view_allowed
               assert not unexpected, f"Unexpected minimum/view crossover: {sorted(unexpected)}"
               mode = "MINIMUM_VIEW_EXACT"
