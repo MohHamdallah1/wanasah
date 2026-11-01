@@ -139,6 +139,8 @@ function props(products: WarehouseProduct[]) {
     stockState: "all" as LiveStockStockState,
     sort: "stock_first" as const,
     onSortChange: noop,
+    view: "warehouse" as const,
+    onViewChange: noop,
     indicators: [],
     familyId: null,
     onLocationChange: noop,
