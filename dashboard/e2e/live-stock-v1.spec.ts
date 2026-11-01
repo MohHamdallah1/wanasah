@@ -174,12 +174,13 @@ test("continuous scroll fetches distinct cursor pages without mounting all accum
   const list = stock(page).locator("[data-cp13-stock-list]");
   await expect(rows(page).first()).toContainText("Stock Item 0000");
   for (const expectedRequests of [2, 3, 4]) {
-    await list.evaluate((node) => {
-      node.scrollTop = node.scrollHeight;
-      node.dispatchEvent(new Event("scroll"));
-    });
-    await expect.poll(() => state.cursorReads, { timeout: 10000 })
-      .toBeGreaterThanOrEqual(expectedRequests);
+    await expect.poll(async () => {
+      await list.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event("scroll"));
+      });
+      return state.cursorReads;
+    }, { timeout: 10000 }).toBeGreaterThanOrEqual(expectedRequests);
     await expect.poll(() => list.evaluate((node) => node.scrollHeight))
       .toBeGreaterThan(0);
   }
