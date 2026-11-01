@@ -158,6 +158,26 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clearInventoryWarmScope("1:75:75"); clearInventoryWarmScope("1:75"); });
 
 describe("UI-04: cache is never its own access authority", () => {
+  it.each(["ar", "en"])("does not flash a technical verification notice on initial load or admission (%s)", async (locale) => {
+    state.locale = locale;
+    // Known warehouse selection but no admitted stock: user sees the existing
+    // safe loading state, never the transient technical access banner.
+    writeInventoryShellWarmSnapshot(inventoryWarmScopeKey("1", "75", "75"), shell);
+    const page = deferred<unknown>();
+    fakeServer({ page: page.promise });
+    const view = mount();
+    expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
+    expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();
+
+    grant();
+    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
+    expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
+    await act(async () => page.resolve(resultPage));
+    expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
+  });
+
   it("reproduces and blocks PRIVATE rows and costs before new access admission", async () => {
     seed();
     const selection = deferred<unknown>();

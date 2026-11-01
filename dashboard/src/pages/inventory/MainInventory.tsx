@@ -1675,7 +1675,8 @@ export default function MainInventory() {
           </div>
         )}
 
-        {activeTab === "live" && selectedLocationId !== null && liveDisclosureKey !== "verifiedFresh" && (
+        {activeTab === "live" && selectedLocationId !== null &&
+          liveDisclosureKey !== "verifiedFresh" && liveDisclosureKey !== "loadingVerification" && (
           <div
             role={accessDenied && !locationAccess.isError ? "alert" : "status"}
             aria-live={accessDenied || liveReadPhase === "denied" ? "assertive" : "polite"}

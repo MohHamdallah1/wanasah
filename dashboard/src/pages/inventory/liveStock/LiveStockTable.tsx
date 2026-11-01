@@ -183,7 +183,7 @@ export function LiveStockTable({
                   }}
                   onBlur={(event) => onProductBlur(event.relatedTarget)}
                   data-live-stock-product-open={product.id}
-                  className="max-w-[260px] rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="w-full min-w-0 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                   aria-label={`${copy.openBatchDetails}: ${product.name}`}
                 >
                   <span className="flex items-center gap-2">
@@ -197,9 +197,6 @@ export function LiveStockTable({
                       {product.name}
                     </span>
                   </span>
-                  <span className="mt-0.5 block truncate text-[11px] font-semibold text-slate-500" dir="ltr">
-                    {product.sku ?? "—"}
-                  </span>
                   <span className="live-stock-minimum-row mt-0.5 block text-[10px] font-semibold text-slate-500">
                     {t("inventoryLive.minimumStockLabel")}: {hasMinimum
                       ? quantity(product.minimum_quantity).primary
@@ -207,7 +204,7 @@ export function LiveStockTable({
                   </span>
                 </button>
               </td>
-              <td className="live-family-cell px-3 py-2 text-start text-xs font-bold text-slate-600">
+              <td className="live-family-cell px-3 py-2 text-center text-xs font-bold text-slate-600">
                 <div className="live-family-name" title={product.family_name}>{product.family_name}</div>
               </td>
               {values.map(([value, tone, metric], quantityIndex) => {

@@ -64,12 +64,23 @@ for (const entry of visualCases) {
     await expect(stock(page).locator(".live-stock-family-button")).toHaveAttribute("aria-label", /.+/);
     await expect(stock(page).locator(".live-stock-context-select")).toHaveAttribute("aria-label", /.+/);
 
+    // The initial-only verification message is deliberately not visible;
+    // authorization and warm-cache protections are tested independently.
+    await expect(page.locator('[data-live-authority="loadingVerification"]')).toHaveCount(0);
+
     if (entry.mobile) {
+      await expect(cards(page).first()).not.toContainText("SKU-118");
       await expect(cards(page).first()).toBeVisible();
       await expect(page.locator(".live-stock-table")).toHaveCount(0);
       expect(await cards(page).count()).toBeLessThanOrEqual(40);
     } else {
       await expect(page.locator(".live-stock-table")).toBeVisible();
+      await expect(rows(page).first()).not.toContainText("SKU-118");
+      await expect(rows(page).first().locator(".live-family-name")).toHaveCSS("text-align", "center");
+      const widths = await page.locator(".live-product-heading, .live-family-heading").evaluateAll(
+        (nodes) => nodes.map((node) => node.getBoundingClientRect().width),
+      );
+      expect(widths[0]).toBeGreaterThan(widths[1]);
       expect(await rows(page).count()).toBeLessThanOrEqual(40);
     }
 
