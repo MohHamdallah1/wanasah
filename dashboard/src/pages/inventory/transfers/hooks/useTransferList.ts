@@ -52,8 +52,9 @@ export function useTransferList() {
   }, [searchInput]);
 
   const fetchPage = useCallback(async (attempt: Attempt) => {
-    // The API only accepts two or more characters. Never retry a short query.
-    if (search.length === 1) return;
+    // The API only accepts two or more characters. A pending debounce is
+    // also not the query the operator can see, so never dispatch it.
+    if (search.length === 1 || searchTooShort || searchPending) return;
     if (attempt.append && loadingMoreRef.current) return;
     const seq = ++requestSeq.current;
     if (!attempt.append) abort.current?.abort();
@@ -105,7 +106,7 @@ export function useTransferList() {
         } else setLoading(false);
       }
     }
-  }, [authenticatedFetch, scope, search, status, t]);
+  }, [authenticatedFetch, scope, search, searchPending, searchTooShort, status, t]);
 
   const invalidateList = useCallback(() => {
     ++requestSeq.current;
