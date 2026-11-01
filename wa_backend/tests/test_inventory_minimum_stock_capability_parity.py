@@ -446,6 +446,25 @@ class InventoryMinimumStockCapabilityParityTests(unittest.IsolatedAsyncioTestCas
                 self.refresh.assert_not_awaited()
                 self.complete.assert_not_called()
 
+    async def test_active_unassigned_catalog_product_accepts_minimum_without_provisioning(self):
+        # A threshold is policy, not ProductLocation assignment or physical stock.
+        # All three entry points must accept a company-owned ACTIVE variant.
+        for kind in ("preview", "bulk", "single"):
+            with self.subTest(kind=kind):
+                db, current = self._business(kind, assigned=False)
+                response = await self._request(kind, db=db)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json().get("matched_count", 1), 1)
+                if kind != "preview":
+                    self.assertEqual(current.minimum_quantity, Decimal("2"))
+                    db.commit.assert_awaited_once()
+                    self.refresh.assert_awaited_once()
+                statements = [
+                    str(call.args[0]) for call in db.execute.await_args_list
+                ]
+                self.assertTrue(statements)
+                self.assertFalse(any("product_locations" in query for query in statements))
+
     async def test_bulk_conflicts_remain_atomic_before_audit_projection_and_commit(self):
         for setup in ({"target": "1"}, {"active": False}, {"step": "3"}):
             with self.subTest(setup=setup):
