@@ -19,6 +19,7 @@ type Props = {
   onProductFocus?: (productId: number) => void;
   onProductBlur?: (nextTarget: EventTarget | null) => void;
   onOpen: (product: WarehouseProduct) => void;
+  onOpenUnavailable?: (product: WarehouseProduct) => void;
 };
 
 export function LiveStockMobileCards({
@@ -31,6 +32,7 @@ export function LiveStockMobileCards({
   onProductFocus = () => undefined,
   onProductBlur = () => undefined,
   onOpen,
+  onOpenUnavailable = onOpen,
 }: Props) {
   const { t, i18n } = useTranslation();
   const measureCard = useCallback(
@@ -153,7 +155,7 @@ export function LiveStockMobileCards({
                       title={rendered.secondary ?? undefined}
                     >
                       {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
-                        <button type="button" onClick={() => onOpen(product)}
+                        <button type="button" onClick={() => onOpenUnavailable(product)}
                           aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
                           title={copy.unavailableBreakdown}
                           className="rounded-md underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
