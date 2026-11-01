@@ -647,6 +647,19 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
         expect(statusBox!.x + statusBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width + 1);
       } else {
         await expect(page.locator(".live-stock-table")).toBeVisible();
+        const toolbar = page.locator('[data-cp13-controls="stock-list"]');
+        await expect(toolbar).toBeVisible();
+        expect(await toolbar.evaluate(node => getComputedStyle(node).flexWrap)).toBe("nowrap");
+        const row = await Promise.all([
+          toolbar.locator(".live-stock-search"),
+          toolbar.locator(".live-stock-filter-button"),
+          toolbar.locator(".live-stock-family-button"),
+          toolbar.locator(".live-stock-sort select"),
+          toolbar.locator(".live-stock-context-select"),
+        ].map(locator => locator.boundingBox()));
+        expect(row.every(box => box !== null)).toBe(true);
+        const centers = row.map(box => box!.y + box!.height / 2);
+        expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(14);
       }
 
       await captureOwner(page, view.filename);
