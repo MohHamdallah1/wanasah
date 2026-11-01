@@ -223,7 +223,7 @@ export function LiveStockTable({
                       <button
                         type="button"
                         onClick={() => onOpenUnavailable(product)}
-                        aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
+                        aria-label={`${copy.unavailableBreakdown} — ${product.name}`}
                         title={copy.unavailableBreakdown}
                         className="rounded-md px-1 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                       >
