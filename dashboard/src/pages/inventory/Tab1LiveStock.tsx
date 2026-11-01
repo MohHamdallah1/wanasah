@@ -101,6 +101,8 @@ export function Tab1LiveStock({
   const measuredItemExtentsRef = useRef<Map<number, number>>(new Map());
   const [measurementRevision, setMeasurementRevision] = useState(0);
   const [viewportWidthBucket, setViewportWidthBucket] = useState(0);
+  const [detailMode, setDetailMode] =
+    useState<"details" | "unavailable">("details");
   const fallbackItemExtent = isNarrowViewport
     ? LIVE_STOCK_FALLBACK_MOBILE_CARD_PX
     : LIVE_STOCK_FALLBACK_DESKTOP_ROW_PX;
@@ -259,9 +261,26 @@ export function Tab1LiveStock({
     onReadDenied,
   );
 
+  const openBatchDetails = useCallback(
+    (product: WarehouseProduct) => {
+      setDetailMode("details");
+      detail.open(product);
+    },
+    [detail.open],
+  );
+
+  const openUnavailableExplanation = useCallback(
+    (product: WarehouseProduct) => {
+      setDetailMode("unavailable");
+      detail.openUnavailable(product);
+    },
+    [detail.openUnavailable],
+  );
+
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
     detail.close();
+    setDetailMode("details");
     if (selectedId === undefined) return;
 
     // A manual refresh replaces the entire inventory row while the modal is
@@ -334,7 +353,10 @@ export function Tab1LiveStock({
           locationId, productId: current.id,
           syncedAt: stamp, wasVisible: Boolean(listSelected),
         };
-        detail.refresh(listSelected ?? current);
+        detail.refresh(
+          listSelected ?? current,
+          detailMode === "unavailable",
+        );
       }
       return;
     }
@@ -352,10 +374,22 @@ export function Tab1LiveStock({
         (listSelected && listSelected !== current) ||
         (!listSelected && previous.wasVisible)
       ) {
-        detail.refresh(listSelected ?? current);
+        detail.refresh(
+          listSelected ?? current,
+          detailMode === "unavailable",
+        );
       }
     }
-  }, [detail.product, detail.refresh, lastSync, listSelected, locationId, loading, pageError]);
+  }, [
+    detail.product,
+    detail.refresh,
+    detailMode,
+    lastSync,
+    listSelected,
+    locationId,
+    loading,
+    pageError,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -551,7 +585,8 @@ export function Tab1LiveStock({
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
               loading={loading}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableExplanation}
             />
           )}
           {isNarrowViewport && products.length > 0 && (
@@ -564,7 +599,8 @@ export function Tab1LiveStock({
               onItemMeasure={handleItemMeasure}
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableExplanation}
             />
           )}
           {products.length === 0 && (
@@ -613,6 +649,10 @@ export function Tab1LiveStock({
       <BatchDetailPanel
         product={detail.product}
         batches={detail.page?.batches ?? []}
+        mode={detailMode}
+        saleGate={detail.saleGate}
+        saleGateLoading={detail.saleGateLoading}
+        saleGateError={detail.saleGateError}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}
@@ -622,7 +662,7 @@ export function Tab1LiveStock({
         sourceErrorId={detail.sourceErrorId}
         onClose={closeDetailWithFocusReturn}
         onRefresh={refreshWithDetail}
-        refreshing={loading || detail.loading}
+        refreshing={loading || detail.loading || detail.saleGateLoading}
         onRetry={detail.retry}
         onLoadMore={detail.loadMore}
         onLoadSource={detail.loadSource}

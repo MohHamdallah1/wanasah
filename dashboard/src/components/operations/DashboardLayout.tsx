@@ -1,5 +1,6 @@
 import { Menu, WifiOff } from "lucide-react";
 import {
+  lazy,
   Suspense,
   useEffect,
   useState,
@@ -14,12 +15,15 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { loadInventoryPage } from "@/routes/routePreloaders";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
 
 const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
   "wanasah:layout:operations-sidebar-collapsed";
+
+const MainInventory = lazy(loadInventoryPage);
 
 const DashboardLayout = () => {
   const { t, i18n } =
@@ -39,6 +43,12 @@ const DashboardLayout = () => {
   );
   const location =
     useLocation();
+  const isInventoryRoute =
+    location.pathname === "/inventory";
+  const [
+    inventoryMounted,
+    setInventoryMounted,
+  ] = useState(isInventoryRoute);
   const session =
     useDashboardSession();
   const access =
@@ -54,6 +64,12 @@ const DashboardLayout = () => {
         : "0",
     );
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (isInventoryRoute) {
+      setInventoryMounted(true);
+    }
+  }, [isInventoryRoute]);
 
   if (!session) {
     return <Navigate to="/login" replace />;
@@ -230,7 +246,20 @@ const DashboardLayout = () => {
               </div>
             }
           >
-            <Outlet key={`${session.generation}:${session.identity}`} />
+            {inventoryMounted ? (
+              <div
+                className={isInventoryRoute ? "contents" : "hidden"}
+                aria-hidden={!isInventoryRoute}
+                data-persistent-inventory-host="true"
+              >
+                <MainInventory
+                  key={`${session.generation}:${session.identity}:inventory`}
+                />
+              </div>
+            ) : null}
+            {!isInventoryRoute ? (
+              <Outlet key={`${session.generation}:${session.identity}`} />
+            ) : null}
           </Suspense>
         </main>
       </div>

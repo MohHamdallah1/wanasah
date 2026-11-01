@@ -512,6 +512,44 @@ WAREHOUSE_VIEW_REQUIRED = {
     "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
     "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
 }
+
+# Owner-approved seamless Live Stock re-entry + exact unavailable-cause repair.
+# This is intentionally a one-contract crossover: it must include the route
+# lifetime boundary, the Live Stock explanation surface, and the canonical
+# batch-detail response together. It does not authorize unrelated dashboard,
+# movement, costing, dispatch, or backend work.
+SEAMLESS_REENTRY_EXPLANATION_REQUIRED = {
+    "dashboard/src/App.tsx",
+    "dashboard/src/components/operations/DashboardLayout.tsx",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+    "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+    "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+    "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+    "dashboard/src/pages/inventory/liveStock/i18n.ts",
+    "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+    "dashboard/src/pages/inventory/liveStock/useLiveStockBatchDetail.ts",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
+}
+SEAMLESS_REENTRY_EXPLANATION_ALLOWED = (
+    SEAMLESS_REENTRY_EXPLANATION_REQUIRED
+    | {
+        HELPER,
+        ".github/workflows/live-stock-r4-final-performance.yml",
+        ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+        ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+        ".github/workflows/live-stock-v1-browser-acceptance.yml",
+        "dashboard/e2e/live-stock-v1.spec.ts",
+        "dashboard/src/test/auth-session-page-boundary.test.tsx",
+        "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+        "dashboard/src/test/live-stock-warm-authority.test.tsx",
+        "dashboard/src/test/live-stock-ui-stability.test.ts",
+        "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+        "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+        "wa_backend/tests/test_cp7_live_stock_postgres.py",
+    }
+)
+
 WAREHOUSE_VIEW_ALLOWED = WAREHOUSE_VIEW_REQUIRED | {
     ".github/workflows/inventory-cp13-shell-polish.yml",
     "wa_backend/scripts/live_stock_r4_final_profile.py",
@@ -535,6 +573,12 @@ WAREHOUSE_VIEW_ALLOWED = WAREHOUSE_VIEW_REQUIRED | {
 
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if SEAMLESS_REENTRY_EXPLANATION_REQUIRED <= changed:
+        extra = sorted(changed - SEAMLESS_REENTRY_EXPLANATION_ALLOWED)
+        if extra:
+            return "fail", [f"LIVE_STOCK_REENTRY_EXPLANATION_SCOPE=FAIL extra={extra}"]
+        return "seamless-reentry-explanation", []
+
     if WAREHOUSE_VIEW_REQUIRED <= changed:
         extra = sorted(changed - WAREHOUSE_VIEW_ALLOWED)
         if extra:
@@ -600,6 +644,19 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    seamless_scope = set(SEAMLESS_REENTRY_EXPLANATION_ALLOWED)
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, seamless_scope, none)[0] == "seamless-reentry-explanation"
+        for foreign in (
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "wa_backend/services.py",
+            "wa_backend/domains/inventory_costing/service.py",
+            "flutter_app/lib/main.dart",
+            "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+        ):
+            _expect_fail(mode, seamless_scope | {foreign}, none)
+
     false_positive = {
         ".github/workflows/dispatch-p0-route-stock-safety.yml",
         "dashboard/src/components/dispatch/RouteManagementModal.tsx",
@@ -612,7 +669,6 @@ def selftest() -> None:
         SHARED_DISPATCH,
         "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py",
     }
-    none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     combined_worker1 = {
         OP_WORKFLOW,
         ".github/workflows/dispatch-p0-route-stock-safety.yml",

@@ -11,7 +11,8 @@ const cards = (page: Page) => page.locator("[data-cp13-stock-card]");
 const loadList = async (page: Page) => {
   await page.goto("/inventory");
   await expect(stock(page)).toBeVisible();
-  await expect(page.locator("[data-live-authority]")).toBeVisible();
+  await expect(page.locator('[data-live-stock-product-open="118"]').first()).toBeVisible();
+  await expect(page.locator('[data-live-verification-shell="true"]')).toHaveCount(0);
 };
 const openFirst = async (page: Page) => {
   const open = page.locator('[data-live-stock-product-open="118"]');
@@ -89,6 +90,59 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
+test("same-session dashboard reentry preserves live stock without verification flash and refreshes once", async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const state = await installLiveStockApi(page);
+  await seedLiveStock(page, "en");
+  await loadList(page);
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).first()).toContainText("Stock Item 0000");
+
+  const cursorReadsBeforeLeaving = state.cursorReads;
+  expect(cursorReadsBeforeLeaving).toBeGreaterThan(0);
+
+  const host = page.locator('[data-persistent-inventory-host="true"]');
+  await expect(host).toBeVisible();
+
+  const nav = page.locator(".operations-nav-item");
+  await nav.nth(0).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(host).toBeHidden();
+
+  await page.evaluate(() => {
+    const marker = "__wanasahLiveVerificationShellSeen";
+    (window as unknown as Record<string, unknown>)[marker] = false;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-live-verification-shell="true"]')) {
+        (window as unknown as Record<string, unknown>)[marker] = true;
+      }
+    });
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class", "data-live-verification-shell"],
+    });
+    (window as unknown as Record<string, unknown>).__wanasahLiveReentryObserver = observer;
+  });
+
+  await nav.nth(2).click();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(host).toBeVisible();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).first()).toContainText("Stock Item 0000");
+
+  await expect.poll(() => state.cursorReads).toBe(cursorReadsBeforeLeaving + 1);
+  expect(await page.evaluate(() =>
+    (window as unknown as Record<string, unknown>).__wanasahLiveVerificationShellSeen
+  )).toBe(false);
+  await page.evaluate(() => {
+    const observer = (window as unknown as Record<string, unknown>)
+      .__wanasahLiveReentryObserver as MutationObserver | undefined;
+    observer?.disconnect();
+  });
+});
+
 test("search, family filter and correct location-scoped response without row leakage", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 840 });
   const state = await installLiveStockApi(page, 80);
@@ -120,12 +174,13 @@ test("continuous scroll fetches distinct cursor pages without mounting all accum
   const list = stock(page).locator("[data-cp13-stock-list]");
   await expect(rows(page).first()).toContainText("Stock Item 0000");
   for (const expectedRequests of [2, 3, 4]) {
-    await list.evaluate((node) => {
-      node.scrollTop = node.scrollHeight;
-      node.dispatchEvent(new Event("scroll"));
-    });
-    await expect.poll(() => state.cursorReads, { timeout: 10000 })
-      .toBeGreaterThanOrEqual(expectedRequests);
+    await expect.poll(async () => {
+      await list.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event("scroll"));
+      });
+      return state.cursorReads;
+    }, { timeout: 10000 }).toBeGreaterThanOrEqual(expectedRequests);
     await expect.poll(() => list.evaluate((node) => node.scrollHeight))
       .toBeGreaterThan(0);
   }
@@ -152,7 +207,7 @@ test("batch details show bounded partial/truncated owners, quantities and fresh 
   await loadList(page);
   await openFirst(page);
   const dialog = page.getByRole("dialog");
-  const sourceButton = dialog.getByRole("button", { name: "Stock source and reservations" });
+  const sourceButton = dialog.getByRole("button", { name: "Actionable Warehouse source and reservations" });
   await sourceButton.focus();
   await sourceButton.press("Enter");
   await expect(sourceButton).toHaveAttribute("aria-expanded", "true");
@@ -188,7 +243,7 @@ test("loading, retry, failed source and refresh invalidate old reservation evide
   await expect(rows(page)).toHaveCount(2);
   await openFirst(page);
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("button", { name: "Stock source and reservations" }).click();
+  await dialog.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
   await expect(dialog.getByText("Source evidence could not be loaded for this warehouse.")).toBeVisible();
   await expect(dialog.getByText("RES-9001")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Retry" }).click();

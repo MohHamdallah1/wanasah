@@ -99,13 +99,13 @@ describe("Live Stock visual stability regressions", () => {
     );
 
     expect(main).toContain(
-      'if (activeTab === "live" && selectedLocationId !== null) { void fetchStock(); }',
+      '!inventoryRouteActiveRef.current || activeTab !== "live" || selectedLocationId === null',
     );
+    expect(main).toContain("void fetchStockRef.current();");
+    expect(main).toContain("void fetchStockSummaryRef.current();");
+    expect(main).toContain("stockRefreshKey");
     expect(main).toContain(
-      'if (activeTab === "live" && selectedLocationId !== null) { void fetchStockSummary(); }',
-    );
-    expect(main).toContain(
-      "[activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]",
+      "if (!returningToInventory) return;",
     );
   });
 
@@ -124,7 +124,14 @@ describe("Live Stock visual stability regressions", () => {
       'activeTab === "live" && selectedLocationId !== null && liveVisible && tabAllowed("live")',
     );
     expect(main).toContain(
-      "locationAccess.isSuccess && locationAccess.isFetchedAfterMount && !locationAccess.isFetching",
+      "const locationAccessFresh = locationAccessMatches && locationAccess.isFetchedAfterMount && !locationAccess.isFetching;",
+    );
+    expect(main).toContain(
+      "admittedLocationAccessScope.current === locationAccessScope",
+    );
+    expect(main).toContain("permissionRevalidationFloor === null");
+    expect(main).toContain(
+      'window.addEventListener( "inventory-permission-denied", markPermissionRevalidation, );',
     );
     expect(main).not.toContain("canShowWarmLiveDuringAccessRefresh");
     expect(main).toContain("pageReady={stockPageReady}");

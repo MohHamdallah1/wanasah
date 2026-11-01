@@ -115,6 +115,18 @@
         "path": "/warehouse/batches/{batch_id}/stock-sources"
       },
       "method": "GET",
+      "path": "/warehouse/inventory/{product_variant_id}/sale-gate",
+      "function": "get_live_stock_product_sale_gate",
+      "status_code": "200",
+      "response_model": "LiveStockProductSaleGateResponse",
+      "expected_module": "live_stock_source_detail"
+    },
+    {
+      "insert_after": {
+        "method": "GET",
+        "path": "/warehouse/inventory/{product_variant_id}/sale-gate"
+      },
+      "method": "GET",
       "path": "/warehouse/inventory/{product_variant_id}/batches/{batch_id}/source",
       "function": "get_live_stock_batch_source",
       "status_code": "200",

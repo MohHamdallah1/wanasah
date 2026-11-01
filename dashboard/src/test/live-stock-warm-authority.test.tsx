@@ -116,7 +116,7 @@ const deferred = <T,>() => {
   const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
   return { promise, resolve, reject };
 };
-const mount = () => render(<MemoryRouter><MainInventory /></MemoryRouter>);
+const mount = () => render(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
 const seed = () => {
   const key = inventoryWarmScopeKey("1", "75", "75");
   writeInventoryShellWarmSnapshot(key, shell);
@@ -170,7 +170,7 @@ describe("UI-04: cache is never its own access authority", () => {
     expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();
 
     grant();
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
       String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
     expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
@@ -201,6 +201,26 @@ describe("UI-04: cache is never its own access authority", () => {
     await screen.findByText(/FRESH_RETURN_ROW/);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(document.querySelector("[data-live-authority]")).toBeNull();
+  });
+
+  it("keeps an already admitted same-session list during an ordinary shared access background refetch", async () => {
+    grant();
+    fakeServer({ page: Promise.resolve({ ...resultPage, items: [item] }) });
+    const view = mount();
+    await screen.findByText(/PRIVATE_STOCK_ROW/);
+
+    state.globalFetching = true;
+    state.locationFetching = true;
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
+
+    expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument();
+    expect(screen.getByTestId("live-stock")).toBeInTheDocument();
+    expect(document.querySelector('[data-live-verification-shell="true"]')).toBeNull();
+
+    state.globalFetching = false;
+    state.locationFetching = false;
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
+    expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument();
   });
 
   it("on manual refresh hides the previous list until the new authorized read succeeds", async () => {
@@ -242,7 +262,7 @@ describe("UI-04: cache is never its own access authority", () => {
     fakeServer({ page: response.promise });
     const view = mount();
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
-    grant(); view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    grant(); view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
       String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
@@ -259,7 +279,7 @@ describe("UI-04: cache is never its own access authority", () => {
     seed(); fakeServer(); const view = mount();
     state.permission = false; state.locationPending = false; state.locationFetching = false;
     state.locationSuccess = false; state.locationError = true;
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("inventoryShell.accessChanged");
     await waitFor(() => expect(readLiveStockWarmSnapshot(inventoryWarmScopeKey("1","75","75"),101)).toBeNull());
@@ -269,11 +289,11 @@ describe("UI-04: cache is never its own access authority", () => {
     seed(); fakeServer(); const view = mount();
     localStorage.setItem("principal_id", "999");
     state.principal = "999";
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     localStorage.setItem("company_id", "2");
     state.scope = "2";
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
   });
 
@@ -282,13 +302,13 @@ describe("UI-04: cache is never its own access authority", () => {
     state.locationPending = false; state.locationFetching = false;
     state.errorStatus = 0; // network failure, not an authorization denial
     state.locationError = true; state.locationSuccess = false;
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.accessRefreshFailed");
     expect(screen.getAllByRole("button", { name: "inventoryShell.retry" }).length).toBeGreaterThan(0);
     grant();
     state.locationError = false;
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
       String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
   });
@@ -299,7 +319,7 @@ describe("UI-04: cache is never its own access authority", () => {
     const view = mount();
     await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) => String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
     state.permission = false; state.locationSuccess = false; state.locationError = true;
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     await act(async () => response.resolve({ ...resultPage, items: [item] }));
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(readLiveStockWarmSnapshot(inventoryWarmScopeKey("1","75","75"),101)?.items.some(p=>p.id===41)).not.toBe(true);
@@ -315,7 +335,7 @@ describe("in-flight admission and independent response ordering", () => {
     const path = reader === "page" ? "/cursor?" : "/summary?";
     await waitFor(() => expect(state.authFetch.mock.calls.some(([u]) => String(u).includes(path))).toBe(true));
     state.permission = false; state.locationError = true; state.locationSuccess = false;
-    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}><MainInventory /></MemoryRouter>);
     await act(async () => old.resolve(reader === "page"
       ? { ...resultPage, items: [item] } : { stock_total: 123, alert_count: 2 }));
     expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();

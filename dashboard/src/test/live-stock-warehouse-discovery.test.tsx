@@ -95,7 +95,11 @@ const setup = (count: number, canCreate = false) => ({
   accessible_warehouse_count: count,
   can_create: canCreate,
 });
-const renderInventory = () => render(<MemoryRouter><MainInventory /></MemoryRouter>);
+const renderInventory = () => render(
+  <MemoryRouter initialEntries={["/inventory"]}>
+    <MainInventory />
+  </MemoryRouter>,
+);
 
 beforeEach(() => {
   localStorage.clear();
