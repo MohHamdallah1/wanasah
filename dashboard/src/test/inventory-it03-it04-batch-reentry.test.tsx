@@ -294,6 +294,9 @@ describe("IT-03 / IT-04 batch reentry and refresh authority", () => {
     expect(shell).toContain('data-inventory-tab-cache="batches"');
     expect(shell).toContain('key={`${warmScopeKey ?? "invalid"}:${selectedLocationId}`}');
     expect(shell).toContain('active={activeTab === "batches"}');
+    expect(shell).toContain("const admission = await locationAccess.refetch()");
+    expect(shell).toContain('hasInventoryPermission(admission.data, "inventory.read")');
+    expect(shell).toContain("admissionSeq !== batchTabAdmissionSeq.current");
     expect(shell).toContain("setBatchRefreshKey((value) => value + 1)");
     expect(shell).not.toContain('data-inventory-tab-cache="inbound"');
     expect(shell).not.toContain('data-inventory-tab-cache="transfers"');
