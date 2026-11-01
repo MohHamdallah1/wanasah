@@ -46,7 +46,8 @@ const batchRaw = (qty = "2.500001") => ({
   latest_purchase_date: null, purchase_event_count: 0,
 });
 const batchPage = (qty = "2.500001") => ({
-  location_id: 11, product_variant_id: 41, currency_code: "JOD",
+  location_id: 11, product_variant_id: 41,
+  lifecycle_status: "ACTIVE", operational_hold: "NONE", currency_code: "JOD",
   batches: [batchRaw(qty)], next_cursor: null, has_more: false,
 });
 const sourcePayload = (qty = "2.500001", batchId = 71, locationId = 11) => ({
