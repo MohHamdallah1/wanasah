@@ -1,4 +1,5 @@
 import {
+  hasInventoryPermission,
   parseInventoryLocationCapabilities,
   useInventoryAccess,
 } from "@/hooks/useInventoryAccess";
@@ -420,6 +421,7 @@ export default function MainInventory() {
     const saved = localStorage.getItem(activeTabStorageKey);
     return isTabId(saved) ? saved : "live";
   });
+  const batchTabAdmissionSeq = useRef(0);
   const [batchTabVisited, setBatchTabVisited] = useState(
     activeTab === "batches",
   );
@@ -1781,12 +1783,27 @@ export default function MainInventory() {
         )}
         activeId={activeTab}
         ariaLabel={t("inventoryShell.tabsLabel")}
-        onChange={(id) => {
+        onChange={async (id) => {
           if (!isTabId(id)) return;
+          const admissionSeq = ++batchTabAdmissionSeq.current;
           if (requiresFirstWarehouse && id !== "warehouses") {
             toast.info(t("inventoryShell.createWarehouseFirstNotice"));
             return;
           }
+          if (id === "batches" && activeTab !== "batches" && selectedLocationId !== null) {
+            const admission = await locationAccess.refetch();
+            if (admissionSeq !== batchTabAdmissionSeq.current) return;
+            if (
+              !admission.data ||
+              admission.isError ||
+              !hasInventoryPermission(admission.data, "inventory.read")
+            ) {
+              toast.error(t(`inventoryShell.${admission.isError ? "accessRefreshFailed" : "accessChanged"}`));
+              if (!admission.isError) void fetchLocations();
+              return;
+            }
+          }
+          if (admissionSeq !== batchTabAdmissionSeq.current) return;
           setActiveTab(id);
         }}
       />
