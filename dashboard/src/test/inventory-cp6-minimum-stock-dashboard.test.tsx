@@ -239,7 +239,7 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     ).toBeTruthy();
   });
 
-  it("does not falsely call zero eligible assigned products 'already configured'", async () => {
+  it("does not falsely call zero active catalog products 'already configured'", async () => {
     mocks.authFetch.mockResolvedValue({ ...minimumResponse, matched_count: 0, affected_count: 0 });
     const onApplied = vi.fn();
     render(
@@ -253,13 +253,13 @@ describe("CP6 minimum-stock Dashboard parity", () => {
     expect(screen.getByText("inventoryMinimum.scopeAllHint")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "inventoryMinimum.apply" }));
     await waitFor(() => expect(applyCalls()).toHaveLength(1));
-    expect(mocks.toastError).toHaveBeenCalledWith("inventoryMinimum.noLinkedProducts");
+    expect(mocks.toastError).toHaveBeenCalledWith("inventoryMinimum.noActiveProducts");
     expect(mocks.toastInfo).not.toHaveBeenCalledWith("inventoryMinimum.noChangesSame");
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
     expect(onApplied).not.toHaveBeenCalled();
   });
 
-  it("distinguishes truly unchanged assigned products from zero matches", async () => {
+  it("distinguishes truly unchanged catalog products from zero matches", async () => {
     mocks.authFetch.mockResolvedValue(minimumResponse);
     render(
       <StockMinimumManager
