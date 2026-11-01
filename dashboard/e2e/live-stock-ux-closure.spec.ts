@@ -106,6 +106,36 @@ for (const entry of visualCases) {
   });
 }
 
+for (const locale of ["en", "ar"] as const) {
+  test(`G06 stable shell on first admission and delayed Live Stock query (${locale})`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const state = await installUxApi(page, 30);
+    state.accessDelayMs = 900;
+    state.cursorDelayMs = 1200;
+    await seedUx(page, locale);
+    await page.goto("/inventory");
+
+    // The first frame preserves the same dock and list region without showing
+    // unauthorized data or a full-page technical spinner.
+    await expect(page.locator(".workspace-top-bar-frame")).toBeVisible();
+    await expect(page.locator("[data-inventory-dock-loading]")).toBeVisible();
+    const pending = page.locator("[data-inventory-pending-surface]");
+    await expect(pending).toBeVisible();
+    await expect(rows(page)).toHaveCount(0);
+
+    // Authorization may finish while the stock cursor is still in flight.
+    // The real table header is already in place; rows must come from the new read.
+    await expect(stock(page)).toBeVisible();
+    await expect(stock(page).locator(".live-stock-table")).toBeVisible();
+    await expect(stock(page).locator(".live-stock-table thead th").first()).toBeVisible();
+    expect(await rows(page).count()).toBe(0);
+    await expect(rows(page).first()).toBeVisible();
+    await expect(page.locator("[data-inventory-pending-surface]")).toHaveCount(0);
+    await expect(page.locator('[data-live-authority="warmUnverified"]')).toHaveCount(0);
+    assertNoUnexpected(state);
+  });
+}
+
 test("one search/filter/family experience resets coherently and keeps accessible selection", async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 850 });
   const state = await installUxApi(page, 160);

@@ -106,8 +106,11 @@ describe("CP13.5 operations presentation consistency", () => {
     expect(sources.live).toContain('data-cp13-state="empty"');
     expect(sources.transfers).toContain('data-cp13-state={transferList.failure.phase === "first" ? "error" : "stale"}');
     expect(sources.transferTable).toContain('data-cp13-state="empty"');
-    expect(sources.ledger).toContain('data-cp13-state="loading"');
-    expect(sources.ledger).toContain('data-cp13-state="empty"');
+    // Desktop Ledger now owns its loading/empty state *inside* the stable
+    // table body, not in a temporary flex sibling that displaces its header.
+    expect(sources.ledger).toContain('<LedgerTable {...commonRows} loading={query.loading} error={query.error} />');
+    expect(sources.ledgerTable).toContain('data-cp13-state={loading ? "loading" : "empty"}');
+    expect(sources.ledgerTable).toContain('colSpan={12}');
     expect(sources.transfers).toContain("dir={i18n.dir()}");
     expect(sources.ledger).toContain("dir={i18n.dir()}");
     expect(sources.transferI18n).toContain('numberingSystem: "latn"');

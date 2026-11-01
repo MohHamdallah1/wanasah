@@ -112,24 +112,18 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
           </div>
         ) : null}
 
-        {query.loading && query.entries.length === 0 ? (
-          <p role="status" data-cp13-state="loading" className="flex flex-1 items-center justify-center p-8 text-sm font-bold text-slate-400">
-            {text("loading")}
-          </p>
-        ) : null}
-
-        {!query.loading && !query.error && query.entries.length === 0 ? (
-          <p data-cp13-state="empty" className="flex flex-1 items-center justify-center p-8 text-center text-sm font-semibold text-slate-400">
-            {text("empty")}
-          </p>
-        ) : null}
-
-        {query.entries.length > 0 ? (
-          <>
-            <LedgerTable {...commonRows} />
-            <LedgerMobileCards {...commonRows} />
-          </>
-        ) : null}
+        {/* The desktop header must exist on the first frame, not appear after HTTP. */}
+        <LedgerTable {...commonRows} loading={query.loading} error={query.error} />
+        <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
+          {query.entries.length > 0 ? <LedgerMobileCards {...commonRows} /> : (
+            !query.error && (
+              <p role="status" data-cp13-state={query.loading ? "loading" : "empty"}
+                className="p-8 text-center text-sm font-semibold text-slate-500">
+                {text(query.loading ? "loading" : "empty")}
+              </p>
+            )
+          )}
+        </div>
 
         <LedgerPagination
           t={t}

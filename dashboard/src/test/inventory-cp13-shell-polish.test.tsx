@@ -4,9 +4,12 @@ import { resolve } from "node:path";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Boxes, FilePlus, History } from "lucide-react";
+import type { TFunction } from "i18next";
 import { describe, expect, it, vi } from "vitest";
 
 import { InventoryTopDock } from "@/pages/inventory/InventoryTopDock";
+import { LedgerTable } from "@/pages/inventory/ledger/LedgerTable";
+import { BatchIndexTable } from "@/pages/inventory/batches/BatchIndexTable";
 
 vi.mock("@/pages/inventory/inventoryTopDockController", () => ({
   createInventoryTopDockController: () => () => undefined,
@@ -21,6 +24,75 @@ const items = [
 ] as const;
 
 describe("CP13.2 Inventory shell polish", () => {
+  const translator = ((key: string) => key) as TFunction;
+
+  it.each(["ltr", "rtl"])("keeps the same dock frame while permissions are pending (%s)", (dir) => {
+    const onChange = vi.fn();
+    const { container, rerender } = render(
+      <div dir={dir}>
+        <InventoryTopDock items={[]} loading activeId="live" ariaLabel="Inventory workflows" onChange={onChange} />
+      </div>,
+    );
+    expect(container.querySelector(".workspace-top-bar-frame")).toBeInTheDocument();
+    expect(screen.getByRole("tablist")).toHaveAttribute("aria-busy", "true");
+    expect(container.querySelector('[data-inventory-dock-loading="true"]')).toBeInTheDocument();
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+
+    rerender(
+      <div dir={dir}>
+        <InventoryTopDock items={items} activeId="live" ariaLabel="Inventory workflows" onChange={onChange} />
+      </div>,
+    );
+    expect(container.querySelector(".workspace-top-bar-frame")).toBeInTheDocument();
+    expect(screen.getByRole("tablist")).toHaveAttribute("aria-busy", "false");
+    expect(screen.getAllByRole("tab")).toHaveLength(items.length);
+    expect(screen.getByRole("tab", { name: "Live stock" })).toHaveAttribute("aria-selected", "true");
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the pending data panel inside the shell, never as a flex sibling above all tabs", () => {
+    const shell = read("src/pages/inventory/MainInventory.tsx");
+    expect(shell).toContain('data-inventory-pending-surface="true"');
+    expect(shell).toContain('activeTab === "live" && !liveVisible');
+    expect(shell).toContain('activeTab !== "live" &&');
+    expect(shell).not.toContain('if (loadingLocations && warehouseSetup === null && selectedLocationId === null) {');
+    expect(shell).not.toMatch(/selectedLocationId !== null &&\s*!liveVisible &&\s*!accessDenied && \(/);
+    expect(shell).toContain('!loadingLocations && activeTab !== "warehouses"');
+  });
+
+  it("keeps desktop Ledger column headers mounted through load and empty states", () => {
+    const renderTable = (loading: boolean) => <LedgerTable
+      t={translator} language="en" locale="en" entries={[]}
+      loading={loading} canAdjust={false}
+      onOpenReference={() => undefined} onOpenNotes={() => undefined}
+      onOpenAdjustment={() => undefined}
+    />;
+    const { container, rerender } = render(renderTable(true));
+    const desktop = container.querySelector('table');
+    expect(desktop?.querySelectorAll('thead th')).toHaveLength(12);
+    expect(container.querySelector('td[data-cp13-state="loading"]')).toHaveTextContent("loading");
+    rerender(renderTable(false));
+    expect(container.querySelector('table')).toBe(desktop);
+    expect(container.querySelector('td[data-cp13-state="empty"]')).toHaveTextContent("empty");
+  });
+
+  it("keeps desktop batch column headers and retry within one list frame", () => {
+    const props = {
+      t: translator, language: "en", locale: "en", items: [],
+      hasMore: false, loadingMore: false, continuationError: false,
+      canManageDisposition: false, onRetry: vi.fn(),
+      onLoadMore: vi.fn(), onManage: vi.fn(),
+    };
+    const { container, rerender } = render(<BatchIndexTable {...props} loading error={false} />);
+    const desktop = container.querySelector('table');
+    expect(desktop?.querySelectorAll('thead th')).toHaveLength(7);
+    expect(container.querySelector('td [data-cp13-state="loading"]')).toBeInTheDocument();
+    rerender(<BatchIndexTable {...props} loading={false} error />);
+    expect(container.querySelector('table')).toBe(desktop);
+    expect(container.querySelector('td [data-cp13-state="error"]')).toBeInTheDocument();
+    expect(container.querySelector('td button')).toHaveTextContent("retry");
+  });
+
   it("keeps Warehouse context visible without changing capability-driven workflow visibility", () => {
     const shell = read("src/pages/inventory/MainInventory.tsx");
     const live = read("src/pages/inventory/Tab1LiveStock.tsx");
