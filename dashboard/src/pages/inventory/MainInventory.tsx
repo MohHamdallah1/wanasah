@@ -418,13 +418,6 @@ export default function MainInventory() {
   );
   const [transferFocus, setTransferFocus] =
     useState<TransferFocus | null>(null);
-  useEffect(() => {
-    if (!initialNavigationIntentRef.current) return;
-    routeNavigate(
-      `${routeLocation.pathname}${routeLocation.search}`,
-      { replace: true, state: null },
-    );
-  }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
   useEffect(() => {
     localStorage.removeItem("inventory_active_tab");
@@ -917,6 +910,50 @@ export default function MainInventory() {
     [locations, globalAccessVerified, selectorAdmissionEpoch, serverVerifiedLocationId,
       prepareLocationChange, selectedLocationStorageKey]
   );
+  useEffect(() => {
+    if (routeLocation.pathname !== "/inventory") return;
+    const intent = parseInventoryNavigationState(routeLocation.state);
+    if (!intent) return;
+
+    if (
+      intent.locationId !== null &&
+      intent.locationId !== selectedLocationId
+    ) {
+      if (!locations.some((location) => location.id === intent.locationId)) {
+        return;
+      }
+      handleLocationChange(String(intent.locationId));
+      if (selectedLocationIdRef.current !== intent.locationId) {
+        return;
+      }
+    }
+
+    setActiveTab(intent.tab);
+    if (intent.kind === "owner-focus") {
+      setArchiveOwnerFocus(intent);
+      setBatchNavigationFocus(null);
+    } else if (intent.kind === "batch-focus") {
+      setArchiveOwnerFocus(null);
+      setBatchNavigationFocus(intent);
+    } else {
+      setArchiveOwnerFocus(null);
+      setBatchNavigationFocus(null);
+    }
+
+    routeNavigate(
+      `${routeLocation.pathname}${routeLocation.search}`,
+      { replace: true, state: null },
+    );
+  }, [
+    handleLocationChange,
+    locations,
+    routeLocation.pathname,
+    routeLocation.search,
+    routeLocation.state,
+    routeNavigate,
+    selectedLocationId,
+  ]);
+
   const handleOpenTransfers = useCallback(
     async (transfer?: BatchSpecialTransferResult) => {
       if (!transfer) {
