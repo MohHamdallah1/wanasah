@@ -122,6 +122,7 @@ jobs:
           }
 
           warehouse_minimum_sort_allowed = cp6_allowed | {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
               ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
               "wa_backend/api/inventory_stock_policy.py",
               "wa_backend/api/warehouse/live_stock.py",
