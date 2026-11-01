@@ -1696,7 +1696,6 @@ export default function MainInventory() {
       {/* ═══ Tab Content ═══ */}
       <div className="inventory-content flex-1 min-h-0 flex flex-col">
         {((selectedLocationId === null && loadingLocations) ||
-          (selectedLocationId !== null && activeTab === "live" && !liveVisible && !accessDenied && !locationAccess.isError) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
             activeTab !== "permissions" && locationAccess.isPending)) && (
@@ -1758,18 +1757,19 @@ export default function MainInventory() {
           </div>
         )}
         {activeTab === "live" && selectedLocationId !== null &&
-          liveVisible && tabAllowed("live") && (
+          !accessDenied && !locationAccess.isError && (
           <Tab1LiveStock
             locationId={selectedLocationId}
-            locations={locations}
-            stockTotal={liveSummaryFresh ? stockTotal : null}
-            lastSync={lastSync}
-            isAuditLocked={displayAuditLocked}
-            products={stockItems}
-            loading={loadingStock}
-            pageReady={stockPageReady}
-            pageError={stockPageError}
-            summaryError={stockSummaryError}
+            locations={liveVisible ? locations : []}
+            stockTotal={liveVisible && liveSummaryFresh ? stockTotal : null}
+            lastSync={liveVisible ? lastSync : null}
+            isAuditLocked={liveVisible ? displayAuditLocked : false}
+            products={liveVisible ? stockItems : []}
+            loading={!liveVisible || loadingStock}
+            verificationPending={!liveVisible || (!stockPageReady && loadingStock)}
+            pageReady={liveVisible && stockPageReady}
+            pageError={liveVisible ? stockPageError : null}
+            summaryError={liveVisible ? stockSummaryError : null}
             onLocationChange={handleLocationChange}
             onRefresh={() => {
               refreshStock();
@@ -1778,9 +1778,9 @@ export default function MainInventory() {
             onRetryPage={retryStockPage}
             onRetrySummary={() => { void fetchStockSummary(); }}
             onReadDenied={rejectLiveStockEvidence}
-            alertCount={liveSummaryFresh ? stockAlertCount : null}
-            matchingTotal={stockMatchingTotal}
-            hasMore={!!stockNextCursor}
+            alertCount={liveVisible && liveSummaryFresh ? stockAlertCount : null}
+            matchingTotal={liveVisible ? stockMatchingTotal : null}
+            hasMore={liveVisible && !!stockNextCursor}
             stockState={stockState}
             sort={stockSort}
             onSortChange={handleStockSortChange}
