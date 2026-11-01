@@ -8,6 +8,7 @@ import {
   type LiveStockIndicator,
   type LiveStockStockState,
   type LiveStockSort,
+  type LiveStockView,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import { BatchDetailPanel } from "./liveStock/BatchDetailPanel";
@@ -40,6 +41,8 @@ interface Props {
   stockState: LiveStockStockState;
   sort: LiveStockSort;
   onSortChange: (value: LiveStockSort) => void;
+  view: LiveStockView;
+  onViewChange: (value: LiveStockView) => void;
   indicators: LiveStockIndicator[];
   familyId: number | null;
   onLocationChange: (value: string) => void;
@@ -71,6 +74,8 @@ export function Tab1LiveStock({
   stockState,
   sort,
   onSortChange,
+  view,
+  onViewChange,
   indicators,
   familyId,
   onLocationChange,
@@ -391,6 +396,11 @@ export function Tab1LiveStock({
             locationId={locationId}
             alertCount={alertCount}
             stockState={stockState}
+            view={view}
+            onViewChange={(value) => {
+              resetRenderWindow();
+              onViewChange(value);
+            }}
             indicators={indicators}
             familyId={familyId}
             onSearchChange={(value) => {
