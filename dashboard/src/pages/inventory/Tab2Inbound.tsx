@@ -65,6 +65,7 @@ interface InboundWarehouseOption {
 }
 
 interface Props {
+  active?: boolean;
   companyId: number;
   actorId: number;
   locationId: number;
@@ -293,6 +294,7 @@ const rowControlOrder = (variant: CatalogVariant): InboundRowControl[] => {
 };
 
 export function Tab2Inbound({
+  active = true,
   companyId,
   actorId,
   locationId,
@@ -409,6 +411,7 @@ export function Tab2Inbound({
   );
 
   useEffect(() => {
+    if (!active) return;
     const pagedIds = new Set(catalog.map((variant) => variant.id));
     const ids = Object.keys(drafts)
       .map(Number)
@@ -470,7 +473,7 @@ export function Tab2Inbound({
       // not cause an endless resolve loop.
       if (!finished) ids.forEach((id) => requestedIds.delete(id));
     };
-  }, [authenticatedFetch, catalog, drafts, restoredCatalog, t]);
+  }, [active, authenticatedFetch, catalog, drafts, restoredCatalog, t]);
   useEffect(() => {
     if (supplierId === null) localStorage.removeItem(supplierKey);
     else localStorage.setItem(supplierKey, String(supplierId));
@@ -499,6 +502,7 @@ export function Tab2Inbound({
   }, [searchInput, search]);
 
   useEffect(() => {
+    if (!active) return;
     const id = ++request.current;
     const controller = new AbortController();
     setLoading(true);
@@ -552,7 +556,7 @@ export function Tab2Inbound({
       request.current += 1;
       controller.abort();
     };
-  }, [authenticatedFetch, cursor, search, t]);
+  }, [active, authenticatedFetch, cursor, search, t]);
 
   useEffect(() => {
     if (!visibleCatalog.length) return;
@@ -589,11 +593,11 @@ export function Tab2Inbound({
   );
   const lastOptionsRefreshAt = useRef(0);
   useEffect(() => {
-    if (visibleOptionIds.length) preloadInboundOptions(visibleOptionIds);
-  }, [preloadInboundOptions, visibleOptionIds]);
+    if (active && visibleOptionIds.length) preloadInboundOptions(visibleOptionIds);
+  }, [active, preloadInboundOptions, visibleOptionIds]);
 
   useEffect(() => {
-    if (!visibleOptionIds.length) return;
+    if (!active || !visibleOptionIds.length) return;
     const revalidate = (onFocus: boolean) => {
       if (document.visibilityState === "hidden") return;
       const now = Date.now();
@@ -620,18 +624,19 @@ export function Tab2Inbound({
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [companyAsOfDate, companyTimeZone, refreshInboundOptions, visibleOptionIds]);
+  }, [active, companyAsOfDate, companyTimeZone, refreshInboundOptions, visibleOptionIds]);
 
   useEffect(() => {
-    let active = true;
+    if (!active) return;
+    let current = true;
     setCostPolicy(null);
     authenticatedFetch("/warehouse/costing-policy")
       .then(parseCostPolicy)
       .then((policy) => {
-        if (active) setCostPolicy(policy);
+        if (current) setCostPolicy(policy);
       })
       .catch((error) => {
-        if (active) {
+        if (current) {
           setCostPolicy(null);
           toast.error(
             apiErrorMessage(error, t("inventoryInbound.errors.policyLoad"))
@@ -639,9 +644,9 @@ export function Tab2Inbound({
         }
       });
     return () => {
-      active = false;
+      current = false;
     };
-  }, [authenticatedFetch, companyId, t]);
+  }, [active, authenticatedFetch, companyId, t]);
 
   const update = (
     variant: CatalogVariant,
@@ -1858,7 +1863,7 @@ export function Tab2Inbound({
         </div>
 
         <OpeningValuationModal
-          isOpen={openingValuationOpen}
+          isOpen={active && openingValuationOpen}
           onClose={() => setOpeningValuationOpen(false)}
           companyId={companyId}
           actorId={actorId}
@@ -1875,7 +1880,7 @@ export function Tab2Inbound({
         />
 
         <Modal
-          isOpen={costPolicyOpen}
+          isOpen={active && costPolicyOpen}
           onClose={() => {
             if (!savingPolicy) setCostPolicyOpen(false);
           }}
@@ -1911,7 +1916,7 @@ export function Tab2Inbound({
         </Modal>
 
         <Modal
-          isOpen={clearOpen}
+          isOpen={active && clearOpen}
           onClose={() => setClearOpen(false)}
           title={t("inventoryInbound.clearTitle")}
           footer={
