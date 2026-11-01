@@ -20,6 +20,12 @@ export type LiveStockCp7Copy = {
   expiryUnavailable: string;
   dispositionReason: string;
   unavailableBreakdownNote: string;
+  unavailableTotal: string;
+  currentProductGate: string;
+  lifecycleLabels: Record<"DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED", string>;
+  holdLabels: Record<"NONE" | "SALES_HOLD" | "RECALL", string>;
+  otherRestricted: string;
+  loadedBreakdownNotice: string;
   production: string;
   expiry: string;
   disposition: string;
@@ -59,7 +65,22 @@ const ar: LiveStockCp7Copy = {
   restrictedQuantity: "قيود بيع تشمل سياسات المنتج أو التشغيلة",
   expiryUnavailable: "منها بسبب الصلاحية",
   dispositionReason: "سبب تقييد التشغيلة",
-  unavailableBreakdownNote: "حالة المنتج متاح للبيع لا تعني أن كل تشغيلاته متاحة. غير المتاح قد ينتج عن الصلاحية أو الحجر أو الحظر أو الاستدعاء أو التلف أو سياسات المنع. كمية الصلاحية جزء من القيود، فلا تجمعها معها مرة أخرى.",
+  unavailableBreakdownNote: "هذا التفصيل يشرح لماذا لا تدخل الكمية في المتاح للبيع. كمية الصلاحية جزء من القيود وليست كمية إضافية فوقها.",
+  unavailableTotal: "إجمالي غير المتاح للبيع",
+  currentProductGate: "حالة البيع الحالية للمنتج",
+  lifecycleLabels: {
+    DRAFT: "مسودة",
+    ACTIVE: "نشط",
+    RETIRING: "قيد الإيقاف",
+    ARCHIVED: "مؤرشف",
+  },
+  holdLabels: {
+    NONE: "لا يوجد منع على مستوى المنتج",
+    SALES_HOLD: "إيقاف بيع على مستوى المنتج",
+    RECALL: "استدعاء شامل للمنتج",
+  },
+  otherRestricted: "قيد بيع آخر غير الصلاحية",
+  loadedBreakdownNotice: "التوزيع أدناه يخص التشغيلات المحملة حالياً؛ حمّل البقية لإكمال توزيع الأسباب.",
   production: "الإنتاج",
   expiry: "الصلاحية",
   disposition: "حالة التشغيلة",
@@ -113,7 +134,22 @@ const en: LiveStockCp7Copy = {
   restrictedQuantity: "Sale restrictions including product or batch policy",
   expiryUnavailable: "Of which: expiry-policy restricted",
   dispositionReason: "Batch restriction reason",
-  unavailableBreakdownNote: "An active product does not mean all of its batches are sellable. Expiry, quarantine, blocks, recalls, damage and hold policies can restrict stock. Expiry restrictions are part of the restricted total, not an additional quantity.",
+  unavailableBreakdownNote: "This breakdown explains why quantity is excluded from available-for-sale. Expiry is part of the restricted quantity, not an additional amount.",
+  unavailableTotal: "Total unavailable for sale",
+  currentProductGate: "Current product sale gate",
+  lifecycleLabels: {
+    DRAFT: "Draft",
+    ACTIVE: "Active",
+    RETIRING: "Retiring",
+    ARCHIVED: "Archived",
+  },
+  holdLabels: {
+    NONE: "No product-level hold",
+    SALES_HOLD: "Product-wide sales hold",
+    RECALL: "Product-wide recall",
+  },
+  otherRestricted: "Other non-expiry sale restriction",
+  loadedBreakdownNotice: "The reason totals below cover currently loaded batches; load the remaining batches to complete the breakdown.",
   production: "Production",
   expiry: "Expiry",
   disposition: "Batch status",
