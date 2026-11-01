@@ -11,7 +11,8 @@ const cards = (page: Page) => page.locator("[data-cp13-stock-card]");
 const loadList = async (page: Page) => {
   await page.goto("/inventory");
   await expect(stock(page)).toBeVisible();
-  await expect(page.locator("[data-live-authority]")).toBeVisible();
+  await expect(rows(page).first()).toBeVisible();
+  await expect(page.locator('[data-live-verification-shell="true"]')).toHaveCount(0);
 };
 const openFirst = async (page: Page) => {
   const open = page.locator('[data-live-stock-product-open="118"]');
