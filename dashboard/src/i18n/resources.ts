@@ -1775,6 +1775,10 @@ export const resources = {
         },
       },
       inventoryLive: {
+        sortLabel: "الترتيب",
+        sortStockFirst: "الموجود أولاً",
+        sortLowFirst: "الناقص أولاً",
+        sortName: "الاسم أبجدياً",
         product: "المنتج",
         searchPlaceholder: "ابحث عن منتج أو SKU...",
         warehouseBalance: "داخل المستودع",
@@ -4189,6 +4193,10 @@ export const resources = {
         },
       },
       inventoryLive: {
+        sortLabel: "Sort",
+        sortStockFirst: "In stock first",
+        sortLowFirst: "Low stock first",
+        sortName: "Name A–Z",
         product: "Product",
         searchPlaceholder: "Search by product or SKU...",
         warehouseBalance: "Inside warehouse",
