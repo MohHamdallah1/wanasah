@@ -1521,6 +1521,19 @@ async def get_warehouse_inventory(
                 return candidate_name_stmt(
                     extra_filters, alert_suffix=alert_suffix,
                 )
+            if view == "warehouse" and sort == "stock_first":
+                # Every eligible item is already physically present: avoid
+                # a redundant second zero-stock catalog stream entirely.
+                bounded = candidate_name_stmt(
+                    extra_filters, alert_suffix=alert_suffix,
+                ).subquery(f"warehouse_present_candidates{alert_suffix}")
+                return select(
+                    bounded.c.id,
+                    bounded.c.variant_name,
+                    literal(0).label("sort_rank"),
+                ).order_by(
+                    bounded.c.variant_name.asc(), bounded.c.id.asc(),
+                ).limit(limit + 1)
 
             # Presence is physical custody in the selected warehouse only.
             # Vehicles, route history and other warehouses never rank a SKU.
