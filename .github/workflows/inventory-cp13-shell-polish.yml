@@ -181,8 +181,11 @@ jobs:
               "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
               "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
           }
-          # An independently tested Live Stock layout fix may alter only
-          # its shared CSS plus its own bilingual batch-detail copy.
+          # An independently tested Live Stock presentation/authority correction
+          # may alter only this exact re-entry + unavailable-evidence surface.
+          # The backend allowance is limited to the already-bounded source-evidence
+          # response and its focused contract/PG tests; movement/costing authority
+          # remains outside this crossover.
           live_stock_presentation_roots = {
               "dashboard/src/pages/inventory/MainInventory.tsx",
               "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
@@ -190,8 +193,15 @@ jobs:
               "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
           }
           live_stock_presentation_files = {
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               "dashboard/src/pages/inventory/inventory.css",
               "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/pages/inventory/liveStock/sourceContract.ts",
+              "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+              "dashboard/src/test/live-stock-ui-stability.test.ts",
+              "wa_backend/api/warehouse/live_stock_source_detail.py",
+              "wa_backend/tests/test_cp7_live_stock_contract.py",
+              "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
           }
           permitted = (
               set(allowed)
