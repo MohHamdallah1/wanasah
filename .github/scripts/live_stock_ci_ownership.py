@@ -511,6 +511,8 @@ WAREHOUSE_VIEW_REQUIRED = {
     "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
 }
 WAREHOUSE_VIEW_ALLOWED = WAREHOUSE_VIEW_REQUIRED | {
+    "dashboard/e2e/live-stock-operational.journey.ts",
+    "dashboard/e2e/live-stock-operational.spec.ts",
     HELPER,
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
