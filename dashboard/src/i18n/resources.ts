@@ -1775,6 +1775,10 @@ export const resources = {
         },
       },
       inventoryLive: {
+        viewScopeLabel: "عرض المنتجات",
+        viewWarehouse: "الموجود فعلياً في المستودع",
+        viewCatalog: "جميع منتجات الشركة",
+        viewZeroFilterHint: "النواقص والأصناف النافدة تشمل المنتجات الصفرية حتى لو لم تدخل المستودع بعد.",
         sortLabel: "الترتيب",
         sortStockFirst: "الموجود أولاً",
         sortLowFirst: "الناقص أولاً",
@@ -4193,6 +4197,10 @@ export const resources = {
         },
       },
       inventoryLive: {
+        viewScopeLabel: "Show products",
+        viewWarehouse: "Physically present in this warehouse",
+        viewCatalog: "All company products",
+        viewZeroFilterHint: "Low-stock and out-of-stock filters include zero-stock items that have never entered this warehouse.",
         sortLabel: "Sort",
         sortStockFirst: "In stock first",
         sortLowFirst: "Low stock first",
