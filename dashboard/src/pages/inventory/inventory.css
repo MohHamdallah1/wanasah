@@ -3738,6 +3738,8 @@
   }
   .inventory-live-stock .live-stock-context-panel {
     flex: 0 0 auto;
+    flex-direction: column;
+    align-items: stretch;
     width: auto;
   }
   .inventory-live-stock .live-stock-context-location,
