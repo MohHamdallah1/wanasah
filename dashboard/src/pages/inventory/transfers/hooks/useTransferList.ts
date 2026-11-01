@@ -25,6 +25,8 @@ export function useTransferList(active = true) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [state, setState] = useState<ListState | null>(null);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
@@ -98,6 +100,9 @@ export function useTransferList(active = true) {
         : attempt.phase === "refresh"
           ? "refreshFailure"
           : "continuationFailure";
+      if ([401, 403].includes(Number((error as { status?: unknown } | null)?.status))) {
+        setState(null);
+      }
       setFailure({ scope, phase: attempt.phase, message: getErrorMessage(error, t(`inventoryTransfers.${key}`)) });
     } finally {
       if (seq === requestSeq.current && scopeRef.current === scope) {
@@ -128,7 +133,7 @@ export function useTransferList(active = true) {
       setFailure(null);
       return invalidateList;
     }
-    void fetchPage({ cursor: null, phase: state?.scope === scope ? "refresh" : "first", append: false });
+    void fetchPage({ cursor: null, phase: stateRef.current?.scope === scope ? "refresh" : "first", append: false });
     return invalidateList;
   }, [active, fetchPage, invalidateList]);
 
