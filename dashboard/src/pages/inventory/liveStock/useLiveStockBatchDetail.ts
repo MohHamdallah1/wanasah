@@ -281,6 +281,19 @@ export function useLiveStockBatchDetail(
     [fetchSource, page?.batches, product, sourceOpenId],
   );
 
+  const prefetchSource = useCallback(
+    (batchId: number) => {
+      if (
+        !product ||
+        sourceLoadingId === batchId ||
+        sourceByBatch[batchId] ||
+        !page?.batches.some((batch) => batch.batch_id === batchId)
+      ) return;
+      void fetchSource(batchId, product);
+    },
+    [fetchSource, page?.batches, product, sourceByBatch, sourceLoadingId],
+  );
+
   const retrySource = useCallback(
     (batchId: number) => {
       if (
@@ -310,6 +323,7 @@ export function useLiveStockBatchDetail(
     retry,
     loadMore,
     loadSource,
+    prefetchSource,
     retrySource,
   };
 }
