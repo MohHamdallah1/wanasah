@@ -13,8 +13,9 @@ import { Modal } from "@/components/ui/modal";
 import { currentLocale } from "@/i18n";
 import { apiErrorCode, apiErrorContext, apiErrorMessage } from "@/lib/apiErrors";
 import { SupplierSelector } from "@/features/suppliers/SupplierSelector";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 import { useInboundPosting } from "./inbound/useInboundPosting";
-import { useInboundOptions } from "./inbound/useInboundOptions";
+import { companyLocalDate, useInboundOptions } from "./inbound/useInboundOptions";
 import { OpeningValuationModal } from "./inbound/OpeningValuationModal";
 import { InboundRecallRow } from "./inbound/InboundRecallRow";
 import {
@@ -303,6 +304,10 @@ export function Tab2Inbound({
   onSuccess,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const tenantIdentity = useTenantIdentity();
+  const companyTimeZone = tenantIdentity.data?.company_id === companyId
+    ? tenantIdentity.data.timezone
+    : undefined;
   const keys = useMemo(
     () => inboundStorageKeys(companyId, actorId, locationId),
     [companyId, actorId, locationId]
@@ -325,7 +330,8 @@ export function Tab2Inbound({
     asOfDate: companyAsOfDate,
     ensure: ensureInboundOptions,
     preload: preloadInboundOptions,
-  } = useInboundOptions(authenticatedFetch);
+    refresh: refreshInboundOptions,
+  } = useInboundOptions(authenticatedFetch, `${companyId}:${actorId}`);
   // TODO(V2 Settings): move this company-level policy to the Settings workspace.
   // Inbound only guards first use until that workspace exists.
   const [costPolicy, setCostPolicy] = useState<CostPolicy | null>(null);
@@ -577,13 +583,42 @@ export function Tab2Inbound({
     });
   }, [visibleCatalog]);
 
+  const visibleOptionIds = useMemo(() => visibleCatalog.map((item) => item.id).slice(0, 200), [visibleCatalog]);
+  const visibleOptionIdsKey = visibleOptionIds.join(",");
+  const lastOptionsRefreshAt = useRef(0);
   useEffect(() => {
-    const ids = visibleCatalog
-      .map((item) => item.id)
-      .slice(0, 200);
-    if (!ids.length) return;
-    preloadInboundOptions(ids);
-  }, [preloadInboundOptions, visibleCatalog]);
+    if (visibleOptionIds.length) preloadInboundOptions(visibleOptionIds);
+  }, [preloadInboundOptions, visibleOptionIdsKey]);
+
+  useEffect(() => {
+    if (!visibleOptionIds.length) return;
+    const revalidate = (onFocus: boolean) => {
+      if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      const dateChanged = Boolean(companyTimeZone && companyAsOfDate &&
+        companyLocalDate(companyTimeZone) !== companyAsOfDate);
+      // No polling API calls: check the clock locally, fetch only at company
+      // midnight, on return to the page, or when references reach their TTL.
+      const interval = onFocus ? 30_000 : 5 * 60_000;
+      if (!dateChanged && now - lastOptionsRefreshAt.current < interval) return;
+      lastOptionsRefreshAt.current = now;
+      void refreshInboundOptions(visibleOptionIds).catch(() => {
+        // Fail closed: refresh clears old advisory options; submit explicitly retries.
+      });
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") revalidate(true);
+    };
+    const onFocus = () => revalidate(true);
+    const timer = window.setInterval(() => revalidate(false), 30_000);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [companyAsOfDate, companyTimeZone, refreshInboundOptions, visibleOptionIdsKey]);
 
   useEffect(() => {
     let active = true;
@@ -1042,23 +1077,18 @@ export function Tab2Inbound({
         return;
       }
 
-      if (ids.some((id) => !uomOptions.has(id)) || !companyAsOfDate) {
-        setPreparingReceipt(true);
-        try {
-          const prepared = await ensureInboundOptions(ids);
-          readyOptions = prepared.options;
-          readyAsOfDate = prepared.asOfDate;
-        } catch (error) {
-          toast.error(
-            apiErrorMessage(
-              error,
-              t("inventoryInbound.errors.prepare")
-            )
-          );
-          return;
-        } finally {
-          setPreparingReceipt(false);
-        }
+      // A draft may outlive a company-local midnight or a changed purchase
+      // reference. Always revalidate its exact IDs before client validation.
+      setPreparingReceipt(true);
+      try {
+        const prepared = await refreshInboundOptions(ids);
+        readyOptions = prepared.options;
+        readyAsOfDate = prepared.asOfDate;
+      } catch (error) {
+        toast.error(apiErrorMessage(error, t("inventoryInbound.errors.prepare")));
+        return;
+      } finally {
+        setPreparingReceipt(false);
       }
 
       const items = buildInboundItems(
