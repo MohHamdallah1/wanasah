@@ -30,12 +30,15 @@ export function useTransferList() {
   const loadingMoreRef = useRef(false);
   const [failure, setFailure] = useState<{ scope: string; phase: Attempt["phase"]; message: string } | null>(null);
   const scope = JSON.stringify([status, search]);
+  // Keep typed (not yet debounced) search out of the old result scope.
+  const searchPending = searchInput.trim() !== search;
+  const searchTooShort = searchInput.trim().length === 1;
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const requestSeq = useRef(0);
   const abort = useRef<AbortController | null>(null);
   const lastAttempt = useRef<Attempt>({ cursor: null, phase: "first", append: false });
-  const current = state?.scope === scope ? state : null;
+  const current = !searchPending && !searchTooShort && state?.scope === scope ? state : null;
   const [detail, setDetail] = useState<WarehouseTransferDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const detailRequestSeq = useRef(0);
@@ -49,6 +52,8 @@ export function useTransferList() {
   }, [searchInput]);
 
   const fetchPage = useCallback(async (attempt: Attempt) => {
+    // The API only accepts two or more characters. Never retry a short query.
+    if (search.length === 1) return;
     if (attempt.append && loadingMoreRef.current) return;
     const seq = ++requestSeq.current;
     if (!attempt.append) abort.current?.abort();
@@ -58,7 +63,11 @@ export function useTransferList() {
     if (attempt.append) {
       loadingMoreRef.current = true;
       setLoadingMore(true);
-    } else setLoading(true);
+    } else {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+      setLoading(true);
+    }
     setFailure(null);
     try {
       const params = new URLSearchParams({ limit: "50" });
@@ -101,8 +110,16 @@ export function useTransferList() {
   const invalidateList = useCallback(() => {
     ++requestSeq.current;
     abort.current?.abort();
+    loadingMoreRef.current = false;
   }, []);
   useEffect(() => {
+    if (search.length === 1) {
+      invalidateList();
+      setLoading(false);
+      setLoadingMore(false);
+      setFailure(null);
+      return invalidateList;
+    }
     void fetchPage({ cursor: null, phase: "first", append: false });
     return invalidateList;
   }, [fetchPage, invalidateList]);
@@ -142,13 +159,13 @@ export function useTransferList() {
   }, []);
 
   const items = current?.items ?? [];
-  const scopedFailure = failure?.scope === scope ? failure : null;
+  const scopedFailure = !searchPending && !searchTooShort && failure?.scope === scope ? failure : null;
   // `loading` is flipped by the fetch effect, i.e. one commit after the render
   // that needs it. A scope with neither rows nor a failure is still owed its
   // first page, so report it as loading from the first frame; otherwise the
   // table paints "no transfers" on mount and on every filter/search change
   // before switching to "loading" and then to the rows.
-  const awaitingFirstPage = current === null && scopedFailure === null;
+  const awaitingFirstPage = !searchPending && !searchTooShort && current === null && scopedFailure === null;
   const inTransitCount = items.filter((item) => item.status === "IN_TRANSIT").length;
   const loadMore = useCallback(() => {
     if (!current?.next || loading || loadingMore) return;
@@ -161,9 +178,11 @@ export function useTransferList() {
     setStatus,
     searchInput,
     setSearchInput,
+    searchTooShort,
+    searchPending,
     total: current?.total ?? null,
-    loading: loading || awaitingFirstPage,
-    loadingMore,
+    loading: searchTooShort ? false : loading || awaitingFirstPage || searchPending,
+    loadingMore: !searchPending && !searchTooShort && loadingMore,
     hasMore: Boolean(current?.next),
     failure: scopedFailure,
     retry: () => void fetchPage(lastAttempt.current),
@@ -174,7 +193,11 @@ export function useTransferList() {
     openDetail: (transfer: WarehouseTransferListItem) => openDetailById(transfer.id),
     closeDetail: resetDetail,
     resetDetail,
-    refreshTransfers: () => void fetchPage({ cursor: null, phase: current ? "refresh" : "first", append: false }),
+    refreshTransfers: () => {
+      if (!searchPending && !searchTooShort) {
+        void fetchPage({ cursor: null, phase: current ? "refresh" : "first", append: false });
+      }
+    },
     loadMore,
   };
 }
