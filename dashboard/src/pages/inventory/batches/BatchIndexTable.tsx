@@ -108,9 +108,10 @@ export function BatchIndexTable({
     </button>
   );
 
-  // The header and scroll frame stay mounted throughout first load/retry.
-  // Do not disclose rows from a superseded scope during initial fetch.
-  const showRows = !loading && !error && items.length > 0;
+  // Same-scope refreshes keep already-admitted rows visible with an explicit
+  // refresh/error status. A new filter/location scope is still passed in with
+  // an empty item set by useBatchIndex and therefore never inherits old rows.
+  const showRows = items.length > 0;
   const stateContents = (
     <div role={error ? "alert" : "status"} data-cp13-state={error ? "error" : loading ? "loading" : "empty"}
       className="flex min-h-24 flex-col items-center justify-center gap-2 p-4 text-center text-sm font-semibold text-slate-500">
@@ -126,7 +127,35 @@ export function BatchIndexTable({
   );
 
   return (
-    <section aria-label={text("loadedCount", { count: number(items.length) })} className="min-h-0">
+    <section
+      aria-label={text("loadedCount", { count: number(items.length) })}
+      aria-busy={loading}
+      className="min-h-0"
+    >
+      {showRows && (loading || error) ? (
+        <div
+          role={error ? "alert" : "status"}
+          data-batch-refresh-state={error ? "error" : "refreshing"}
+          className={`flex min-h-9 flex-wrap items-center justify-between gap-2 border-b px-3 py-2 text-[11px] font-semibold ${
+            error ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-100 bg-slate-50 text-slate-600"
+          }`}
+        >
+          <span className="inline-flex items-center gap-2">
+            {loading ? <RefreshCcw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />}
+            {text(error ? "loadError" : "loading")}
+          </span>
+          {error ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            >
+              {text("retry")}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div tabIndex={0} role="region" aria-label={text("title")} className="hidden overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-500 md:block">
         <table className="w-full min-w-[960px] border-collapse text-start text-[11px]">
           <thead className="sticky top-0 z-[1] bg-slate-50 text-[10px] font-bold text-slate-600">

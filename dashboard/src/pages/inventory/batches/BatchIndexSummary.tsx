@@ -61,12 +61,27 @@ export function BatchIndexSummary({
 
   return (
     <section aria-label={text("summaryLabel")} aria-live="polite" aria-busy={loading} className="border-b border-slate-200 px-2.5 py-2">
-      {loading && (
+      {loading ? (
         <span className="inline-flex items-center gap-1 py-1 text-[10px] font-semibold text-slate-500">
-          <RefreshCcw className="h-3 w-3 animate-spin" />
+          <RefreshCcw className="h-3 w-3 animate-spin" aria-hidden="true" />
           {text("summaryLoading")}
         </span>
-      )}
+      ) : error && summary ? (
+        <span
+          role="alert"
+          data-batch-summary-refresh-state="error"
+          className="inline-flex flex-wrap items-center gap-2 py-1 text-[10px] font-semibold text-amber-800"
+        >
+          <span>{text("summaryError")}</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded border border-amber-300 bg-white px-2 py-1 font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            {text("retry")}
+          </button>
+        </span>
+      ) : null}
       <dl className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {cards.map(([key, value, Icon]) => (
           <div key={key} className="inline-flex min-w-0 items-center gap-1.5 text-[11px]">

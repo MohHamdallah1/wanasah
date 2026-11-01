@@ -1,4 +1,5 @@
 import {
+  hasInventoryPermission,
   parseInventoryLocationCapabilities,
   useInventoryAccess,
 } from "@/hooks/useInventoryAccess";
@@ -420,6 +421,14 @@ export default function MainInventory() {
     const saved = localStorage.getItem(activeTabStorageKey);
     return isTabId(saved) ? saved : "live";
   });
+  const batchTabAdmissionSeq = useRef(0);
+  const [batchTabVisited, setBatchTabVisited] = useState(
+    activeTab === "batches",
+  );
+  useEffect(() => {
+    if (activeTab === "batches") setBatchTabVisited(true);
+  }, [activeTab]);
+
   const [batchNavigationFocus, setBatchNavigationFocus] = useState(
     initialNavigationIntent?.kind === "batch-focus"
       ? initialNavigationIntent
@@ -745,6 +754,7 @@ export default function MainInventory() {
   const statusRequestSeq = useRef(0);
 
   const [ledgerRefreshKey, setLedgerRefreshKey] = useState(0);
+  const [batchRefreshKey, setBatchRefreshKey] = useState(0);
   const [auditLockState, setAuditLockState] = useState<boolean | null>(
     initialLiveSnapshot?.hasStatus
       ? initialLiveSnapshot.auditLocked
@@ -1773,12 +1783,32 @@ export default function MainInventory() {
         )}
         activeId={activeTab}
         ariaLabel={t("inventoryShell.tabsLabel")}
-        onChange={(id) => {
+        onChange={async (id) => {
           if (!isTabId(id)) return;
+          const admissionSeq = ++batchTabAdmissionSeq.current;
           if (requiresFirstWarehouse && id !== "warehouses") {
             toast.info(t("inventoryShell.createWarehouseFirstNotice"));
             return;
           }
+          if (id === "batches" && activeTab !== "batches" && selectedLocationId !== null) {
+            const targetLocationId = selectedLocationId;
+            const admission = await locationAccess.refetch();
+            if (
+              admissionSeq !== batchTabAdmissionSeq.current ||
+              selectedLocationIdRef.current !== targetLocationId
+            ) return;
+            if (
+              !admission.data ||
+              admission.isError ||
+              admission.data.location_id !== targetLocationId ||
+              !hasInventoryPermission(admission.data, "inventory.read")
+            ) {
+              toast.error(t(`inventoryShell.${admission.isError ? "accessRefreshFailed" : "accessChanged"}`));
+              if (!admission.isError) void fetchLocations();
+              return;
+            }
+          }
+          if (admissionSeq !== batchTabAdmissionSeq.current) return;
           setActiveTab(id);
         }}
       />
@@ -2048,19 +2078,30 @@ export default function MainInventory() {
             onLoadMore={handleStockLoadMore}
           />
         )}
-        {!locationAccess.isPending && activeTab === "batches" && tabAllowed("batches") && selectedLocationId !== null && (
-          <TabBatches
-            key={selectedLocationId}
-            locationId={selectedLocationId}
-            focus={batchNavigationFocus}
-            onFocusConsumed={() => setBatchNavigationFocus(null)}
-            onOpenTransfers={handleOpenTransfers}
-            onOpenReservationOwner={handleOpenReservationOwner}
-            onInventoryChanged={async () => {
-              refreshStock();
-              setLedgerRefreshKey((value) => value + 1);
-            }}
-          />
+        {(batchTabVisited || activeTab === "batches") &&
+          !locationAccess.isPending &&
+          tabAllowed("batches") &&
+          selectedLocationId !== null && (
+          <div
+            hidden={activeTab !== "batches"}
+            className={activeTab === "batches" ? "contents" : "hidden"}
+            data-inventory-tab-cache="batches"
+          >
+            <TabBatches
+              key={`${warmScopeKey ?? "invalid"}:${selectedLocationId}`}
+              active={activeTab === "batches"}
+              refreshKey={batchRefreshKey}
+              locationId={selectedLocationId}
+              focus={batchNavigationFocus}
+              onFocusConsumed={() => setBatchNavigationFocus(null)}
+              onOpenTransfers={handleOpenTransfers}
+              onOpenReservationOwner={handleOpenReservationOwner}
+              onInventoryChanged={async () => {
+                refreshStock();
+                setLedgerRefreshKey((value) => value + 1);
+              }}
+            />
+          </div>
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
           <Tab2Inbound
@@ -2076,6 +2117,7 @@ export default function MainInventory() {
             onSuccess={async () => {
               refreshStock();
               setLedgerRefreshKey((value) => value + 1);
+              setBatchRefreshKey((value) => value + 1);
             }}
           />
         )}
@@ -2089,6 +2131,7 @@ export default function MainInventory() {
             onStocktakeChanged={async () => {
               refreshStock();
               setLedgerRefreshKey((value) => value + 1);
+              setBatchRefreshKey((value) => value + 1);
               await fetchStatus();
             }}
           />
@@ -2112,6 +2155,7 @@ export default function MainInventory() {
             onInventoryChanged={async () => {
               setStockRefreshKey((value) => value + 1);
               setLedgerRefreshKey((value) => value + 1);
+              setBatchRefreshKey((value) => value + 1);
               if (selectedLocationId !== null) await fetchStatus();
             }}
           />
