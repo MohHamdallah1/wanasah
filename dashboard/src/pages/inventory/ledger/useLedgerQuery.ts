@@ -123,7 +123,14 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
       if (sequence !== requestSeq.current) return;
       if (failure instanceof Error && failure.name === "AbortError") return;
       setError(true);
-      if (clearForNewScope) {
+      // Revoked reads cannot leave previously retained ledger quantities visible.
+      const status = Number((failure as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        setEntries([]);
+        setTotal(null);
+        setNextCursor(null);
+        setHasMore(false);
+      } else if (clearForNewScope) {
         setEntries([]);
         setNextCursor(null);
         setHasMore(false);
