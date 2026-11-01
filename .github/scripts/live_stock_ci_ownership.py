@@ -506,6 +506,16 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         if extra:
             return "fail", [f"LIVE_STOCK_PERFORMANCE_SCOPE=FAIL extra={extra}"]
         return "performance-acceptance", []
+    # A shared CI policy helper can accompany an inventory-only UX correction
+    # without claiming the R3 physical-stock backend as an owner. Never use
+    # this exception for actual R3-owned paths, session roots, or foreign files.
+    if (
+        mode == "r3"
+        and not changed <= POLICY_FILES
+        and not (changed & (R3_ALLOWED - POLICY_FILES))
+        and changed <= (UX_ALLOWED | POLICY_FILES)
+    ):
+        return "not-applicable", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
@@ -568,6 +578,15 @@ def selftest() -> None:
 
     assert classify("ux", {"dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx"}, none)[0] == "owned"
     _expect_fail("ux", {"dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx", "dashboard/src/pages/DispatchBoard.tsx"}, none)
+    minimum_ux_scope = {
+        HELPER,
+        ".github/workflows/dispatch-p0-route-stock-safety.yml",
+        "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+        "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+        SHARED_RESOURCES,
+    }
+    assert classify("r3", minimum_ux_scope, none)[0] == "not-applicable"
+    _expect_fail("r3", minimum_ux_scope | {"wa_backend/api/dispatch.py"}, none)
     assert classify("r3", {"wa_backend/domains/live_stock_projection/service.py"}, none)[0] == "owned"
     _expect_fail("r3", {"wa_backend/domains/live_stock_projection/service.py", "dashboard/src/pages/DispatchBoard.tsx"}, none)
 
