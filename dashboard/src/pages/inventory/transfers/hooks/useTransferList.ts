@@ -18,7 +18,7 @@ type Attempt = {
   append: boolean;
 };
 
-export function useTransferList() {
+export function useTransferList(active = true) {
   const authenticatedFetch = useAuthFetch();
   const { t } = useTransferTranslation();
   const [status, setStatus] = useState<TransferStatus | "">("");
@@ -52,6 +52,7 @@ export function useTransferList() {
   }, [searchInput]);
 
   const fetchPage = useCallback(async (attempt: Attempt) => {
+    if (!active) return;
     // The API only accepts two or more characters. A pending debounce is
     // also not the query the operator can see, so never dispatch it.
     if (search.length === 1 || searchTooShort || searchPending) return;
@@ -106,7 +107,7 @@ export function useTransferList() {
         } else setLoading(false);
       }
     }
-  }, [authenticatedFetch, scope, search, searchPending, searchTooShort, status, t]);
+  }, [active, authenticatedFetch, scope, search, searchPending, searchTooShort, status, t]);
 
   const invalidateList = useCallback(() => {
     ++requestSeq.current;
@@ -114,6 +115,12 @@ export function useTransferList() {
     loadingMoreRef.current = false;
   }, []);
   useEffect(() => {
+    if (!active) {
+      invalidateList();
+      setLoading(false);
+      setLoadingMore(false);
+      return invalidateList;
+    }
     if (search.length === 1) {
       invalidateList();
       setLoading(false);
@@ -121,9 +128,9 @@ export function useTransferList() {
       setFailure(null);
       return invalidateList;
     }
-    void fetchPage({ cursor: null, phase: "first", append: false });
+    void fetchPage({ cursor: null, phase: state?.scope === scope ? "refresh" : "first", append: false });
     return invalidateList;
-  }, [fetchPage, invalidateList]);
+  }, [active, fetchPage, invalidateList]);
 
   const invalidateDetail = useCallback(() => {
     ++detailRequestSeq.current;
@@ -169,9 +176,9 @@ export function useTransferList() {
   const awaitingFirstPage = !searchPending && !searchTooShort && current === null && scopedFailure === null;
   const inTransitCount = items.filter((item) => item.status === "IN_TRANSIT").length;
   const loadMore = useCallback(() => {
-    if (!current?.next || loading || loadingMore) return;
+    if (!active || !current?.next || loading || loadingMore) return;
     void fetchPage({ cursor: current.next, phase: "continuation", append: true });
-  }, [current?.next, fetchPage, loading, loadingMore]);
+  }, [active, current?.next, fetchPage, loading, loadingMore]);
 
   return {
     items,
