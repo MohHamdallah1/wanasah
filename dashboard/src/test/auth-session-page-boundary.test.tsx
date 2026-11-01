@@ -181,10 +181,10 @@ it("drops A Transfers before a fresh B authorization/read and preserves durable 
 
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/inventory"]}>
+      <MemoryRouter initialEntries={["/session-boundary-transfers"]}>
         <Routes>
           <Route element={<DashboardLayout />}>
-            <Route path="/inventory" element={<TabTransfers onInventoryChanged={() => undefined} />} />
+            <Route path="/session-boundary-transfers" element={<TabTransfers onInventoryChanged={() => undefined} />} />
           </Route>
         </Routes>
       </MemoryRouter>
