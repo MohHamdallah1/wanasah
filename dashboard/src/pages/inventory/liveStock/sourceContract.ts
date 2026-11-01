@@ -35,6 +35,14 @@ export type LiveStockWarehouseSourceStatus = {
   reservation_evidence: LiveStockReservationEvidence;
 };
 
+export type LiveStockProductSaleGate = {
+  location_id: number;
+  product_variant_id: number;
+  lifecycle_status: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED";
+  operational_hold: "NONE" | "SALES_HOLD" | "RECALL";
+  lifecycle_revision: number;
+};
+
 export type LiveStockWarehouseSource = {
   location_id: number;
   location_name: string;
@@ -70,6 +78,34 @@ const coverages = new Set<LiveStockReservationCoverage>([
   "PARTIAL",
   "UNRESOLVED",
 ]);
+
+export function parseLiveStockProductSaleGate(
+  raw: unknown,
+): LiveStockProductSaleGate {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return invalid();
+  const row = raw as Record<string, unknown>;
+  const lifecycle = row.lifecycle_status;
+  const hold = row.operational_hold;
+  if (
+    lifecycle !== "DRAFT" &&
+    lifecycle !== "ACTIVE" &&
+    lifecycle !== "RETIRING" &&
+    lifecycle !== "ARCHIVED"
+  ) {
+    return invalid();
+  }
+  if (hold !== "NONE" && hold !== "SALES_HOLD" && hold !== "RECALL") {
+    return invalid();
+  }
+  return {
+    location_id: positiveInt(row.location_id),
+    product_variant_id: positiveInt(row.product_variant_id),
+    lifecycle_status: lifecycle,
+    operational_hold: hold,
+    lifecycle_revision: positiveInt(row.lifecycle_revision),
+  };
+}
+
 
 export function parseLiveStockWarehouseSource(
   raw: unknown,
