@@ -132,6 +132,7 @@ OP_ALLOWED = {
     "dashboard/src/pages/inventory/MainInventory.tsx",
     "dashboard/src/pages/inventory/StockMinimumManager.tsx",
     "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+    "dashboard/src/pages/inventory/inventory.css",
     "dashboard/src/pages/inventory/inventoryShellPolish.css",
     "dashboard/src/pages/inventory/inventoryTopDockController.ts",
     "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",

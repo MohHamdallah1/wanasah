@@ -119,7 +119,7 @@ export function LiveStockMobileCards({
                   <h3 className="live-stock-product-name-clamp text-sm font-black text-slate-900">{product.name}</h3>
                 </div>
                 <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">
-                  {product.family_name}{product.sku ? ` · ${product.sku}` : ""}
+                  {product.family_name}
                 </p>
                 <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
                   {t("inventoryLive.minimumStockLabel")}: <span dir="ltr">{minimum}</span>

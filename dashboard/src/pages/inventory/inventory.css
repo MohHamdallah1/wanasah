@@ -1561,14 +1561,14 @@
 }
 
 .live-stock-table .live-product-heading {
-  width: 16%;
+  width: 19%;
   text-align: center;
   padding-inline: 0.55rem;
   border-inline-end: 1px solid #c6d3d8;
 }
 
 .live-stock-table .live-family-heading {
-  width: 13%;
+  width: 10%;
   text-align: center;
 }
 
@@ -1619,7 +1619,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: start;
+  text-align: center;
   font-size: 0.72rem;
   font-weight: 800;
 }
