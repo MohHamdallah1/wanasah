@@ -10,7 +10,6 @@ import { useDashboardSession } from "@/hooks/useDashboardSession";
 import {
   loadCommercialRulesDashboard,
   loadDispatchBoard,
-  loadInventoryPage,
   loadOperationsDashboard,
   loadProductsPage,
   loadRepresentativesVehiclesPage,
@@ -21,7 +20,6 @@ import {
 const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
 const OperationsDashboard = lazy(loadOperationsDashboard);
 const DispatchBoard = lazy(loadDispatchBoard);
-const MainInventory = lazy(loadInventoryPage);
 const ProductsPage = lazy(loadProductsPage);
 const RepresentativesVehiclesPage = lazy(loadRepresentativesVehiclesPage);
 const AdvancedUomDashboard = lazy(() => import("./pages/products/advanced-uom/AdvancedUomDashboard"));
@@ -216,7 +214,7 @@ const App = () => (
               <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
                 <Route path="/" element={<OperationsDashboard />} />
                 <Route path="/dispatch" element={<DispatchBoard />} />
-                <Route path="/inventory" element={<MainInventory />} />
+                <Route path="/inventory" element={<Fragment />} />
                 <Route path="/products" element={<ProductsPage />} />
                 <Route path="/suppliers" element={<Navigate to="/representatives-vehicles?tab=suppliers" replace />} />
                 <Route path="/representatives-vehicles" element={<RepresentativesVehiclesPage />} />
