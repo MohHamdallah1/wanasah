@@ -121,6 +121,18 @@ def _company_local_purchase_date(
 # 3. جلب حالة المستودع بالكامل من المحرك الموحد
 # =================================================================================
 
+_ARABIC_SEARCH_FOLD = str.maketrans({
+    "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",
+    "ى": "ي", "ؤ": "و", "ئ": "ي",
+    **{mark: None for mark in "ًٌٍَُِّْـ"},
+})
+
+
+def _normalize_live_stock_search(value: str | None) -> str:
+    # Orthographic equivalence, not stemming or approximate similarity.
+    return " ".join((value or "").strip().lower().translate(_ARABIC_SEARCH_FOLD).split())
+
+
 # التحقق من جاهزية read model الخاص بالرصيد الحي قبل تنفيذ القراءة.
 async def _require_live_stock_read_model_ready(
     db: AsyncSession,
@@ -1179,7 +1191,7 @@ async def get_warehouse_inventory(
             location_id=location_id,
         )
 
-        clean_search = " ".join((search or "").strip().lower().split())
+        clean_search = _normalize_live_stock_search(search)
         if clean_search and len(clean_search) < 2:
             raise HTTPException(
                 status_code=400,
@@ -1267,17 +1279,33 @@ async def get_warehouse_inventory(
             search_probe_ids = select(search_probe.c.product_variant_id)
             # Keep the exact searchable text expression shared by the
             # sparse trigram probe and the ordered literal-substring stream.
-            searchable_text = func.lower(
-                ProductVariant.name
-                + literal_column("' '")
-                + ProductVariant.sku
+            # Arabic words (including numeric size tokens) must come from
+            # the name, never accidentally from an unrelated SKU. ASCII code
+            # lookups retain the original combined name/SKU search path.
+            arabic_search = any("\u0621" <= ch <= "\u064a" for ch in clean_search)
+            searchable_text = (
+                func.public.live_stock_normalize_arabic(ProductVariant.name)
+                if arabic_search
+                else func.lower(
+                    ProductVariant.name
+                    + literal_column("' '")
+                    + ProductVariant.sku
+                )
             )
             # This branch is used only after the probe proves there are
             # more matches than the requested page. Preserve exact literal
             # substring membership but deliberately stream the name-ordered
             # B-tree instead of expanding a broad trigram bitmap before LIMIT.
             direct_search_filters = tuple(
-                func.strpos(searchable_text, token) > 0
+                and_(
+                    func.strpos(searchable_text, token) > 0,
+                    # An exact size "2" must not match "12" or "20".
+                    searchable_text.op("~")(
+                        f"(^|[^[:alnum:]]){token}([^[:alnum:]]|$)"
+                    ),
+                )
+                if arabic_search and token.isascii() and token.isdecimal()
+                else func.strpos(searchable_text, token) > 0
                 for token in clean_search.split()
             )
 
