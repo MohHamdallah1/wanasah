@@ -108,6 +108,8 @@ const baseProps = {
   matchingTotal: 1,
   hasMore: false,
   stockState: "all" as const,
+  sort: "stock_first" as const,
+  onSortChange: vi.fn(),
   indicators: [],
   familyId: null,
   canManageMinimum: false,
