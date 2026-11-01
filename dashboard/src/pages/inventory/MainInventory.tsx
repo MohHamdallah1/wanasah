@@ -1927,7 +1927,27 @@ export default function MainInventory() {
             activeTab !== "permissions" && locationAccess.isPending)) && (
           <InventoryPendingSurface label={t("common.loading")} live={activeTab === "live"} />
         )}
-        {selectedLocationId === null && !loadingLocations && activeTab !== "warehouses" && activeTab !== "permissions" && (
+        {selectedLocationId === null && liveReadPhase === "denied" && activeTab === "live" && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            data-live-authority="accessChanged"
+            className="inventory-alert-banner px-4 py-2 text-sm font-semibold"
+          >
+            {t("inventoryShell.accessChanged")}
+            <button
+              type="button"
+              className="ms-3 rounded-lg border px-2 py-1"
+              onClick={() => {
+                void access.refetch();
+                void fetchLocations();
+              }}
+            >
+              {t("inventoryShell.refreshAccess")}
+            </button>
+          </div>
+        )}
+        {selectedLocationId === null && liveReadPhase !== "denied" && !loadingLocations && activeTab !== "warehouses" && activeTab !== "permissions" && (
           <div className="inventory-empty-state flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center font-bold">
             <p>
               {warehouseSetup?.warehouse_ready === false
