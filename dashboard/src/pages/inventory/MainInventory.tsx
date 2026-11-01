@@ -379,10 +379,15 @@ export default function MainInventory() {
     const cachedLocations = initialWarmShell?.locations ?? [];
     const savedRaw = localStorage.getItem(selectedLocationStorageKey);
     const savedId = savedRaw ? Number(savedRaw) : null;
+    // The persisted location id is only a provisional UI/request hint.
+    // It is never disclosure authority: selector admission + location access
+    // must still succeed before any stock, cost, total or location label is shown.
+    // Keeping the id here prevents a route re-entry from falling back to the
+    // whole-page pending skeleton when inventory-only users have no setup cache.
     if (
       savedId !== null &&
       Number.isSafeInteger(savedId) &&
-      cachedLocations.some((location) => location.id === savedId)
+      savedId > 0
     ) {
       return savedId;
     }
