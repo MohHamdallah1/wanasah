@@ -167,7 +167,9 @@ describe("UI-04: cache is never its own access authority", () => {
     fakeServer({ page: page.promise });
     const view = mount();
     expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
-    expect(screen.queryByTestId("live-stock")).not.toBeInTheDocument();
+    expect(screen.getByTestId("live-stock")).toBeInTheDocument();
+    expect(screen.getByText("total=hidden")).toBeInTheDocument();
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
 
     grant();
     view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
@@ -190,6 +192,8 @@ describe("UI-04: cache is never its own access authority", () => {
     const pendingReturn = deferred<unknown>();
     fakeServer({ page: pendingReturn.promise });
     mount(); // Returning to the inventory route with the same session.
+    expect(screen.getByTestId("live-stock")).toBeInTheDocument();
+    expect(screen.getByText("total=hidden")).toBeInTheDocument();
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
     await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
