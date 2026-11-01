@@ -122,6 +122,8 @@ jobs:
           }
 
           warehouse_minimum_sort_allowed = cp6_allowed | {
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
               ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/live-stock-r4-final-performance.yml",
               "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
