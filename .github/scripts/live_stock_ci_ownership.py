@@ -496,7 +496,45 @@ def _spec(mode: str):
     hard_owned = allowed - shared - POLICY_FILES
     return allowed, shared, hard_owned, forbidden, label
 
+# A single owner-approved cross-domain change couples minimum policy and
+# Live Stock membership, with narrow frontend and real-PG acceptance.
+# Existing UX/R3/operational ownership gates stay strict for every other PR.
+WAREHOUSE_VIEW_REQUIRED = {
+    "wa_backend/api/inventory_stock_policy.py",
+    "wa_backend/api/warehouse/live_stock.py",
+    "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+    "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+    "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+    "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
+    "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
+}
+WAREHOUSE_VIEW_ALLOWED = WAREHOUSE_VIEW_REQUIRED | {
+    HELPER,
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
+    ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+    ".github/workflows/live-stock-r4-final-performance.yml",
+    "dashboard/src/i18n/resources.ts",
+    "dashboard/src/pages/inventory/liveStock/contracts.ts",
+    "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+    "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+    "dashboard/src/test/live-stock-count-freshness-semantics.test.tsx",
+    "dashboard/src/test/live-stock-family-cursor.test.tsx",
+    "dashboard/src/test/live-stock-local-failure.test.tsx",
+    "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
+    "dashboard/src/test/live-stock-render-windowing.test.tsx",
+}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if WAREHOUSE_VIEW_REQUIRED <= changed:
+        extra = sorted(changed - WAREHOUSE_VIEW_ALLOWED)
+        if extra:
+            return "fail", [f"WAREHOUSE_MINIMUM_VIEW_SCOPE=FAIL extra={extra}"]
+        return "warehouse-minimum-view", []
+
     if changed & SESSION_ISOLATION_ROOTS:
         extra = sorted(changed - SESSION_ISOLATION_ALLOWED)
         if extra:
@@ -585,6 +623,15 @@ def selftest() -> None:
             "dashboard/src/features/dispatch/adjustLoad.ts",
         ):
             _expect_fail(mode, combined_worker1 | {foreign}, none)
+
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, set(WAREHOUSE_VIEW_ALLOWED), none)[0] == "warehouse-minimum-view"
+        for forbidden in (
+            "wa_backend/services.py",
+            "wa_backend/domains/inventory_costing/service.py",
+            "dashboard/src/pages/DispatchBoard.tsx",
+        ):
+            _expect_fail(mode, set(WAREHOUSE_VIEW_ALLOWED) | {forbidden}, none)
 
     for mode in ("ux", "r3", "operational"):
         state, messages = classify(mode, false_positive, none)
