@@ -4,7 +4,9 @@ import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
 import {
+  compareQuantity,
   formatCommercialQuantity,
+  subtractQuantity,
   type Quantity,
 } from "@/lib/quantity";
 import { resolveI18nLocale } from "@/lib/locale";
@@ -18,6 +20,9 @@ import type { LiveStockWarehouseSource } from "./sourceContract";
 type Props = {
   product: WarehouseProduct | null;
   batches: WarehouseBatchInventoryItem[];
+  mode?: "details" | "unavailable";
+  lifecycleStatus?: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED" | null;
+  operationalHold?: "NONE" | "SALES_HOLD" | "RECALL" | null;
   hasMore: boolean;
   loading: boolean;
   error: { message: string; kind: "initial" | "continuation" } | null;
@@ -52,6 +57,9 @@ const dateText = (value: string | null, locale: string): string => {
 export function BatchDetailPanel({
   product,
   batches,
+  mode = "details",
+  lifecycleStatus = null,
+  operationalHold = null,
   hasMore,
   loading,
   error,
@@ -93,17 +101,33 @@ export function BatchDetailPanel({
       product.display_factor_to_base,
     );
   const quantityText = (value: Quantity) => quantity(value).primary;
+  const displayedBatches =
+    mode === "unavailable"
+      ? batches.filter(
+          (batch) => compareQuantity(batch.unavailable_quantity, "0") > 0,
+        )
+      : batches;
+  const productGateText =
+    operationalHold && operationalHold !== "NONE"
+      ? copy.holdLabels[operationalHold]
+      : lifecycleStatus && lifecycleStatus !== "ACTIVE"
+        ? copy.lifecycleLabels[lifecycleStatus]
+        : copy.productGateClear;
 
   return (
     <Modal
       isOpen
       onClose={onClose}
-      title={`${copy.batchDetails} — ${product.name}`}
+      title={`${mode === "unavailable" ? copy.unavailableBreakdown : copy.batchDetails} — ${product.name}`}
       subtitle={product.sku ? `${product.sku} · ${product.family_name}` : product.family_name}
       maxWidth="max-w-5xl"
       bodyClassName="p-3 sm:p-5"
     >
-      <div className="space-y-3" data-testid="live-stock-batch-detail">
+      <div
+        className="space-y-3"
+        data-testid="live-stock-batch-detail"
+        data-live-stock-detail-mode={mode}
+      >
         {onRefresh ? (
           <div className="flex justify-end">
             <button type="button" onClick={onRefresh} disabled={refreshing}
@@ -146,17 +170,72 @@ export function BatchDetailPanel({
         {batches.length > 0 && !loading ? (
           <>
             <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
-            <p role="note" className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950"
-              data-live-stock-unavailable-explanation="true">
-              {copy.unavailableBreakdownNote}
-            </p>
+            {mode === "unavailable" ? (
+              <>
+                <section
+                  className="rounded-xl border border-rose-200 bg-rose-50/70 p-3"
+                  data-live-stock-unavailable-summary="true"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <span className="text-xs font-black text-rose-950">
+                      {copy.unavailableTotal}
+                    </span>
+                    <strong
+                      className="tabular-nums text-sm text-rose-950"
+                      dir="ltr"
+                    >
+                      {quantityText(product.unavailable_quantity)}
+                    </strong>
+                  </div>
+                  <div className="mt-2 text-xs font-semibold text-rose-900">
+                    <span className="font-black">{copy.productSaleGate}: </span>
+                    <span>{productGateText}</span>
+                  </div>
+                </section>
+                <p role="note" className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950"
+                  data-live-stock-unavailable-explanation="true">
+                  {copy.unavailableBreakdownNote}
+                </p>
+              </>
+            ) : null}
           </>
         ) : null}
 
-        {batches.map((batch) => {
+        {mode === "unavailable" && batches.length > 0 &&
+        displayedBatches.length === 0 && !loading ? (
+          <p
+            role="note"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-900"
+          >
+            {copy.unavailableNoAffectedBatches}
+          </p>
+        ) : null}
+
+        {displayedBatches.map((batch) => {
           const expanded = sourceOpenId === batch.batch_id;
           const source = expanded ? sourceByBatch[batch.batch_id] : undefined;
           const evidenceId = `live-stock-source-${product.id}-${batch.batch_id}`;
+          const otherRestriction = subtractQuantity(
+            batch.restricted_quantity,
+            batch.expiry_unavailable_quantity,
+          );
+          const otherRestrictionLabel =
+            operationalHold && operationalHold !== "NONE"
+              ? copy.holdLabels[operationalHold]
+              : lifecycleStatus && lifecycleStatus !== "ACTIVE"
+                ? copy.lifecycleLabels[lifecycleStatus]
+                : batch.disposition !== "RELEASED"
+                  ? `${copy.disposition}: ${copy.dispositionLabels[batch.disposition]}`
+                  : copy.otherSaleRestriction;
+          const unavailableCauses: Array<[string, Quantity]> = [
+            [copy.expiryUnavailable, batch.expiry_unavailable_quantity],
+            [copy.stockStatusLabels.QUARANTINED, batch.quarantined_quantity],
+            [copy.stockStatusLabels.BLOCKED, batch.blocked_quantity],
+            [copy.stockStatusLabels.RECALLED, batch.recalled_quantity],
+            [copy.stockStatusLabels.DAMAGED, batch.damaged_quantity],
+            [copy.stockStatusLabels.DISPOSAL_PENDING, batch.disposal_pending_quantity],
+            [otherRestrictionLabel, otherRestriction],
+          ].filter(([, value]) => compareQuantity(value, "0") > 0);
           return (
             <article
               key={batch.batch_id}
@@ -180,6 +259,29 @@ export function BatchDetailPanel({
                 <p className="mt-2 break-words text-xs font-semibold text-amber-900">
                   {copy.dispositionReason}: {batch.disposition_reason}
                 </p>
+              ) : null}
+
+              {mode === "unavailable" && unavailableCauses.length > 0 ? (
+                <div className="mt-3 rounded-xl border border-rose-100 bg-rose-50/60 p-3">
+                  <p className="text-[11px] font-black text-rose-900">
+                    {copy.unavailableCauses}
+                  </p>
+                  <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    {unavailableCauses.map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-white px-2.5 py-2"
+                      >
+                        <dt className="text-[11px] font-semibold text-slate-700">
+                          {label}
+                        </dt>
+                        <dd className="shrink-0 text-xs font-black tabular-nums text-rose-900" dir="ltr">
+                          {quantityText(value)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
               ) : null}
 
               <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:grid-cols-5">
