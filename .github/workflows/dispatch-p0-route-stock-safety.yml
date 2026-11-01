@@ -253,6 +253,11 @@ jobs:
           }
 
           warehouse_minimum_sort_scope = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-r4-final-performance.yml",
+              "dashboard/src/pages/inventory/liveStock/LiveStockFilters.tsx",
+              "dashboard/src/test/live-stock-family-cursor.test.tsx",
+              "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
               ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
               ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
               "dashboard/src/i18n/resources.ts",
