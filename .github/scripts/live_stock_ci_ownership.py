@@ -20,6 +20,8 @@ SHARED_SCHEMA = "wa_backend/schemas.py"
 SHARED_DISPATCH = "wa_backend/api/dispatch.py"
 
 UX_ALLOWED = {
+    # The dedicated in-flight workflow validates this view's freshness state.
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     ".github/workflows/live-stock-v1-browser-acceptance.yml",
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
@@ -99,6 +101,8 @@ R3_ALLOWED = {
 }
 
 OP_ALLOWED = {
+    # Keep the exact UI authority evidence workflow in combined browser scope.
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
     PHYSICAL_CALLER,

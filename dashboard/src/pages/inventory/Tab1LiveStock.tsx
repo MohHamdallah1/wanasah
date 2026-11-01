@@ -407,7 +407,7 @@ export function Tab1LiveStock({
           aria-live="polite"
           dir={i18n.dir()}
           data-live-count-kind={pageReady ? "loaded" : "unverified"}
-          className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-600"
+          className="sr-only"
         >
           {pageReady ? (
             <>
