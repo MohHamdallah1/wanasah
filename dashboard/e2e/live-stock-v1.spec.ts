@@ -89,6 +89,59 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
+test("same-session dashboard reentry preserves the live-stock workspace without verification flash or reread", async ({ page }) => {
+  await page.setViewportSize({ width: 1360, height: 900 });
+  const state = await installLiveStockApi(page);
+  await seedLiveStock(page, "en");
+  await loadList(page);
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).first()).toContainText("Stock Item 0000");
+
+  const cursorReadsBeforeLeaving = state.cursorReads;
+  expect(cursorReadsBeforeLeaving).toBeGreaterThan(0);
+
+  const host = page.locator('[data-persistent-inventory-host="true"]');
+  await expect(host).toBeVisible();
+
+  const nav = page.locator(".operations-nav-item");
+  await nav.nth(0).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(host).toBeHidden();
+
+  await page.evaluate(() => {
+    const marker = "__wanasahLiveVerificationShellSeen";
+    (window as unknown as Record<string, unknown>)[marker] = false;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-live-verification-shell="true"]')) {
+        (window as unknown as Record<string, unknown>)[marker] = true;
+      }
+    });
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class", "data-live-verification-shell"],
+    });
+    (window as unknown as Record<string, unknown>).__wanasahLiveReentryObserver = observer;
+  });
+
+  await nav.nth(2).click();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(host).toBeVisible();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(rows(page).first()).toContainText("Stock Item 0000");
+
+  expect(state.cursorReads).toBe(cursorReadsBeforeLeaving);
+  expect(await page.evaluate(() =>
+    (window as unknown as Record<string, unknown>).__wanasahLiveVerificationShellSeen
+  )).toBe(false);
+  await page.evaluate(() => {
+    const observer = (window as unknown as Record<string, unknown>)
+      .__wanasahLiveReentryObserver as MutationObserver | undefined;
+    observer?.disconnect();
+  });
+});
+
 test("search, family filter and correct location-scoped response without row leakage", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 840 });
   const state = await installLiveStockApi(page, 80);
