@@ -988,7 +988,8 @@ export default function MainInventory() {
     // Low/out-of-stock investigation must include zero-stock company SKUs,
     // even while the operator's ordinary view remains warehouse-only.
     const requestedView =
-      stockState === "low_stock" || stockState === "out_of_stock"
+      stockState === "low_stock" || stockState === "out_of_stock" ||
+      stockIndicators.includes("minimum_unset")
         ? "catalog"
         : stockView;
     const defaultView =
