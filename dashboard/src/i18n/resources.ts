@@ -1728,7 +1728,7 @@ export const resources = {
         button: "الحد الأدنى للمخزون",
         title: "إدارة الحد الأدنى للمخزون",
         description:
-          "حدد الحد الأدنى للمخزون في المستودع الحالي لكل المنتجات أو لعائلات ومنتجات تختارها.",
+          "حدد الحد الأدنى للمنتجات الفعالة المربوطة بالمستودع، كلها أو العائلات والأصناف التي تختارها.",
         scopeAll: "المنتجات المرتبطة بالمستودع",
         scopeAllHint:
           "يشمل التطبيق الأصناف المربوطة بهذا المستودع فقط، ولا يشمل كل أصناف كتالوج الشركة.",
@@ -1767,7 +1767,7 @@ export const resources = {
         noChangesSame:
           "لا يوجد تغيير: القيمة المدخلة مطابقة للحد الحالي للمنتجات المشمولة.",
         noLinkedProducts:
-          "لم يتم ضبط حد أدنى لأي منتج: لا توجد منتجات مربوطة بالمستودع ضمن النطاق المختار. راجع ربط المنتجات بالمستودع أولاً.",
+          "لم يتم ضبط حد أدنى لأي منتج: لا توجد منتجات فعالة مربوطة بهذا المستودع ضمن النطاق المحدد. راجع ربط المنتجات وحالتها أولاً.",
         errors: {
           preview: "تعذر معاينة تطبيق الحد الأدنى.",
           apply: "تعذر تطبيق الحد الأدنى للمخزون.",
@@ -4142,7 +4142,7 @@ export const resources = {
         button: "Minimum stock",
         title: "Manage minimum stock",
         description:
-          "Set minimum stock for the current warehouse across all products or selected families and products.",
+          "Set minimum stock for active products assigned to this warehouse, or selected families and products.",
         scopeAll: "Products assigned to this warehouse",
         scopeAllHint:
           "Applies only to products assigned to this warehouse, not every item in the company catalog.",
@@ -4181,7 +4181,7 @@ export const resources = {
         noChangesSame:
           "Nothing changed: the value already matches the minimum for the included products.",
         noLinkedProducts:
-          "No product minimums were set: no products are assigned to this warehouse in the selected scope. Check warehouse product assignments first.",
+          "No product minimums were set: there are no active products assigned to this warehouse in this scope. Check assignments and product status first.",
         errors: {
           preview: "Could not preview the minimum-stock update.",
           apply: "Could not apply minimum stock.",
