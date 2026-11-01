@@ -258,24 +258,38 @@ export function Tab1LiveStock({
     getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language).staleBatchDetails,
     onReadDenied,
   );
+  const [detailMode, setDetailMode] = useState<"batches" | "unavailable">("batches");
+  const openBatchDetails = useCallback((product: WarehouseProduct) => {
+    setDetailMode("batches");
+    detail.open(product);
+  }, [detail.open]);
+  const openUnavailableBreakdown = useCallback((product: WarehouseProduct) => {
+    setDetailMode("unavailable");
+    detail.open(product);
+  }, [detail.open]);
 
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
+    const selectedMode = detailMode;
     detail.close();
     if (selectedId === undefined) return;
 
     // A manual refresh replaces the entire inventory row while the modal is
-    // open. The generic dialog hook can only restore an attached trigger;
-    // locate the freshly mounted trigger instead, without reviving stale rows.
+    // open. Restore the exact trigger kind when it still exists.
     window.requestAnimationFrame(() => {
-      const target = scrollRef.current?.querySelector<HTMLElement>(
-        `[data-live-stock-product-open="${selectedId}"]`,
-      ) ?? document.querySelector<HTMLElement>(
-        '[data-cp13-surface="live-stock"] .live-stock-search input',
-      );
+      const selector = selectedMode === "unavailable"
+        ? `[data-live-stock-unavailable-open="${selectedId}"]`
+        : `[data-live-stock-product-open="${selectedId}"]`;
+      const target = scrollRef.current?.querySelector<HTMLElement>(selector)
+        ?? scrollRef.current?.querySelector<HTMLElement>(
+          `[data-live-stock-product-open="${selectedId}"]`,
+        )
+        ?? document.querySelector<HTMLElement>(
+          '[data-cp13-surface="live-stock"] .live-stock-search input',
+        );
       target?.focus({ preventScroll: true });
     });
-  }, [detail.close, detail.product?.id]);
+  }, [detail.close, detail.product?.id, detailMode]);
 
   const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
   const selectionRead = useRef<{
@@ -551,7 +565,8 @@ export function Tab1LiveStock({
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
               loading={loading}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableBreakdown}
             />
           )}
           {isNarrowViewport && products.length > 0 && (
@@ -564,7 +579,8 @@ export function Tab1LiveStock({
               onItemMeasure={handleItemMeasure}
               onProductFocus={handleProductFocus}
               onProductBlur={handleProductBlur}
-              onOpen={detail.open}
+              onOpen={openBatchDetails}
+              onOpenUnavailable={openUnavailableBreakdown}
             />
           )}
           {products.length === 0 && (
@@ -613,6 +629,9 @@ export function Tab1LiveStock({
       <BatchDetailPanel
         product={detail.product}
         batches={detail.page?.batches ?? []}
+        mode={detailMode}
+        lifecycleStatus={detail.page?.lifecycle_status ?? null}
+        operationalHold={detail.page?.operational_hold ?? null}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}
