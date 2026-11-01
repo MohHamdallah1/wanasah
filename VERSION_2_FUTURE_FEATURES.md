@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product and operational capabilities intentionally deferred from Version 1
-**Last updated:** 2026-10-25
+**Last updated:** 2026-11-01
 
 This file is the canonical source of truth for capabilities intentionally deferred from Version 1. Some already have meaningful backend/domain foundations; others are future product or operational workflows that must not be mistaken for unfinished V1 work.
 
@@ -821,3 +821,25 @@ The owner originally deferred Vehicle Load benchmarking and Dispatch catalog tra
 - [ ] **Vehicle Load 50k stock-bearing benchmark and search hardening:** the V1 Vehicle Load source picker is already warehouse-scoped, stock-scoped, backend-searched, cursor-paginated, and bounded to small pages. V2 must benchmark the extreme case where roughly 50,000 products all carry eligible stock in one warehouse, measure first-page/search/cursor query times, and improve indexed text/SKU search if measured evidence requires it. Do not regress to full-catalog transfer.
 
 Dispatch bootstrap catalog removal and all four lazy, bounded, cursor-based product pickers are now V1 closure requirements in `V1_SCOPE_FREEZE.md`; 80 is a page size, never a matching-result ceiling. The former V1 final-repair item 6 was CLOSED on 2026-10-29 after lead review, focused automated gates, owner live acceptance, and live database verification. The remaining Vehicle Load benchmark is a V2 scale/efficiency item only. Any demonstrated V1 correctness defect in route-load quantity meaning, UOM conversion, custody delta, authorization, or inventory movement remains a V1 blocker and must not be hidden behind this deferral.
+
+---
+
+## 15. Global settings and feature navigation search — owner request 2026-11-01
+
+**Status:** V2 BACKLOG ONLY — NOT IMPLEMENTED; do not expand frozen V1 scope.
+
+### Problem / goal
+
+An operator may forget where an infrequently used setting lives (for example, **الحد الأدنى للمخزون** under Warehouse Management, or an inventory policy under Settings). Offer a project-wide **Find a setting or feature / ابحث عن إعداد أو ميزة** entry that tells the operator where to go, or directly navigates them to the authoritative existing page/action.
+
+### Proposed V2 UX
+
+- [ ] A compact global search/command palette accessible from the main Dashboard navigation (optionally `Ctrl+K`/`⌘K`) and from mobile, supporting Arabic and English, common aliases and synonyms, and partial name matching.
+- [ ] Index **navigation destinations and documented configuration actions**, not company inventory, customers, records, or unrestricted application data. An example result is **الحد الأدنى للمخزون → المخزون ← إدارة المستودعات → الحد الأدنى للمخزون**; selecting it goes to the existing authorized workflow, optionally focusing/opening the matching control if supported.
+- [ ] Show a clear breadcrumb/location and short human-readable purpose for each result; distinguish a settings destination from product/stock record search. No duplicate configuration screens or business rules.
+- [ ] Show only enabled destinations the current company/principal is allowed to discover. Recheck real capability, company, location, and session authority on navigation and API access; no search result is a permission grant, no cross-tenant/warehouse setting disclosure, no bypass via URL or deep link.
+- [ ] Prefer a small typed, versioned registry of route IDs, localized labels, keywords, breadcrumb paths, and safe optional focus targets. Do not scrape arbitrary UI text or scan the entire database for settings; keep the index bounded, lightweight, and easy to maintain as modules are added.
+- [ ] Support keyboard navigation, focus return, screen readers, RTL/LTR, AR/EN localization, responsive mobile/desktop operation and clear empty/no-access states.
+- [ ] Add focused acceptance for correct destination, inaccessible item omission, revocation/session switching, stale routes, deep-link guards, navigation without mutations, and performance with a growing configuration registry.
+
+**Scope boundary:** This is an interface-discoverability/navigation feature for V2, not a new settings authority and not a request to move the current minimum-stock workflow or change any V1 page now.
