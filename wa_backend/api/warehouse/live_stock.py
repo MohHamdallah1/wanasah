@@ -1169,7 +1169,7 @@ async def get_warehouse_inventory(
     has_recalled: bool = False,
     has_vehicle: bool = False,
     minimum_unset: bool = False,
-    sort: Literal["name_asc", "name_desc", "stock_first"] = "name_asc",
+    sort: Literal["name_asc", "name_desc", "stock_first", "low_stock_first"] = "name_asc",
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
 ):
@@ -1430,7 +1430,7 @@ async def get_warehouse_inventory(
                 expected_kind="warehouse-inventory",
                 expected_scope=scope,
             )
-            if sort == "stock_first":
+            if sort in {"stock_first", "low_stock_first"}:
                 prefix, separator, name = cursor_name.partition("|")
                 if separator != "|" or prefix not in {"0", "1"}:
                     raise HTTPException(
@@ -1512,7 +1512,11 @@ async def get_warehouse_inventory(
                 .where(
                     InventoryLiveStockProjection.company_id == company_id,
                     InventoryLiveStockProjection.warehouse_location_id == location_id,
-                    InventoryLiveStockProjection.has_warehouse_presence.is_(True),
+                    (
+                        InventoryLiveStockProjection.is_low_stock.is_(True)
+                        if sort == "low_stock_first"
+                        else InventoryLiveStockProjection.has_warehouse_presence.is_(True)
+                    ),
                 )
             )
             present_here = ProductVariant.id.in_(positive_variant_ids)
@@ -1586,7 +1590,7 @@ async def get_warehouse_inventory(
                 )
                 if sort == "name_desc"
                 else (
-                    *((search_candidates.c.sort_rank.asc(),) if sort == "stock_first" else ()),
+                    *((search_candidates.c.sort_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
                     search_candidates.c.variant_name.asc(),
                     search_candidates.c.id.asc(),
                 )
@@ -1595,7 +1599,7 @@ async def get_warehouse_inventory(
                 select(
                     search_candidates.c.id,
                     search_candidates.c.variant_name,
-                    *((search_candidates.c.sort_rank,) if sort == "stock_first" else ()),
+                    *((search_candidates.c.sort_rank,) if sort in {"stock_first", "low_stock_first"} else ()),
                 )
                 .order_by(*search_order)
                 .limit(limit + 1)
@@ -1610,7 +1614,7 @@ async def get_warehouse_inventory(
             (candidates.c.variant_name.desc(), candidates.c.id.desc())
             if sort == "name_desc"
             else (
-                *((candidates.c.sort_rank.asc(),) if sort == "stock_first" else ()),
+                *((candidates.c.sort_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
                 candidates.c.variant_name.asc(), candidates.c.id.asc(),
             )
         )
@@ -1618,7 +1622,7 @@ async def get_warehouse_inventory(
             select(
                 candidates.c.id.label("product_variant_id"),
                 candidates.c.variant_name.label("cursor_name"),
-                *((candidates.c.sort_rank.label("cursor_rank"),) if sort == "stock_first" else ()),
+                *((candidates.c.sort_rank.label("cursor_rank"),) if sort in {"stock_first", "low_stock_first"} else ()),
             )
             .order_by(*candidate_order)
             .limit(limit)
@@ -1714,7 +1718,7 @@ async def get_warehouse_inventory(
                 ProductVariant.sku.label("sku"),
                 ProductVariant.product_id.label("product_id"),
                 Product.name.label("family_name"),
-                *((detail_key_scope.c.cursor_rank,) if sort == "stock_first" else ()),
+                *((detail_key_scope.c.cursor_rank,) if sort in {"stock_first", "low_stock_first"} else ()),
                 ProductVariant.base_uom_id.label("base_uom_id"),
                 ProductVariant.quantity_scale.label("quantity_scale"),
                 ProductVariant.quantity_step.label("quantity_step"),
@@ -1806,7 +1810,7 @@ async def get_warehouse_inventory(
             .outerjoin(latest_purchase_one, true())
             .outerjoin(display_uom_one, true())
             .order_by(
-                *((detail_key_scope.c.cursor_rank.asc(),) if sort == "stock_first" else ()),
+                *((detail_key_scope.c.cursor_rank.asc(),) if sort in {"stock_first", "low_stock_first"} else ()),
                 detail_key_scope.c.cursor_name.desc()
                 if sort == "name_desc" else detail_key_scope.c.cursor_name.asc(),
                 ProductVariant.id.desc()
@@ -2035,7 +2039,7 @@ async def get_warehouse_inventory(
                 kind="warehouse-inventory",
                 variant_name=(
                     f'{int(last_candidate["cursor_rank"])}|{last_candidate["cursor_name"]}'
-                    if sort == "stock_first"
+                    if sort in {"stock_first", "low_stock_first"}
                     else str(last_candidate["cursor_name"])
                 ),
                 variant_id=int(last_candidate["variant_id"]),
