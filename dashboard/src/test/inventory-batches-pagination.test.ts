@@ -33,6 +33,8 @@ const page = (overrides: Record<string, unknown> = {}) => ({
   location_id: 119,
   product_variant_id: 211352,
   currency_code: "JOD",
+  lifecycle_status: "ACTIVE",
+  operational_hold: "NONE",
   batches: [batch(1)],
   next_cursor: null,
   has_more: false,
