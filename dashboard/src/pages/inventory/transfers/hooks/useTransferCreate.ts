@@ -17,11 +17,12 @@ import { compareQuantity, validateVariantQuantity } from "../../quantity";
 import { findTransferDraftSubmitBlocker, type TransferSubmitBlocker } from "../submitValidation";
 
 interface UseTransferCreateArgs {
+  active?: boolean;
   onInventoryChanged: () => void | Promise<void>;
   onCompleted: () => void;
 }
 
-export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransferCreateArgs) {
+export function useTransferCreate({ active = true, onInventoryChanged, onCompleted }: UseTransferCreateArgs) {
   const { t } = useTransferTranslation();
   const command = useTransferCommand("TRANSFER_DISPATCH", "workspace");
   const scope = (() => {
@@ -35,7 +36,8 @@ export function useTransferCreate({ onInventoryChanged, onCompleted }: UseTransf
   currentScope.current = scope;
   const [openedScope, setOpenedScope] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const createOpen = open && scope === openedScope;
+  // Keep the persisted form/durable command, but suspend hidden modal readers.
+  const createOpen = active && open && scope === openedScope;
   const [source, setSource] = useState<TransferWarehouse | null>(null);
   const [destination, setDestination] = useState<TransferWarehouse | null>(null);
   const [createNotes, setCreateNotes] = useState("");
