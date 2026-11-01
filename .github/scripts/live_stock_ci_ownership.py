@@ -101,6 +101,8 @@ R3_ALLOWED = {
 }
 
 OP_ALLOWED = {
+    # Keep the exact UI authority evidence workflow in combined browser scope.
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     ".github/workflows/inventory-cp13-shell-polish.yml",
     ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
     PHYSICAL_CALLER,
