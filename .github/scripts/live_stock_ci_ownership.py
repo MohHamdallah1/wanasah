@@ -82,6 +82,9 @@ UX_ALLOWED = {
     "dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx",
     "dashboard/src/test/live-stock-warm-authority.test.tsx",
     "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
+    "wa_backend/tests/test_cp7_live_stock_contract.py",
+    "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
@@ -170,6 +173,9 @@ OP_ALLOWED = {
     "dashboard/src/test/live-stock-ui01-canonical-alert.test.tsx",
     "dashboard/src/test/live-stock-warm-authority.test.tsx",
     "docs/operations/LIVE_STOCK_OPERATIONAL_BROWSER_EVIDENCE.md",
+    "wa_backend/api/warehouse/live_stock_source_detail.py",
+    "wa_backend/tests/test_cp7_live_stock_contract.py",
+    "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
     "wa_backend/tests/live_stock_operational_browser_support.py",
 }
 
@@ -474,7 +480,12 @@ def _spec(mode: str):
         allowed = UX_ALLOWED
         shared = {SHARED_RESOURCES}
         forbidden: Callable[[str], bool] = lambda p: (
-            (p.startswith("wa_backend/") and p != "wa_backend/tests/live_stock_operational_browser_support.py")
+            (p.startswith("wa_backend/") and p not in {
+                "wa_backend/api/warehouse/live_stock_source_detail.py",
+                "wa_backend/tests/test_cp7_live_stock_contract.py",
+                "wa_backend/tests/test_live_stock_source_action_policy_postgres.py",
+                "wa_backend/tests/live_stock_operational_browser_support.py",
+            })
             or p == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
             or p.startswith(("flutter_app/", "wanasah_frontend/"))
         )
