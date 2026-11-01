@@ -82,6 +82,8 @@ const base: ComponentProps<typeof Tab1LiveStock> = {
   matchingTotal: null,
   hasMore: false,
   stockState: "all",
+  sort: "stock_first",
+  onSortChange: vi.fn(),
   indicators: [],
   familyId: null,
   onLocationChange: vi.fn(),
