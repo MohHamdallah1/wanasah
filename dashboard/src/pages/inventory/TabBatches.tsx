@@ -35,6 +35,7 @@ import { useBatchIndex } from "./batches/useBatchIndex";
 
 interface Props {
   locationId: number;
+  active?: boolean;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
   onOpenTransfers: (
@@ -79,6 +80,7 @@ const mergeProducts = (
 
 export function TabBatches({
   locationId,
+  active = true,
   focus = null,
   onFocusConsumed,
   onOpenTransfers,
@@ -110,6 +112,7 @@ export function TabBatches({
     locationId,
     filters,
     expiryWarningDays,
+    active,
   });
 
   const text = useCallback(
@@ -124,6 +127,11 @@ export function TabBatches({
     selectedRefreshAbort.current = null;
     setSelectedBatchContext(null);
   }, []);
+
+  // A hidden Batches tab must not leave a portalled action dialog active.
+  useEffect(() => {
+    if (!active) closeSelectedBatch();
+  }, [active, closeSelectedBatch]);
 
   useEffect(() => {
     setSearchInput("");
@@ -225,7 +233,7 @@ export function TabBatches({
   }, [authFetch, selectedBatchContext, t]);
 
   useEffect(() => {
-    if (focus?.batchId === null || focus?.batchId === undefined) return;
+    if (!active || focus?.batchId === null || focus?.batchId === undefined) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -256,7 +264,7 @@ export function TabBatches({
       }
     })();
     return () => controller.abort();
-  }, [authFetch, focus?.batchId, focus?.variantId, onFocusConsumed, t]);
+  }, [active, authFetch, focus?.batchId, focus?.variantId, onFocusConsumed, t]);
 
   const updateExpiryWarningDays = useCallback(
     (value: number) => {
@@ -374,7 +382,7 @@ export function TabBatches({
       </div>
 
       <BatchDispositionManager
-        batch={selectedBatchContext?.batch ?? null}
+        batch={active ? selectedBatchContext?.batch ?? null : null}
         productVariantId={selectedBatchContext?.productVariantId ?? null}
         baseUomCode={selectedBatchContext?.baseUomCode ?? ""}
         selectedWarehouseId={locationId}

@@ -102,6 +102,7 @@ export function BatchIndexTable({
     <button
       type="button"
       onClick={() => onManage(item)}
+      disabled={loading}
       className="min-h-8 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-slate-700 outline-none transition hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-slate-500"
     >
       {text(canManageDisposition ? "manageStatus" : "viewDetails")}
@@ -110,7 +111,9 @@ export function BatchIndexTable({
 
   // The header and scroll frame stay mounted throughout first load/retry.
   // Do not disclose rows from a superseded scope during initial fetch.
-  const showRows = !loading && !error && items.length > 0;
+  // Identical-query rows remain visible during revalidation, never as fresh:
+  // the busy indicator is explicit and row commands are disabled meanwhile.
+  const showRows = !error && items.length > 0;
   const stateContents = (
     <div role={error ? "alert" : "status"} data-cp13-state={error ? "error" : loading ? "loading" : "empty"}
       className="flex min-h-24 flex-col items-center justify-center gap-2 p-4 text-center text-sm font-semibold text-slate-500">
@@ -126,7 +129,13 @@ export function BatchIndexTable({
   );
 
   return (
-    <section aria-label={text("loadedCount", { count: number(items.length) })} className="min-h-0">
+    <section aria-label={text("loadedCount", { count: number(items.length) })} aria-busy={loading} className="min-h-0">
+      {showRows && loading && (
+        <div role="status" className="flex items-center gap-2 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold text-slate-600">
+          <RefreshCcw className="h-3 w-3 animate-spin" aria-hidden="true" />
+          {text("loading")}
+        </div>
+      )}
       <div tabIndex={0} role="region" aria-label={text("title")} className="hidden overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-500 md:block">
         <table className="w-full min-w-[960px] border-collapse text-start text-[11px]">
           <thead className="sticky top-0 z-[1] bg-slate-50 text-[10px] font-bold text-slate-600">
@@ -185,7 +194,7 @@ export function BatchIndexTable({
         ))}
       </div>
 
-      {showRows && continuationError ? (
+      {showRows && !loading && continuationError ? (
         <div role="alert" className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-900">
           <span>{text("continuationError")}</span>
           <button type="button" onClick={onLoadMore} className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 font-bold outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
@@ -194,7 +203,7 @@ export function BatchIndexTable({
         </div>
       ) : null}
 
-      {showRows && hasMore && !continuationError ? (
+      {showRows && !loading && hasMore && !continuationError ? (
         <div className="mt-2 flex justify-center">
           <button
             type="button"
