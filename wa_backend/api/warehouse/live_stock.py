@@ -1240,7 +1240,11 @@ async def get_warehouse_inventory(
             f"{effective_stock_state}|{family_id or 0}|"
             f"{int(has_reserved)}{int(has_unavailable)}"
             f"{int(has_damaged)}{int(has_recalled)}"
-            f"{int(has_vehicle)}{int(minimum_unset)}|{view}|{sort}"
+            f"{int(has_vehicle)}{int(minimum_unset)}|{sort}"
+            # Keep the original catalog cursor scope byte-for-byte so old
+            # clients/continuations remain compatible. Warehouse-only
+            # cursors are deliberately not valid for catalog requests.
+            f"{'|warehouse' if view == 'warehouse' else ''}"
         )
 
         search_probe = None
