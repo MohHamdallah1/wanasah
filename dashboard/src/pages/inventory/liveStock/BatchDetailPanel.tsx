@@ -4,7 +4,10 @@ import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
 import {
+  addQuantity,
+  compareQuantity,
   formatCommercialQuantity,
+  subtractQuantity,
   type Quantity,
 } from "@/lib/quantity";
 import { resolveI18nLocale } from "@/lib/locale";
@@ -18,6 +21,9 @@ import type { LiveStockWarehouseSource } from "./sourceContract";
 type Props = {
   product: WarehouseProduct | null;
   batches: WarehouseBatchInventoryItem[];
+  mode?: "batches" | "unavailable";
+  lifecycleStatus?: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED" | null;
+  operationalHold?: "NONE" | "SALES_HOLD" | "RECALL" | null;
   hasMore: boolean;
   loading: boolean;
   error: { message: string; kind: "initial" | "continuation" } | null;
@@ -52,6 +58,9 @@ const dateText = (value: string | null, locale: string): string => {
 export function BatchDetailPanel({
   product,
   batches,
+  mode = "batches",
+  lifecycleStatus = null,
+  operationalHold = null,
   hasMore,
   loading,
   error,
@@ -93,12 +102,48 @@ export function BatchDetailPanel({
       product.display_factor_to_base,
     );
   const quantityText = (value: Quantity) => quantity(value).primary;
+  const zero = "0" as Quantity;
+  const unavailableTotals = batches.reduce(
+    (totals, batch) => ({
+      expiry: addQuantity(totals.expiry, batch.expiry_unavailable_quantity),
+      otherRestricted: addQuantity(
+        totals.otherRestricted,
+        subtractQuantity(batch.restricted_quantity, batch.expiry_unavailable_quantity),
+      ),
+      quarantined: addQuantity(totals.quarantined, batch.quarantined_quantity),
+      blocked: addQuantity(totals.blocked, batch.blocked_quantity),
+      recalled: addQuantity(totals.recalled, batch.recalled_quantity),
+      damaged: addQuantity(totals.damaged, batch.damaged_quantity),
+      disposalPending: addQuantity(totals.disposalPending, batch.disposal_pending_quantity),
+    }),
+    {
+      expiry: zero,
+      otherRestricted: zero,
+      quarantined: zero,
+      blocked: zero,
+      recalled: zero,
+      damaged: zero,
+      disposalPending: zero,
+    },
+  );
+  const unavailableReasons = [
+    [copy.expiryUnavailable, unavailableTotals.expiry],
+    [copy.otherRestricted, unavailableTotals.otherRestricted],
+    [copy.stockStatusLabels.QUARANTINED, unavailableTotals.quarantined],
+    [copy.stockStatusLabels.BLOCKED, unavailableTotals.blocked],
+    [copy.stockStatusLabels.RECALLED, unavailableTotals.recalled],
+    [copy.stockStatusLabels.DAMAGED, unavailableTotals.damaged],
+    [copy.stockStatusLabels.DISPOSAL_PENDING, unavailableTotals.disposalPending],
+  ] as const;
+  const visibleBatches = mode === "unavailable"
+    ? batches.filter((batch) => compareQuantity(batch.unavailable_quantity, zero) > 0)
+    : batches;
 
   return (
     <Modal
       isOpen
       onClose={onClose}
-      title={`${copy.batchDetails} — ${product.name}`}
+      title={`${mode === "unavailable" ? copy.unavailableBreakdown : copy.batchDetails} — ${product.name}`}
       subtitle={product.sku ? `${product.sku} · ${product.family_name}` : product.family_name}
       maxWidth="max-w-5xl"
       bodyClassName="p-3 sm:p-5"
@@ -114,6 +159,52 @@ export function BatchDetailPanel({
             </button>
           </div>
         ) : null}
+        {mode === "unavailable" ? (
+          <section
+            className="rounded-2xl border border-rose-200 bg-rose-50/60 p-3 sm:p-4"
+            data-testid="live-stock-unavailable-breakdown"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-black text-rose-900">{copy.unavailableTotal}</span>
+              <strong className="text-sm font-black tabular-nums text-rose-950" dir="ltr">
+                {quantityText(product.unavailable_quantity)}
+              </strong>
+            </div>
+            {lifecycleStatus && operationalHold ? (
+              <div className="mt-2 rounded-xl border border-rose-100 bg-white/80 px-3 py-2 text-xs font-bold text-slate-700">
+                <span>{copy.currentProductGate}: </span>
+                <span className="font-black">
+                  {copy.lifecycleLabels[lifecycleStatus]} · {copy.holdLabels[operationalHold]}
+                </span>
+              </div>
+            ) : null}
+            {batches.length > 0 ? (
+              <>
+                <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {unavailableReasons
+                    .filter(([, value]) => compareQuantity(value, zero) > 0)
+                    .map(([label, value]) => (
+                      <div key={label} className="rounded-xl border border-rose-100 bg-white px-3 py-2">
+                        <div className="text-[10px] font-bold text-slate-500">{label}</div>
+                        <div className="mt-1 text-xs font-black tabular-nums text-slate-900" dir="ltr">
+                          {quantityText(value)}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+                <p role="note" className="mt-2 text-[11px] font-semibold text-slate-600">
+                  {copy.unavailableBreakdownNote}
+                </p>
+                {hasMore ? (
+                  <p role="note" className="mt-1 text-[11px] font-bold text-amber-800">
+                    {copy.loadedBreakdownNotice}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+          </section>
+        ) : null}
+
         {loading && batches.length === 0 ? (
           <div className="flex min-h-40 items-center justify-center gap-2 text-sm font-bold text-slate-500">
             <RefreshCcw className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -144,16 +235,10 @@ export function BatchDetailPanel({
         ) : null}
 
         {batches.length > 0 && !loading ? (
-          <>
-            <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
-            <p role="note" className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950"
-              data-live-stock-unavailable-explanation="true">
-              {copy.unavailableBreakdownNote}
-            </p>
-          </>
+          <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
         ) : null}
 
-        {batches.map((batch) => {
+        {visibleBatches.map((batch) => {
           const expanded = sourceOpenId === batch.batch_id;
           const source = expanded ? sourceByBatch[batch.batch_id] : undefined;
           const evidenceId = `live-stock-source-${product.id}-${batch.batch_id}`;
