@@ -134,7 +134,7 @@ const batch = {
   disposition: "RELEASED" as const,
   disposition_reason: null,
   disposition_revision: 1,
-  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"] as const,
+  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"] as Array<"RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED">,
   days_to_expiry: null,
   quantity_scale: 6,
   quantity_step: "0.000001" as const,
@@ -142,6 +142,8 @@ const batch = {
   reserved_quantity: "0.500001" as const,
   available_for_sale_quantity: "2" as const,
   unavailable_quantity: "0" as const,
+  restricted_quantity: "0" as const,
+  expiry_unavailable_quantity: "0" as const,
   quarantined_quantity: "0" as const,
   blocked_quantity: "0" as const,
   recalled_quantity: "0" as const,
@@ -151,6 +153,9 @@ const batch = {
   average_cost: "1.250000",
   latest_purchase_unit_cost: "1.500000",
   latest_purchase_date: "2026-10-15",
+  latest_purchase_cost: null,
+  latest_purchase_uom_code: null,
+  purchase_event_count: 0,
   purchase_count: 1,
 };
 

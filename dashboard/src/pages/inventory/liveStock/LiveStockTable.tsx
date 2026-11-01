@@ -217,7 +217,17 @@ export function LiveStockTable({
                     title={rendered.secondary ?? undefined}
                     data-cp13-quantity={metric}
                   >
-                    {rendered.primary}
+                    {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpen(product)}
+                        aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
+                        title={copy.unavailableBreakdown}
+                        className="rounded-md px-1 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                      >
+                        {rendered.primary}
+                      </button>
+                    ) : rendered.primary}
                   </td>
                 );
               })}

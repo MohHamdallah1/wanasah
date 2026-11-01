@@ -181,7 +181,23 @@ jobs:
               "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
               "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
           }
-          permitted = set(allowed) | (combined_additional if combined_required <= changed else set())
+          # An independently tested Live Stock layout fix may alter only
+          # its shared CSS plus its own bilingual batch-detail copy.
+          live_stock_presentation_roots = {
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+          }
+          live_stock_presentation_files = {
+              "dashboard/src/pages/inventory/inventory.css",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+          }
+          permitted = (
+              set(allowed)
+              | (combined_additional if combined_required <= changed else set())
+              | (live_stock_presentation_files if live_stock_presentation_roots <= changed else set())
+          )
           assert changed <= permitted, sorted(changed - permitted)
           for forbidden in ("wa_backend/services.py",
                             "wa_backend/domains/inventory_costing/service.py",
