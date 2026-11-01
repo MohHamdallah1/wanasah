@@ -142,6 +142,8 @@ const batch = {
   reserved_quantity: "0.500001" as const,
   available_for_sale_quantity: "2" as const,
   unavailable_quantity: "0" as const,
+  restricted_quantity: "0" as const,
+  expiry_unavailable_quantity: "0" as const,
   quarantined_quantity: "0" as const,
   blocked_quantity: "0" as const,
   recalled_quantity: "0" as const,
