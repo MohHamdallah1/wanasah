@@ -1,0 +1,13 @@
+/*
+ * The shared `.inventory-view` rule in inventory.css fades every tab in from
+ * opacity 0 with a 3px slide (180ms) each time the tab mounts. Tabs are
+ * mounted and unmounted on every switch, so the whole panel blanks and
+ * re-appears, which reads as the page rebuilding itself.
+ *
+ * Transfers opts out so it is fully painted from its first frame. The extra
+ * class wins on specificity, so import order does not matter and the other
+ * tabs keep the shared behaviour untouched.
+ */
+.inventory-view.inventory-transfers {
+  animation: none;
+}
