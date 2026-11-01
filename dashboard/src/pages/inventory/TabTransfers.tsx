@@ -11,6 +11,7 @@ import { useTransferList } from "./transfers/hooks/useTransferList";
 import { useTransferActions } from "./transfers/hooks/useTransferActions";
 import { useTransferCreate } from "./transfers/hooks/useTransferCreate";
 import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+import "./transfers/transfersSurface.css";
 
 class TransferWorkspaceErrorBoundary extends Component<
   { children: ReactNode; retryLabel: string; message: string },

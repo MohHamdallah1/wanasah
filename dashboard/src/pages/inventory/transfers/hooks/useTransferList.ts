@@ -142,6 +142,13 @@ export function useTransferList() {
   }, []);
 
   const items = current?.items ?? [];
+  const scopedFailure = failure?.scope === scope ? failure : null;
+  // `loading` is flipped by the fetch effect, i.e. one commit after the render
+  // that needs it. A scope with neither rows nor a failure is still owed its
+  // first page, so report it as loading from the first frame; otherwise the
+  // table paints "no transfers" on mount and on every filter/search change
+  // before switching to "loading" and then to the rows.
+  const awaitingFirstPage = current === null && scopedFailure === null;
   const inTransitCount = items.filter((item) => item.status === "IN_TRANSIT").length;
   const loadMore = useCallback(() => {
     if (!current?.next || loading || loadingMore) return;
@@ -155,10 +162,10 @@ export function useTransferList() {
     searchInput,
     setSearchInput,
     total: current?.total ?? null,
-    loading,
+    loading: loading || awaitingFirstPage,
     loadingMore,
     hasMore: Boolean(current?.next),
-    failure: failure?.scope === scope ? failure : null,
+    failure: scopedFailure,
     retry: () => void fetchPage(lastAttempt.current),
     detail,
     detailLoading,
