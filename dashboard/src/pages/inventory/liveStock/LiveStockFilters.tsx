@@ -280,7 +280,7 @@ export function LiveStockFilters({
                 </button>
               ))}
             </div>
-            {(stockState === "low_stock" || stockState === "out_of_stock") && (
+            {(stockState === "low_stock" || stockState === "out_of_stock" || indicators.includes("minimum_unset")) && (
               <p className="mt-1 text-xs text-slate-500">{t("inventoryLive.viewZeroFilterHint")}</p>
             )}
           </div>
