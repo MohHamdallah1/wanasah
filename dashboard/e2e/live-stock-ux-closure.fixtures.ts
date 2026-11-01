@@ -107,6 +107,8 @@ const source = (location: number, batchId: number) => {
     location_name: warehouses.find((w) => w.id === location)?.name ?? "Unknown",
     product_variant_id: 118,
     batch_id: batchId,
+    lifecycle_status: "ACTIVE",
+    operational_hold: "NONE",
     statuses: [{
       stock_status: "AVAILABLE",
       on_hand_quantity: onHand,
