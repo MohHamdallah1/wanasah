@@ -543,6 +543,10 @@ export function Tab2Inbound({
           id === request.current &&
           !(error instanceof Error && error.name === "AbortError")
         ) {
+          if ([401, 403].includes(Number((error as { status?: unknown } | null)?.status))) {
+            setCatalog([]);
+            setNextCursor(null);
+          }
           toast.error(
             apiErrorMessage(error, t("inventoryInbound.errors.catalogLoad"))
           );
