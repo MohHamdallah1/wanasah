@@ -249,6 +249,24 @@ export function Tab1LiveStock({
     onReadDenied,
   );
 
+  const closeDetailWithFocusReturn = useCallback(() => {
+    const selectedId = detail.product?.id;
+    detail.close();
+    if (selectedId === undefined) return;
+
+    // A manual refresh replaces the entire inventory row while the modal is
+    // open. The generic dialog hook can only restore an attached trigger;
+    // locate the freshly mounted trigger instead, without reviving stale rows.
+    window.requestAnimationFrame(() => {
+      const target = scrollRef.current?.querySelector<HTMLElement>(
+        `[data-live-stock-product-open="${selectedId}"]`,
+      ) ?? document.querySelector<HTMLElement>(
+        '[data-cp13-surface="live-stock"] .live-stock-search input',
+      );
+      target?.focus({ preventScroll: true });
+    });
+  }, [detail.close, detail.product?.id]);
+
   const pendingManualRefresh = useRef<{ locationId: number; syncedAt: number | null } | null>(null);
   const selectionRead = useRef<{
     locationId: number; productId: number | null;
@@ -571,7 +589,7 @@ export function Tab1LiveStock({
         sourceOpenId={detail.sourceOpenId}
         sourceLoadingId={detail.sourceLoadingId}
         sourceErrorId={detail.sourceErrorId}
-        onClose={detail.close}
+        onClose={closeDetailWithFocusReturn}
         onRefresh={refreshWithDetail}
         refreshing={loading || detail.loading}
         onRetry={detail.retry}
