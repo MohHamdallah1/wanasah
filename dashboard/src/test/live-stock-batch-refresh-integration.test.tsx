@@ -64,7 +64,8 @@ const selected = (onHand = "2.500001") => ({
   display_factor_to_base: "1", on_hand_quantity: onHand,
 }) as WarehouseProduct;
 const batchPage = (qty: string) => ({
-  location_id: 11, product_variant_id: 41, currency_code: "JOD",
+  location_id: 11, product_variant_id: 41,
+  lifecycle_status: "ACTIVE", operational_hold: "NONE", currency_code: "JOD",
   next_cursor: null, has_more: false,
   batches: [{
     batch_id: 71, batch_number: null, production_date: null, expiry_date: null,
