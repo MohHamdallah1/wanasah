@@ -20,6 +20,8 @@ export type LiveStockCp7Copy = {
   unavailableCauses: string;
   unavailableNoAffectedBatches: string;
   productSaleGate: string;
+  productGateLoading: string;
+  productGateUnavailable: string;
   productGateClear: string;
   otherSaleRestriction: string;
   restrictedQuantity: string;
@@ -68,6 +70,8 @@ const ar: LiveStockCp7Copy = {
   unavailableCauses: "أسباب عدم الإتاحة في هذه التشغيلة",
   unavailableNoAffectedBatches: "لا توجد ضمن التشغيلات المحمّلة حالياً كمية تفسّر الرقم المعروض. حدّث البيانات للتحقق من القراءات المستقلة.",
   productSaleGate: "قيد البيع الحالي على مستوى المنتج",
+  productGateLoading: "جاري التحقق من قيد المنتج...",
+  productGateUnavailable: "تعذر التحقق من قيد المنتج حالياً؛ لا يتم افتراض حالته.",
   productGateClear: "لا يوجد قيد بيع على مستوى المنتج؛ السبب أدناه من التشغيلات أو الصلاحية أو حالة المخزون.",
   otherSaleRestriction: "قيد بيع آخر على مستوى المنتج أو التشغيلة",
   restrictedQuantity: "إجمالي قيود البيع",
@@ -139,6 +143,8 @@ const en: LiveStockCp7Copy = {
   unavailableCauses: "Reasons this batch is unavailable",
   unavailableNoAffectedBatches: "None of the currently loaded batches explains the displayed amount. Refresh to re-check the independent reads.",
   productSaleGate: "Current product-level sale gate",
+  productGateLoading: "Checking the current product sale gate...",
+  productGateUnavailable: "The product sale gate could not be verified; no state is assumed.",
   productGateClear: "There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.",
   otherSaleRestriction: "Other product or batch sale restriction",
   restrictedQuantity: "Total sale restrictions",
