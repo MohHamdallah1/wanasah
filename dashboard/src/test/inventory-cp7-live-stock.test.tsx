@@ -183,6 +183,8 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(parsed.statuses[0].on_hand_quantity).toBe("2.500001");
     expect(parsed.statuses[0].reserved_quantity).toBe("0.500001");
     expect(parsed.statuses[0].movable_quantity).toBe("2");
+    expect(parsed.lifecycle_status).toBe("ACTIVE");
+    expect(parsed.operational_hold).toBe("NONE");
   });
 
   it("rejects floating-point quantity business data", () => {
