@@ -89,7 +89,7 @@ for (const locale of ["en", "ar"] as const) {
   });
 }
 
-test("same-session dashboard reentry preserves the live-stock workspace without verification flash or reread", async ({ page }) => {
+test("same-session dashboard reentry preserves live stock without verification flash and refreshes once", async ({ page }) => {
   await page.setViewportSize({ width: 1360, height: 900 });
   const state = await installLiveStockApi(page);
   await seedLiveStock(page, "en");
