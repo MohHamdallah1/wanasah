@@ -11,7 +11,11 @@ import { LiveStockMobileCards } from "@/pages/inventory/liveStock/LiveStockMobil
 import { LiveStockTable } from "@/pages/inventory/liveStock/LiveStockTable";
 import { resolveAppLocale } from "@/lib/locale";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
-import { parseLiveStockWarehouseSource, type LiveStockReservationEvidence } from "@/pages/inventory/liveStock/sourceContract";
+import {
+  parseLiveStockProductSaleGate,
+  parseLiveStockWarehouseSource,
+  type LiveStockReservationEvidence,
+} from "@/pages/inventory/liveStock/sourceContract";
 
 const mocks = vi.hoisted(() => ({
   language: "en",
@@ -249,6 +253,29 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it("parses a strict warehouse-scoped product sale gate", () => {
+    expect(parseLiveStockProductSaleGate({
+      location_id: 11,
+      product_variant_id: 41,
+      lifecycle_status: "ACTIVE",
+      operational_hold: "RECALL",
+      lifecycle_revision: 7,
+    })).toEqual({
+      location_id: 11,
+      product_variant_id: 41,
+      lifecycle_status: "ACTIVE",
+      operational_hold: "RECALL",
+      lifecycle_revision: 7,
+    });
+    expect(() => parseLiveStockProductSaleGate({
+      location_id: 11,
+      product_variant_id: 41,
+      lifecycle_status: "ACTIVE",
+      operational_hold: "UNKNOWN",
+      lifecycle_revision: 7,
+    })).toThrow();
+  });
+
   it("explains unavailable quantity with exact product gate and batch causes", () => {
     const affected = {
       ...product,
@@ -279,8 +306,13 @@ describe("CP7 Live Stock Dashboard closure", () => {
         product={affected}
         batches={[affectedBatch]}
         mode="unavailable"
-        lifecycleStatus="ACTIVE"
-        operationalHold="NONE"
+        saleGate={parseLiveStockProductSaleGate({
+          location_id: 11,
+          product_variant_id: affected.id,
+          lifecycle_status: "ACTIVE",
+          operational_hold: "NONE",
+          lifecycle_revision: 4,
+        })}
         hasMore={false}
         loading={false}
         error={null}
