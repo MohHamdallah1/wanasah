@@ -272,9 +272,9 @@ export function Tab1LiveStock({
   const openUnavailableExplanation = useCallback(
     (product: WarehouseProduct) => {
       setDetailMode("unavailable");
-      detail.open(product);
+      detail.openUnavailable(product);
     },
-    [detail.open],
+    [detail.openUnavailable],
   );
 
   const closeDetailWithFocusReturn = useCallback(() => {
@@ -353,7 +353,10 @@ export function Tab1LiveStock({
           locationId, productId: current.id,
           syncedAt: stamp, wasVisible: Boolean(listSelected),
         };
-        detail.refresh(listSelected ?? current);
+        detail.refresh(
+          listSelected ?? current,
+          detailMode === "unavailable",
+        );
       }
       return;
     }
@@ -371,10 +374,22 @@ export function Tab1LiveStock({
         (listSelected && listSelected !== current) ||
         (!listSelected && previous.wasVisible)
       ) {
-        detail.refresh(listSelected ?? current);
+        detail.refresh(
+          listSelected ?? current,
+          detailMode === "unavailable",
+        );
       }
     }
-  }, [detail.product, detail.refresh, lastSync, listSelected, locationId, loading, pageError]);
+  }, [
+    detail.product,
+    detail.refresh,
+    detailMode,
+    lastSync,
+    listSelected,
+    locationId,
+    loading,
+    pageError,
+  ]);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -635,8 +650,9 @@ export function Tab1LiveStock({
         product={detail.product}
         batches={detail.page?.batches ?? []}
         mode={detailMode}
-        lifecycleStatus={detail.page?.lifecycle_status ?? null}
-        operationalHold={detail.page?.operational_hold ?? null}
+        saleGate={detail.saleGate}
+        saleGateLoading={detail.saleGateLoading}
+        saleGateError={detail.saleGateError}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}
@@ -646,7 +662,7 @@ export function Tab1LiveStock({
         sourceErrorId={detail.sourceErrorId}
         onClose={closeDetailWithFocusReturn}
         onRefresh={refreshWithDetail}
-        refreshing={loading || detail.loading}
+        refreshing={loading || detail.loading || detail.saleGateLoading}
         onRetry={detail.retry}
         onLoadMore={detail.loadMore}
         onLoadSource={detail.loadSource}
