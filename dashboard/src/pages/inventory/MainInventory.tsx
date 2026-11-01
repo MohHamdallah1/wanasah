@@ -504,19 +504,13 @@ export default function MainInventory() {
     warehouseSetupRef.current = warehouseSetup;
   }, [warehouseSetup]);
   
-  const [stockItems, setStockItems] = useState<WarehouseProduct[]>(
-    initialLiveSnapshot?.hasPage
-      ? initialLiveSnapshot.items
-      : [],
-  );
+  // A cached page is not a newly verified inventory read. Keep warm data
+  // internal only; never mount its rows while returning to this workspace.
+  const [stockItems, setStockItems] = useState<WarehouseProduct[]>([]);
   const stockItemsRef = useRef<WarehouseProduct[]>(stockItems);
-  const [stockPageReady, setStockPageReady] = useState(
-    initialLiveSnapshot?.hasPage === true,
-  );
+  const [stockPageReady, setStockPageReady] = useState(false);
   type LiveReadPhase = "initial" | "warm" | "fresh" | "failed" | "denied";
-  const [liveReadPhase, setLiveReadPhase] = useState<LiveReadPhase>(
-    initialLiveSnapshot?.hasPage ? "warm" : "initial",
-  );
+  const [liveReadPhase, setLiveReadPhase] = useState<LiveReadPhase>("initial");
   const [freshPageAdmissionEpoch, setFreshPageAdmissionEpoch] =
     useState<number | null>(null);
   const [freshSummaryAdmissionEpoch, setFreshSummaryAdmissionEpoch] =
@@ -526,30 +520,11 @@ export default function MainInventory() {
   useEffect(() => {
     stockItemsRef.current = stockItems;
   }, [stockItems]);
-  const [stockTotal, setStockTotal] = useState<number | null>(
-    initialLiveSnapshot?.hasSummary
-      ? initialLiveSnapshot.stockTotal
-      : null,
-  );
-  const [stockMatchingTotal, setStockMatchingTotal] =
-    useState<number | null>(
-      initialLiveSnapshot?.hasPage
-        ? initialLiveSnapshot.matchingTotal
-        : null,
-    );
-  const [stockAlertCount, setStockAlertCount] =
-    useState<number | null>(
-      initialLiveSnapshot?.hasSummary
-        ? initialLiveSnapshot.alertCount
-        : null,
-    );
+  const [stockTotal, setStockTotal] = useState<number | null>(null);
+  const [stockMatchingTotal, setStockMatchingTotal] = useState<number | null>(null);
+  const [stockAlertCount, setStockAlertCount] = useState<number | null>(null);
   const [stockCursor, setStockCursor] = useState<string | null>(null);
-  const [stockNextCursor, setStockNextCursor] =
-    useState<string | null>(
-      initialLiveSnapshot?.hasPage
-        ? initialLiveSnapshot.nextCursor
-        : null,
-    );
+  const [stockNextCursor, setStockNextCursor] = useState<string | null>(null);
   const [stockSearch, setStockSearch] = useState("");
   const [stockState, setStockState] =
     useState<LiveStockStockState>("all");
@@ -623,14 +598,9 @@ export default function MainInventory() {
   const [verifiedStatusLocationId, setVerifiedStatusLocationId] =
     useState<number | null>(null);
   const [loadingStock, setLoadingStock] = useState(
-    initialSelectedLocationId !== null &&
-      initialLiveSnapshot?.hasPage !== true,
+    initialSelectedLocationId !== null,
   );
-  const [lastSync, setLastSync] = useState<Date | null>(
-    initialLiveSnapshot?.lastSyncMs
-      ? new Date(initialLiveSnapshot.lastSyncMs)
-      : null,
-  );
+  const [lastSync, setLastSync] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!liveAuthorityVerified || liveReadPhase !== "denied" ||
@@ -657,35 +627,20 @@ export default function MainInventory() {
         locationId,
       );
 
-      if (snapshot?.hasPage) {
-        stockItemsRef.current = snapshot.items;
-        setStockItems(snapshot.items);
-        setStockPageReady(true);
-        setLiveReadPhase("warm");
-        setStockMatchingTotal(snapshot.matchingTotal);
-        setStockNextCursor(snapshot.nextCursor);
-        setLastSync(
-          snapshot.lastSyncMs
-            ? new Date(snapshot.lastSyncMs)
-            : null,
-        );
-      } else {
-        stockItemsRef.current = [];
-        setStockItems([]);
-        setStockPageReady(false);
-        setLiveReadPhase("initial");
-        setStockMatchingTotal(null);
-        setStockNextCursor(null);
-        setLastSync(null);
-      }
-
-      if (snapshot?.hasSummary) {
-        setStockTotal(snapshot.stockTotal);
-        setStockAlertCount(snapshot.alertCount);
-      } else {
-        setStockTotal(null);
-        setStockAlertCount(null);
-      }
+      // Warm snapshots may help remember the shell/status, but neither
+      // cached list rows nor cached totals may masquerade as live stock.
+      // On location changes, wait for independent authorized HTTP reads.
+      stockItemsRef.current = [];
+      setStockItems([]);
+      setStockPageReady(false);
+      setLiveReadPhase("initial");
+      setFreshPageAdmissionEpoch(null);
+      setFreshSummaryAdmissionEpoch(null);
+      setStockMatchingTotal(null);
+      setStockNextCursor(null);
+      setLastSync(null);
+      setStockTotal(null);
+      setStockAlertCount(null);
 
       setAuditLockState(
         snapshot?.hasStatus
@@ -693,9 +648,7 @@ export default function MainInventory() {
           : null,
       );
       setAuditLockReference(null);
-      setLoadingStock(
-        locationId !== null && snapshot?.hasPage !== true,
-      );
+      setLoadingStock(locationId !== null);
     },
     [warmScopeKey],
   );
@@ -1239,13 +1192,25 @@ export default function MainInventory() {
     stockSummaryRequestSeq.current += 1;
     stockSummaryAbortRef.current?.abort();
     stockSummaryAbortRef.current = null;
+    // Explicit refresh must obey the same rule as returning to the page:
+    // no stale row or total appears without a fresh authorized response.
+    stockItemsRef.current = [];
+    setStockItems([]);
+    setStockPageReady(false);
+    setStockNextCursor(null);
+    setStockMatchingTotal(null);
+    setStockTotal(null);
+    setStockAlertCount(null);
+    setLastSync(null);
+    setFreshPageAdmissionEpoch(null);
+    setFreshSummaryAdmissionEpoch(null);
     setStockCursor(null);
     setStockPageError(null);
     setStockSummaryError(null);
     setLoadingStock(selectedLocationId !== null);
-    setLiveReadPhase(stockPageReady ? "warm" : "initial");
+    setLiveReadPhase("initial");
     setStockRefreshKey((value) => value + 1);
-  }, [selectedLocationId, stockPageReady]);
+  }, [selectedLocationId]);
 
   const retryStockPage = useCallback(() => {
     if (selectedLocationId === null || loadingStock) return;
@@ -1423,14 +1388,12 @@ export default function MainInventory() {
     : access.isError || locationAccess.isError
       ? "accessRefreshFailed"
     : !liveVisible
-      ? (stockPageReady ? "warmUnverified" : "loadingVerification")
+      ? "loadingVerification"
       : liveReadPhase === "failed" || stockPageError || stockSummaryError
         ? "refreshFailed"
         : livePageFresh && liveSummaryFresh
           ? "verifiedFresh"
-          : stockPageReady
-            ? "warmUnverified"
-            : "loadingVerification";
+          : "loadingVerification";
 
   if (archiveOwnerFocus) {
     return <ArchiveOwnerWorkspace intent={archiveOwnerFocus} onClose={() => setArchiveOwnerFocus(null)}
@@ -1704,14 +1667,6 @@ export default function MainInventory() {
                 aria-label={t("inventoryShell.retry")}>
                 {t("inventoryShell.retry")}
               </button>
-            )}
-            {liveDisclosureKey === "warmUnverified" && liveVisible && lastSync && (
-              <span className="ms-2" dir="auto">
-                {t("inventoryShell.lastUpdated")}: {new Intl.DateTimeFormat(
-                  locale, { hour: "2-digit", minute: "2-digit",
-                    hour12: false, numberingSystem: "latn" },
-                ).format(lastSync)}
-              </span>
             )}
           </div>
         )}

@@ -178,6 +178,54 @@ describe("UI-04: cache is never its own access authority", () => {
     expect(document.querySelector('[data-live-authority="loadingVerification"]')).toBeNull();
   });
 
+  it.each(["ar", "en"])("re-entering inventory after navigation never flashes cached stock or warning (%s)", async (locale) => {
+    state.locale = locale;
+    grant();
+    fakeServer({ page: Promise.resolve({ ...resultPage, items: [item] }) });
+    const firstVisit = mount();
+    await screen.findByText(/PRIVATE_STOCK_ROW/);
+    expect(readLiveStockWarmSnapshot("1:75:75", 101)?.items[0].id).toBe(41);
+    firstVisit.unmount(); // Leaving the inventory route.
+
+    const pendingReturn = deferred<unknown>();
+    fakeServer({ page: pendingReturn.promise });
+    mount(); // Returning to the inventory route with the same session.
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    await act(async () => pendingReturn.resolve({
+      ...resultPage, items: [{ ...item, name: "FRESH_RETURN_ROW" }],
+    }));
+    await screen.findByText(/FRESH_RETURN_ROW/);
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(document.querySelector("[data-live-authority]")).toBeNull();
+  });
+
+  it("on manual refresh hides the previous list until the new authorized read succeeds", async () => {
+    grant();
+    const next = deferred<unknown>();
+    let reads = 0;
+    state.authFetch.mockImplementation((url: string) => {
+      const path = new URL(url, "https://localhost").pathname;
+      if (path === "/warehouse/locations/selection") return Promise.resolve(warehousePage);
+      if (path === "/warehouse/inventory/summary") return Promise.resolve({ stock_total: 10, alert_count: 0 });
+      if (path === "/warehouse/inventory/cursor") return ++reads === 1
+        ? Promise.resolve({ ...resultPage, items: [item] })
+        : next.promise;
+      throw Error("Unexpected " + path);
+    });
+    mount();
+    await screen.findByText(/PRIVATE_STOCK_ROW/);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh witness" }));
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
+    await waitFor(() => expect(reads).toBe(2));
+    await act(async () => next.resolve({ ...resultPage, items: [{ ...item, name: "AFTER_REFRESH" }] }));
+    await screen.findByText(/AFTER_REFRESH/);
+  });
+
   it("reproduces and blocks PRIVATE rows and costs before new access admission", async () => {
     seed();
     const selection = deferred<unknown>();
@@ -185,22 +233,25 @@ describe("UI-04: cache is never its own access authority", () => {
     mount();
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(screen.queryByText(/123.000000/)).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.warmUnverified");
+    expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
   });
 
-  it("shows explicitly stale warm data only after same-scope access and server selection, then fresh data", async () => {
+  it("never mounts cached stock after same-scope admission; only a new read may display rows", async () => {
     seed();
     const response = deferred<unknown>();
     fakeServer({ page: response.promise });
     const view = mount();
     expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     grant(); view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("inventoryShell.warmUnverified"));
-    // The previously stored row is visible only with a stale label, never as current.
-    await waitFor(() => expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument());
-    await act(async () => response.resolve(resultPage));
-    await waitFor(() => expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument());
-    // The silent success state must never leave a false freshness notice.
+    await waitFor(() => expect(state.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("/warehouse/inventory/cursor"))).toBe(true));
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
+    await act(async () => response.resolve({
+      ...resultPage, items: [{ ...item, name: "FRESH_VERIFIED_ROW" }],
+    }));
+    await screen.findByText(/FRESH_VERIFIED_ROW/);
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
     expect(document.querySelector("[data-live-authority]")).toBeNull();
   });
 
@@ -315,15 +366,13 @@ describe("in-flight admission and independent response ordering", () => {
     expect(readLiveStockWarmSnapshot("1:75:75", 102)?.items[0].id).toBe(42);
   });
 
-  it.each(["en", "ar"])("does not label a warm page fresh when the independent summary resolves first (%s)", async (locale) => {
+  it.each(["en", "ar"])("does not revive cached rows when the independent summary resolves before the page (%s)", async (locale) => {
     state.locale = locale; seed(); grant();
     const page = deferred<unknown>();
     fakeServer({ page: page.promise }); mount();
-    await screen.findByText(/PRIVATE_STOCK_ROW/);
     await screen.findByText("total=0");
-    const banner = document.querySelector("[data-live-authority]")!;
-    expect(banner).toHaveAttribute("data-live-authority", "warmUnverified");
-    expect(banner).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+    expect(screen.queryByText(/PRIVATE_STOCK_ROW/)).not.toBeInTheDocument();
+    expect(document.querySelector('[data-live-authority="warmUnverified"]')).toBeNull();
     await act(async () => page.resolve(resultPage));
     await waitFor(() => expect(document.querySelector("[data-live-authority]")).toBeNull());
     expect(screen.getByText("total=0")).toBeInTheDocument();
