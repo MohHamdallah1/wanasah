@@ -59,6 +59,7 @@ interface WarehouseFormState {
 }
 
 interface Props {
+  active?: boolean;
   selectedLocationId: number | null;
   onLocationsChanged: () => void | Promise<void>;
   onMinimumApplied: () => void;
@@ -185,7 +186,7 @@ const contextNumber = (context: Record<string, unknown> | null, key: string) => 
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 };
 
-export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, onMinimumApplied }: Props) {
+export function TabWarehouseLocations({ active = true, selectedLocationId, onLocationsChanged, onMinimumApplied }: Props) {
   const authenticatedFetch = useAuthFetch();
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -243,6 +244,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
   }, [searchInput]);
 
   const fetchPage = useCallback(async () => {
+    if (!active) return;
     if (!canReadLocations) {
       requestSeq.current += 1;
       setItems([]);
@@ -280,11 +282,17 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [authenticatedFetch, canReadLocations, cursor, loadFailedMessage, presentation.listLoadFailed, search]);
+  }, [active, authenticatedFetch, canReadLocations, cursor, loadFailedMessage, presentation.listLoadFailed, search]);
 
-  useEffect(() => { void fetchPage(); }, [fetchPage, refreshKey]);
   useEffect(() => {
-    if (!nextCursor || loading || typeof IntersectionObserver === "undefined") return;
+    if (!active) return;
+    void fetchPage();
+    // A hidden tab may preserve the last permitted frame but cannot accept
+    // a late HTTP response after it has become inactive.
+    return () => { requestSeq.current += 1; };
+  }, [active, fetchPage, refreshKey]);
+  useEffect(() => {
+    if (!active || !nextCursor || loading || typeof IntersectionObserver === "undefined") return;
     const target = loadMoreRef.current;
     if (!target) return;
     const observer = new IntersectionObserver((entries) => {
@@ -292,7 +300,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
     }, { rootMargin: "240px 0px" });
     observer.observe(target);
     return () => observer.disconnect();
-  }, [loading, nextCursor]);
+  }, [active, loading, nextCursor]);
   useEffect(() => {
     if (!canManageQualityDestinations) setQualityDestinationsOpen(false);
   }, [canManageQualityDestinations]);
@@ -742,7 +750,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       )}
 
       <Modal
-        isOpen={qualityDestinationsOpen && canManageQualityDestinations}
+        isOpen={active && qualityDestinationsOpen && canManageQualityDestinations}
         onClose={() => setQualityDestinationsOpen(false)}
         title={copy.qualityDestinationsView}
       >
@@ -750,7 +758,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       </Modal>
 
       <Modal
-        isOpen={formOpen}
+        isOpen={active && formOpen}
         onClose={() => { if (!formSubmitting) setFormOpen(false); }}
         title={formMode === "create" ? copy.add : copy.edit}
       >
@@ -802,7 +810,7 @@ export function TabWarehouseLocations({ selectedLocationId, onLocationsChanged, 
       </Modal>
 
 
-      <Modal isOpen={stateAction !== null && stateLocation !== null} onClose={() => { if (!stateSubmitting) { setStateAction(null); setStateLocation(null); setStateIssue(null); } }} title={stateAction === "deactivate" ? copy.deactivate : copy.activate}>
+      <Modal isOpen={active && stateAction !== null && stateLocation !== null} onClose={() => { if (!stateSubmitting) { setStateAction(null); setStateLocation(null); setStateIssue(null); } }} title={stateAction === "deactivate" ? copy.deactivate : copy.activate}>
         <form className="space-y-4" dir={dir} onSubmit={(event) => { event.preventDefault(); void handleStateChange(); }}>
           <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
