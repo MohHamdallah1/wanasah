@@ -186,6 +186,7 @@ jobs:
               "dashboard/src/test/live-stock-filter-state-recovery.test.tsx",
           }
           minimum_view_allowed = minimum_view_required | {
+              "wa_backend/scripts/live_stock_r4_final_profile.py",
               "dashboard/e2e/live-stock-operational.journey.ts",
               "dashboard/e2e/live-stock-operational.spec.ts",
               ".github/scripts/live_stock_ci_ownership.py",
