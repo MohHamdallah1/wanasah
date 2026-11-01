@@ -15,6 +15,11 @@ export type LiveStockCp7Copy = {
   continuationFailed: string;
   retry: string;
   noLot: string;
+  unavailableBreakdown: string;
+  restrictedQuantity: string;
+  expiryUnavailable: string;
+  dispositionReason: string;
+  unavailableBreakdownNote: string;
   production: string;
   expiry: string;
   disposition: string;
@@ -50,6 +55,11 @@ const ar: LiveStockCp7Copy = {
   continuationFailed: "تعذر تحميل بقية التشغيلات. البيانات المحملة ما زالت ظاهرة.",
   retry: "إعادة المحاولة",
   noLot: "بدون رقم تشغيلة",
+  unavailableBreakdown: "تفسير الكمية غير المتاحة للبيع",
+  restrictedQuantity: "قيود بيع تشمل سياسات المنتج أو التشغيلة",
+  expiryUnavailable: "منها بسبب الصلاحية",
+  dispositionReason: "سبب تقييد التشغيلة",
+  unavailableBreakdownNote: "حالة المنتج متاح للبيع لا تعني أن كل تشغيلاته متاحة. غير المتاح قد ينتج عن الصلاحية أو الحجر أو الحظر أو الاستدعاء أو التلف أو سياسات المنع. كمية الصلاحية جزء من القيود، فلا تجمعها معها مرة أخرى.",
   production: "الإنتاج",
   expiry: "الصلاحية",
   disposition: "حالة التشغيلة",
@@ -99,6 +109,11 @@ const en: LiveStockCp7Copy = {
   continuationFailed: "More batches could not be loaded. Loaded data is still available.",
   retry: "Retry",
   noLot: "No lot supplied",
+  unavailableBreakdown: "Explain unavailable-for-sale quantity",
+  restrictedQuantity: "Sale restrictions including product or batch policy",
+  expiryUnavailable: "Of which: expiry-policy restricted",
+  dispositionReason: "Batch restriction reason",
+  unavailableBreakdownNote: "An active product does not mean all of its batches are sellable. Expiry, quarantine, blocks, recalls, damage and hold policies can restrict stock. Expiry restrictions are part of the restricted total, not an additional quantity.",
   production: "Production",
   expiry: "Expiry",
   disposition: "Batch status",
