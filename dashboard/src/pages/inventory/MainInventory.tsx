@@ -1010,11 +1010,9 @@ export default function MainInventory() {
     globalAccessVerified,
     canDiscoverInventory,
     canDiscoverLocations,
-    accessDenied,
     warehouseCursor,
     warehouseSearch,
     warmScopeKey,
-    prepareLocationChange,
   ]);
 
   useEffect(() => {
