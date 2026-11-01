@@ -152,7 +152,14 @@ export function LiveStockMobileCards({
                       dir="ltr"
                       title={rendered.secondary ?? undefined}
                     >
-                      {rendered.primary}
+                      {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
+                        <button type="button" onClick={() => onOpen(product)}
+                          aria-label={`${copy.unavailableBreakdown}: ${product.name}`}
+                          title={copy.unavailableBreakdown}
+                          className="rounded-md underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
+                          {rendered.primary}
+                        </button>
+                      ) : rendered.primary}
                     </dd>
                   </div>
                 );
