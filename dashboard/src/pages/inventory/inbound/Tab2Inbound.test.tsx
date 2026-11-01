@@ -2,6 +2,7 @@ import {
   act,
   fireEvent,
   render,
+  renderHook,
   screen,
   waitFor,
   within,
@@ -18,6 +19,7 @@ import type { CatalogVariant } from "@/features/catalog/contracts";
 import i18n, { setAppLanguage } from "@/i18n";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { inboundStorageKeys, type CostPolicy } from "./contracts";
+import { companyLocalDate, useInboundOptions } from "./useInboundOptions";
 
 const mocks = vi.hoisted(() => ({
   post: vi.fn(),
@@ -1554,5 +1556,61 @@ describe("Checkpoint 1 inbound UI", () => {
         expect(i18n.exists(`errors.codes.${code}`, { lng: language })).toBe(true);
       }
     }
+  });
+});
+
+
+describe("IT-09 V1 option authority and company-date freshness", () => {
+  const optionResponse = (day: string, cost: string, revision: number) => ({
+    currency_code: "JOD",
+    as_of_date: day,
+    items: [{
+      product_variant_id: 7,
+      base_uom_id: 1,
+      uoms: [{ id: 1, code: "EACH", name: "Each", factor_to_base: "1" }],
+      purchase_cost_reference: {
+        amount: cost, purchase_uom_id: 1, currency_code: "JOD", revision,
+      },
+    }],
+  });
+
+  it("detects a company-local midnight even when the device remains on the previous UTC day", () => {
+    expect(companyLocalDate("Asia/Amman", new Date("2026-11-01T20:59:59Z"))).toBe("2026-11-01");
+    expect(companyLocalDate("Asia/Amman", new Date("2026-11-01T21:00:01Z"))).toBe("2026-11-02");
+  });
+
+  it("revalidates changed purchase references and rejects a delayed old response", async () => {
+    let resolveOld!: (value: unknown) => void;
+    const fetch = vi.fn()
+      .mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve; }))
+      .mockResolvedValueOnce(optionResponse("2026-11-02", "9.500000", 2));
+    const { result } = renderHook(() => useInboundOptions(fetch, "1:2"));
+    let old!: Promise<unknown>;
+    act(() => { old = result.current.ensure([7]); });
+    await act(async () => {
+      const latest = await result.current.refresh([7]);
+      expect(latest.asOfDate).toBe("2026-11-02");
+      expect(latest.options.get(7)?.purchase_cost_reference?.revision).toBe(2);
+    });
+    await act(async () => {
+      resolveOld(optionResponse("2026-11-01", "8.000000", 1));
+      await expect(old).rejects.toMatchObject({ code: "INBOUND_OPTIONS_INVALID" });
+    });
+    expect(result.current.options.get(7)?.purchase_cost_reference?.amount).toBe("9.500000");
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops stale hints after an unsuccessful refresh and permits explicit retry", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(optionResponse("2026-11-01", "8.000000", 1))
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce(optionResponse("2026-11-02", "9.500000", 2));
+    const { result } = renderHook(() => useInboundOptions(fetch, "1:2"));
+    await act(async () => { await result.current.ensure([7]); });
+    await act(async () => { await expect(result.current.refresh([7])).rejects.toThrow("network"); });
+    expect(result.current.options.size).toBe(0);
+    expect(result.current.asOfDate).toBeNull();
+    await act(async () => { await result.current.ensure([7]); });
+    expect(result.current.options.get(7)?.purchase_cost_reference?.revision).toBe(2);
   });
 });
