@@ -6,6 +6,7 @@ import { LiveStockFilters } from "@/pages/inventory/liveStock/LiveStockFilters";
 import type {
   LiveStockIndicator,
   LiveStockStockState,
+  LiveStockView,
 } from "@/pages/inventory/liveStock/contracts";
 
 const mocks = vi.hoisted(() => ({
@@ -59,6 +60,7 @@ const familyPage = (items: ReturnType<typeof family>[]) => ({
 function FilterHarness({ locationId = 11 }: { locationId?: number }) {
   const [familyId, setFamilyId] = useState<number | null>(null);
   const [stockState, setStockState] = useState<LiveStockStockState>("all");
+  const [view, setView] = useState<LiveStockView>("warehouse");
   const [indicators, setIndicators] = useState<LiveStockIndicator[]>([]);
 
   return (
@@ -66,6 +68,8 @@ function FilterHarness({ locationId = 11 }: { locationId?: number }) {
       locationId={locationId}
       alertCount={1}
       stockState={stockState}
+      view={view}
+      onViewChange={setView}
       indicators={indicators}
       familyId={familyId}
       onSearchChange={() => undefined}
@@ -86,6 +90,27 @@ afterEach(() => {
 });
 
 describe("Live Stock family filter state and recovery", () => {
+  it("defaults to warehouse-only with an accessible company-catalog switch and reset", () => {
+    mocks.authFetch.mockResolvedValue(familyPage([]));
+    render(<FilterHarness />);
+    const onlyWarehouse = screen.getByRole("button", { name: "inventoryLive.viewWarehouse" });
+    const companyCatalog = screen.getByRole("button", { name: "inventoryLive.viewCatalog" });
+    expect(onlyWarehouse).toHaveAttribute("aria-pressed", "true");
+    expect(companyCatalog).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(companyCatalog);
+    expect(companyCatalog).toHaveAttribute("aria-pressed", "true");
+    expect(onlyWarehouse).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: /inventoryLive.filterReset/ }));
+    expect(onlyWarehouse).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("clearly discloses that low and zero stock investigation includes catalog zeros", () => {
+    mocks.authFetch.mockResolvedValue(familyPage([]));
+    render(<FilterHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "inventoryLive.filterOutOfStock" }));
+    expect(screen.getByText("inventoryLive.viewZeroFilterHint")).toBeInTheDocument();
+  });
+
   it("shows a fetch failure and explicitly retries instead of showing an empty family list", async () => {
     mocks.authFetch
       .mockRejectedValueOnce(new Error("network unavailable"))
