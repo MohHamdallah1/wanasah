@@ -65,7 +65,6 @@ const selected = (onHand = "2.500001") => ({
 }) as WarehouseProduct;
 const batchPage = (qty: string) => ({
   location_id: 11, product_variant_id: 41, currency_code: "JOD",
-  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   next_cursor: null, has_more: false,
   batches: [{
     batch_id: 71, batch_number: null, production_date: null, expiry_date: null,
@@ -81,6 +80,7 @@ const batchPage = (qty: string) => ({
 });
 const source = () => ({
   location_id: 11, product_variant_id: 41, batch_id: 71, location_name: "Warehouse 11",
+  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   statuses: [{
     stock_status: "AVAILABLE", on_hand_quantity: "2.500001", reserved_quantity: "0",
     movable_quantity: "2.500001",
