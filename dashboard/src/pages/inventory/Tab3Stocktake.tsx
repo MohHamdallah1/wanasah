@@ -27,6 +27,7 @@ import {
 } from "./stocktake/StocktakeDecisionModals";
 
 interface Props {
+  active?: boolean;
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
@@ -37,6 +38,7 @@ interface Props {
 }
 
 export function Tab3Stocktake({
+  active = true,
   focusSessionId,
   onFocusUnavailable,
   locationId,
@@ -76,7 +78,7 @@ export function Tab3Stocktake({
     refreshSessions,
     loadMore: loadMoreSessions,
   } = useStocktakeSessions({
-    enabled: canReadStocktake,
+    enabled: active && canReadStocktake,
     locationId,
     authenticatedFetch,
   });
@@ -266,19 +268,19 @@ export function Tab3Stocktake({
       )}
 
       <StocktakeCycleStartModal
-        open={showCycleModal}
+        open={active && showCycleModal}
         controller={cycleWorkflow}
         onClose={closeCycleModal}
         onStart={startCycle}
       />
       <StocktakeStartModal
-        open={showLockModal}
+        open={active && showLockModal}
         locking={lifecycle.locking}
         onClose={() => setShowLockModal(false)}
         onStart={start}
       />
       <StocktakeSubmitModal
-        open={showSubmitModal}
+        open={active && showSubmitModal}
         submitting={countingWorkflow.submitting}
         notes={countingWorkflow.notes}
         onNotesChange={countingWorkflow.setNotes}
@@ -286,7 +288,7 @@ export function Tab3Stocktake({
         onSubmit={submitCount}
       />
       <StocktakeApproveModal
-        open={showApproveModal}
+        open={active && showApproveModal}
         busy={actionWorkflow.actionBusy}
         blocked={reviewWorkflow.approvalBlocked}
         password={actionWorkflow.approvePassword}
@@ -297,7 +299,7 @@ export function Tab3Stocktake({
         onApprove={approve}
       />
       <StocktakeRecountModal
-        open={showRecountModal}
+        open={active && showRecountModal}
         busy={actionWorkflow.actionBusy}
         reason={actionWorkflow.recountReason}
         username={actionWorkflow.authorizerUsername}
@@ -309,7 +311,7 @@ export function Tab3Stocktake({
         onRecount={recount}
       />
       <StocktakeCancelModal
-        open={showCancelModal}
+        open={active && showCancelModal}
         busy={actionWorkflow.actionBusy}
         reason={actionWorkflow.cancelReason}
         password={actionWorkflow.cancelPassword}
@@ -319,7 +321,7 @@ export function Tab3Stocktake({
         onCancel={cancel}
       />
       <StocktakeVarianceModal
-        open={showVarianceModal}
+        open={active && showVarianceModal}
         review={stocktakeState.review}
         onClose={() => setShowVarianceModal(false)}
       />
