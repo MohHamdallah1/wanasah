@@ -47,12 +47,12 @@ const batchRaw = (qty = "2.500001") => ({
 });
 const batchPage = (qty = "2.500001") => ({
   location_id: 11, product_variant_id: 41, currency_code: "JOD",
-  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   batches: [batchRaw(qty)], next_cursor: null, has_more: false,
 });
 const sourcePayload = (qty = "2.500001", batchId = 71, locationId = 11) => ({
   location_id: locationId, product_variant_id: 41, batch_id: batchId,
   location_name: "Warehouse 11",
+  lifecycle_status: "ACTIVE", operational_hold: "NONE",
   statuses: [{
     stock_status: "AVAILABLE", on_hand_quantity: qty,
     reserved_quantity: "0.500001", movable_quantity: "2",
@@ -283,8 +283,6 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     } as WarehouseProduct;
     const parsed = parseBatchDetailResponse({
       ...batchPage("30"),
-      lifecycle_status: "ACTIVE",
-      operational_hold: "NONE",
       batches: [{
         ...batchRaw("30"),
         reserved_quantity: "0",
@@ -301,8 +299,8 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
         product={unavailableProduct}
         batches={parsed.batches}
         mode="unavailable"
-        lifecycleStatus={parsed.lifecycle_status}
-        operationalHold={parsed.operational_hold}
+        lifecycleStatus="ACTIVE"
+        operationalHold="NONE"
         hasMore={false}
         loading={false}
         error={null}
