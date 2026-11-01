@@ -148,8 +148,9 @@ describe("Live Stock visual stability regressions", () => {
     expect(tab).toContain("detail.prefetchSource(firstUnavailable.batch_id)");
     expect(tab).toContain("detail.sourceByBatch");
     expect(table).toContain("onClick={() => onOpen(product)}");
-    expect(table).toContain("onClick={() => onOpenUnavailable(product)}");
-    expect(mobile).toContain("onClick={() => onOpenUnavailable(product)}");
+    expect(tab).toContain("onOpenUnavailable={openUnavailableBreakdown}");
+    expect(table).toContain("(onOpenUnavailable ?? onOpen)(product)");
+    expect(mobile).toContain("(onOpenUnavailable ?? onOpen)(product)");
     expect(panel).toContain('data-testid="live-stock-unavailable-breakdown"');
     expect(panel).toContain('mode === "unavailable"');
   });
