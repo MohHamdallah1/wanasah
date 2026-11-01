@@ -17,6 +17,8 @@ export type UxFixture = {
   failSourceBatchOnce: Set<number>;
   denyAccess: boolean;
   sourceDelayMs: number;
+  accessDelayMs: number;
+  cursorDelayMs: number;
   rows: number;
 };
 
@@ -189,6 +191,8 @@ export async function installUxApi(
     failSourceBatchOnce: new Set(),
     denyAccess: false,
     sourceDelayMs: 0,
+    accessDelayMs: 0,
+    cursorDelayMs: 0,
     rows,
   };
 
@@ -221,6 +225,7 @@ export async function installUxApi(
     }
 
     if (path === "/inventory/access/me") {
+      if (state.accessDelayMs > 0) await delay(state.accessDelayMs);
       if (state.denyAccess) {
         return fulfill(route, { detail: { code: "FORBIDDEN" } }, 403);
       }
@@ -297,6 +302,7 @@ export async function installUxApi(
 
     if (path === "/warehouse/inventory/cursor") {
       state.cursorReads += 1;
+      if (state.cursorDelayMs > 0) await delay(state.cursorDelayMs);
       if (state.denyAccess) return fulfill(route, { detail: { code: "FORBIDDEN" } }, 403);
       const start = Number(url.searchParams.get("cursor") ?? 0);
       if (state.failCursorAt.has(start)) {
