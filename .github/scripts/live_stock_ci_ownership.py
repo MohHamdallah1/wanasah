@@ -512,11 +512,17 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
     # this exception for actual R3-owned paths, session roots, or foreign files.
     if (
         mode == "r3"
-        and not changed <= POLICY_FILES
-        and not (changed & (R3_ALLOWED - POLICY_FILES))
-        and changed <= (UX_ALLOWED | POLICY_FILES | MINIMUM_UX_CROSSOVER)
+        and HELPER in changed
+        and "dashboard/src/pages/inventory/StockMinimumManager.tsx" in changed
+        and "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in changed
     ):
-        return "not-applicable", []
+        # Whitelist this exact inventory UI crossover only; any backend or
+        # unrelated presentation file fails instead of being silently ignored.
+        extras = sorted(changed - (UX_ALLOWED | POLICY_FILES | MINIMUM_UX_CROSSOVER))
+        if extras:
+            return "fail", [f"P0_R3_SCOPE=FAIL extra={extras}"]
+        if not changed & (R3_ALLOWED - POLICY_FILES):
+            return "not-applicable", []
     allowed, shared, hard_owned, forbidden, label = _spec(mode)
     if changed and changed <= POLICY_FILES:
         return "policy-maintenance", []
