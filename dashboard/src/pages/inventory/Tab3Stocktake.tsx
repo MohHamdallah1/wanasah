@@ -124,7 +124,7 @@ export function Tab3Stocktake({
   const cycleWorkflow = useCycleCountStart({
     durableIdentity,
     locationId,
-    enabled: showCycleModal,
+    enabled: active && showCycleModal,
     authenticatedFetch,
     sessionKey: stocktakeState.sessionKey,
     phaseKey: stocktakeState.phaseKey,
@@ -153,6 +153,7 @@ export function Tab3Stocktake({
   });
 
   const lifecycle = useStocktakeLifecycle({
+    active,
     durableIdentity,
     focusSessionId,
     onFocusUnavailable,
