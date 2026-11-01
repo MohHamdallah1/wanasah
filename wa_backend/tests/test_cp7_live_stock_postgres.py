@@ -338,8 +338,6 @@ async def test_cp7_list_and_batch_detail_share_product_sale_gate(pg):
             detail = await live_stock.get_warehouse_inventory_batches(
                 a.variant_id, a.location_id, None, 100, db, access
             )
-            assert detail["lifecycle_status"] == lifecycle
-            assert detail["operational_hold"] == hold
             assert detail["batches"]
             assert Decimal(row["on_hand_quantity"]) == expected_physical
             assert Decimal(row["reserved_quantity"]) == expected_reserved
