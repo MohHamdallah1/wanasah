@@ -1791,11 +1791,16 @@ export default function MainInventory() {
             return;
           }
           if (id === "batches" && activeTab !== "batches" && selectedLocationId !== null) {
+            const targetLocationId = selectedLocationId;
             const admission = await locationAccess.refetch();
-            if (admissionSeq !== batchTabAdmissionSeq.current) return;
+            if (
+              admissionSeq !== batchTabAdmissionSeq.current ||
+              selectedLocationIdRef.current !== targetLocationId
+            ) return;
             if (
               !admission.data ||
               admission.isError ||
+              admission.data.location_id !== targetLocationId ||
               !hasInventoryPermission(admission.data, "inventory.read")
             ) {
               toast.error(t(`inventoryShell.${admission.isError ? "accessRefreshFailed" : "accessChanged"}`));
