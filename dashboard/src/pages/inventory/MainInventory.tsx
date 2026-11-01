@@ -31,6 +31,7 @@ import {
   type LiveStockIndicator,
   type LiveStockStockState,
   type LiveStockSort,
+  type LiveStockView,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import {
@@ -556,6 +557,7 @@ export default function MainInventory() {
   const [stockState, setStockState] =
     useState<LiveStockStockState>("all");
   const [stockSort, setStockSort] = useState<LiveStockSort>("stock_first");
+  const [stockView, setStockView] = useState<LiveStockView>("warehouse");
   const [stockIndicators, setStockIndicators] =
     useState<LiveStockIndicator[]>([]);
   const [stockFamilyId, setStockFamilyId] =
@@ -696,6 +698,7 @@ export default function MainInventory() {
       setStockSearch("");
       setStockState("all");
       setStockSort("stock_first");
+      setStockView("warehouse");
       setStockIndicators([]);
       setStockFamilyId(null);
       setStockCursor(null);
@@ -982,10 +985,17 @@ export default function MainInventory() {
 
     const requestLocationId = selectedLocationId;
     const requestCursor = stockCursor;
+    // Low/out-of-stock investigation must include zero-stock company SKUs,
+    // even while the operator's ordinary view remains warehouse-only.
+    const requestedView =
+      stockState === "low_stock" || stockState === "out_of_stock"
+        ? "catalog"
+        : stockView;
     const defaultView =
       !stockSearch &&
       stockState === "all" &&
       stockSort === "stock_first" &&
+      stockView === "warehouse" &&
       stockIndicators.length === 0 &&
       stockFamilyId === null;
 
@@ -1002,6 +1012,7 @@ export default function MainInventory() {
         location_id: String(requestLocationId),
         limit: String(LIVE_STOCK_PAGE_SIZE),
         sort: stockSort,
+        view: requestedView,
       });
 
       if (stockCursor) params.set("cursor", stockCursor);
@@ -1120,6 +1131,7 @@ export default function MainInventory() {
     stockSearch,
     stockState,
     stockSort,
+    stockView,
     stockIndicators,
     stockFamilyId,
     canReadStock,
@@ -1260,6 +1272,14 @@ export default function MainInventory() {
     (value: LiveStockStockState) => {
       resetStockPagination();
       setStockState(value);
+    },
+    [resetStockPagination],
+  );
+
+  const handleStockViewChange = useCallback(
+    (value: LiveStockView) => {
+      resetStockPagination();
+      setStockView(value);
     },
     [resetStockPagination],
   );
@@ -1728,6 +1748,8 @@ export default function MainInventory() {
             stockState={stockState}
             sort={stockSort}
             onSortChange={handleStockSortChange}
+            view={stockView}
+            onViewChange={handleStockViewChange}
             indicators={stockIndicators}
             familyId={stockFamilyId}
             onSearchChange={handleStockSearchChange}
