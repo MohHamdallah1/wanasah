@@ -101,7 +101,7 @@ export type LiveStockIndicator =
   | "vehicle"
   | "minimum_unset";
 
-export type LiveStockSort = "name_asc" | "name_desc";
+export type LiveStockSort = "stock_first" | "low_stock_first" | "name_asc" | "name_desc";
 
 export interface LiveStockFamilyOption {
   id: number;
