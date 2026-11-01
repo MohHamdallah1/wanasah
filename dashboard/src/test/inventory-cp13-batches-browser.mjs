@@ -43,9 +43,15 @@ const modules = {
     function Harness() {
       const [focus, setFocus] = useState(new URLSearchParams(location.search).has("focus")
         ? { version: 1, kind: "batch-focus", tab: "batches", batchId: 41, variantId: 141, productName: "Untrusted label", locationId: 119 } : null);
-      return <QueryClientProvider client={client}><div style={{ height: "100dvh", display: "flex" }}>
-        <TabBatches locationId={119} focus={focus} onFocusConsumed={() => setFocus(null)}
-          onOpenTransfers={noop} onOpenReservationOwner={noop} onInventoryChanged={noop} />
+      const [active, setActive] = useState(true);
+      return <QueryClientProvider client={client}><div style={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
+        <button type="button" data-testid="batch-visibility-toggle" onClick={() => setActive((value) => !value)}>
+          Toggle batches
+        </button>
+        <div hidden={!active} style={{ minHeight: 0, flex: 1, display: active ? "flex" : "none" }}>
+          <TabBatches active={active} locationId={119} focus={focus} onFocusConsumed={() => setFocus(null)}
+            onOpenTransfers={noop} onOpenReservationOwner={noop} onInventoryChanged={noop} />
+        </div>
       </div></QueryClientProvider>;
     }
     createRoot(document.getElementById("root")).render(<Harness />);`,
@@ -112,6 +118,21 @@ try {
     await view.getByRole("button", { name: language === "ar" ? "إعادة المحاولة" : "Retry", exact: true }).click();
     const action = view.getByRole("button", { name: language === "ar" ? "عرض تفاصيل التشغيلة" : "View batch details", exact: true });
     await action.waitFor();
+    const readsBeforeReentry = requests.filter((request) =>
+      request.pathname === "/warehouse/inventory/batches/cursor" ||
+      request.pathname === "/warehouse/inventory/batches/summary"
+    ).length;
+    const toggle = page.getByTestId("batch-visibility-toggle");
+    await toggle.click();
+    await view.waitFor({ state: "hidden" });
+    await toggle.click();
+    await view.waitFor({ state: "visible" });
+    await page.waitForTimeout(50);
+    const readsAfterReentry = requests.filter((request) =>
+      request.pathname === "/warehouse/inventory/batches/cursor" ||
+      request.pathname === "/warehouse/inventory/batches/summary"
+    ).length;
+    assert.equal(readsAfterReentry, readsBeforeReentry, "same-scope reentry must not repeat batch list/summary reads");
     assert.equal(await view.getAttribute("dir"), language === "ar" ? "rtl" : "ltr");
     assert.equal(await view.locator("dl dt").count(), 8);
     assert.equal(await view.locator("input[type=search]").count(), 1);
@@ -143,7 +164,7 @@ try {
     await page.getByRole("dialog").waitFor();
     assert.equal(await page.getByText("Untrusted label", { exact: true }).count(), 0);
     assert.equal(errors.length, 0, errors.join("\n"));
-    console.log(`CP13_BROWSER ${language} ${width}px PASS: retry, batch-first, digits, direction, layout, keyboard, detail, focus`);
+    console.log(`CP13_BROWSER ${language} ${width}px PASS: retry, batch-first, no-repeat-reentry, digits, direction, layout, keyboard, detail, focus`);
     await page.close();
   }
 } finally { await browser?.close(); await server.close(); }
