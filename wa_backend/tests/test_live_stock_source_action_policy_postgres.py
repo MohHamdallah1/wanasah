@@ -106,6 +106,8 @@ async def test_f2_hold_cannot_advertise_quarantine_release_when_post_rejects(pg,
     await _set_variant(pg, case, operational_hold=hold)
 
     source = await _source(pg, case)
+    assert source["lifecycle_status"] == "ACTIVE"
+    assert source["operational_hold"] == hold
     release = _action(source, "QUARANTINED", "AVAILABLE")
     assert release["eligible_quantity"] == "2.500001"
     assert release["allowed"] is False
@@ -156,6 +158,8 @@ async def test_f2_archived_lifecycle_does_not_advertise_mutations(pg):
     )
 
     source = await _source(pg, case)
+    assert source["lifecycle_status"] == "ARCHIVED"
+    assert source["operational_hold"] == "NONE"
     for status in source["statuses"]:
         for action in status["status_change_actions"]:
             assert action["allowed"] is False
