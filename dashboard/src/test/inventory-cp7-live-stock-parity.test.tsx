@@ -60,7 +60,9 @@ describe("CP7 Live Stock refactor parity", () => {
     render(<LiveStockTable products={[product]} loading={false} onOpen={vi.fn()} />);
 
     expect(screen.getByText("Parity Product")).toBeInTheDocument();
-    expect(screen.getByText("SKU-41")).toBeInTheDocument();
+    // SKU remains in the product contract and opens with details, but no longer clutters the list.
+    expect(product.sku).toBe("SKU-41");
+    expect(screen.queryByText("SKU-41")).not.toBeInTheDocument();
     expect(screen.getByText("Parity Family")).toBeInTheDocument();
     expect(screen.getByText(/inventoryLive.minimumStockLabel/)).toBeInTheDocument();
     expect(document.body.textContent).toContain("2.500001");
