@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useMediaQuery } from "@/hooks/useMediaQuery";
+import { compareQuantity } from "@/lib/quantity";
 
 import {
   type LiveStockIndicator,
@@ -269,6 +270,14 @@ export function Tab1LiveStock({
     setDetailMode("unavailable");
     detail.open(product);
   }, [detail.open]);
+
+  useEffect(() => {
+    if (detailMode !== "unavailable" || !detail.page) return;
+    const firstUnavailable = detail.page.batches.find(
+      (batch) => compareQuantity(batch.unavailable_quantity, "0") > 0,
+    );
+    if (firstUnavailable) detail.prefetchSource(firstUnavailable.batch_id);
+  }, [detail.page, detail.prefetchSource, detailMode]);
 
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
@@ -637,8 +646,8 @@ export function Tab1LiveStock({
         product={detail.product}
         batches={detail.page?.batches ?? []}
         mode={detailMode}
-        lifecycleStatus={detail.page?.lifecycle_status ?? null}
-        operationalHold={detail.page?.operational_hold ?? null}
+        lifecycleStatus={Object.values(detail.sourceByBatch)[0]?.lifecycle_status ?? null}
+        operationalHold={Object.values(detail.sourceByBatch)[0]?.operational_hold ?? null}
         hasMore={detail.page?.has_more ?? false}
         loading={detail.loading}
         error={detail.loadError}
