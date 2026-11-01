@@ -235,6 +235,21 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(css).toContain("max-width: 10.75rem");
     expect(css).toContain("width: 100%");
   });
+  it("keeps a non-sensitive Live Stock table frame while fresh access is verified", () => {
+    const shell = read("src/pages/inventory/MainInventory.tsx");
+    const css = read("src/pages/inventory/inventory.css");
+    const detail = read("src/pages/inventory/liveStock/BatchDetailPanel.tsx");
+    expect(shell).toContain('data-live-verification-shell="true"');
+    expect(shell).toContain('live={activeTab === "live"}');
+    expect(shell).toContain('stockItemsRef.current = []');
+    expect(shell).toContain('!liveVisible');
+    expect(css).toContain("flex-wrap: nowrap;");
+    expect(css).toContain("overscroll-behavior-inline: contain;");
+    expect(detail).toContain("batch.expiry_unavailable_quantity");
+    expect(detail).toContain("batch.restricted_quantity");
+    expect(detail).toContain("batch.disposition_reason");
+  });
+
   it("keeps arrow/Home/End focus on the activated tab when its panel autofocuses an editor", () => {
     function Harness() {
       const [active, setActive] = useState("live");
