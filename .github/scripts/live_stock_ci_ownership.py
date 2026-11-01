@@ -542,6 +542,7 @@ SEAMLESS_REENTRY_EXPLANATION_ALLOWED = (
         "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
         "dashboard/src/test/live-stock-warm-authority.test.tsx",
         "dashboard/src/test/live-stock-warehouse-discovery.test.tsx",
+        "wa_backend/scripts/warehouse_route_manifest_extensions.json",
         "wa_backend/tests/test_cp7_live_stock_postgres.py",
     }
 )
