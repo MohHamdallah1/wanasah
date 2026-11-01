@@ -30,6 +30,7 @@ import {
   parseLiveStockPage,
   type LiveStockIndicator,
   type LiveStockStockState,
+  type LiveStockSort,
   type WarehouseProduct,
 } from "./liveStock/contracts";
 import {
@@ -554,6 +555,7 @@ export default function MainInventory() {
   const [stockSearch, setStockSearch] = useState("");
   const [stockState, setStockState] =
     useState<LiveStockStockState>("all");
+  const [stockSort, setStockSort] = useState<LiveStockSort>("stock_first");
   const [stockIndicators, setStockIndicators] =
     useState<LiveStockIndicator[]>([]);
   const [stockFamilyId, setStockFamilyId] =
@@ -693,6 +695,7 @@ export default function MainInventory() {
 
       setStockSearch("");
       setStockState("all");
+      setStockSort("stock_first");
       setStockIndicators([]);
       setStockFamilyId(null);
       setStockCursor(null);
@@ -982,6 +985,7 @@ export default function MainInventory() {
     const defaultView =
       !stockSearch &&
       stockState === "all" &&
+      stockSort === "stock_first" &&
       stockIndicators.length === 0 &&
       stockFamilyId === null;
 
@@ -997,6 +1001,7 @@ export default function MainInventory() {
       const params = new URLSearchParams({
         location_id: String(requestLocationId),
         limit: String(LIVE_STOCK_PAGE_SIZE),
+        sort: stockSort,
       });
 
       if (stockCursor) params.set("cursor", stockCursor);
@@ -1114,6 +1119,7 @@ export default function MainInventory() {
     stockCursor,
     stockSearch,
     stockState,
+    stockSort,
     stockIndicators,
     stockFamilyId,
     canReadStock,
@@ -1254,6 +1260,14 @@ export default function MainInventory() {
     (value: LiveStockStockState) => {
       resetStockPagination();
       setStockState(value);
+    },
+    [resetStockPagination],
+  );
+
+  const handleStockSortChange = useCallback(
+    (value: LiveStockSort) => {
+      resetStockPagination();
+      setStockSort(value);
     },
     [resetStockPagination],
   );
@@ -1712,6 +1726,8 @@ export default function MainInventory() {
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}
             stockState={stockState}
+            sort={stockSort}
+            onSortChange={handleStockSortChange}
             indicators={stockIndicators}
             familyId={stockFamilyId}
             onSearchChange={handleStockSearchChange}
