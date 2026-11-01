@@ -483,9 +483,10 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(main).toContain("setStockPageRetryKey((value) => value + 1)");
     expect(main).toContain("void fetchStockRef.current()");
     expect(main).toContain("stockPageRetryKey,");
+    const summaryCall = main.indexOf("void fetchStockSummaryRef.current()");
     const summaryEffect = main.slice(
-      main.indexOf("void fetchStockSummaryRef.current()") - 300,
-      main.indexOf("void fetchStockSummaryRef.current()") + 600,
+      summaryCall,
+      main.indexOf("]);", summaryCall) + 3,
     );
     expect(summaryEffect).toContain("stockRefreshKey");
     expect(summaryEffect).not.toContain("stockPageRetryKey");
