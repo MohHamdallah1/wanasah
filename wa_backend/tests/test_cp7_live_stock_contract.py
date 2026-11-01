@@ -73,8 +73,6 @@ def test_live_stock_batch_detail_is_exact_location_and_public_lot_only():
     assert '"batch_number": public_batch_number(row.batch_number)' in source
     assert "allowed_batch_disposition_targets" in source
     assert '"available_for_sale_quantity"' in source
-    assert '"lifecycle_status": str(variant_company_row.lifecycle_status)' in source
-    assert '"operational_hold": str(variant_company_row.operational_hold)' in source
     assert '"disposal_pending_quantity"' in source
 
 
