@@ -35,6 +35,8 @@ import { useBatchIndex } from "./batches/useBatchIndex";
 
 interface Props {
   locationId: number;
+  active?: boolean;
+  refreshKey?: number;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
   onOpenTransfers: (
@@ -79,6 +81,8 @@ const mergeProducts = (
 
 export function TabBatches({
   locationId,
+  active = true,
+  refreshKey = 0,
   focus = null,
   onFocusConsumed,
   onOpenTransfers,
@@ -110,6 +114,8 @@ export function TabBatches({
     locationId,
     filters,
     expiryWarningDays,
+    active,
+    refreshKey,
   });
 
   const text = useCallback(
@@ -124,6 +130,10 @@ export function TabBatches({
     selectedRefreshAbort.current = null;
     setSelectedBatchContext(null);
   }, []);
+
+  useEffect(() => {
+    if (!active) closeSelectedBatch();
+  }, [active, closeSelectedBatch]);
 
   useEffect(() => {
     setSearchInput("");
