@@ -1757,7 +1757,7 @@ export default function MainInventory() {
           </div>
         )}
         {activeTab === "live" && selectedLocationId !== null &&
-          !accessDenied && !locationAccess.isError && (
+          tabAllowed("live") && !accessDenied && !locationAccess.isError && (
           <Tab1LiveStock
             locationId={selectedLocationId}
             locations={liveVisible ? locations : []}
