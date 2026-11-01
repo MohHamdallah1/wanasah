@@ -15,14 +15,18 @@ import type {
   WarehouseProduct,
 } from "./contracts";
 import { getLiveStockCp7Copy } from "./i18n";
-import type { LiveStockWarehouseSource } from "./sourceContract";
+import type {
+  LiveStockProductSaleGate,
+  LiveStockWarehouseSource,
+} from "./sourceContract";
 
 type Props = {
   product: WarehouseProduct | null;
   batches: WarehouseBatchInventoryItem[];
   mode?: "details" | "unavailable";
-  lifecycleStatus?: "DRAFT" | "ACTIVE" | "RETIRING" | "ARCHIVED" | null;
-  operationalHold?: "NONE" | "SALES_HOLD" | "RECALL" | null;
+  saleGate?: LiveStockProductSaleGate | null;
+  saleGateLoading?: boolean;
+  saleGateError?: boolean;
   hasMore: boolean;
   loading: boolean;
   error: { message: string; kind: "initial" | "continuation" } | null;
@@ -58,8 +62,9 @@ export function BatchDetailPanel({
   product,
   batches,
   mode = "details",
-  lifecycleStatus = null,
-  operationalHold = null,
+  saleGate = null,
+  saleGateLoading = false,
+  saleGateError = false,
   hasMore,
   loading,
   error,
@@ -108,11 +113,15 @@ export function BatchDetailPanel({
         )
       : batches;
   const productGateText =
-    operationalHold && operationalHold !== "NONE"
-      ? copy.holdLabels[operationalHold]
-      : lifecycleStatus && lifecycleStatus !== "ACTIVE"
-        ? copy.lifecycleLabels[lifecycleStatus]
-        : copy.productGateClear;
+    saleGateLoading
+      ? copy.productGateLoading
+      : saleGateError || saleGate === null
+        ? copy.productGateUnavailable
+        : saleGate.operational_hold !== "NONE"
+          ? copy.holdLabels[saleGate.operational_hold]
+          : saleGate.lifecycle_status !== "ACTIVE"
+            ? copy.lifecycleLabels[saleGate.lifecycle_status]
+            : copy.productGateClear;
 
   return (
     <Modal
@@ -220,10 +229,12 @@ export function BatchDetailPanel({
             batch.expiry_unavailable_quantity,
           );
           const otherRestrictionLabel =
-            operationalHold && operationalHold !== "NONE"
-              ? copy.holdLabels[operationalHold]
-              : lifecycleStatus && lifecycleStatus !== "ACTIVE"
-                ? copy.lifecycleLabels[lifecycleStatus]
+            saleGate?.operational_hold &&
+            saleGate.operational_hold !== "NONE"
+              ? copy.holdLabels[saleGate.operational_hold]
+              : saleGate?.lifecycle_status &&
+                  saleGate.lifecycle_status !== "ACTIVE"
+                ? copy.lifecycleLabels[saleGate.lifecycle_status]
                 : batch.disposition !== "RELEASED"
                   ? `${copy.disposition}: ${copy.dispositionLabels[batch.disposition]}`
                   : copy.otherSaleRestriction;
