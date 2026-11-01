@@ -536,6 +536,7 @@ SEAMLESS_REENTRY_EXPLANATION_ALLOWED = (
     | {
         HELPER,
         ".github/workflows/live-stock-r4-final-performance.yml",
+        ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
         "dashboard/e2e/live-stock-v1.spec.ts",
         "dashboard/src/test/auth-session-page-boundary.test.tsx",
         "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
