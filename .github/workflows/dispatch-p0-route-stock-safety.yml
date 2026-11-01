@@ -252,7 +252,39 @@ jobs:
               "wa_backend/tests/live_stock_operational_browser_support.py",
           }
 
+          warehouse_minimum_sort_scope = {
+              ".github/workflows/inventory-cp6-minimum-stock-acceptance.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/contracts.ts",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
+              "dashboard/src/test/live-stock-batch-refresh-integration.test.tsx",
+              "dashboard/src/test/live-stock-count-freshness-semantics.test.tsx",
+              "dashboard/src/test/live-stock-local-failure.test.tsx",
+              "dashboard/src/test/live-stock-render-performance.benchmark.test.tsx",
+              "dashboard/src/test/live-stock-render-windowing.test.tsx",
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+          }
+          warehouse_minimum_sort_required = {
+              "wa_backend/api/inventory_stock_policy.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/tests/test_inventory_minimum_stock_capability_parity.py",
+              "wa_backend/tests/test_live_stock_r1_sql_postgres.py",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+          }
+
           def ownership_mode(candidate):
+              if warehouse_minimum_sort_required <= candidate and candidate <= warehouse_minimum_sort_scope:
+                  return "WAREHOUSE_MINIMUM_SORT_STRICT"
               if candidate <= p0_allowed:
                   return "P0_STRICT"
               if live_stock_worker1_marker in candidate:
