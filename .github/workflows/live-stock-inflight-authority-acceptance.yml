@@ -198,6 +198,8 @@ jobs:
               "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
               "dashboard/e2e/live-stock-inflight.config.ts",
               "dashboard/e2e/live-stock-inflight-auth.test.tsx",
+              "dashboard/e2e/live-stock-ux-closure.fixtures.ts",
+              "dashboard/src/test/inventory-cp13-shell-polish.test.tsx",
               "docs/operations/LIVE_STOCK_INFLIGHT_AUTHORITY_FINDINGS.md",
               "dashboard/src/hooks/useAuthFetch.ts",
               "dashboard/src/lib/authStorage.ts",
