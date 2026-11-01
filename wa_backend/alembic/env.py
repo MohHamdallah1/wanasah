@@ -65,6 +65,7 @@ MIGRATION_MANAGED_INDEXES = {
     "ix_product_barcodes_company_active_barcode_trgm",
     "ix_product_import_job_orphan_recovery",
     "ix_product_variants_company_search_trgm",
+    "ix_product_variants_company_arabic_name_trgm",
     "ix_product_variant_simple_common_filters_seek",
     "ix_products_company_name_trgm",
     "ix_product_company_lower_name_id",

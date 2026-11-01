@@ -157,6 +157,12 @@ jobs:
           allowed = {
               ".github/scripts/live_stock_ci_ownership.py",
               "wa_backend/api/warehouse/live_stock.py",
+              # This G06 search change requires an indexed migration and its
+              # corresponding metadata exclusion plus exact-match regression.
+              # All other performance ownership guards remain enforced.
+              "wa_backend/alembic/env.py",
+              "wa_backend/alembic/versions/c9a1e4d7b630_live_stock_arabic_exact_name_search.py",
+              "wa_backend/tests/test_live_stock_arabic_exact_search.py",
               "wa_backend/domains/live_stock_projection/service.py",
               "wa_backend/scripts/live_stock_r4_final_fixture.py",
               "wa_backend/scripts/live_stock_r4_final_metrics.py",
