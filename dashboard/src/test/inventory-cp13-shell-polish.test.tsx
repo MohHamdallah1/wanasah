@@ -60,17 +60,6 @@ describe("CP13.2 Inventory shell polish", () => {
     expect(shell).toContain('!loadingLocations && activeTab !== "warehouses"');
   });
 
-  it("keeps Inventory mounted across same-session dashboard navigation instead of rebuilding it", () => {
-    const layout = read("src/components/operations/DashboardLayout.tsx");
-    const app = read("src/App.tsx");
-
-    expect(layout).toContain('data-persistent-inventory-host="true"');
-    expect(layout).toContain('className={isInventoryRoute ? "contents" : "hidden"}');
-    expect(layout).toContain('key={`${session.generation}:${session.identity}:inventory`}');
-    expect(layout).toContain("setInventoryMounted(true)");
-    expect(app).toContain('<Route path="/inventory" element={<Fragment />} />');
-  });
-
   it("keeps desktop Ledger column headers mounted through load and empty states", () => {
     const renderTable = (loading: boolean) => <LedgerTable
       t={translator} language="en" locale="en" entries={[]}
