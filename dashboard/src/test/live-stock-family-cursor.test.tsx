@@ -47,6 +47,8 @@ function FilterHarness({ locationId = 11 }: { locationId?: number }) {
       alertCount={1}
       familyId={familyId}
       stockState="all"
+      view="warehouse"
+      onViewChange={() => undefined}
       indicators={[]}
       onFamilyChange={setFamilyId}
       onSearchChange={() => undefined}
