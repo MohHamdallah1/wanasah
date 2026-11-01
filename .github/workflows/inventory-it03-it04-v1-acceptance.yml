@@ -1,0 +1,105 @@
+name: Inventory IT03 IT04 V1 Reentry Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/pages/inventory/TabBatches.tsx"
+      - "dashboard/src/pages/inventory/batches/**"
+      - "dashboard/e2e/inventory-batch-reentry.spec.ts"
+      - "dashboard/e2e/inventory-batch-reentry.config.ts"
+      - ".github/workflows/inventory-it03-it04-v1-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-it03-it04-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bounded-reentry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps @testing-library/dom@10.4.1
+
+      - name: Focused V1 batch and inherited authority regression tests
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/batches/batch-reentry.test.tsx
+          src/test/inventory-cp13-shell-polish.test.tsx
+          src/pages/inventory/transfers/transfer-first-paint.test.tsx
+          src/test/live-stock-warm-authority.test.tsx
+
+      - name: Typecheck exact PR and lint touched source
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/MainInventory.tsx src/pages/inventory/TabBatches.tsx src/pages/inventory/batches/useBatchIndex.ts src/pages/inventory/batches/BatchIndexTable.tsx src/pages/inventory/batches/batch-reentry.test.tsx
+
+      - name: Build actual Dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+
+      - name: Install isolated Chromium
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+          npx playwright install --with-deps chromium
+
+      - name: Start built Dashboard preview
+        working-directory: dashboard
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/it03-it04-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/it03-it04-preview.log
+          exit 1
+
+      - name: Real Chromium AR/EN desktop/mobile reentry and revocation
+        working-directory: dashboard
+        env:
+          IT03_BASE_URL: http://127.0.0.1:4173
+        run: npx playwright test --config e2e/inventory-batch-reentry.config.ts
+
+      - name: Exact scope and whitespace safety
+        run: |
+          # The reconciled PR HEAD descends from accepted main. Fetching
+          # current refs avoids relying on obsolete, unreachable PR event SHAs.
+          git fetch --no-tags origin main
+          base="$(git merge-base HEAD origin/main)"
+          test -n "$base"
+          git diff --check "$base" HEAD
+
+      - name: Preserve Chromium failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventory-it03-it04-chromium
+          path: dashboard/node_modules/.cache/inventory-batch-reentry
+          if-no-files-found: ignore

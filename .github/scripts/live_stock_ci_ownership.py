@@ -572,7 +572,31 @@ WAREHOUSE_VIEW_ALLOWED = WAREHOUSE_VIEW_REQUIRED | {
 }
 
 
+# PR #746 / #740: exact, bounded V1 Batches reentry acceptance.
+# A shared Inventory shell file triggers both Live Stock ownership workflows.
+# Only this complete, independently tested eight-file correction (plus this
+# owning policy file) is admitted. A partial or combined foreign scope still
+# takes the unchanged standard ownership checks.
+IT03_IT04_REENTRY_REQUIRED = {
+    ".github/workflows/inventory-it03-it04-v1-acceptance.yml",
+    "dashboard/e2e/inventory-batch-reentry.config.ts",
+    "dashboard/e2e/inventory-batch-reentry.spec.ts",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/TabBatches.tsx",
+    "dashboard/src/pages/inventory/batches/BatchIndexTable.tsx",
+    "dashboard/src/pages/inventory/batches/batch-reentry.test.tsx",
+    "dashboard/src/pages/inventory/batches/useBatchIndex.ts",
+}
+IT03_IT04_REENTRY_ALLOWED = IT03_IT04_REENTRY_REQUIRED | {HELPER}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and IT03_IT04_REENTRY_REQUIRED <= changed:
+        extra = sorted(changed - IT03_IT04_REENTRY_ALLOWED)
+        if extra:
+            return "fail", [f"IT03_IT04_REENTRY_SCOPE=FAIL extra={extra}"]
+        return "it03-it04-batch-reentry", []
+
     if SEAMLESS_REENTRY_EXPLANATION_REQUIRED <= changed:
         extra = sorted(changed - SEAMLESS_REENTRY_EXPLANATION_ALLOWED)
         if extra:
@@ -645,6 +669,14 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
 
 def selftest() -> None:
     none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(IT03_IT04_REENTRY_REQUIRED), none)[0] == "it03-it04-batch-reentry"
+        assert classify(mode, set(IT03_IT04_REENTRY_ALLOWED), none)[0] == "it03-it04-batch-reentry"
+        for foreign in ("dashboard/src/pages/DispatchBoard.tsx",
+                        "wa_backend/services.py",
+                        "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+                        "dashboard/src/pages/inventory/Tab2Inbound.tsx"):
+            _expect_fail(mode, IT03_IT04_REENTRY_ALLOWED | {foreign}, none)
     seamless_scope = set(SEAMLESS_REENTRY_EXPLANATION_ALLOWED)
     for mode in ("ux", "r3", "operational"):
         assert classify(mode, seamless_scope, none)[0] == "seamless-reentry-explanation"

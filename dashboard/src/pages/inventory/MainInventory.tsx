@@ -425,6 +425,9 @@ export default function MainInventory() {
       ? initialNavigationIntent
       : null,
   );
+  // Stable consumer prevents a deep-link batch read restarting on unrelated
+  // shell renders (including the first retained-panel registration).
+  const handleBatchFocusConsumed = useCallback(() => setBatchNavigationFocus(null), []);
   const [transferFocus, setTransferFocus] =
     useState<TransferFocus | null>(null);
 
@@ -570,6 +573,19 @@ export default function MainInventory() {
     serverVerifiedLocationId === selectedLocationId &&
     selectorAdmissionEpoch === globalAdmissionEpoch.current &&
     locationAccess.can("inventory.read");
+
+  // IT-03: retain only the already-visited Batches panel for the exact
+  // admitted principal/location. Other tabs still unmount normally; Batches
+  // pauses its readers while hidden. A changed scope never inherits its panel.
+  const batchPanelScope = liveAuthorityVerified && warmScopeKey !== null
+    ? `${warmScopeKey}:${selectedLocationId}`
+    : null;
+  const [visitedBatchScope, setVisitedBatchScope] = useState<string | null>(null);
+  useEffect(() => {
+    if (activeTab === "batches" && batchPanelScope !== null) {
+      setVisitedBatchScope(batchPanelScope);
+    }
+  }, [activeTab, batchPanelScope]);
   const liveAdmissionEpoch = useRef(0);
   const priorLiveAdmission = useRef(false);
   if (priorLiveAdmission.current && !liveAuthorityVerified) {
@@ -1932,7 +1948,9 @@ export default function MainInventory() {
           (selectedLocationId !== null && activeTab === "live" && !liveVisible && !accessDenied && !locationAccess.isError) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
-            activeTab !== "permissions" && locationAccess.isPending)) && (
+            activeTab !== "permissions" && locationAccess.isPending) ||
+          (selectedLocationId !== null && activeTab === "batches" &&
+            !liveAuthorityVerified && !accessDenied)) && (
           <InventoryPendingSurface label={t("common.loading")} live={activeTab === "live"} />
         )}
         {selectedLocationId === null && liveReadPhase === "denied" && activeTab === "live" && (
@@ -2048,19 +2066,27 @@ export default function MainInventory() {
             onLoadMore={handleStockLoadMore}
           />
         )}
-        {!locationAccess.isPending && activeTab === "batches" && tabAllowed("batches") && selectedLocationId !== null && (
-          <TabBatches
-            key={selectedLocationId}
-            locationId={selectedLocationId}
-            focus={batchNavigationFocus}
-            onFocusConsumed={() => setBatchNavigationFocus(null)}
-            onOpenTransfers={handleOpenTransfers}
-            onOpenReservationOwner={handleOpenReservationOwner}
-            onInventoryChanged={async () => {
-              refreshStock();
-              setLedgerRefreshKey((value) => value + 1);
-            }}
-          />
+        {batchPanelScope !== null && tabAllowed("batches") &&
+          (activeTab === "batches" || visitedBatchScope === batchPanelScope) && (
+          <div
+            hidden={activeTab !== "batches"}
+            className={activeTab === "batches" ? "flex min-h-0 flex-1 flex-col" : undefined}
+            data-batch-panel-active={activeTab === "batches"}
+          >
+            <TabBatches
+              key={batchPanelScope}
+              active={activeTab === "batches"}
+              locationId={selectedLocationId!}
+              focus={activeTab === "batches" ? batchNavigationFocus : null}
+              onFocusConsumed={handleBatchFocusConsumed}
+              onOpenTransfers={handleOpenTransfers}
+              onOpenReservationOwner={handleOpenReservationOwner}
+              onInventoryChanged={async () => {
+                refreshStock();
+                setLedgerRefreshKey((value) => value + 1);
+              }}
+            />
+          </div>
         )}
         {!locationAccess.isPending && activeTab === "inbound" && tabAllowed("inbound") && selectedLocationId !== null && locationAccess.data && (
           <Tab2Inbound
