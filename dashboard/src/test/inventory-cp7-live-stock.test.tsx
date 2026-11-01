@@ -481,9 +481,14 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(main).toContain("const [stockPageRetryKey, setStockPageRetryKey] = useState(0)");
     expect(main).toContain("const retryStockPage = useCallback");
     expect(main).toContain("setStockPageRetryKey((value) => value + 1)");
-    expect(main).toContain('if (activeTab === "live" && selectedLocationId !== null)');
-    expect(main).toContain("stockPageRetryKey");
-    expect(main).toContain("[activeTab, selectedLocationId, fetchStockSummary, stockRefreshKey]");
+    expect(main).toContain("void fetchStockRef.current()");
+    expect(main).toContain("stockPageRetryKey,");
+    const summaryEffect = main.slice(
+      main.indexOf("void fetchStockSummaryRef.current()") - 300,
+      main.indexOf("void fetchStockSummaryRef.current()") + 600,
+    );
+    expect(summaryEffect).toContain("stockRefreshKey");
+    expect(summaryEffect).not.toContain("stockPageRetryKey");
     expect(main).toContain("onRetryPage={retryStockPage}");
     expect(cp7Tab).toContain("onClick={onRetryPage}");
   });
