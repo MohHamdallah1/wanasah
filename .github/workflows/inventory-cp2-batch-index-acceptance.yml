@@ -196,6 +196,7 @@ jobs:
               ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               ".github/workflows/live-stock-r4-final-performance.yml",
+              ".github/workflows/live-stock-v1-browser-acceptance.yml",
               "dashboard/e2e/live-stock-v1.spec.ts",
               "dashboard/src/App.tsx",
               "dashboard/src/components/operations/DashboardLayout.tsx",
