@@ -177,6 +177,10 @@ jobs:
               "dashboard/src/i18n/dispatchRouteSafety.ts",
               "dashboard/src/i18n/resources.ts",
               "dashboard/src/pages/DispatchBoard.tsx",
+              # A presentation-only minimum-stock label / zero-match fix can
+              # accompany shared AR/EN copy without touching route authority.
+              "dashboard/src/pages/inventory/StockMinimumManager.tsx",
+              "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
               "dashboard/src/test/dispatch-adjust-load.test.tsx",
               "dashboard/src/test/dispatch-p0-route-stock-safety.test.tsx",
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
