@@ -203,6 +203,26 @@ describe("UI-04: cache is never its own access authority", () => {
     expect(document.querySelector("[data-live-authority]")).toBeNull();
   });
 
+  it("keeps an already admitted same-session list during an ordinary shared access background refetch", async () => {
+    grant();
+    fakeServer({ page: Promise.resolve({ ...resultPage, items: [item] }) });
+    const view = mount();
+    await screen.findByText(/PRIVATE_STOCK_ROW/);
+
+    state.globalFetching = true;
+    state.locationFetching = true;
+    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+
+    expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument();
+    expect(screen.getByTestId("live-stock")).toBeInTheDocument();
+    expect(document.querySelector('[data-live-verification-shell="true"]')).toBeNull();
+
+    state.globalFetching = false;
+    state.locationFetching = false;
+    view.rerender(<MemoryRouter><MainInventory /></MemoryRouter>);
+    expect(screen.getByText(/PRIVATE_STOCK_ROW/)).toBeInTheDocument();
+  });
+
   it("on manual refresh hides the previous list until the new authorized read succeeds", async () => {
     grant();
     const next = deferred<unknown>();
