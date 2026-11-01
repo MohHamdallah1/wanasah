@@ -153,6 +153,9 @@ const batch = {
   average_cost: "1.250000",
   latest_purchase_unit_cost: "1.500000",
   latest_purchase_date: "2026-10-15",
+  latest_purchase_cost: null,
+  latest_purchase_uom_code: null,
+  purchase_event_count: 0,
   purchase_count: 1,
 };
 
