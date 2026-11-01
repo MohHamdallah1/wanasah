@@ -102,6 +102,7 @@ export type LiveStockIndicator =
   | "minimum_unset";
 
 export type LiveStockSort = "stock_first" | "low_stock_first" | "name_asc" | "name_desc";
+export type LiveStockView = "warehouse" | "catalog";
 
 export interface LiveStockFamilyOption {
   id: number;
