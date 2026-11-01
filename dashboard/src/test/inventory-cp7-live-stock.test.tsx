@@ -134,7 +134,7 @@ const batch = {
   disposition: "RELEASED" as const,
   disposition_reason: null,
   disposition_revision: 1,
-  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"] as const,
+  allowed_disposition_targets: ["QUARANTINED", "BLOCKED", "RECALLED"] as Array<"RELEASED" | "QUARANTINED" | "BLOCKED" | "RECALLED">,
   days_to_expiry: null,
   quantity_scale: 6,
   quantity_step: "0.000001" as const,
