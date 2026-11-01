@@ -51,15 +51,17 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
     }
   }, [authenticatedFetch, copy.generic.sessionsFailed, enabled, locationId]);
 
+  // The mounted panel is only retained for one authorized location. Hiding it
+  // invalidates pending reads without erasing its admitted list; reentry
+  // revalidates the first page without presenting an empty loading frame.
   useEffect(() => {
     requestSeq.current += 1;
-    setSessions([]);
-    setTotal(null);
-    setNextCursor(null);
-    setLoading(false);
-    setLoadingMore(false);
-    setLoadFailed(false);
     if (enabled) void fetchSessions(null, false);
+    else {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+    return () => { requestSeq.current += 1; };
   }, [enabled, fetchSessions, locationId]);
 
   const refreshSessions = useCallback(() => {
