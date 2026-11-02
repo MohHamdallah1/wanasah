@@ -159,7 +159,7 @@ export function BatchIndexFilters({
             aria-label={text("family")}
             value={filters.familyId ?? ""}
             onFocus={() => onOpenSelector("family")}
-            onChange={event => patch({ familyId: event.target.value ? Number(event.target.value) : null, productVariantId: null })}
+            onChange={event => patch({ familyId: event.target.value ? Number(event.target.value) : null })}
             className={`${controlClass} w-full`}
           >
             <option value="">{text("allFamilies")}</option>
@@ -186,7 +186,7 @@ export function BatchIndexFilters({
             aria-label={text("product")}
             value={filters.productVariantId ?? ""}
             onFocus={() => onOpenSelector("product")}
-            onChange={event => patch({ productVariantId: event.target.value ? Number(event.target.value) : null, familyId: null })}
+            onChange={event => patch({ productVariantId: event.target.value ? Number(event.target.value) : null })}
             className={`${controlClass} w-full`}
           >
             <option value="">{text("allProducts")}</option>
