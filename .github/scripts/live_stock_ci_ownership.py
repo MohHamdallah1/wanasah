@@ -701,6 +701,7 @@ LEDGER_762_REQUIRED = {
     "dashboard/src/pages/inventory/ledger/ledgerPresentation.ts",
     "dashboard/src/pages/inventory/ledger/useLedgerReference.ts",
     "dashboard/src/test/inventory-cp10-ledger-contract.test.ts",
+    "dashboard/src/test/inventory-access.test.ts",
     "dashboard/src/test/inventory-cp10-ledger-revocation.test.tsx",
     "wa_backend/api/warehouse/ledger.py",
     "wa_backend/domains/ledger/read.py",
