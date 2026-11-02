@@ -51,6 +51,9 @@ jobs:
           npx eslint src/pages/inventory/MainInventory.tsx src/pages/inventory/Tab2Inbound.tsx src/pages/inventory/Tab3Stocktake.tsx src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/TabTransfers.tsx src/pages/inventory/TabWarehouseLocations.tsx src/pages/inventory/it03-remaining-reentry.test.tsx src/pages/inventory/ledger/useLedgerQuery.ts src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts src/pages/inventory/transfers/hooks/useTransferList.ts src/pages/inventory/transfers/hooks/useTransferCreate.ts
       - name: Diff safety relative to accepted main
         run: |
-          base="e07f112440909dde315b963380208ec98578345d"
-          git cat-file -e "${base}^{commit}"
+          # Compare only changes authored after the shared ancestor with
+          # current main, not unrelated changes already merged since IT-03.
+          git fetch --no-tags origin main
+          base="$(git merge-base HEAD origin/main)"
+          test -n "$base"
           git diff --check "$base" HEAD
