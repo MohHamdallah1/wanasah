@@ -113,7 +113,7 @@ const ar: LiveStockCp7Copy = {
     RECALLED: "مسحوبة من البيع",
   },
   stockStatusLabels: {
-    AVAILABLE: "متاح",
+    AVAILABLE: "رصيد غير معزول",
     QUARANTINED: "حجر",
     BLOCKED: "محظور",
     RECALLED: "مسحوب من البيع",
@@ -193,7 +193,7 @@ const en: LiveStockCp7Copy = {
     RECALLED: "Withdrawn from sale",
   },
   stockStatusLabels: {
-    AVAILABLE: "Available",
+    AVAILABLE: "Regular stock (not necessarily sellable)",
     QUARANTINED: "Quarantined",
     BLOCKED: "Blocked",
     RECALLED: "Withdrawn from sale",
