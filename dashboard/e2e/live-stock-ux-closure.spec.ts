@@ -36,6 +36,52 @@ const capture = async (page: Page, testInfo: TestInfo, name: string) => {
 };
 
 
+// Real Chromium verifies the geometry, not merely the logical source string.
+for (const locale of ["ar", "en"] as const) {
+  for (const mobile of [false, true]) {
+    test("commercial quantity visual order " + locale + (mobile ? " mobile" : " desktop"), async ({ page }) => {
+      await page.setViewportSize(mobile ? { width: 390, height: 844 } : { width: 1440, height: 900 });
+      const state = await installUxApi(page, 12);
+      await seedUx(page, locale);
+      await loadLive(page);
+      const cell = mobile
+        ? cards(page).first().locator('[data-cp13-quantity="on-hand"]')
+        : rows(page).first().locator('[data-cp13-quantity="on-hand"]');
+      const qty = cell.locator("[data-commercial-quantity]");
+      await expect(qty).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+      await expect(qty.locator("[data-quantity-part]")).toHaveCount(2);
+      await expect(qty.locator("[data-quantity-number]").first()).toHaveText("3");
+      await expect(qty.locator("[data-quantity-number]").last()).toHaveText("2");
+      const positions = await qty.evaluate((element) => {
+        const center = (node: Element) => {
+          const rect = node.getBoundingClientRect();
+          return rect.left + rect.width / 2;
+        };
+        const part = [...element.querySelectorAll("[data-quantity-part]")];
+        const numbers = [...element.querySelectorAll("[data-quantity-number]")];
+        const units = [...element.querySelectorAll("[data-quantity-unit]")];
+        const join = element.querySelector("[data-quantity-join]");
+        if (part.length !== 2 || numbers.length !== 2 || units.length !== 2 || !join) return null;
+        return [center(part[0]), center(join), center(part[1]), center(numbers[0]), center(units[0]), center(numbers[1]), center(units[1])];
+      });
+      expect(positions).not.toBeNull();
+      const [first, plus, second, n0, u0, n1, u1] = positions!;
+      if (locale === "ar") {
+        expect(first).toBeGreaterThan(plus);
+        expect(plus).toBeGreaterThan(second);
+        expect(n0).toBeGreaterThan(u0);
+        expect(n1).toBeGreaterThan(u1);
+      } else {
+        expect(first).toBeLessThan(plus);
+        expect(plus).toBeLessThan(second);
+        expect(n0).toBeLessThan(u0);
+        expect(n1).toBeLessThan(u1);
+      }
+      assertNoUnexpected(state);
+    });
+  }
+}
+
 for (const entry of visualCases) {
   test(`visual/accessibility ${entry.name}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: entry.width, height: entry.height });

@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import { CommercialQuantityDisplay } from "./CommercialQuantityDisplay";
 import { formatCommercialQuantity } from "@/lib/quantity";
 import type { WarehouseProduct } from "./contracts";
 
@@ -22,7 +23,7 @@ export function VehicleCustodyQuantity({ product }: Props) {
     product.display_factor_to_base,
   );
   return <span className="block" data-vehicle-scope={product.vehicle_quantity_scope}>
-    <bdi dir={i18n.dir()} title={value.secondary ?? undefined}>{value.primary}</bdi>
+    <span title={value.secondary ?? undefined}><CommercialQuantityDisplay text={value.primary} direction={i18n.dir()} /></span>
     <small dir={i18n.dir()} className="mt-0.5 block text-[10px] font-medium text-slate-500">{scope}</small>
   </span>;
 }

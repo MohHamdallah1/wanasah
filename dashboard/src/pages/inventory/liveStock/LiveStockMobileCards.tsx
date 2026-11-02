@@ -1,4 +1,5 @@
 import { VehicleCustodyQuantity } from "./VehicleCustodyQuantity";
+import { CommercialQuantityDisplay } from "./CommercialQuantityDisplay";
 import { AlertTriangle, PackageOpen } from "lucide-react";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -124,7 +125,7 @@ export function LiveStockMobileCards({
                   {product.family_name}
                 </p>
                 <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
-                  {t("inventoryLive.minimumStockLabel")}: <bdi dir={i18n.dir()}>{minimum}</bdi>
+                  {t("inventoryLive.minimumStockLabel")}: <CommercialQuantityDisplay text={minimum} direction={i18n.dir()} />
                 </p>
               </div>
               <button
@@ -159,9 +160,9 @@ export function LiveStockMobileCards({
                           aria-label={`${copy.unavailableBreakdown} — ${product.name}`}
                           title={copy.unavailableBreakdown}
                           className="rounded-md underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
-                          <bdi dir={i18n.dir()}>{rendered.primary}</bdi>
+                          <CommercialQuantityDisplay text={rendered.primary} direction={i18n.dir()} />
                         </button>
-                      ) : rendered.primary}
+                      ) : <CommercialQuantityDisplay text={rendered.primary} direction={i18n.dir()} />}
                     </dd>
                   </div>
                 );
