@@ -120,7 +120,7 @@ try {
     assert.equal(/[\u0660-\u0669\u06f0-\u06f9]/.test(await view.innerText()), false);
     assert.equal(await view.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
     // Verify native search -> filters and both keyboard directions in Chromium.
-    const search = view.getByRole("searchbox");
+    const search = view.getByRole("searchbox").first();
     await search.focus(); await page.keyboard.press("Tab");
     assert.equal(await page.evaluate(() => document.activeElement?.tagName), "SELECT");
     await page.keyboard.press("Shift+Tab");
