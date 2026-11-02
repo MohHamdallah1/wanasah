@@ -352,7 +352,8 @@ describe("CP7 Live Stock Dashboard closure", () => {
     expect(screen.getByText("LOT-ISSUE")).toBeInTheDocument();
     expect(screen.queryByText("LOT-GOOD")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Open batch and expiry" }));
-    expect(onGoToBatch).toHaveBeenCalledExactlyOnceWith(71);
+    expect(onGoToBatch).toHaveBeenCalledTimes(1);
+    expect(onGoToBatch).toHaveBeenCalledWith(71);
     expect(screen.queryByText("Total unavailable for sale")).not.toBeInTheDocument();
   });
 
