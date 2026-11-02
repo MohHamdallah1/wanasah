@@ -144,10 +144,9 @@ export function BatchDetailPanel({
         data-testid="live-stock-batch-detail"
         data-live-stock-detail-mode={mode}
       >
-        <div role="tablist" aria-label={copy.batchDetails} className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+        <div role="group" aria-label={copy.batchDetails} className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
           {(["details", "unavailable"] as const).map((tab) => (
-            <button key={tab} type="button" role="tab"
-              aria-selected={mode === tab}
+            <button key={tab} type="button" aria-pressed={mode === tab}
               disabled={tab === "unavailable" && (typeof product.unavailable_quantity !== "string" || compareQuantity(product.unavailable_quantity, "0") === 0)}
               onClick={() => onModeChange?.(tab)}
               className={mode === tab ? "rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold" : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"}
@@ -404,7 +403,7 @@ export function BatchDetailPanel({
                                   </span>
                                   <span
                                     className="shrink-0 font-black tabular-nums text-slate-900"
-                                    dir="auto"
+                                    dir={i18n.dir()}
                                     title={amount.secondary ?? undefined}
                                   >
                                     {amount.primary}
