@@ -37,6 +37,22 @@ export function StocktakeDiscoveredModal({ open, sessionId, authenticatedFetch, 
   const requestGeneration = useRef(0);
 
   useEffect(() => {
+    requestGeneration.current += 1;
+    setProduct(null);
+    setBatch(null);
+    setProducts([]);
+    setBatches([]);
+    setProductSearch("");
+    setBatchSearch("");
+    setDebouncedProductSearch("");
+    setDebouncedBatchSearch("");
+    setProductCursor(null);
+    setBatchCursor(null);
+    setStatus("QUARANTINED");
+    setQuantity("");
+  }, [sessionId, open]);
+
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       const clean = productSearch.trim();
       setDebouncedProductSearch(clean.length >= 2 ? clean : "");
