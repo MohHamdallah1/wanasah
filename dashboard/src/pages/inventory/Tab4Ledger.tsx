@@ -90,7 +90,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           </div>
         </header>
 
-        <LedgerFilters
+        {!denied && <LedgerFilters
           t={t}
           language={language}
           search={query.searchInput}
@@ -100,7 +100,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           availableTypes={query.availableTypes}
           loading={query.loading}
           onRefresh={query.refresh}
-        />
+        />}
 
         {denied ? (
           <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
