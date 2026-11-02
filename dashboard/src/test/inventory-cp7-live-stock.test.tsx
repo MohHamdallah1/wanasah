@@ -694,6 +694,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
       onClose: vi.fn(), onRetry: vi.fn(), onLoadMore: vi.fn(), onLoadSource,
     };
     const view = render(<BatchDetailPanel {...props} />);
+    fireEvent.click(screen.getByText(getLiveStockCp7Copy(mocks.language).advancedInfo));
     return { ...view, props, onLoadSource };
   };
 
@@ -708,7 +709,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     expect(rows[1]).toHaveTextContent("1 CT + 2 EA");
     expect(rows[1].querySelector("[title]")).toHaveAttribute("title", "10 EA");
     expect(screen.getByText("Reservation evidence complete")).toBeInTheDocument();
-    expect(screen.getByText(/not a complete physical-inventory total/)).toBeInTheDocument();
+    expect(screen.getByText(/selected warehouse only/)).toBeInTheDocument();
     expect(screen.queryByText(/Truncated list:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Unattributed reserved quantity:/)).not.toBeInTheDocument();
     expect(list.querySelector("a, button")).toBeNull();
@@ -774,7 +775,7 @@ describe("UI-06 bounded reservation evidence disclosure", () => {
     expect(screen.getByText(/مرجع الحجز:/)).toHaveTextContent("ROUTE-701");
     expect(screen.getByText(/القائمة مقتطعة:/)).toBeInTheDocument();
     expect(screen.getByText("دليل الحجز جزئي")).toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: "دليل مصدر المستودع القابل للإجراء والحجوزات" });
+    const toggle = screen.getByRole("button", { name: "تفاصيل الكمية والحجوزات" });
     toggle.focus();
     expect(toggle).toHaveFocus();
     expect(toggle).toHaveAttribute("aria-expanded", "true");
