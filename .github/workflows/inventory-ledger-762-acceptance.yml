@@ -1,0 +1,127 @@
+name: Inventory Ledger V1 Reference Security Acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/Tab4Ledger.tsx"
+      - "dashboard/src/pages/inventory/ledger/**"
+      - "dashboard/src/test/inventory-cp10-ledger-*.test.ts*"
+      - "dashboard/e2e/ledger-762.*"
+      - ".github/workflows/inventory-ledger-762-acceptance.yml"
+permissions:
+  contents: read
+jobs:
+  dashboard-chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dependencies
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+      - name: Focused Ledger contract security UI keyboard and static checks
+        working-directory: dashboard
+        run: |
+          npx vitest run src/test/inventory-cp10-ledger-contract.test.ts src/test/inventory-cp10-ledger-dashboard.test.tsx src/test/inventory-cp10-ledger-keyboard.test.tsx src/test/inventory-cp10-ledger-revocation.test.tsx
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/ledger/ src/test/inventory-cp10-ledger-revocation.test.tsx
+          VITE_API_URL=http://127.0.0.1:4174/api npm run build
+      - name: Disposable Chromium
+        working-directory: dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Start built Dashboard
+        working-directory: dashboard
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/ledger-762-preview.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/ledger-762-preview.log
+          exit 1
+      - name: AR EN desktop phone reference revocation and movement semantics
+        working-directory: dashboard
+        run: npx playwright test --config e2e/ledger-762.config.ts
+      - name: Exact base and bounded diff guard
+        run: |
+          git cat-file -e a740c69135f418bbf60b989ae55b11f72bdbc471^{commit}
+          git diff --check a740c69135f418bbf60b989ae55b11f72bdbc471 HEAD
+          python - <<'PY'
+          import subprocess
+          changed=set(subprocess.check_output(["git","diff","--name-only","a740c69135f418bbf60b989ae55b11f72bdbc471","HEAD"], text=True).splitlines())
+          allowed_exact={
+            "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+            "dashboard/e2e/ledger-762.spec.ts",
+            "dashboard/e2e/ledger-762.config.ts",
+          }
+          assert all(p in allowed_exact or p.startswith("dashboard/src/pages/inventory/ledger/")
+                     or p.startswith("dashboard/src/test/inventory-cp10-ledger-")
+                     for p in changed), sorted(changed)
+          print("LEDGER_762_SCOPE=PASS",len(changed))
+          PY
+      - name: Chromium screenshots and failure traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ledger-762-ar-en-phone-desktop
+          path: dashboard/node_modules/.cache/ledger-762
+          if-no-files-found: ignore
+
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Ledger762SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_GATE: "1"
+      WANASAH_CP10_PG_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_ADMIN_URL: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL16
+        run: |
+          docker run --detach --name ledger-762-postgres --env POSTGRES_USER=cp10_admin --env POSTGRES_DB=wanasah_cp10_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55450:55450 postgres:16 -p 55450
+          for attempt in $(seq 1 30); do
+            if docker exec ledger-762-postgres pg_isready -U cp10_admin -d wanasah_cp10_test -p 55450; then exit 0; fi
+            sleep 1
+          done
+          docker logs ledger-762-postgres
+          exit 1
+      - name: Create restricted NO BYPASS RLS runtime
+        run: |
+          python - <<'PY'
+          import os,psycopg
+          from sqlalchemy.engine import make_url
+          dsn=make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn,autocommit=True) as conn:
+            if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname='cp10_app'").fetchone():
+              conn.execute("CREATE ROLE cp10_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate isolated database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Exact canonical Ledger PostgreSQL16 and authorization tests
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q -s tests/test_cp10_ledger_postgres.py tests/test_cp10_ledger_postgres_multibatch.py
+          python -m pytest -q tests/test_cp10_ledger_backend.py tests/test_inbound_adjustments_canonical_auth_cutover.py
