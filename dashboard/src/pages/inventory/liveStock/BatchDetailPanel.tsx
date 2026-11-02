@@ -324,7 +324,7 @@ export function BatchDetailPanel({
                               <TooltipTrigger asChild>
                                 <button type="button"
                                   className="ms-1 inline-flex h-5 w-5 items-center justify-center rounded-full align-middle text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-                                  aria-label={copy.restrictedQuantityHelp}
+                                  aria-label={copy.restrictedQuantity}
                                 >
                                   <Info className="h-3.5 w-3.5" aria-hidden="true" />
                                 </button>
