@@ -39,7 +39,8 @@ export function useStocktakeReview({
   const loadReview = useCallback(
     async (
       sid: string,
-      targetLocationId?: number
+      targetLocationId?: number,
+      isCurrent: () => boolean = () => true,
     ) => {
       const effectiveLocationId =
         targetLocationId ?? sessionLocationId;
@@ -55,6 +56,7 @@ export function useStocktakeReview({
       const capabilities = parseInventoryCapabilities(await authenticatedFetch(
         `/inventory/access/me?location_id=${effectiveLocationId}`
       ));
+      if (!isCurrent()) return;
       if (capabilities.location_id !== effectiveLocationId) throw new Error(copy.count.scopeMismatch);
       if (!hasInventoryPermission(capabilities, "stocktake.review")) {
         setSessionLocationId(effectiveLocationId);
@@ -68,6 +70,7 @@ export function useStocktakeReview({
       const raw = await authenticatedFetch(
         `/warehouse/unified/stocktake/${sid}/review`
       );
+      if (!isCurrent()) return;
       const data = parseStocktakeReview(raw);
 
       if (data.location_id !== effectiveLocationId) {
