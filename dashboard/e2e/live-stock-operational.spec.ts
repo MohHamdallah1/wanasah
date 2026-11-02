@@ -267,7 +267,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       };
       await op.route(API + "/warehouse/inventory/**", raceHandler);
 
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details" }).click();
       await ready.get("source");
       await op.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
@@ -355,7 +355,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await expect(first).toBeVisible();
       await expect(dialog).toContainText("independent reads, not one atomic snapshot");
       await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details" }).click();
       await expect(first).toContainText("not a complete physical-inventory total");
       const freshSourceApi = await api(op,
         "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch +
@@ -507,13 +507,13 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await page.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
       const dialog = page.locator('[role="dialog"][aria-modal="true"]');
       const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details" }).click();
       await expect(first).toContainText(/unattributed/i);
       const token = await page.evaluate(() => localStorage.getItem("admin_token"));
       command("revoke");
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details" }).click();
       const denial = page.waitForResponse(r => r.request().method() === "GET" && r.status() === 403 && r.url().includes("/source?"));
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details" }).click();
       await denial;
       await expect(dialog).toHaveCount(0);
       await expect(stock(page)).toHaveCount(0);
@@ -780,8 +780,9 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     }
 
     const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+    await first.getByRole("button", { name: "Additional stock and reservation details" }).click();
     const source = first.getByRole("button", {
-      name: "Actionable Warehouse source and reservations",
+      name: "Stock and reservation details",
     });
     await expect(source).toHaveAccessibleName(/.+/);
     const removeFault = await validationFault(
