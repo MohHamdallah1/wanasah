@@ -55,19 +55,20 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     await seedUx(page, locale, "light", "batches");
     await page.goto("/inventory");
     const panel = page.locator('[data-batch-panel-active="true"]');
-    await expect(panel.getByText("LOT-41").first()).toBeVisible();
+    const visibleRow = panel.locator("tr:visible, article:visible").filter({ hasText: "LOT-41" });
+    await expect(visibleRow).toHaveCount(1);
     await panel.getByText(locale === "ar" ? "توضيح الأرقام" : "About these counts", { exact: true }).click();
     await expect(panel.getByText(new RegExp(locale === "ar" ? "هذا الملخص يتبع" : "This summary follows"))).toBeVisible();
-    await expect(panel.locator('[data-commercial-quantity="true"]').first().locator('[data-quantity-number]')).toHaveText(["1", "4"]);
+    await expect(visibleRow.locator('[data-commercial-quantity="true"]').first().locator('[data-quantity-number]')).toHaveText(["1", "4"]);
     await panel.getByRole("searchbox", { name: locale === "ar" ?
       "ابحث عن عائلة لها تشغيلات في المستودع" : "Search families with batches in this warehouse" }).fill("Target Family");
-    await expect(panel.getByRole("option", { name: "Target Family" })).toHaveValue("901");
+    await expect(panel.getByRole("option", { name: "Target Family" })).toHaveAttribute("value", "901");
     await panel.getByRole("combobox", { name: locale === "ar" ? "العائلة" : "Family" }).selectOption("901");
     await expect.poll(() => batchReads).toBeGreaterThan(1);
     await panel.getByRole("searchbox", { name: locale === "ar" ?
       "ابحث عن منتج له تشغيلات في المستودع" : "Search products with batches in this warehouse" }).fill("Remote Product");
     await panel.getByRole("button", { name: locale === "ar" ? "إعادة محاولة الخيارات" : "Retry options" }).click();
-    await expect(panel.getByRole("option", { name: "Remote Product · R-990" })).toHaveValue("990");
+    await expect(panel.getByRole("option", { name: "Remote Product · R-990" })).toHaveAttribute("value", "990");
     await panel.getByRole("combobox", { name: locale === "ar" ? "المنتج" : "Product" }).selectOption("990");
     await expect(panel.getByRole("combobox", { name: locale === "ar" ? "العائلة" : "Family" })).toHaveValue("901");
     await panel.getByRole("combobox", { name: locale === "ar" ? "الترتيب" : "Sort" }).selectOption("PRODUCT_ASC");
