@@ -67,6 +67,7 @@ jobs:
             "wa_backend/api/warehouse/ledger.py",
             "wa_backend/domains/ledger/read.py",
             "wa_backend/tests/test_cp10_ledger_postgres.py",
+            "wa_backend/tests/test_inbound_no_lot_frozen_contract.py",
             ".github/workflows/inventory-ledger-762-acceptance.yml",
             "dashboard/e2e/ledger-762.spec.ts",
             "dashboard/e2e/ledger-762.config.ts",

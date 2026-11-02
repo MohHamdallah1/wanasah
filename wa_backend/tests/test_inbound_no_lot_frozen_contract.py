@@ -810,7 +810,7 @@ async def test_operator_surfaces_never_expose_internal_lot(surface, number, expe
                     Result(rows=[snapshot]),  # product/location balance reconstruction
                     Result(),  # display UOMs: fall back to the real base UOM
                     Result(rows=[(11, number)]),
-                    Result(rows=[(41, "Warehouse")]),
+                    Result(rows=[(41, "Warehouse", "WAREHOUSE")]),  # Ledger reads canonical location type
                     Result(),  # movement impacts
                 ],
                 scalar=[41, "JOD"],  # exact warehouse authorization, then currency
