@@ -1,0 +1,63 @@
+name: Stocktake V1 stale session read fence
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts"
+      - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeReview.ts"
+      - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts"
+      - "dashboard/src/pages/inventory/stocktake/StocktakeSessionReadFence.test.tsx"
+      - ".github/workflows/stocktake-v1-session-read-fence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stocktake-read-fence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: V1 A-to-B late session context and sheet acceptance
+        working-directory: dashboard
+        run: npm run test -- src/pages/inventory/stocktake/StocktakeSessionReadFence.test.tsx
+      - name: Strict Dashboard typecheck and touched-source lint
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/stocktake/StocktakeSessionReadFence.test.tsx src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts src/pages/inventory/stocktake/hooks/useStocktakeReview.ts src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts
+      - name: Scope and whitespace
+        run: |
+          base="3ce3670268a95eb278883ce61be87010c86d720e"
+          git cat-file -e "${base}^{commit}"
+          git diff --check "$base" HEAD
+          python - <<'PY'
+          import subprocess
+          base = "3ce3670268a95eb278883ce61be87010c86d720e"
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True,
+          ).splitlines())
+          allowed = {
+              ".github/workflows/stocktake-v1-session-read-fence.yml",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeReview.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionReadFence.test.tsx",
+          }
+          assert changed <= allowed, sorted(changed - allowed)
+          assert len(changed) == len(allowed), sorted(allowed - changed)
+          print("STOCKTAKE_V1_REENTRY_SCOPE=PASS")
+          PY
