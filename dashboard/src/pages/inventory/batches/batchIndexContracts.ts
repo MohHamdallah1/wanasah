@@ -23,6 +23,10 @@ export type BatchIndexSort =
   | "UNAVAILABLE_DESC";
 
 export type BatchSellabilityReasonCode =
+  | "PRODUCT_NOT_ACTIVE"
+  | "PRODUCT_SALES_HOLD"
+  | "PRODUCT_RECALL"
+  | "PRODUCT_OPERATIONAL_HOLD"
   | "BATCH_INACTIVE"
   | "DISPOSITION_NOT_RELEASED"
   | "PRODUCTION_DATE_IN_FUTURE"
@@ -181,6 +185,10 @@ const trackingMode = (value: unknown): "NONE" | "OPTIONAL" | "REQUIRED" => {
 };
 
 const REASON_CODES = new Set<BatchSellabilityReasonCode>([
+  "PRODUCT_NOT_ACTIVE",
+  "PRODUCT_SALES_HOLD",
+  "PRODUCT_RECALL",
+  "PRODUCT_OPERATIONAL_HOLD",
   "BATCH_INACTIVE",
   "DISPOSITION_NOT_RELEASED",
   "PRODUCTION_DATE_IN_FUTURE",
