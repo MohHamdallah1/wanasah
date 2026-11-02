@@ -568,7 +568,7 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                         view="warehouse", sort="name_asc", db=db, access=owner,
                     )
                     live_variant = next(
-                        x for x in live["items"] if x["product_variant_id"] == 9111
+                        x for x in live["items"] if x["id"] == 9111
                     )
                     for quantity in (
                         "on_hand_quantity", "reserved_quantity",
