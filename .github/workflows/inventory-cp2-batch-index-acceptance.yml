@@ -330,7 +330,7 @@ jobs:
                   extra = changed - product_gate_read_allowed
                   if extra:
                       raise ValueError(
-                          "CP2_SCOPE=FAIL product-gate read crossover\\n"
+                          "CP2_SCOPE=FAIL product-gate read crossover\n"
                           f"extra={sorted(extra)}"
                       )
                   if not cp2_schema_changed:
@@ -565,7 +565,7 @@ jobs:
           else:
               forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
               if (
-                  scope != "live-stock-route-extension"
+                  scope not in {"live-stock-route-extension", "product-gate-read-contract"}
                   and any(path.startswith(forbidden_prefixes) for path in changed)
               ):
                   raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")
