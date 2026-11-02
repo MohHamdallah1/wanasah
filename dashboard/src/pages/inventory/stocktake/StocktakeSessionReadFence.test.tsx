@@ -74,6 +74,56 @@ describe("Stocktake V1 latest authorized session wins", () => {
     hook.unmount();
   });
 
+  it("flushes a pending count draft if the user exits before 800ms", () => {
+    const key = "wanasah_audit_draft:3:7:5:11";
+    const row = {
+      row_key: "11:11:AVAILABLE", product_variant_id: 11, batch_id: 11,
+      stock_status: "AVAILABLE" as const, product_name: "Product 11",
+      batch_number: "LOT-11", expiry_date: null,
+      base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
+      quantity_scale: 0, quantity_step: "1",
+      actual_quantity: "3", counted: true,
+    };
+    const hook = renderHook(() => useStocktakeCounting({
+      durableIdentity: { companyId: 3, backofficeUserId: 7 },
+      companyScope: "3:7", phaseKey: "test:stocktake:phase",
+      phase: "COUNTING", sessionId: "11", sessionLocationId: 5,
+      draftKey: key, authenticatedFetch: vi.fn(async () => ({})),
+      rows: [row], setRows: vi.fn(), setReview: vi.fn(),
+      setSessionId: vi.fn(), setSessionLocationId: vi.fn(),
+      setPhase: vi.fn(), onSubmitted: vi.fn(async () => {}),
+    }));
+    expect(localStorage.getItem(key)).toBeNull();
+    act(() => hook.unmount());
+    expect(JSON.parse(localStorage.getItem(key) || "[]")).toEqual([row]);
+  });
+
+  it("does not restore a submitted draft after a successful count", async () => {
+    const key = "wanasah_audit_draft:3:7:5:12";
+    const row = {
+      row_key: "12:12:AVAILABLE", product_variant_id: 12, batch_id: 12,
+      stock_status: "AVAILABLE" as const, product_name: "Product 12",
+      batch_number: "LOT-12", expiry_date: null,
+      base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
+      quantity_scale: 0, quantity_step: "1",
+      actual_quantity: "2", counted: true,
+    };
+    const hook = renderHook(() => useStocktakeCounting({
+      durableIdentity: { companyId: 3, backofficeUserId: 7 },
+      companyScope: "3:7", phaseKey: "test:stocktake:phase",
+      phase: "COUNTING", sessionId: "12", sessionLocationId: 5,
+      draftKey: key, authenticatedFetch: vi.fn(async () => ({ status: "PENDING_REVIEW" })),
+      rows: [row], setRows: vi.fn(), setReview: vi.fn(),
+      setSessionId: vi.fn(), setSessionLocationId: vi.fn(),
+      setPhase: vi.fn(), onSubmitted: vi.fn(async () => {}),
+    }));
+    let success = false;
+    await act(async () => { success = await hook.result.current.handleSubmit(); });
+    expect(success).toBe(true);
+    hook.unmount();
+    expect(localStorage.getItem(key)).toBeNull();
+  });
+
   it("ignores a delayed A count-sheet after B is selected", async () => {
     const lateA = deferred<unknown>();
     const row = (id: number) => ({
