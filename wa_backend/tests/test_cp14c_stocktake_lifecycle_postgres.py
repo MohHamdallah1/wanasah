@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api import dispatch
-from api.warehouse import ledger, locations, stocktake, transfer_policy, transfers
+from api.warehouse import ledger, locations, stocktake, stocktake_discovery, transfer_policy, transfers
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
@@ -979,6 +979,77 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, rollback_started = await _start(db, a.operator, a.a2)
             rollback_session = int(rollback_started["session_id"])
+            # 0-onhand discovered stock must be discoverable from this exact
+            # authorized Stocktake session, not from the stocked-only picker.
+            options = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=None, batch_ids=None, search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert [x["id"] for x in options["items"]] == [a.variant]
+            assert options["items"][0]["quantity_step"] == "0.001"
+            lots = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=a.variant, batch_ids=None, search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert [x["id"] for x in lots["items"]] == [a.batch]
+            assert lots["items"][0]["base_uom_id"] == a.uom
+            assert lots["items"][0]["disposition"] == "RELEASED"
+            assert lots["items"][0]["expiry_date"] is None
+            revalidated = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=None, batch_ids=str(a.batch), search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert revalidated["items"] == lots["items"]
+            with pytest.raises(HTTPException) as forbidden:
+                await stocktake_discovery.stocktake_discovery_options(
+                    rollback_session,
+                    product_variant_id=None, batch_ids=None, search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.denied.access(db), actor=a.denied.operational_driver,
+                )
+            assert forbidden.value.status_code == 403
+            with pytest.raises(HTTPException) as foreign:
+                await stocktake_discovery.stocktake_discovery_options(
+                    b_session_id,
+                    product_variant_id=None, batch_ids=None, search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.operator.access(db), actor=a.operator.operational_driver,
+                )
+            assert foreign.value.status_code in {403, 404}
+            with pytest.raises(HTTPException) as malformed:
+                await stocktake_discovery.stocktake_discovery_options(
+                    rollback_session,
+                    product_variant_id=None, batch_ids="1,0", search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.operator.access(db), actor=a.operator.operational_driver,
+                )
+            assert malformed.value.status_code == 400
+            duplicate = StocktakeCountCommand(
+                request_id=uuid4(),
+                items=[{
+                    "product_variant_id": a.variant,
+                    "batch_id": a.batch,
+                    "stock_status": "AVAILABLE",
+                    "actual_quantity": Decimal("1.000"),
+                    "uom_id": a.uom,
+                }] * 2,
+            )
+            with pytest.raises(HTTPException) as duplicated:
+                await stocktake.submit_stocktake_count(
+                    rollback_session, duplicate, db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
+                )
+            assert duplicated.value.status_code == 422
+            assert (await db.get(StocktakeSession, rollback_session)).status == "COUNTING"
+            await db.rollback()
+
             rollback_attempt = await _count_discovered(
                 db,
                 a.operator,
