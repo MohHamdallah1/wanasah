@@ -2070,6 +2070,17 @@ export default function MainInventory() {
             onRetryPage={retryStockPage}
             onRetrySummary={() => { void fetchStockSummary(); }}
             onReadDenied={rejectLiveStockEvidence}
+            onOpenBatch={tabAllowed("batches") && liveAuthorityVerified && selectedLocationId !== null
+              ? (product, batchId) => {
+                  if (!requestStillAuthorized(warmScopeKey, selectedLocationId) || !tabAllowed("batches")) return;
+                  setBatchNavigationFocus({
+                    version: 1, kind: "batch-focus", tab: "batches",
+                    variantId: product.id, batchId,
+                    productName: product.name, locationId: selectedLocationId,
+                  });
+                  setActiveTab("batches");
+                }
+              : undefined}
             alertCount={liveSummaryFresh ? stockAlertCount : null}
             matchingTotal={stockMatchingTotal}
             hasMore={!!stockNextCursor}
