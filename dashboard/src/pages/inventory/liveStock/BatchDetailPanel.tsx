@@ -1,8 +1,9 @@
-import { AlertTriangle, ChevronDown, RefreshCcw } from "lucide-react";
-import { useMemo } from "react";
+import { AlertTriangle, ChevronDown, Info, RefreshCcw } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   compareQuantity,
   formatCommercialQuantity,
@@ -24,6 +25,8 @@ type Props = {
   product: WarehouseProduct | null;
   batches: WarehouseBatchInventoryItem[];
   mode?: "details" | "unavailable";
+  onModeChange?: (mode: "details" | "unavailable") => void;
+  onGoToBatch?: (batchId: number) => void;
   saleGate?: LiveStockProductSaleGate | null;
   saleGateLoading?: boolean;
   saleGateError?: boolean;
@@ -62,6 +65,8 @@ export function BatchDetailPanel({
   product,
   batches,
   mode = "details",
+  onModeChange,
+  onGoToBatch,
   saleGate = null,
   saleGateLoading = false,
   saleGateError = false,
@@ -81,6 +86,12 @@ export function BatchDetailPanel({
   onRetrySource,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const [advancedOpenIds, setAdvancedOpenIds] = useState<Set<number>>(() => new Set());
+  // Closing/reopening the same product must not carry hidden disclosure open
+  // state into a fresh bounded batch read.
+  useEffect(() => {
+    setAdvancedOpenIds(new Set());
+  }, [product?.id]);
   const locale = resolveI18nLocale(i18n);
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
 
@@ -112,6 +123,8 @@ export function BatchDetailPanel({
           (batch) => compareQuantity(batch.unavailable_quantity, "0") > 0,
         )
       : batches;
+  const showProductGate = saleGateLoading || saleGateError || saleGate === null ||
+    saleGate.operational_hold !== "NONE" || saleGate.lifecycle_status !== "ACTIVE";
   const productGateText =
     saleGateLoading
       ? copy.productGateLoading
@@ -126,8 +139,11 @@ export function BatchDetailPanel({
   return (
     <Modal
       isOpen
-      onClose={onClose}
-      title={`${mode === "unavailable" ? copy.unavailableBreakdown : copy.batchDetails} — ${product.name}`}
+      onClose={() => {
+        setAdvancedOpenIds(new Set());
+        onClose();
+      }}
+      title={`${copy.batchDetails} — ${product.name}`}
       subtitle={product.sku ? `${product.sku} · ${product.family_name}` : product.family_name}
       maxWidth="max-w-5xl"
       bodyClassName="p-3 sm:p-5"
@@ -137,9 +153,23 @@ export function BatchDetailPanel({
         data-testid="live-stock-batch-detail"
         data-live-stock-detail-mode={mode}
       >
+        <div role="group" aria-label={copy.batchDetails} className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+          {(["details", "unavailable"] as const).map((tab) => (
+            <button key={tab} type="button" aria-pressed={mode === tab}
+              disabled={tab === "unavailable" && (typeof product.unavailable_quantity !== "string" || compareQuantity(product.unavailable_quantity, "0") === 0)}
+              onClick={() => onModeChange?.(tab)}
+              className={mode === tab ? "rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold" : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"}
+            >
+              {tab === "details" ? copy.tabBatches : copy.tabProblems}
+            </button>
+          ))}
+        </div>
         {onRefresh ? (
           <div className="flex justify-end">
-            <button type="button" onClick={onRefresh} disabled={refreshing}
+            <button type="button" onClick={() => {
+              setAdvancedOpenIds(new Set());
+              onRefresh();
+            }} disabled={refreshing}
               aria-label={t("inventoryShell.refreshNow")}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60">
               <RefreshCcw className="h-4 w-4" aria-hidden="true" />
@@ -178,34 +208,11 @@ export function BatchDetailPanel({
 
         {batches.length > 0 && !loading ? (
           <>
-            <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
-            {mode === "unavailable" ? (
-              <>
-                <section
-                  className="rounded-xl border border-rose-200 bg-rose-50/70 p-3"
-                  data-live-stock-unavailable-summary="true"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <span className="text-xs font-black text-rose-950">
-                      {copy.unavailableTotal}
-                    </span>
-                    <strong
-                      className="tabular-nums text-sm text-rose-950"
-                      dir="ltr"
-                    >
-                      {quantityText(product.unavailable_quantity)}
-                    </strong>
-                  </div>
-                  <div className="mt-2 text-xs font-semibold text-rose-900">
-                    <span className="font-black">{copy.productSaleGate}: </span>
-                    <span>{productGateText}</span>
-                  </div>
-                </section>
-                <p role="note" className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs font-semibold text-amber-950"
-                  data-live-stock-unavailable-explanation="true">
-                  {copy.unavailableBreakdownNote}
-                </p>
-              </>
+            {mode === "unavailable" && showProductGate ? (
+              <p role="note" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-950"
+                data-live-stock-unavailable-summary="true">
+                <strong>{copy.productSaleGate}: </strong>{productGateText}
+              </p>
             ) : null}
           </>
         ) : null}
@@ -289,7 +296,7 @@ export function BatchDetailPanel({
                         <dt className="text-[11px] font-semibold text-slate-700">
                           {label}
                         </dt>
-                        <dd className="shrink-0 text-xs font-black tabular-nums text-rose-900" dir="ltr">
+                        <dd className="shrink-0 text-xs font-black tabular-nums text-rose-900" dir={i18n.dir()}>
                           {quantityText(value)}
                         </dd>
                       </div>
@@ -298,37 +305,40 @@ export function BatchDetailPanel({
                 </div>
               ) : null}
 
-              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4 xl:grid-cols-5">
-                {[
-                  [t("inventoryLive.onHand"), batch.on_hand_quantity],
-                  [t("inventoryLive.reserved"), batch.reserved_quantity],
-                  [t("inventoryLive.availableForSale"), batch.available_for_sale_quantity],
-                  [t("inventoryLive.unavailable"), batch.unavailable_quantity],
-                  [copy.restrictedQuantity, batch.restricted_quantity],
-                  [copy.expiryUnavailable, batch.expiry_unavailable_quantity],
-                  [t("inventoryLive.indicatorDamaged"), batch.damaged_quantity],
-                  [copy.stockStatusLabels.QUARANTINED, batch.quarantined_quantity],
-                  [copy.stockStatusLabels.BLOCKED, batch.blocked_quantity],
-                  [copy.stockStatusLabels.RECALLED, batch.recalled_quantity],
-                  [copy.stockStatusLabels.DISPOSAL_PENDING, batch.disposal_pending_quantity],
-                ].map(([label, value]) => {
-                  const rendered = quantity(value as Quantity);
-                  return (
-                    <div key={String(label)} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <dt className="text-[10px] font-bold text-slate-500">{label}</dt>
-                      <dd
-                        className="mt-1 font-black tabular-nums text-slate-900"
-                        dir="ltr"
-                        title={rendered.secondary ?? undefined}
-                      >
-                        {rendered.primary}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
+              {mode === "details" ? (
+                <p className="mt-2 text-xs font-semibold text-slate-700">
+                  {copy.batchQuantity}: <bdi dir={i18n.dir()} className="font-black tabular-nums">{quantityText(batch.on_hand_quantity)}</bdi>
+                </p>
+              ) : null}
+              {mode === "unavailable" && onGoToBatch ? (
+                <button type="button" onClick={() => onGoToBatch(batch.batch_id)}
+                  className="mt-3 inline-flex rounded-lg bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700"
+                  aria-label={copy.manageBatch}>
+                  {copy.manageBatch}
+                </button>
+              ) : null}
+
 
               <div className="mt-3 border-t border-slate-100 pt-3">
+                <button type="button" aria-expanded={advancedOpenIds.has(batch.batch_id)}
+                  onClick={() => setAdvancedOpenIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(batch.batch_id)) next.delete(batch.batch_id);
+                    else next.add(batch.batch_id);
+                    return next;
+                  })}
+                  className="cursor-pointer rounded-md px-2 py-2 text-xs font-bold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">{copy.advancedInfo}</button>
+                {advancedOpenIds.has(batch.batch_id) ? <div className="mt-2 space-y-2">
+
+                  {compareQuantity(batch.restricted_quantity, "0") > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2 text-xs">
+                      <span className="font-bold">{copy.restrictedQuantity}</span>
+                      <TooltipProvider delayDuration={180}><Tooltip><TooltipTrigger asChild>
+                        <button type="button" aria-label={copy.restrictedQuantity} className="rounded-full p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"><Info className="h-3.5 w-3.5" aria-hidden="true" /></button>
+                      </TooltipTrigger><TooltipContent side="top" dir={i18n.dir()} className="max-w-xs text-xs">{copy.restrictedQuantityHelp}</TooltipContent></Tooltip></TooltipProvider>
+                      <bdi dir={i18n.dir()} className="font-bold tabular-nums">{quantityText(batch.restricted_quantity)}</bdi>
+                    </div>
+                  )}
                 <button
                   type="button"
                   onClick={() => onLoadSource(batch.batch_id)}
@@ -377,7 +387,7 @@ export function BatchDetailPanel({
                           ].map(([label, value]) => (
                             <div key={String(label)} className="rounded-md bg-slate-50 px-2 py-1.5">
                               <dt className="font-semibold text-slate-500">{label}</dt>
-                              <dd className="mt-0.5 font-black tabular-nums text-slate-900" dir="ltr">
+                              <dd className="mt-0.5 font-black tabular-nums text-slate-900" dir={i18n.dir()}>
                                 {quantityText(value as Quantity)}
                               </dd>
                             </div>
@@ -391,7 +401,7 @@ export function BatchDetailPanel({
                             </span>
                           ) : null}
                           {status.reservation_evidence.unattributed_quantity !== "0" ? (
-                            <span className="ms-2 tabular-nums" dir="ltr">
+                            <span className="ms-2 tabular-nums" dir={i18n.dir()}>
                               {copy.unattributedReservation}: {quantityText(status.reservation_evidence.unattributed_quantity)}
                             </span>
                           ) : null}
@@ -413,7 +423,7 @@ export function BatchDetailPanel({
                                   </span>
                                   <span
                                     className="shrink-0 font-black tabular-nums text-slate-900"
-                                    dir="auto"
+                                    dir={i18n.dir()}
                                     title={amount.secondary ?? undefined}
                                   >
                                     {amount.primary}
@@ -436,6 +446,7 @@ export function BatchDetailPanel({
                     ))}
                   </div>
                 ) : null}
+                </div> : null}
               </div>
             </article>
           );

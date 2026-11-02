@@ -291,7 +291,36 @@ jobs:
               "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
           }
 
+          # Exact owner-approved V1 Live Stock visual closure. This is
+          # a presentation-specific policy, never an exemption for P0 code.
+          owner_visual_required = {
+              "ARCHITECTURE.md",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+              "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+          }
+          owner_visual_allowed = owner_visual_required | {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/e2e/live-stock-operational.journey.ts",
+              "dashboard/e2e/live-stock-operational.spec.ts",
+              "dashboard/e2e/live-stock-ux-closure.spec.ts",
+              "dashboard/src/i18n/resources.ts",
+              "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+              "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+              "dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx",
+              "dashboard/src/pages/inventory/liveStock/i18n.ts",
+              "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+          }
+
           def ownership_mode(candidate):
+              if owner_visual_required <= candidate:
+                  unexpected = sorted(candidate - owner_visual_allowed)
+                  assert not unexpected, f"Forbidden P0/owner-visual scope: {unexpected}"
+                  return "LIVE_STOCK_OWNER_VISUAL"
               if warehouse_minimum_sort_required <= candidate and candidate <= warehouse_minimum_sort_scope:
                   return "WAREHOUSE_MINIMUM_SORT_STRICT"
               if candidate <= p0_allowed:
@@ -313,6 +342,17 @@ jobs:
               assert unexpected_probe in str(exc)
           else:
               raise AssertionError("Negative ownership probe unexpectedly passed")
+          if mode == "LIVE_STOCK_OWNER_VISUAL":
+              for denied in ("wa_backend/api/dispatch.py",
+                             "wa_backend/domains/inventory/services.py",
+                             "wa_backend/domains/inventory_costing/service.py",
+                             "dashboard/src/lib/authStorage.ts"):
+                  try:
+                      ownership_mode(paths | {denied})
+                  except AssertionError as exc:
+                      assert denied in str(exc)
+                  else:
+                      raise AssertionError(f"Owner visual negative probe passed: {denied}")
           if mode == "LIVE_STOCK_WORKER1":
               for forbidden_probe in (
                   "wa_backend/api/dispatch.py",

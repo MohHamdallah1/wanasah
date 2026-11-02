@@ -1799,7 +1799,7 @@ export const resources = {
           "الكمية الموجودة داخل المستودع التي يسمح النظام بصرفها أو بيعها الآن بعد استبعاد الحجز والحالات غير القابلة للبيع.",
         withVehicles: "عهدة المركبات",
         withVehiclesHint:
-          "رصيد مواقع المركبات الفعلية ضمن نطاق القراءة الموضح، مستقل عن المستودع المحدد ولا يُضاف إلى إجماليه. مخزون النقل الجاري والإتلاف ليس جزءاً من هذا الرقم ولا يُفترض أنه صفر.",
+          "بضاعة المركبات على مستوى الشركة أو ضمن صلاحياتك، وليست جزءاً من مخزون المستودع المختار.",
         vehicleScopes: {
           COMPANY_WIDE: "كل مركبات الشركة",
           AUTHORIZED_LOCATIONS: "المركبات المصرح بقراءتها فقط",
@@ -1815,7 +1815,7 @@ export const resources = {
           "آخر تكلفة شراء فعلية مسجلة لهذا المنتج على مستوى الشركة، بالوحدة التي تم الشراء بها.",
         companyAverage: "متوسط التكلفة",
         companyAverageHint:
-          "متوسط التكلفة المالي الحالي للمنتج على مستوى الشركة. يظهر هنا فقط عندما توجد بضاعة مرتبطة بالمستودع المحدد.",
+          "متوسط تكلفة رصيد الصنف المتبقي في الشركة، محسوب من قيمته وكميته. يساعد في تقييم المخزون؛ أما تكلفة البيع بنظام الوارد أولاً يصرف أولاً (FIFO) فتحسب من دفعات الشراء الفعلية، وليس بالضرورة من هذا المتوسط.",
         unavailable: "غير متاح للبيع",
         unavailableHint:
           "بضاعة موجودة داخل المستودع لكنها غير متاحة للبيع الآن بسبب الصلاحية أو العزل أو منع البيع أو الاستبعاد النهائي من البيع أو التلف أو انتظار الإتلاف.",
@@ -4221,7 +4221,7 @@ export const resources = {
           "Stock inside the warehouse that the system can issue or sell now after excluding reservations and non-sellable states.",
         withVehicles: "Vehicle custody",
         withVehiclesHint:
-          "Stock at physical Vehicle locations within the stated read scope, independent of the selected Warehouse and excluded from its total. IN_TRANSIT and SCRAP are outside this number and are not implied to be zero.",
+          "Stock in company vehicles, or the vehicles you can access. It is separate from the selected warehouse stock.",
         vehicleScopes: {
           COMPANY_WIDE: "All company vehicles",
           AUTHORIZED_LOCATIONS: "Authorized vehicles only",
@@ -4237,7 +4237,7 @@ export const resources = {
           "The latest actual purchase cost recorded for this product at company level, in the unit used for that purchase.",
         companyAverage: "Average cost",
         companyAverageHint:
-          "The current company-wide financial average cost for this product. It is shown here only when inventory is associated with the selected warehouse.",
+          "Average unit cost of remaining company stock, based on its value and quantity. Useful for stock valuation; under FIFO, cost of goods sold uses the actual purchase cost layers, not necessarily this average.",
         unavailable: "Unavailable for sale",
         unavailableHint:
           "Stock physically inside the warehouse but not available for sale now because of expiry, quarantine, a sales block, permanent exclusion from sale, damage, or pending disposal.",

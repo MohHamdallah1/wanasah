@@ -268,15 +268,17 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   await expect(articles.nth(0)).toContainText("LOT-71");
   await expect(articles.nth(1)).toContainText("LOT-72");
 
-  const source71 = articles.nth(0).getByRole("button", { name: "Actionable Warehouse source and reservations" });
+  await articles.nth(0).getByRole("button", { name: "Additional stock and reservation details" }).click();
+  const source71 = articles.nth(0).getByRole("button", { name: "Stock and reservation details", exact: true });
   await source71.focus();
   await page.keyboard.press("Enter");
   await expect(articles.nth(0).getByRole("status")).toContainText("Loading source evidence");
   await expect(articles.nth(0).getByText("Reservation evidence partial")).toBeVisible();
-  await expect(articles.nth(0).getByText("Movable quantity")).toBeVisible();
+  await expect(articles.nth(0).getByText("Not reserved")).toBeVisible();
   await expect(articles.nth(0).getByText(/Unattributed reserved quantity:/)).toBeVisible();
 
-  const source72 = articles.nth(1).getByRole("button", { name: "Actionable Warehouse source and reservations" });
+  await articles.nth(1).getByRole("button", { name: "Additional stock and reservation details" }).click();
+  const source72 = articles.nth(1).getByRole("button", { name: "Stock and reservation details", exact: true });
   await source72.click();
   await expect(articles.nth(0).getByText("RES-9001")).toHaveCount(0);
   await expect(articles.nth(1).getByRole("alert")).toContainText(
@@ -284,7 +286,7 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   );
   await articles.nth(1).getByRole("button", { name: "Retry" }).click();
   await expect(articles.nth(1).getByText("RES-9010")).toBeVisible();
-  await expect(articles.nth(1).getByText("Movable quantity")).toBeVisible();
+  await expect(articles.nth(1).getByText("Not reserved")).toBeVisible();
 
   await source71.click();
   await expect(articles.nth(0).getByText("RES-9001")).toBeVisible();
@@ -310,10 +312,12 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   await expect(refreshedDialog.getByText("RES-9001")).toHaveCount(0);
   await expect(refreshedDialog.getByText("RES-9010")).toHaveCount(0);
 
+  await refreshedDialog.locator("article").nth(0)
+    .getByRole("button", { name: "Additional stock and reservation details" }).click();
   const refreshedSource71 = refreshedDialog
     .locator("article")
     .nth(0)
-    .getByRole("button", { name: "Actionable Warehouse source and reservations" });
+    .getByRole("button", { name: "Stock and reservation details", exact: true });
   await refreshedSource71.click();
   await expect.poll(() => state.sourceReads[71] ?? 0)
     .toBeGreaterThan(source71ReadsBeforeRefresh);

@@ -3,6 +3,12 @@ export type LiveStockCp7Copy = {
   openBatchDetails: string;
   loadingBatches: string;
   noBatches: string;
+  tabBatches: string;
+  tabProblems: string;
+  manageBatch: string;
+  advancedInfo: string;
+  noSaleIssues: string;
+  batchQuantity: string;
   sourceEvidence: string;
   sourceLoading: string;
   sourceUnavailable: string;
@@ -25,6 +31,7 @@ export type LiveStockCp7Copy = {
   productGateClear: string;
   otherSaleRestriction: string;
   restrictedQuantity: string;
+  restrictedQuantityHelp: string;
   expiryUnavailable: string;
   dispositionReason: string;
   unavailableBreakdownNote: string;
@@ -49,35 +56,42 @@ export type LiveStockCp7Copy = {
 };
 
 const ar: LiveStockCp7Copy = {
-  batchDetails: "تفاصيل تشغيلات الرصيد",
+  batchDetails: "تفاصيل الصنف",
   openBatchDetails: "عرض تفاصيل التشغيلات",
   loadingBatches: "جاري تحميل تفاصيل التشغيلات...",
   noBatches: "لا توجد تشغيلات لها رصيد في هذا المستودع.",
-  sourceEvidence: "دليل مصدر المستودع القابل للإجراء والحجوزات",
+  tabBatches: "التشغيلات",
+  tabProblems: "أسباب عدم البيع",
+  manageBatch: "فتح التشغيلة والصلاحية",
+  advancedInfo: "تفاصيل إضافية للمخزون والحجوزات",
+  noSaleIssues: "لا توجد كمية ممنوعة من البيع ضمن التشغيلات المحمّلة.",
+  batchQuantity: "كمية هذه التشغيلة",
+  sourceEvidence: "تفاصيل الكمية والحجوزات",
   sourceLoading: "جاري تحميل دليل المصدر...",
   sourceUnavailable: "تعذر تحميل دليل المصدر لهذا المستودع.",
-  sourceScopeNotice: "هذا دليل إجراءات للمستودع المحدد فقط، وليس جرداً كاملاً لكل المواقع الفعلية. عهدة المركبات إفصاح منفصل؛ مخزون النقل الجاري والإتلاف ليس ضمن إجمالي المستودع، وعدم ظهوره هنا لا يعني أنه صفر.",
+  sourceScopeNotice: "يعرض كميات التشغيلة وحجوزاتها داخل المستودع المختار فقط. بضاعة المركبات منفصلة.",
   freshnessNotice: "القائمة والملخص والتشغيلات ودليل المصدر قراءات مستقلة وليست لقطة ذرية واحدة؛ قد تتغير الكميات بينها. حدّث للتحقق.",
   staleBatchDetails: "تفاصيل التشغيلات السابقة لم تعد مؤكدة بعد التحديث. أعد المحاولة للتحقق.",
   sourceWarehouse: "المستودع",
-  movableQuantity: "قابل للحركة",
+  movableQuantity: "غير محجوز",
   loadMore: "تحميل المزيد",
   continuationFailed: "تعذر تحميل بقية التشغيلات. البيانات المحملة ما زالت ظاهرة.",
   retry: "إعادة المحاولة",
   noLot: "بدون رقم تشغيلة",
   unavailableBreakdown: "لماذا هذه الكمية غير متاحة للبيع؟",
   unavailableTotal: "إجمالي غير المتاح للبيع",
-  unavailableCauses: "أسباب عدم الإتاحة في هذه التشغيلة",
+  unavailableCauses: "سبب منع البيع",
   unavailableNoAffectedBatches: "لا توجد ضمن التشغيلات المحمّلة حالياً كمية تفسّر الرقم المعروض. حدّث البيانات للتحقق من القراءات المستقلة.",
   productSaleGate: "قيد البيع الحالي على مستوى المنتج",
   productGateLoading: "جاري التحقق من قيد المنتج...",
   productGateUnavailable: "تعذر التحقق من قيد المنتج حالياً؛ لا يتم افتراض حالته.",
   productGateClear: "لا يوجد قيد بيع على مستوى المنتج؛ السبب أدناه من التشغيلات أو الصلاحية أو حالة المخزون.",
-  otherSaleRestriction: "قيد بيع آخر على مستوى المنتج أو التشغيلة",
-  restrictedQuantity: "إجمالي قيود البيع",
+  otherSaleRestriction: "إيقاف بيع المنتج أو التشغيلة",
+  restrictedQuantity: "ممنوع البيع بسبب الصلاحية أو قيد البيع",
+  restrictedQuantityHelp: "الكمية التي يمنع بيعها بسبب انتهاء الصلاحية أو إيقاف بيع المنتج أو التشغيلة، دون احتساب الكميات المسحوبة أو المحجوزة للحجر أو التالفة المعروضة منفصلة. وهي ضمن غير المتاح للبيع، لا تضاف إليه.",
   expiryUnavailable: "بسبب الصلاحية",
   dispositionReason: "سبب تقييد التشغيلة",
-  unavailableBreakdownNote: "هذا العرض يفسّر الرقم فقط ولا يغيّر أي حالة. الكمية غير المتاحة قد تكون بسبب الصلاحية أو الحجر أو الحظر أو الاستدعاء أو التلف أو قيد بيع على المنتج/التشغيلة. الصلاحية جزء من إجمالي قيود البيع وليست كمية إضافية.",
+  unavailableBreakdownNote: "هذه التشغيلات فيها كمية ممنوعة من البيع. اختر التشغيلة لمعرفة السبب والتعامل معها، دون تعديل أي رصيد من هذه الشاشة.",
   lifecycleLabels: {
     DRAFT: "المنتج مسودة وغير منشور للبيع",
     ACTIVE: "نشط",
@@ -87,7 +101,7 @@ const ar: LiveStockCp7Copy = {
   holdLabels: {
     NONE: "لا يوجد",
     SALES_HOLD: "إيقاف بيع",
-    RECALL: "استدعاء منتج",
+    RECALL: "سحب المنتج من البيع",
   },
   production: "الإنتاج",
   expiry: "الصلاحية",
@@ -96,13 +110,13 @@ const ar: LiveStockCp7Copy = {
     RELEASED: "متاحة",
     QUARANTINED: "حجر",
     BLOCKED: "محظورة",
-    RECALLED: "مستدعاة",
+    RECALLED: "مسحوبة من البيع",
   },
   stockStatusLabels: {
-    AVAILABLE: "متاح",
+    AVAILABLE: "رصيد غير معزول",
     QUARANTINED: "حجر",
     BLOCKED: "محظور",
-    RECALLED: "مستدعى",
+    RECALLED: "مسحوب من البيع",
     DAMAGED: "تالف",
     DISPOSAL_PENDING: "بانتظار الإتلاف",
   },
@@ -122,35 +136,42 @@ const ar: LiveStockCp7Copy = {
 };
 
 const en: LiveStockCp7Copy = {
-  batchDetails: "Live stock batch details",
+  batchDetails: "Product details",
   openBatchDetails: "View batch details",
   loadingBatches: "Loading batch details...",
   noBatches: "No batch currently has stock in this warehouse.",
-  sourceEvidence: "Actionable Warehouse source and reservations",
+  tabBatches: "Batches",
+  tabProblems: "Why unavailable",
+  manageBatch: "Open batch and expiry",
+  advancedInfo: "Additional stock and reservation details",
+  noSaleIssues: "No unavailable quantity in the loaded batches.",
+  batchQuantity: "Quantity in this batch",
+  sourceEvidence: "Stock and reservation details",
   sourceLoading: "Loading source evidence...",
   sourceUnavailable: "Source evidence could not be loaded for this warehouse.",
-  sourceScopeNotice: "This is action evidence for the selected Warehouse, not a complete physical-inventory total. Readable Vehicle custody is disclosed separately; IN_TRANSIT and SCRAP stock is outside the Warehouse total, and absence here does not mean zero.",
+  sourceScopeNotice: "Shows this batch's stock and reservations inside the selected warehouse only; vehicle stock is separate.",
   freshnessNotice: "The list, summary, batches and source evidence are independent reads, not one atomic snapshot. Quantities can change between reads; refresh to verify.",
   staleBatchDetails: "Previous batch details are no longer verified after refresh. Retry to check.",
   sourceWarehouse: "Warehouse",
-  movableQuantity: "Movable quantity",
+  movableQuantity: "Not reserved",
   loadMore: "Load more",
   continuationFailed: "More batches could not be loaded. Loaded data is still available.",
   retry: "Retry",
   noLot: "No lot supplied",
   unavailableBreakdown: "Why is this quantity unavailable for sale?",
   unavailableTotal: "Total unavailable for sale",
-  unavailableCauses: "Reasons this batch is unavailable",
+  unavailableCauses: "Reason this batch cannot be sold",
   unavailableNoAffectedBatches: "None of the currently loaded batches explains the displayed amount. Refresh to re-check the independent reads.",
   productSaleGate: "Current product-level sale gate",
   productGateLoading: "Checking the current product sale gate...",
   productGateUnavailable: "The product sale gate could not be verified; no state is assumed.",
   productGateClear: "There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.",
-  otherSaleRestriction: "Other product or batch sale restriction",
-  restrictedQuantity: "Total sale restrictions",
+  otherSaleRestriction: "Product or batch sales restriction",
+  restrictedQuantity: "Unsellable due to expiry or sales restriction",
+  restrictedQuantityHelp: "Quantity barred from sale by expiry or a product/batch restriction, excluding separately shown withdrawn, quarantined, blocked, damaged and disposal-pending stock. It is part of unavailable stock, not extra.",
   expiryUnavailable: "Expiry restriction",
   dispositionReason: "Batch restriction reason",
-  unavailableBreakdownNote: "This view explains the number only; it does not change any state. Unavailable stock may come from expiry, quarantine, blocking, recall, damage, or a product/batch sale restriction. Expiry is part of the restricted total, not an additional quantity.",
+  unavailableBreakdownNote: "These batches have quantities unavailable for sale. Open the affected batch to manage it; nothing changes from this view.",
   lifecycleLabels: {
     DRAFT: "Product is draft and unpublished for sale",
     ACTIVE: "Active",
@@ -160,7 +181,7 @@ const en: LiveStockCp7Copy = {
   holdLabels: {
     NONE: "None",
     SALES_HOLD: "Sales hold",
-    RECALL: "Product recall",
+    RECALL: "Withdrawn from sale",
   },
   production: "Production",
   expiry: "Expiry",
@@ -169,13 +190,13 @@ const en: LiveStockCp7Copy = {
     RELEASED: "Released",
     QUARANTINED: "Quarantined",
     BLOCKED: "Blocked",
-    RECALLED: "Recalled",
+    RECALLED: "Withdrawn from sale",
   },
   stockStatusLabels: {
-    AVAILABLE: "Available",
+    AVAILABLE: "Regular stock (not necessarily sellable)",
     QUARANTINED: "Quarantined",
     BLOCKED: "Blocked",
-    RECALLED: "Recalled",
+    RECALLED: "Withdrawn from sale",
     DAMAGED: "Damaged",
     DISPOSAL_PENDING: "Disposal pending",
   },

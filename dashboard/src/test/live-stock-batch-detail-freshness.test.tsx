@@ -250,7 +250,8 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
       onLoadSource, onRetrySource,
     };
     const { rerender } = render(<BatchDetailPanel {...props} sourceOpenId={71} />);
-    const toggle = screen.getByRole("button", { name: "Actionable Warehouse source and reservations" });
+    fireEvent.click(screen.getByText("Additional stock and reservation details"));
+    const toggle = screen.getByRole("button", { name: "Stock and reservation details" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const target = toggle.getAttribute("aria-controls");
     expect(target).toBeTruthy();
@@ -271,7 +272,7 @@ describe("L-02 detail freshness and NEW-03 disclosure", () => {
     expect(screen.getByRole("dialog")).toHaveAttribute("dir", "rtl");
     fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
     expect(onRetrySource).toHaveBeenCalledWith(71);
-    expect(screen.getByRole("button", { name: "دليل مصدر المستودع القابل للإجراء والحجوزات" }))
+    expect(screen.getByRole("button", { name: "تفاصيل الكمية والحجوزات" }))
       .toHaveAttribute("aria-expanded", "true");
   });
 

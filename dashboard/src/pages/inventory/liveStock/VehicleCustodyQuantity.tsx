@@ -22,7 +22,7 @@ export function VehicleCustodyQuantity({ product }: Props) {
     product.display_factor_to_base,
   );
   return <span className="block" data-vehicle-scope={product.vehicle_quantity_scope}>
-    <span dir="ltr" title={value.secondary ?? undefined}>{value.primary}</span>
+    <bdi dir={i18n.dir()} title={value.secondary ?? undefined}>{value.primary}</bdi>
     <small dir={i18n.dir()} className="mt-0.5 block text-[10px] font-medium text-slate-500">{scope}</small>
   </span>;
 }

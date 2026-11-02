@@ -215,7 +215,7 @@ export function LiveStockTable({
                   <td
                     key={quantityIndex}
                     className={`px-3 py-2 text-center text-xs font-black tabular-nums ${tone}`}
-                    dir="ltr"
+                    dir={i18n.dir()}
                     title={rendered.secondary ?? undefined}
                     data-cp13-quantity={metric}
                   >
@@ -227,9 +227,9 @@ export function LiveStockTable({
                         title={copy.unavailableBreakdown}
                         className="rounded-md px-1 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                       >
-                        {rendered.primary}
+                        <bdi dir={i18n.dir()}>{rendered.primary}</bdi>
                       </button>
-                    ) : rendered.primary}
+                    ) : <bdi dir={i18n.dir()}>{rendered.primary}</bdi>}
                   </td>
                 );
               })}

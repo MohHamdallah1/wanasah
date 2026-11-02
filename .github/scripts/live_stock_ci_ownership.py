@@ -636,7 +636,39 @@ IT03_REMAINING_ALLOWED = {
 }
 
 
+# Owner-approved, read-only V1 Live Stock detail visual closure. Exact files;
+# security/stock/cost/dispatch backend edits are forbidden, including in tests.
+OWNER_VISUAL_REQUIRED = {
+    "ARCHITECTURE.md",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+    "dashboard/src/pages/inventory/liveStock/BatchDetailPanel.tsx",
+    "dashboard/src/test/inventory-cp7-live-stock.test.tsx",
+}
+OWNER_VISUAL_ALLOWED = OWNER_VISUAL_REQUIRED | {
+    HELPER,
+    ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    "dashboard/e2e/live-stock-operational.journey.ts",
+    "dashboard/e2e/live-stock-operational.spec.ts",
+    "dashboard/e2e/live-stock-ux-closure.spec.ts",
+    "dashboard/src/i18n/resources.ts",
+    "dashboard/src/pages/inventory/liveStock/LiveStockMobileCards.tsx",
+    "dashboard/src/pages/inventory/liveStock/LiveStockTable.tsx",
+    "dashboard/src/pages/inventory/liveStock/VehicleCustodyQuantity.tsx",
+    "dashboard/src/pages/inventory/liveStock/i18n.ts",
+    "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
+}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and OWNER_VISUAL_REQUIRED <= changed:
+        extra = sorted(changed - OWNER_VISUAL_ALLOWED)
+        if extra:
+            return "fail", [f"OWNER_VISUAL_V1_SCOPE=FAIL extra={extra}"]
+        return "owner-visual-v1", []
+
     if mode in {"ux", "operational"} and IT03_REMAINING_REQUIRED <= changed:
         extra = sorted(changed - IT03_REMAINING_ALLOWED)
         if extra:
@@ -720,6 +752,14 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    no_semantics = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for owner_mode in ("ux", "operational"):
+        assert classify(owner_mode, OWNER_VISUAL_REQUIRED, no_semantics)[0] == "owner-visual-v1"
+        assert classify(owner_mode, OWNER_VISUAL_ALLOWED, no_semantics)[0] == "owner-visual-v1"
+        for rejected in ("wa_backend/services.py", "dashboard/src/lib/authStorage.ts",
+                         "wa_backend/api/warehouse/live_stock.py",
+                         "dashboard/src/pages/DispatchBoard.tsx"):
+            _expect_fail(owner_mode, OWNER_VISUAL_ALLOWED | {rejected}, no_semantics)
     none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for mode in ("ux", "operational"):
         assert classify(mode, set(IT03_REMAINING_REQUIRED), none)[0] == "it03-remaining-v1"

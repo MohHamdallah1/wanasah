@@ -267,7 +267,9 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       };
       await op.route(API + "/warehouse/inventory/**", raceHandler);
 
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      // Extended source evidence is opt-in; explicitly expand the batch first.
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
+      await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       await ready.get("source");
       await op.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
@@ -353,10 +355,13 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       dialog = op.locator('[role="dialog"][aria-modal="true"]');
       first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
       await expect(first).toBeVisible();
-      await expect(dialog).toContainText("independent reads, not one atomic snapshot");
-      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
-      await expect(first).toContainText("not a complete physical-inventory total");
+      // The owner intentionally removed duplicated quantity tiles and internal
+      // snapshot explanations; verify the actual Lot and fresh source instead.
+      await expect(dialog).not.toContainText("independent reads, not one atomic snapshot");
+      await expect(first).toContainText("Quantity in this batch: 96 Carton");
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
+      await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
+      await expect(first).toContainText("selected warehouse only");
       const freshSourceApi = await api(op,
         "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch +
           "/source?location_id=" + state.warehouse);
@@ -371,9 +376,9 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
       await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
-      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(2);
+      await expect(first).toContainText("Quantity in this batch: 96 Carton");
       await expect(first.locator('[id^="live-stock-source"] dd').filter({ hasText: /^96 / })).toHaveCount(1);
-      await expect(first).toContainText("not a complete physical-inventory total");
+      await expect(first).toContainText("selected warehouse only");
       await op.unroute(API + "/warehouse/inventory/**", raceHandler);
       await op.keyboard.press("Escape");
       await shot(op, info, "real-movement-race-fresh-authority");
@@ -507,13 +512,14 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await page.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
       const dialog = page.locator('[role="dialog"][aria-modal="true"]');
       const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
+      await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       await expect(first).toContainText(/unattributed/i);
       const token = await page.evaluate(() => localStorage.getItem("admin_token"));
       command("revoke");
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       const denial = page.waitForResponse(r => r.request().method() === "GET" && r.status() === 403 && r.url().includes("/source?"));
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       await denial;
       await expect(dialog).toHaveCount(0);
       await expect(stock(page)).toHaveCount(0);
@@ -780,8 +786,9 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     }
 
     const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+    await first.getByRole("button", { name: "Additional stock and reservation details" }).click();
     const source = first.getByRole("button", {
-      name: "Actionable Warehouse source and reservations",
+      name: "Stock and reservation details", exact: true,
     });
     await expect(source).toHaveAccessibleName(/.+/);
     const removeFault = await validationFault(

@@ -90,15 +90,17 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(dialog).toContainText("OP-SECOND");
   const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
   const second = dialog.locator("article").filter({ hasText: "OP-SECOND" });
-  await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+  await first.getByRole("button", { name: "Additional stock and reservation details" }).click();
+  await second.getByRole("button", { name: "Additional stock and reservation details" }).click();
+  await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
   await expect(first).toContainText(/unattributed/i);
-  await expect(first.locator("dd").filter({ hasText: /^2 / })).toHaveCount(2);
-  await second.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
-  await expect(first.getByRole("button", { name: "Actionable Warehouse source and reservations" })).toHaveAttribute("aria-expanded", "false");
+  await expect(first.getByText("Not reserved")).toBeVisible();
+  await second.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
+  await expect(first.getByRole("button", { name: "Stock and reservation details", exact: true })).toHaveAttribute("aria-expanded", "false");
   await expect(second).toContainText("Blocked");
   const badSource = await validationFault(p, "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?");
   const failed = p.waitForResponse(r => r.request().method() === "GET" && r.status() === 422 && r.url().includes("/batches/" + state.firstBatch + "/source?"));
-  await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+  await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
   expect((await failed).headers()["x-request-id"]).toBeTruthy();
   await expect(first.getByRole("alert")).toBeVisible();
   await badSource();
@@ -112,15 +114,19 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(dialog).toBeVisible();
   await batchUpdate;
   await expect(dialog).toContainText("OP-FIRST");
-  await expect(first.getByRole("button", { name: "Actionable Warehouse source and reservations" })).toHaveAttribute("aria-expanded", "false");
+  // Refresh invalidates the expanded disclosure and never presents old
+  // source evidence as verified. Reopen it before requesting fresh evidence.
+  await expect(first.getByRole("button", { name: "Additional stock and reservation details", exact: true }))
+    .toHaveAttribute("aria-expanded", "false");
   await expect(first.locator('[id^="live-stock-source"]')).toHaveCount(0);
-  await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+  await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
+  await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
   const evidence = await api(p, "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?location_id=" + state.warehouse);
   const available = evidence.body.statuses.find((x: { stock_status: string }) => x.stock_status === "AVAILABLE");
   expect(canon(available.reserved_quantity)).toBe("24");
   expect(canon(available.movable_quantity)).toBe("776");
   expect(available.reservation_evidence.unattributed_quantity).toBe("24");
-  await expect(first.locator("dd").filter({ hasText: /^3 / })).toHaveCount(2);
+  await expect(first.getByText("Not reserved")).toBeVisible();
   await expect(first).toContainText("97");
   await shot(p, info, "open-dialog-fresh-reservation-and-source");
   await p.keyboard.press("Escape");
