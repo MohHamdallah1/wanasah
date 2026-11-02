@@ -16,6 +16,7 @@ import type {
   WarehouseProduct,
 } from "./contracts";
 import { getLiveStockCp7Copy } from "./i18n";
+import { CommercialQuantityDisplay } from "./CommercialQuantityDisplay";
 import type {
   LiveStockProductSaleGate,
   LiveStockWarehouseSource,
@@ -297,7 +298,7 @@ export function BatchDetailPanel({
                           {label}
                         </dt>
                         <dd className="shrink-0 text-xs font-black tabular-nums text-rose-900" dir={i18n.dir()}>
-                          {quantityText(value)}
+                          <CommercialQuantityDisplay text={quantityText(value)} direction={i18n.dir()} />
                         </dd>
                       </div>
                     ))}
@@ -307,7 +308,7 @@ export function BatchDetailPanel({
 
               {mode === "details" ? (
                 <p className="mt-2 text-xs font-semibold text-slate-700">
-                  {copy.batchQuantity}: <bdi dir={i18n.dir()} className="font-black tabular-nums">{quantityText(batch.on_hand_quantity)}</bdi>
+                  {copy.batchQuantity}: <bdi dir={i18n.dir()} className="font-black tabular-nums"><CommercialQuantityDisplay text={quantityText(batch.on_hand_quantity)} direction={i18n.dir()} /></bdi>
                 </p>
               ) : null}
               {mode === "unavailable" && onGoToBatch ? (
@@ -336,7 +337,7 @@ export function BatchDetailPanel({
                       <TooltipProvider delayDuration={180}><Tooltip><TooltipTrigger asChild>
                         <button type="button" aria-label={copy.restrictedQuantity} className="rounded-full p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"><Info className="h-3.5 w-3.5" aria-hidden="true" /></button>
                       </TooltipTrigger><TooltipContent side="top" dir={i18n.dir()} className="max-w-xs text-xs">{copy.restrictedQuantityHelp}</TooltipContent></Tooltip></TooltipProvider>
-                      <bdi dir={i18n.dir()} className="font-bold tabular-nums">{quantityText(batch.restricted_quantity)}</bdi>
+                      <bdi dir={i18n.dir()} className="font-bold tabular-nums"><CommercialQuantityDisplay text={quantityText(batch.restricted_quantity)} direction={i18n.dir()} /></bdi>
                     </div>
                   )}
                 <button
@@ -388,7 +389,7 @@ export function BatchDetailPanel({
                             <div key={String(label)} className="rounded-md bg-slate-50 px-2 py-1.5">
                               <dt className="font-semibold text-slate-500">{label}</dt>
                               <dd className="mt-0.5 font-black tabular-nums text-slate-900" dir={i18n.dir()}>
-                                {quantityText(value as Quantity)}
+                                <CommercialQuantityDisplay text={quantityText(value as Quantity)} direction={i18n.dir()} />
                               </dd>
                             </div>
                           ))}
@@ -402,7 +403,7 @@ export function BatchDetailPanel({
                           ) : null}
                           {status.reservation_evidence.unattributed_quantity !== "0" ? (
                             <span className="ms-2 tabular-nums" dir={i18n.dir()}>
-                              {copy.unattributedReservation}: {quantityText(status.reservation_evidence.unattributed_quantity)}
+                              {copy.unattributedReservation}: <CommercialQuantityDisplay text={quantityText(status.reservation_evidence.unattributed_quantity)} direction={i18n.dir()} />
                             </span>
                           ) : null}
                         </div>
@@ -426,7 +427,7 @@ export function BatchDetailPanel({
                                     dir={i18n.dir()}
                                     title={amount.secondary ?? undefined}
                                   >
-                                    {amount.primary}
+                                    <CommercialQuantityDisplay text={amount.primary} direction={i18n.dir()} />
                                   </span>
                                 </li>
                               );

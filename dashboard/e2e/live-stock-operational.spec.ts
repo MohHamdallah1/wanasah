@@ -772,7 +772,10 @@ test("G06 owner-ready real-server UX/accessibility package", async ({ browser },
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAccessibleName(new RegExp(state.mainName));
     await expect(dialog).toHaveAttribute("aria-modal", "true");
-    expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+    // useDialogFocusTrap intentionally schedules initial focus on the next animation
+    // frame. Wait for that real focus transfer without weakening the trap assertion.
+    await expect.poll(async () => dialog.evaluate((node) => node.contains(document.activeElement)))
+      .toBe(true);
     await captureAxTree(page, "AX-02-batch-dialog.json");
     await captureOwner(page, "05-desktop-en-batch-dialog.png");
 

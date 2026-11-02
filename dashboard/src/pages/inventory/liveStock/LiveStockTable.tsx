@@ -1,4 +1,5 @@
 import { VehicleCustodyQuantity } from "./VehicleCustodyQuantity";
+import { CommercialQuantityDisplay } from "./CommercialQuantityDisplay";
 import { AlertTriangle, Info } from "lucide-react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { useCallback } from "react";
@@ -201,7 +202,7 @@ export function LiveStockTable({
                   </span>
                   <span className="live-stock-minimum-row mt-0.5 block text-[10px] font-semibold text-slate-500">
                     {t("inventoryLive.minimumStockLabel")}: {hasMinimum
-                      ? quantity(product.minimum_quantity).primary
+                      ? <CommercialQuantityDisplay text={quantity(product.minimum_quantity).primary} direction={i18n.dir()} />
                       : t("inventoryLive.minimumStockUnset")}
                   </span>
                 </button>
@@ -227,9 +228,9 @@ export function LiveStockTable({
                         title={copy.unavailableBreakdown}
                         className="rounded-md px-1 underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                       >
-                        <bdi dir={i18n.dir()}>{rendered.primary}</bdi>
+                        <CommercialQuantityDisplay text={rendered.primary} direction={i18n.dir()} />
                       </button>
-                    ) : <bdi dir={i18n.dir()}>{rendered.primary}</bdi>}
+                    ) : <CommercialQuantityDisplay text={rendered.primary} direction={i18n.dir()} />}
                   </td>
                 );
               })}

@@ -9,6 +9,7 @@ import { BatchDetailPanel } from "@/pages/inventory/liveStock/BatchDetailPanel";
 import { getLiveStockCp7Copy } from "@/pages/inventory/liveStock/i18n";
 import { LiveStockMobileCards } from "@/pages/inventory/liveStock/LiveStockMobileCards";
 import { LiveStockTable } from "@/pages/inventory/liveStock/LiveStockTable";
+import { CommercialQuantityDisplay } from "@/pages/inventory/liveStock/CommercialQuantityDisplay";
 import { resolveAppLocale } from "@/lib/locale";
 import { formatMoneyDisplay, formatMoneyExact } from "@/lib/money";
 import {
@@ -167,6 +168,20 @@ const source = (...parts: string[]) =>
   readFileSync(resolve(process.cwd(), ...parts), "utf8");
 
 describe("CP7 Live Stock Dashboard closure", () => {
+  it("separates Arabic number/UOM pairs and preserves English and unknown labels", () => {
+    const { container, rerender } = render(<CommercialQuantityDisplay text="1 شوال + 4 حبة" direction="rtl" />);
+    const qty = container.querySelector("[data-commercial-quantity]");
+    expect(qty).toHaveAttribute("dir", "rtl");
+    expect([...qty!.querySelectorAll("[data-quantity-number]")].map((x) => x.textContent)).toEqual(["1", "4"]);
+    expect([...qty!.querySelectorAll("[data-quantity-unit]")].map((x) => x.textContent)).toEqual(["شوال", "حبة"]);
+    expect(qty?.querySelector("[data-quantity-join]")).toHaveTextContent("+");
+    expect([...qty!.querySelectorAll("[data-quantity-number]")].every((x) => x.getAttribute("dir") === "ltr")).toBe(true);
+    rerender(<CommercialQuantityDisplay text="1 sack + 4 pcs" direction="ltr" />);
+    expect(container.querySelector("[data-commercial-quantity]")).toHaveAttribute("dir", "ltr");
+    rerender(<CommercialQuantityDisplay text="غير محدد" direction="rtl" />);
+    expect(container.querySelector("bdi")).toHaveTextContent("غير محدد");
+  });
+
   it("has exact Arabic anonymous-lot presentation", () => {
     expect(getLiveStockCp7Copy("ar").noLot).toBe("بدون رقم تشغيلة");
   });
