@@ -355,10 +355,13 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       dialog = op.locator('[role="dialog"][aria-modal="true"]');
       first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
       await expect(first).toBeVisible();
-      await expect(dialog).toContainText("independent reads, not one atomic snapshot");
-      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(1);
+      // The owner intentionally removed duplicated quantity tiles and internal
+      // snapshot explanations; verify the actual Lot and fresh source instead.
+      await expect(dialog).not.toContainText("independent reads, not one atomic snapshot");
+      await expect(first).toContainText("Quantity in this batch: 96 Carton");
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
       await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
-      await expect(first).toContainText("not a complete physical-inventory total");
+      await expect(first).toContainText("selected warehouse only");
       const freshSourceApi = await api(op,
         "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch +
           "/source?location_id=" + state.warehouse);
@@ -373,9 +376,9 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
       await expect(item(op, state.mainName).locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
       await expect(item(op, state.mainName).locator('[aria-label="Reached minimum stock"]')).toHaveCount(1);
-      await expect(first.locator("dd").filter({ hasText: /^96 / })).toHaveCount(2);
+      await expect(first).toContainText("Quantity in this batch: 96 Carton");
       await expect(first.locator('[id^="live-stock-source"] dd').filter({ hasText: /^96 / })).toHaveCount(1);
-      await expect(first).toContainText("not a complete physical-inventory total");
+      await expect(first).toContainText("selected warehouse only");
       await op.unroute(API + "/warehouse/inventory/**", raceHandler);
       await op.keyboard.press("Escape");
       await shot(op, info, "real-movement-race-fresh-authority");
