@@ -32,7 +32,7 @@ describe("Stocktake V1 latest authorized session wins", () => {
     const fetch: StocktakeAuthFetch = vi.fn(async (url) =>
       url.includes("/11/context") ? lateA.promise : context(12));
     const setSessionId = vi.fn();
-    const loadCountSheet = vi.fn(async () => {});
+    const loadCountSheet = vi.fn(async (_sid: string, _location?: number, _isCurrent?: () => boolean) => {});
     const args = {
       active: true,
       durableIdentity: { companyId: 3, backofficeUserId: 7 },
