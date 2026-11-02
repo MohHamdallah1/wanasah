@@ -56,6 +56,7 @@ from models import (
     ProductVariant,
     Role,
     StocktakeSession,
+    StocktakeLine,
     TenantOperationalPolicy,
     UOM,
     UserLocationAccess,
@@ -1552,6 +1553,85 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert (
                 await _balance(verify, b.company_id, b.a1, b.variant, b.batch)
             )[0] == Decimal("9.875")
+
+        # Successful real zero-onhand -> discovered -> reviewed -> approved
+        # physical stock, using the same authoritative posting transaction.
+        # Expiry/status is physical evidence, not permission to sell.
+        async with _runtime_session(runtime_engine, a.company_id) as db:
+            existing_batch = await db.get(ProductBatch, a.batch)
+            assert existing_batch is not None
+            existing_batch.expiry_date = date(2025, 1, 1)
+            await db.commit()
+            _, found_started = await _start(db, a.operator, a.a2)
+            found_id = int(found_started["session_id"])
+            before_found = await _balance(db, a.company_id, a.a2, a.variant, a.batch)
+            assert before_found == (Decimal("0"), Decimal("0"))
+            found_options = await stocktake_discovery.stocktake_discovery_options(
+                found_id, product_variant_id=a.variant, batch_ids=None,
+                search=None, cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            found_lot = next(row for row in found_options["items"] if row["id"] == a.batch)
+            assert found_lot["expiry_date"] == date(2025, 1, 1)
+            command = StocktakeCountCommand(
+                request_id=uuid4(),
+                items=[{
+                    "product_variant_id": a.variant,
+                    "batch_id": a.batch,
+                    "stock_status": "QUARANTINED",
+                    "actual_quantity": Decimal("1.000"),
+                    "uom_id": a.uom,
+                }],
+            )
+            found_count = await stocktake.submit_stocktake_count(
+                found_id, command, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert found_count["status"] == "PENDING_REVIEW"
+            assert await _balance(db, a.company_id, a.a2, a.variant, a.batch) == before_found
+            found_review = await stocktake.get_stocktake_review(
+                found_id, db, a.operator.access(db),
+            )
+            assert len(found_review["lines"]) == 1
+            assert found_review["lines"][0]["line_origin"] == "DISCOVERED"
+            assert found_review["lines"][0]["stock_status"] == "QUARANTINED"
+            assert Decimal(found_review["lines"][0]["expected_quantity"]) == 0
+            assert Decimal(found_review["lines"][0]["variance_quantity"]) == Decimal("1.000")
+            approval = StocktakeApprovalCommand(
+                request_id=uuid4(), count_attempt_id=found_count["attempt_id"],
+                password=PASSWORD,
+            )
+            posted = await stocktake.approve_stocktake_session(
+                found_id, approval, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert posted["status"] == "POSTED" and posted["movement_count"] == 1
+            assert await stocktake.approve_stocktake_session(
+                found_id, approval, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            ) == posted
+            status_qty = await db.scalar(select(InventoryBalance.on_hand_quantity).where(
+                InventoryBalance.company_id == a.company_id,
+                InventoryBalance.location_id == a.a2,
+                InventoryBalance.product_variant_id == a.variant,
+                InventoryBalance.batch_id == a.batch,
+                InventoryBalance.stock_status == "QUARANTINED",
+            ))
+            assert Decimal(status_qty) == Decimal("1.000")
+            assert int(await db.scalar(
+                select(func.count()).select_from(InventoryMovement).where(
+                    InventoryMovement.company_id == a.company_id,
+                    InventoryMovement.stocktake_session_id == found_id,
+                )
+            )) == 1
+            assert int(await db.scalar(
+                select(func.count()).select_from(StocktakeLine).where(
+                    StocktakeLine.company_id == a.company_id,
+                    StocktakeLine.stocktake_session_id == found_id,
+                    StocktakeLine.line_origin == "DISCOVERED",
+                )
+            )) == 1
+            print("CP14C_DISCOVERED_EXPIRED_QUARANTINE_POSTING=PASS")
 
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")
         print("CP14C_VARIANCE_RECOUNT=PASS")
