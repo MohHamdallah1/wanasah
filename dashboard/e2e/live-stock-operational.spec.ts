@@ -512,6 +512,7 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       await page.locator('[data-live-stock-product-open="' + state.mainId + '"]').click();
       const dialog = page.locator('[role="dialog"][aria-modal="true"]');
       const first = dialog.locator("article").filter({ hasText: "OP-FIRST" });
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
       await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       await expect(first).toContainText(/unattributed/i);
       const token = await page.evaluate(() => localStorage.getItem("admin_token"));
