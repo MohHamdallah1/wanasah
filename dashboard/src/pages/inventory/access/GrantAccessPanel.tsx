@@ -60,6 +60,8 @@ export function GrantAccessPanel({
 }: GrantAccessPanelProps) {
   const locationLabel = (location: AccessLocation) =>
     `${location.name} — ${location.code} (${location.location_type === 'WAREHOUSE' ? copy.warehouse : copy.vehicle})`;
+  // An id from a previous role page must never remain a valid grant command.
+  const selectedRoleVisible = roles?.items.some(role => String(role.id) === roleId) === true;
 
   return (
     <section className="glass-card inventory-access-panel p-5 rounded-2xl space-y-4">
@@ -77,7 +79,7 @@ export function GrantAccessPanel({
         className="inventory-grant-form"
         onSubmit={event => {
           event.preventDefault();
-          if (!busy && backofficeUserId && roleId && (scope === 'company' || locationId)) {
+          if (!busy && backofficeUserId && selectedRoleVisible && (scope === 'company' || locationId)) {
             void onAddGrant();
           }
         }}
@@ -131,7 +133,7 @@ export function GrantAccessPanel({
 
         <label className="inventory-field">
           <span>{copy.role}</span>
-          <select aria-label={copy.role} value={roleId} onChange={event => setRoleId(event.target.value)}>
+          <select aria-label={copy.role} value={selectedRoleVisible ? roleId : ''} onChange={event => setRoleId(event.target.value)}>
             <option value="">{copy.chooseRole}</option>
             {roles?.items.map(role => <option key={role.id} value={role.id}>{role.name}</option>)}
           </select>
@@ -167,7 +169,7 @@ export function GrantAccessPanel({
 
         <button
           type="submit"
-          disabled={busy || !backofficeUserId || !roleId || (scope === 'location' && !locationId)}
+          disabled={busy || !backofficeUserId || !selectedRoleVisible || (scope === 'location' && !locationId)}
           className="inventory-primary-action"
         >
           {copy.addGrant}
