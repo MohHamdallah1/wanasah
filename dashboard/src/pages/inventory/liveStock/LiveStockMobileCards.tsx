@@ -151,7 +151,7 @@ export function LiveStockMobileCards({
                     <dt className="truncate font-bold text-slate-500">{t(`inventoryLive.${label}`)}</dt>
                     <dd
                       className={`mt-0.5 truncate font-black tabular-nums ${tone}`}
-                      dir="ltr"
+                      dir={i18n.dir()}
                       title={rendered.secondary ?? undefined}
                     >
                       {metric === "unavailable" && compareQuantity(value, "0") > 0 ? (
@@ -159,7 +159,7 @@ export function LiveStockMobileCards({
                           aria-label={`${copy.unavailableBreakdown} — ${product.name}`}
                           title={copy.unavailableBreakdown}
                           className="rounded-md underline decoration-dotted underline-offset-4 outline-none focus-visible:ring-2 focus-visible:ring-amber-400">
-                          {rendered.primary}
+                          <bdi dir={i18n.dir()}>{rendered.primary}</bdi>
                         </button>
                       ) : rendered.primary}
                     </dd>
