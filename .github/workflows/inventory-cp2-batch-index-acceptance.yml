@@ -224,7 +224,10 @@ jobs:
               "dashboard/src/pages/inventory/batches/batchIndexI18n.ts",
               "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
           }
-          product_gate_read_allowed = product_gate_read_required | {cp2_workflow}
+          product_gate_read_allowed = product_gate_read_required | {
+              cp2_workflow,
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+          }
 
           cp2_schema_roots = {
               "BatchIndexTrackingMode",
@@ -444,6 +447,7 @@ jobs:
               "wa_backend/services.py",
               "dashboard/src/pages/inventory/TabBatches.tsx",
               "flutter_app/lib/main.dart",
+              "dashboard/src/features/dispatch/adjustLoad.ts",
           ):
               try:
                   classify(
