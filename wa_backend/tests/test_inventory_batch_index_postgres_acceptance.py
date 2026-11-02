@@ -470,7 +470,9 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                     await db.execute(
                         text(
                             "UPDATE product_variants "
-                            "SET lifecycle_status=:lifecycle, operational_hold=:hold "
+                            "SET lifecycle_status=:lifecycle, operational_hold=:hold, "
+                            "retired_at=CASE WHEN :lifecycle='RETIRING' "
+                            "THEN CURRENT_TIMESTAMP ELSE NULL END "
                             "WHERE company_id=9101 AND id=9111"
                         ),
                         {"lifecycle": lifecycle, "hold": hold},
@@ -587,8 +589,8 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                 await db.execute(
                     text(
                         "UPDATE product_variants "
-                        "SET lifecycle_status='ACTIVE', operational_hold='NONE' "
-                        "WHERE company_id=9101 AND id=9111"
+                        "SET lifecycle_status='ACTIVE', operational_hold='NONE', "
+                        "retired_at=NULL WHERE company_id=9101 AND id=9111"
                     )
                 )
                 statements.clear()
