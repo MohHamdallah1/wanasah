@@ -144,9 +144,9 @@ describe("CP13 final Batches presentation", () => {
     const paths = mocks.authFetch.mock.calls.map(([path]) => String(path));
     const request = paths.find((path) => path.includes("/batches/cursor?"))!;
     expect(new URLSearchParams(request.split("?")[1]).has("product_variant_id")).toBe(false);
-    const surface = screen.getAllByRole("region", { name: "Batches" }).find((el) => el.contains(screen.getByRole("searchbox")))!;
+    const surface = screen.getAllByRole("region", { name: "Batches" }).find((el) => el.contains(screen.getByRole("searchbox", { name: /Search product, SKU|ابحث بالمنتج/ })))!;
     expect(surface.querySelector("table")).toBeTruthy();
-    expect(container.querySelectorAll("input[type=search]")).toHaveLength(1);
+    expect(container.querySelectorAll("input[type=search]")).toHaveLength(3);
     expect(within(surface).getByRole("columnheader", { name: "Lot number" })).toBeTruthy();
   });
 
@@ -242,7 +242,7 @@ describe("CP13 final Batches presentation", () => {
     serve();
     renderPage();
     await screen.findAllByText("Product 1");
-    const search = screen.getByRole("searchbox");
+    const search = screen.getByRole("searchbox", { name: /Search product, SKU|ابحث بالمنتج/ });
     search.focus();
     expect(search).toHaveFocus();
     const select = screen.getByRole("combobox", { name: "Expiry" });
