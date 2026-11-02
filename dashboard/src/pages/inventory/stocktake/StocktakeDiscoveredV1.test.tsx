@@ -8,12 +8,16 @@ import type { StocktakeRow } from "../inventoryUtils";
 import type { StocktakeAuthFetch } from "./types";
 
 const language = vi.hoisted(() => ({ value: "ar" }));
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({
-    i18n: { language: language.value, resolvedLanguage: language.value },
-    t: (key: string) => key,
-  }),
-}));
+vi.mock("react-i18next", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-i18next")>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      i18n: { language: language.value, resolvedLanguage: language.value },
+      t: (key: string) => key,
+    }),
+  };
+});
 vi.mock("@/components/ui/modal", () => ({
   Modal: ({ isOpen, title, children, footer }: {
     isOpen: boolean; title: string; children: React.ReactNode; footer: React.ReactNode;
