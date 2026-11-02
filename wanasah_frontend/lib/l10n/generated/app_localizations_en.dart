@@ -401,7 +401,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workSessionBusinessRejected => 'The server rejected the action because of the current work state.';
 
   @override
-  String get workSessionRateLimited => 'Too many requests. Try again shortly.';
+  String get workSessionRateLimited => 'Request limit reached; the work-session result is unconfirmed. Refresh session status before retrying.';
 
   @override
   String get workSessionNetworkUnresolved => 'The result could not be confirmed because of connectivity. Server state remains authoritative.';
@@ -440,7 +440,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get workSessionIssueBreakState => 'The server break state does not allow this action. Refresh the session state and try again.';
 
   @override
-  String get workSessionIssueRateLimited => 'The work-session action was rate limited. Try again shortly.';
+  String get workSessionIssueRateLimited => 'The action was rate limited and may have completed. Check session state before retrying.';
 
   @override
   String get workSessionIssueConnectivity => 'The server could not be reached. Check the connection and refresh session state before retrying.';

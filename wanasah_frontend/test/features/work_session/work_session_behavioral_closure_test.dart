@@ -173,6 +173,84 @@ void main() {
       },
     );
 
+    for (final status in <int>[408, 429]) {
+      test('HTTP $status after start uses authoritative read, not a second POST', () async {
+        final remote = _FakeRemote()
+          ..startError = _serverError(
+            status: status,
+            code: 'HTTP_$status',
+            message: 'Synthetic ambiguous result',
+            requestId: 'start-$status',
+          )
+          ..activeSnapshot = const WorkSessionSnapshot(
+            isActive: true,
+            sessionId: 906,
+            startTime: '2026-11-02T08:00:00+00:00',
+            isOnBreak: null,
+          );
+
+        final result = await _coordinator(remote).startSession();
+        expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
+        expect(result.failure!.kind, status == 408
+            ? WorkSessionFailureKind.timeout : WorkSessionFailureKind.rateLimited);
+        expect(result.failure!.isAmbiguousMutation, isTrue);
+        expect(result.failure!.status, status);
+        expect(result.failure!.code, 'HTTP_$status');
+        expect(result.failure!.requestId, 'start-$status');
+        expect(remote.startCalls, 1);
+        expect(remote.readActiveCalls, 1);
+      });
+
+      test('HTTP $status after end needs server-confirmed inactive state', () async {
+        final remote = _FakeRemote()
+          ..endError = _serverError(
+            status: status,
+            code: 'HTTP_$status',
+            message: 'Synthetic ambiguous result',
+            requestId: 'end-$status',
+          )
+          ..activeSnapshot = const WorkSessionSnapshot.inactive();
+
+        final result = await _coordinator(remote).endSession();
+        expect(result.disposition, WorkSessionDisposition.reconciledSuccess);
+        expect(result.reconciledSession!.isActive, isFalse);
+        expect(remote.endCalls, 1);
+        expect(remote.readActiveCalls, 1);
+      });
+
+      for (final confirmed in <bool>[true, false]) {
+        test('HTTP $status break confirms only matching server state ($confirmed)', () async {
+          final remote = _FakeRemote()
+            ..breakError = _serverError(
+              status: status,
+              code: 'HTTP_$status',
+              message: 'Synthetic ambiguous result',
+              requestId: 'break-$status',
+            )
+            ..runtimeSnapshot = WorkSessionSnapshot(
+              isActive: true,
+              sessionId: 906,
+              startTime: '2026-11-02T08:00:00+00:00',
+              isOnBreak: confirmed,
+            );
+
+          final result = await _coordinator(remote).toggleBreak(start: true);
+          expect(result.disposition, confirmed
+              ? WorkSessionDisposition.reconciledSuccess
+              : WorkSessionDisposition.unresolved);
+          expect(remote.breakCalls, 1);
+          expect(remote.readRuntimeCalls, 1);
+          if (!confirmed && status == 429) {
+            for (final locale in <String>['ar-JO', 'en-US']) {
+              final message = workSessionResultMessage(result, localeCode: locale);
+              expect(message, isNot(contains('Synthetic ambiguous result')));
+              expect(message, contains('break-$status'));
+            }
+          }
+        });
+      }
+    }
+
     test(
       'confirmed 401 and 403 are auth rejection and are never reconciled',
       () async {

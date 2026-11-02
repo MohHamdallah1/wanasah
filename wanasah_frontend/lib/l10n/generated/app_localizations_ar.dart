@@ -401,7 +401,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get workSessionBusinessRejected => 'رفض السيرفر العملية بسبب حالة العمل الحالية.';
 
   @override
-  String get workSessionRateLimited => 'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.';
+  String get workSessionRateLimited => 'عدد الطلبات مرتفع ونتيجة إجراء الجلسة غير مؤكدة. حدّث حالة الجلسة قبل إعادة المحاولة.';
 
   @override
   String get workSessionNetworkUnresolved => 'تعذر تأكيد نتيجة العملية بسبب الاتصال. تم الحفاظ على حالة السيرفر كمرجع وحيد.';
@@ -440,7 +440,7 @@ class AppLocalizationsAr extends AppLocalizations {
   String get workSessionIssueBreakState => 'حالة الاستراحة على السيرفر لا تسمح بهذا الإجراء. حدّث حالة الجلسة ثم أعد المحاولة.';
 
   @override
-  String get workSessionIssueRateLimited => 'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.';
+  String get workSessionIssueRateLimited => 'تجاوز الإجراء حد الطلبات وقد يكون نُفذ. تحقّق من حالة الجلسة قبل إعادة المحاولة.';
 
   @override
   String get workSessionIssueConnectivity => 'تعذر الاتصال بالسيرفر. تحقق من الشبكة وحدّث حالة الجلسة قبل إعادة المحاولة.';

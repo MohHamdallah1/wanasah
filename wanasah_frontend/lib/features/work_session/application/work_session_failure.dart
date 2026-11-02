@@ -35,6 +35,7 @@ class WorkSessionFailure {
   bool get isAmbiguousMutation =>
       kind == WorkSessionFailureKind.connectivity ||
       kind == WorkSessionFailureKind.timeout ||
+      kind == WorkSessionFailureKind.rateLimited ||
       kind == WorkSessionFailureKind.network ||
       kind == WorkSessionFailureKind.server ||
       kind == WorkSessionFailureKind.unknown;
@@ -49,6 +50,10 @@ class WorkSessionFailure {
 
     if (status == 401 || status == 403) {
       kind = WorkSessionFailureKind.authRejected;
+    } else if (status == 408) {
+      // A mutating request may have committed before its response timed out.
+      // Re-read canonical session state; never treat 408 as a business refusal.
+      kind = WorkSessionFailureKind.timeout;
     } else if (status == 429) {
       kind = WorkSessionFailureKind.rateLimited;
     } else if (failure.kind == ApiFailureKind.serverResponse &&
