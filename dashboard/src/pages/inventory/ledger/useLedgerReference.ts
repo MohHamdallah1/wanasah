@@ -42,7 +42,8 @@ export function useLedgerReference(locationId: number, active = true): LedgerRef
     setItems([]);
     setLoading(false);
     setError(false);
-    setDenied(accessLost);
+    // Do not resurrect rows on hidden-tab reentry after a revoked reference read.
+    setDenied(previous => accessLost || previous);
   }, []);
 
   const isCurrent = useCallback((scope: { locationId: number; session: DashboardSession }) =>
