@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, Info, RefreshCcw } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
@@ -87,6 +87,11 @@ export function BatchDetailPanel({
 }: Props) {
   const { t, i18n } = useTranslation();
   const [advancedOpenIds, setAdvancedOpenIds] = useState<Set<number>>(() => new Set());
+  // Closing/reopening the same product must not carry hidden disclosure open
+  // state into a fresh bounded batch read.
+  useEffect(() => {
+    setAdvancedOpenIds(new Set());
+  }, [product?.id]);
   const locale = resolveI18nLocale(i18n);
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
 
@@ -134,7 +139,10 @@ export function BatchDetailPanel({
   return (
     <Modal
       isOpen
-      onClose={onClose}
+      onClose={() => {
+        setAdvancedOpenIds(new Set());
+        onClose();
+      }}
       title={`${copy.batchDetails} — ${product.name}`}
       subtitle={product.sku ? `${product.sku} · ${product.family_name}` : product.family_name}
       maxWidth="max-w-5xl"
@@ -158,7 +166,10 @@ export function BatchDetailPanel({
         </div>
         {onRefresh ? (
           <div className="flex justify-end">
-            <button type="button" onClick={onRefresh} disabled={refreshing}
+            <button type="button" onClick={() => {
+              setAdvancedOpenIds(new Set());
+              onRefresh();
+            }} disabled={refreshing}
               aria-label={t("inventoryShell.refreshNow")}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-amber-400 disabled:opacity-60">
               <RefreshCcw className="h-4 w-4" aria-hidden="true" />
