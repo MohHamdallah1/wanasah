@@ -1031,25 +1031,21 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     access=a.operator.access(db), actor=a.operator.operational_driver,
                 )
             assert malformed.value.status_code == 400
-            duplicate = StocktakeCountCommand(
-                request_id=uuid4(),
-                items=[{
-                    "product_variant_id": a.variant,
-                    "batch_id": a.batch,
-                    "stock_status": "AVAILABLE",
-                    "actual_quantity": Decimal("1.000"),
-                    "uom_id": a.uom,
-                }] * 2,
-            )
-            with pytest.raises(HTTPException) as duplicated:
-                await stocktake.submit_stocktake_count(
-                    rollback_session, duplicate, db=db,
-                    access=a.operator.access(db),
-                    legacy_actor=a.operator.operational_driver,
+            # Duplicate rows are rejected by the existing public command
+            # validator before reaching any stocktake write transaction.
+            with pytest.raises(ValueError) as duplicated:
+                StocktakeCountCommand(
+                    request_id=uuid4(),
+                    items=[{
+                        "product_variant_id": a.variant,
+                        "batch_id": a.batch,
+                        "stock_status": "AVAILABLE",
+                        "actual_quantity": Decimal("1.000"),
+                        "uom_id": a.uom,
+                    }] * 2,
                 )
-            assert duplicated.value.status_code == 422
+            assert "تكرار" in str(duplicated.value)
             assert (await db.get(StocktakeSession, rollback_session)).status == "COUNTING"
-            await db.rollback()
 
             rollback_attempt = await _count_discovered(
                 db,
