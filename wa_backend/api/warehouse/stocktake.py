@@ -2008,6 +2008,13 @@ async def submit_stocktake_count(
                     allow_zero=True,
                 )
             )
+        # A duplicate submitted identity must never silently overwrite a count
+        # (including a DISCOVERED line with a different claimed quantity).
+        if len(submitted_map) != len(payload.items):
+            raise HTTPException(
+                status_code=422,
+                detail="محاولة العد تحتوي صنفاً/تشغيلة/حالة مخزون مكررة.",
+            )
         missing_keys = set(line_map) - set(submitted_map)
         if missing_keys:
             raise HTTPException(
