@@ -86,6 +86,17 @@ describe('CP11 Inventory Access role-page grant safety', () => {
         expect(submit).toBeEnabled();
         fireEvent.submit(submit.closest('form')!);
         expect(onAddGrant).toHaveBeenCalledTimes(1);
+
+        if (scope === 'location') {
+          // The location picker is paginated independently of current grants.
+          // Missing lookup information must never pretend a local grant is company-wide.
+          rerender(<GrantAccessPanel {...base}
+            roles={{ items: [nextRole], next_id: null }} roleId="12"
+            grants={{ items: [{ id: 77, role_id: 11, location_id: 99 }], next_id: null }} />);
+          expect(screen.getByText(copy.locationNotShown)).toBeInTheDocument();
+          expect(screen.getByText(copy.roleNotShown)).toBeInTheDocument();
+          expect(screen.queryByText(copy.wholeCompany)).not.toBeInTheDocument();
+        }
         unmount();
       });
     }
