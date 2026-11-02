@@ -270,6 +270,10 @@ async def test_company_location_scope_search_reference_cursor_and_non_owner_gran
         )
         assert len(first["items"]) == 1
         assert first["has_more"] is True and first["next_cursor"]
+        # The counterpart physical kind must come from InventoryLocation,
+        # never a route/source-name heuristic.
+        assert first["items"][0]["destination_location_type"] == "WAREHOUSE"
+        assert first["items"][0]["source_location_type"] is None
         assert first["total"] == 2
         visible_ids = {item["id"] for item in first["items"]}
         assert pg.a.a2_inbound not in visible_ids

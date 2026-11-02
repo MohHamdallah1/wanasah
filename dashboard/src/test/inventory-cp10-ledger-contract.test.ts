@@ -5,7 +5,7 @@ import {
   parseLedgerPage,
 } from "@/pages/inventory/ledger/contracts";
 import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
-import { ledgerBalance, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
+import { ledgerBalance, ledgerLocationEvidence, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
 
 const rawEntry = (batchNumber: string | null = null) => ({
   id: 1,
@@ -89,6 +89,12 @@ describe("CP10 Ledger business contracts", () => {
     expect(ledgerStatusLabel(t as never, "ar", "DAMAGED")).toBe("تالف");
     expect(ledgerStatusLabel(t as never, "ar", "RECALLED")).toBe("مسحوب من البيع");
     expect(ledgerQuantityMeaning(t as never, "en", base)).toContain("Physical");
+    const vehicle = { ...base, source_location_type: "VEHICLE",
+      source_location_name: "V-7", destination_location_type: "IN_TRANSIT",
+      destination_location_name: "Transit custody" };
+    const evidence = ledgerLocationEvidence(t as never, "ar", vehicle);
+    expect(evidence.source).toContain("مركبة");
+    expect(evidence.destination).toContain("عهدة عبور");
   });
 
   it("identifies practical V1 cross-link movement evidence in both languages", () => {
