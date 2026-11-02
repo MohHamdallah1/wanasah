@@ -50,6 +50,7 @@ interface Props {
   onRetryPage: () => void;
   onRetrySummary?: () => void;
   onReadDenied?: () => void;
+  onOpenBatch?: (product: WarehouseProduct, batchId: number) => void;
   onSearchChange: (search: string) => void;
   onStockStateChange: (value: LiveStockStockState) => void;
   onIndicatorsChange: (value: LiveStockIndicator[]) => void;
@@ -83,6 +84,7 @@ export function Tab1LiveStock({
   onRetryPage,
   onRetrySummary = onRetryPage,
   onReadDenied,
+  onOpenBatch,
   onSearchChange,
   onStockStateChange,
   onIndicatorsChange,
@@ -276,6 +278,14 @@ export function Tab1LiveStock({
     },
     [detail.openUnavailable],
   );
+
+  const openBatchForAction = useCallback((batchId: number) => {
+    const product = detail.product;
+    if (!product || !onOpenBatch) return;
+    detail.close();
+    setDetailMode("details");
+    onOpenBatch(product, batchId);
+  }, [detail.product, detail.close, onOpenBatch]);
 
   const closeDetailWithFocusReturn = useCallback(() => {
     const selectedId = detail.product?.id;
@@ -650,6 +660,8 @@ export function Tab1LiveStock({
         product={detail.product}
         batches={detail.page?.batches ?? []}
         mode={detailMode}
+        onModeChange={setDetailMode}
+        onGoToBatch={onOpenBatch ? openBatchForAction : undefined}
         saleGate={detail.saleGate}
         saleGateLoading={detail.saleGateLoading}
         saleGateError={detail.saleGateError}
