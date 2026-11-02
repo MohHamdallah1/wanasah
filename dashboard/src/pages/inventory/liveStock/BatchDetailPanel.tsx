@@ -146,7 +146,7 @@ export function BatchDetailPanel({
           {(["details", "unavailable"] as const).map((tab) => (
             <button key={tab} type="button" role="tab"
               aria-selected={mode === tab}
-              disabled={tab === "unavailable" && compareQuantity(product.unavailable_quantity, "0") === 0}
+              disabled={tab === "unavailable" && (typeof product.unavailable_quantity !== "string" || compareQuantity(product.unavailable_quantity, "0") === 0)}
               onClick={() => onModeChange?.(tab)}
               className={mode === tab ? "rounded-lg border border-amber-400 bg-amber-50 px-3 py-2 text-xs font-bold" : "rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold"}
             >
