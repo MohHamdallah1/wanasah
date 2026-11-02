@@ -286,7 +286,7 @@ test("multi-batch source evidence alternates, retries, revalidates and invalidat
   );
   await articles.nth(1).getByRole("button", { name: "Retry" }).click();
   await expect(articles.nth(1).getByText("RES-9010")).toBeVisible();
-  await expect(articles.nth(1).getByText("Movable quantity")).toBeVisible();
+  await expect(articles.nth(1).getByText("Not reserved")).toBeVisible();
 
   await source71.click();
   await expect(articles.nth(0).getByText("RES-9001")).toBeVisible();
