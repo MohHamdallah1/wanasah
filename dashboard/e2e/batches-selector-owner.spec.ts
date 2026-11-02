@@ -68,6 +68,7 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     await panel.getByRole("button", { name: locale === "ar" ? "إعادة محاولة الخيارات" : "Retry options" }).click();
     await expect(panel.getByRole("option", { name: "Remote Product · R-990" })).toHaveValue("990");
     await panel.getByRole("combobox", { name: locale === "ar" ? "المنتج" : "Product" }).selectOption("990");
+    await expect(panel.getByRole("combobox", { name: locale === "ar" ? "العائلة" : "Family" })).toHaveValue("901");
     await panel.getByRole("combobox", { name: locale === "ar" ? "الترتيب" : "Sort" }).selectOption("PRODUCT_ASC");
     await panel.getByRole("combobox", { name: locale === "ar" ? "الصلاحية" : "Expiry" }).selectOption("EXPIRED");
     await page.screenshot({ path: "node_modules/.cache/batches-selector-owner/" + locale + "-" + width + "-filters.png", fullPage: true });
