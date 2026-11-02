@@ -1,8 +1,9 @@
-import { AlertTriangle, ChevronDown, RefreshCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, Info, RefreshCcw } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   compareQuantity,
   formatCommercialQuantity,
@@ -315,7 +316,26 @@ export function BatchDetailPanel({
                   const rendered = quantity(value as Quantity);
                   return (
                     <div key={String(label)} className="rounded-xl bg-slate-50 px-3 py-2">
-                      <dt className="text-[10px] font-bold text-slate-500">{label}</dt>
+                      <dt className="text-[10px] font-bold text-slate-500">
+                        {label}
+                        {label === copy.restrictedQuantity ? (
+                          <TooltipProvider delayDuration={180}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button type="button"
+                                  className="ms-1 inline-flex h-5 w-5 items-center justify-center rounded-full align-middle text-slate-500 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                                  aria-label={copy.restrictedQuantityHelp}
+                                >
+                                  <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" dir={i18n.dir()} className="max-w-xs text-xs leading-5">
+                                {copy.restrictedQuantityHelp}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : null}
+                      </dt>
                       <dd
                         className="mt-1 font-black tabular-nums text-slate-900"
                         dir="ltr"
