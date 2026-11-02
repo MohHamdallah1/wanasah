@@ -2,6 +2,7 @@ import { Check, Scan } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { KeyboardEvent } from "react";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
+import { isDiscoveredRow } from "./discoveredContract";
 import type { StocktakeRow } from "../inventoryUtils";
 import { useStocktakeUiCopy } from "./uiCopy";
 
@@ -14,6 +15,8 @@ interface StocktakeCountingPanelProps {
   };
   onUpdateRow: (key: string, value: string) => void;
   onConfirmZero: (key: string) => void;
+  onAddDiscovered: () => void;
+  onRemoveDiscovered: (key: string) => void;
   canCancel: boolean;
   onCancel: () => void;
   onSubmit: () => void;
@@ -24,6 +27,8 @@ export function StocktakeCountingPanel({
   progress,
   onUpdateRow,
   onConfirmZero,
+  onAddDiscovered,
+  onRemoveDiscovered,
   canCancel,
   onCancel,
   onSubmit,
@@ -84,7 +89,13 @@ export function StocktakeCountingPanel({
           <Scan className="w-4 h-4 text-amber-400" aria-hidden="true" />
           <span className="text-sm font-black">{text.active}</span>
         </div>
-        <span className="text-xs text-slate-300 font-bold">{text.hidden}</span>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-300 font-bold">{text.hidden}</span>
+          <button type="button" onClick={onAddDiscovered}
+            className="px-3 py-2 bg-white text-slate-900 text-xs font-bold rounded-lg focus-visible:ring-2 focus-visible:ring-blue-400">
+            {copy.discovered.add}
+          </button>
+        </div>
       </div>
 
       <div className="md:hidden flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50 p-3 space-y-3">
@@ -94,6 +105,7 @@ export function StocktakeCountingPanel({
               <div className="font-bold text-slate-800 text-sm">{row.product_name}</div>
               <div className="text-xs text-slate-500 mt-1">
                 {formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} · {row.expiry_date || "-"}
+                {isDiscoveredRow(row) && <span className="ms-2 text-blue-700 font-bold">{copy.discovered.discoveredLabel}</span>}
               </div>
               <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-700">
                 {text.stockStatus}: {copy.stockStatuses[row.stock_status]}
@@ -104,7 +116,8 @@ export function StocktakeCountingPanel({
                 {countInput(row, index === 0)}
                 <span className="text-xs font-bold text-slate-500">{row.base_uom_name}</span>
               </div>
-              {zeroButton(row)}
+              {isDiscoveredRow(row) ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                className="text-xs text-red-600 underline">{copy.discovered.remove}</button> : zeroButton(row)}
             </div>
             <div className="text-[11px] text-slate-400">{text.quantityStep}: <span dir="ltr">{row.quantity_step}</span></div>
           </article>
@@ -125,7 +138,9 @@ export function StocktakeCountingPanel({
           <tbody className="divide-y divide-slate-50 bg-white">
             {rows.map((row, index) => (
               <tr key={row.row_key} className="hover:bg-slate-50 transition-colors">
-                <td className="px-4 py-3 font-bold text-slate-800">{row.product_name}</td>
+                <td className="px-4 py-3 font-bold text-slate-800">{row.product_name}
+                  {isDiscoveredRow(row) && <span className="ms-2 text-xs text-blue-700">{copy.discovered.discoveredLabel}</span>}
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-col gap-0.5">
                     <span className="text-xs font-bold text-slate-700">{formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))}</span>
@@ -144,7 +159,10 @@ export function StocktakeCountingPanel({
                     <span className="text-[10px] text-slate-400">{text.step} <span dir="ltr">{row.quantity_step}</span></span>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-center">{zeroButton(row)}</td>
+                <td className="px-4 py-3 text-center">{isDiscoveredRow(row)
+                  ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                    className="text-xs text-red-600 underline">{copy.discovered.remove}</button>
+                  : zeroButton(row)}</td>
               </tr>
             ))}
           </tbody>

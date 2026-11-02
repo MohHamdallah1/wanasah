@@ -1,0 +1,141 @@
+name: Stocktake V1 DISCOVERED real PG16 and AR-EN acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/stocktake.py"
+      - "wa_backend/api/warehouse/stocktake_discovery.py"
+      - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
+      - "dashboard/src/pages/inventory/stocktake/**"
+      - ".github/workflows/stocktake-v1-discovered-pg16-ui.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14CPostgresSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_GATE: "1"
+      WANASAH_CP14C_PG_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_ADMIN_URL: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP9_PG_GATE: "1"
+      WANASAH_VEHICLE_RECON_LOCK_ORDER_DB_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name cp14c-postgres \
+            --env POSTGRES_USER=cp14c_admin \
+            --env POSTGRES_DB=wanasah_cp14c_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55452:55452 \
+            postgres:16 -p 55452
+          for attempt in $(seq 1 30); do
+            if docker exec cp14c-postgres pg_isready -U cp14c_admin -d wanasah_cp14c_test -p 55452; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cp14c-postgres
+          exit 1
+      - name: Create restricted runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE cp14c_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean Alembic bootstrap
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: CP14-C real PostgreSQL16 discovered stock / physical posting acceptance
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14c_stocktake_lifecycle_postgres.py
+
+  dashboard-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard install
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Discovered stock AR EN, draft, UOM and authority
+        working-directory: dashboard
+        run: npm run test -- src/pages/inventory/stocktake/StocktakeDiscoveredV1.test.tsx src/pages/inventory/stocktake/StocktakeSessionReadFence.test.tsx
+      - name: TypeScript and exact touched-file lint
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/Tab3Stocktake.tsx src/pages/inventory/stocktake/StocktakeCountingPanel.tsx src/pages/inventory/stocktake/StocktakeDiscoveredModal.tsx src/pages/inventory/stocktake/StocktakeDiscoveredV1.test.tsx src/pages/inventory/stocktake/discoveredContract.ts src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts src/pages/inventory/stocktake/uiCopy.ts
+      - name: Exact owner scope and whitespace
+        run: |
+          git diff --check a740c69135f418bbf60b989ae55b11f72bdbc471 HEAD
+          python - <<'PY'
+          import subprocess
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", "a740c69135f418bbf60b989ae55b11f72bdbc471", "HEAD"], text=True
+          ).splitlines())
+          required = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-session-read-fence.yml",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeDiscoveredModal.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeDiscoveredV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/discoveredContract.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          assert changed == required, {"unexpected": sorted(changed - required), "missing": sorted(required - changed)}
+          for foreign in ("dashboard/src/pages/inventory/Tab4Ledger.tsx", "flutter/lib/main.dart",
+                          "wa_backend/services.py", "wa_backend/alembic/versions/fake.py"):
+              assert foreign not in required
+          print("STOCKTAKE_V1_DISCOVERED_OWNER_SCOPE=PASS")
+          PY

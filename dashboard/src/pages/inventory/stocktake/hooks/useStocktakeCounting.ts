@@ -7,6 +7,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { StocktakeRow } from "../../inventoryUtils";
 import type { StocktakeAuthFetch, StocktakePhase, StocktakeReview } from "../types";
 import { getErrorMessage, parseCountSheet, rowKey } from "../parsers";
+import { isDiscoveredRow, parseDiscoveredBatches, restoreDiscoveredRows, type DiscoveredRow } from "../discoveredContract";
 
 interface UseStocktakeCountingArgs {
   durableIdentity: StocktakeDurableIdentity | null;
@@ -93,25 +94,45 @@ export function useStocktakeCounting({
     }));
 
     const key = `wanasah_audit_draft:${companyScope}:${effectiveLocationId}:${sid}`;
-    // A previously submitted attempt cannot silently restore its old draft.
-    if (pendingDraftRef.current?.key === key) pendingDraftRef.current = null;
-    const saved = localStorage.getItem(key);
+    const saved = pendingDraftRef.current?.key === key
+      ? pendingDraftRef.current.snapshot
+      : localStorage.getItem(key);
     if (saved) {
+      let parsed: StocktakeRow[] = [];
       try {
-        const parsed = JSON.parse(saved) as StocktakeRow[];
-        const savedMap = new Map(
-          parsed.filter((row) => typeof row?.row_key === "string").map((row) => [row.row_key, row])
-        );
-        for (const row of baseRows) {
-          const old = savedMap.get(row.row_key);
-          if (!old) continue;
-          row.actual_quantity = typeof old.actual_quantity === "string" ? old.actual_quantity : "0";
-          row.counted = old.counted === true;
-        }
+        const decoded: unknown = JSON.parse(saved);
+        if (!Array.isArray(decoded)) throw new Error("Invalid stocktake draft");
+        parsed = decoded as StocktakeRow[];
       } catch {
         localStorage.removeItem(key);
       }
+      const savedMap = new Map(
+        parsed.filter((row) => typeof row?.row_key === "string").map((row) => [row.row_key, row]),
+      );
+      for (const row of baseRows) {
+        const old = savedMap.get(row.row_key);
+        if (!old) continue;
+        row.actual_quantity = typeof old.actual_quantity === "string" ? old.actual_quantity : "0";
+        row.counted = old.counted === true;
+      }
+      const discovered = parsed.filter(isDiscoveredRow);
+      if (discovered.length > 0) {
+        const ids = [...new Set(discovered.map((row) => row.batch_id))];
+        if (ids.length > 100 || ids.some((id) => id === null || !Number.isSafeInteger(id) || id <= 0)) {
+          throw new Error(copy.count.scopeMismatch);
+        }
+        const params = new URLSearchParams({ batch_ids: ids.join(",") });
+        const fresh = await authenticatedFetch(
+          `/warehouse/unified/stocktake/${sid}/discovery-options?${params.toString()}`,
+        );
+        if (!isCurrent()) return;
+        const authoritative = parseDiscoveredBatches(fresh).items;
+        if (authoritative.length !== ids.length) throw new Error(copy.count.scopeMismatch);
+        baseRows.push(...restoreDiscoveredRows(parsed, authoritative, baseRows));
+      }
     }
+    if (!isCurrent()) return;
+    if (pendingDraftRef.current?.key === key) pendingDraftRef.current = null;
 
     setSessionLocationId(effectiveLocationId);
     setSessionId(sid);
@@ -163,6 +184,18 @@ export function useStocktakeCounting({
     setRows((prev) => prev.map((row) => row.row_key === key
       ? { ...row, actual_quantity: "0", counted: true }
       : row));
+  }, [setRows]);
+
+  const addDiscoveredRow = useCallback((row: DiscoveredRow): boolean => {
+    if (rows.length >= 10_000 || rows.some((existing) => existing.row_key === row.row_key) ||
+        rows.filter(isDiscoveredRow).length >= 100) return false;
+    setRows((prev) => prev.some((existing) => existing.row_key === row.row_key)
+      ? prev : [...prev, row]);
+    return true;
+  }, [rows, setRows]);
+
+  const removeDiscoveredRow = useCallback((key: string) => {
+    setRows((prev) => prev.filter((row) => row.row_key !== key || !isDiscoveredRow(row)));
   }, [setRows]);
 
   const countProgress = useMemo(() => {
@@ -233,6 +266,8 @@ export function useStocktakeCounting({
     loadCountSheet,
     updateRow,
     confirmZeroCount,
+    addDiscoveredRow,
+    removeDiscoveredRow,
     countProgress,
     handleSubmit,
   };

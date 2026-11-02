@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api import dispatch
-from api.warehouse import ledger, locations, stocktake, transfer_policy, transfers
+from api.warehouse import ledger, locations, stocktake, stocktake_discovery, transfer_policy, transfers
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
@@ -56,6 +56,7 @@ from models import (
     ProductVariant,
     Role,
     StocktakeSession,
+    StocktakeLine,
     TenantOperationalPolicy,
     UOM,
     UserLocationAccess,
@@ -979,6 +980,73 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, rollback_started = await _start(db, a.operator, a.a2)
             rollback_session = int(rollback_started["session_id"])
+            # 0-onhand discovered stock must be discoverable from this exact
+            # authorized Stocktake session, not from the stocked-only picker.
+            options = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=None, batch_ids=None, search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert [x["id"] for x in options["items"]] == [a.variant]
+            assert options["items"][0]["quantity_step"] == "0.001"
+            lots = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=a.variant, batch_ids=None, search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert [x["id"] for x in lots["items"]] == [a.batch]
+            assert lots["items"][0]["base_uom_id"] == a.uom
+            assert lots["items"][0]["disposition"] == "RELEASED"
+            assert lots["items"][0]["expiry_date"] is None
+            revalidated = await stocktake_discovery.stocktake_discovery_options(
+                rollback_session,
+                product_variant_id=None, batch_ids=str(a.batch), search=None,
+                cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            assert revalidated["items"] == lots["items"]
+            with pytest.raises(HTTPException) as forbidden:
+                await stocktake_discovery.stocktake_discovery_options(
+                    rollback_session,
+                    product_variant_id=None, batch_ids=None, search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.denied.access(db), actor=a.denied.operational_driver,
+                )
+            assert forbidden.value.status_code == 403
+            with pytest.raises(HTTPException) as foreign:
+                await stocktake_discovery.stocktake_discovery_options(
+                    b_session_id,
+                    product_variant_id=None, batch_ids=None, search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.operator.access(db), actor=a.operator.operational_driver,
+                )
+            assert foreign.value.status_code in {403, 404}
+            with pytest.raises(HTTPException) as malformed:
+                await stocktake_discovery.stocktake_discovery_options(
+                    rollback_session,
+                    product_variant_id=None, batch_ids="1,0", search=None,
+                    cursor=None, limit=50, db=db,
+                    access=a.operator.access(db), actor=a.operator.operational_driver,
+                )
+            assert malformed.value.status_code == 400
+            # Duplicate rows are rejected by the existing public command
+            # validator before reaching any stocktake write transaction.
+            with pytest.raises(ValueError) as duplicated:
+                StocktakeCountCommand(
+                    request_id=uuid4(),
+                    items=[{
+                        "product_variant_id": a.variant,
+                        "batch_id": a.batch,
+                        "stock_status": "AVAILABLE",
+                        "actual_quantity": Decimal("1.000"),
+                        "uom_id": a.uom,
+                    }] * 2,
+                )
+            assert "تكرار" in str(duplicated.value)
+            assert (await db.get(StocktakeSession, rollback_session)).status == "COUNTING"
+
             rollback_attempt = await _count_discovered(
                 db,
                 a.operator,
@@ -1481,6 +1549,106 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert (
                 await _balance(verify, b.company_id, b.a1, b.variant, b.batch)
             )[0] == Decimal("9.875")
+
+        # Successful real zero-onhand -> discovered -> reviewed -> approved
+        # physical stock, using the same authoritative posting transaction.
+        # Expiry/status is physical evidence, not permission to sell.
+        async with _runtime_session(runtime_engine, a.company_id) as db:
+            # A registered but never received batch has actual zero stock.
+            # Limit this cycle-count snapshot to precisely that genuine Batch;
+            # other live warehouse balances must remain untouched.
+            new_batch = ProductBatch(
+                company_id=a.company_id,
+                product_variant_id=a.variant,
+                batch_number="CP14C-DISCOVERED-" + uuid4().hex,
+                production_date=date(2024, 12, 1),
+                expiry_date=date(2025, 1, 1),
+            )
+            db.add(new_batch)
+            await db.flush()
+            found_batch_id = new_batch.id
+            await db.commit()
+            found_start = StocktakeStartCommand(
+                request_id=uuid4(),
+                location_id=a.a2,
+                stocktake_type="CYCLE_COUNT",
+                product_variant_id=a.variant,
+                batch_id=found_batch_id,
+                notes="CP14-C zero-onhand discovered Batch",
+            )
+            found_started = await stocktake.start_unified_stocktake(
+                found_start, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            found_id = int(found_started["session_id"])
+            before_found = await _balance(db, a.company_id, a.a2, a.variant, found_batch_id)
+            assert before_found == (Decimal("0"), Decimal("0"))
+            found_options = await stocktake_discovery.stocktake_discovery_options(
+                found_id, product_variant_id=a.variant, batch_ids=None,
+                search=None, cursor=None, limit=50, db=db,
+                access=a.operator.access(db), actor=a.operator.operational_driver,
+            )
+            found_lot = next(row for row in found_options["items"] if row["id"] == found_batch_id)
+            assert found_lot["expiry_date"] == date(2025, 1, 1)
+            command = StocktakeCountCommand(
+                request_id=uuid4(),
+                items=[{
+                    "product_variant_id": a.variant,
+                    "batch_id": found_batch_id,
+                    "stock_status": "QUARANTINED",
+                    "actual_quantity": Decimal("1.000"),
+                    "uom_id": a.uom,
+                }],
+            )
+            found_count = await stocktake.submit_stocktake_count(
+                found_id, command, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert found_count["status"] == "PENDING_REVIEW"
+            assert await _balance(db, a.company_id, a.a2, a.variant, found_batch_id) == before_found
+            found_review = await stocktake.get_stocktake_review(
+                found_id, db, a.operator.access(db),
+            )
+            assert len(found_review["lines"]) == 1
+            assert found_review["lines"][0]["line_origin"] == "DISCOVERED"
+            assert found_review["lines"][0]["stock_status"] == "QUARANTINED"
+            assert Decimal(found_review["lines"][0]["expected_quantity"]) == 0
+            assert Decimal(found_review["lines"][0]["variance_quantity"]) == Decimal("1.000")
+            approval = StocktakeApprovalCommand(
+                request_id=uuid4(), count_attempt_id=found_count["attempt_id"],
+                password=PASSWORD,
+            )
+            posted = await stocktake.approve_stocktake_session(
+                found_id, approval, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert posted["status"] == "POSTED" and posted["movement_count"] == 1
+            assert await stocktake.approve_stocktake_session(
+                found_id, approval, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            ) == posted
+            status_qty = await db.scalar(select(InventoryBalance.on_hand_quantity).where(
+                InventoryBalance.company_id == a.company_id,
+                InventoryBalance.location_id == a.a2,
+                InventoryBalance.product_variant_id == a.variant,
+                InventoryBalance.batch_id == found_batch_id,
+                InventoryBalance.stock_status == "QUARANTINED",
+            ))
+            assert Decimal(status_qty) == Decimal("1.000")
+            assert int(await db.scalar(
+                select(func.count()).select_from(InventoryMovement).where(
+                    InventoryMovement.company_id == a.company_id,
+                    InventoryMovement.stocktake_session_id == found_id,
+                )
+            )) == 1
+            assert int(await db.scalar(
+                select(func.count()).select_from(StocktakeLine).where(
+                    StocktakeLine.company_id == a.company_id,
+                    StocktakeLine.stocktake_session_id == found_id,
+                    StocktakeLine.line_origin == "DISCOVERED",
+                )
+            )) == 1
+            print("CP14C_DISCOVERED_EXPIRED_QUARANTINE_POSTING=PASS")
 
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")
         print("CP14C_VARIANCE_RECOUNT=PASS")
