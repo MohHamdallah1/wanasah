@@ -685,7 +685,38 @@ BATCH_SELECTOR_OWNER_REQUIRED = {
 BATCH_SELECTOR_OWNER_ALLOWED = BATCH_SELECTOR_OWNER_REQUIRED | {HELPER}
 
 
+# Issue #762: exact Ledger reference revocation and physical evidence ownership.
+# Both operational and UX modes must recognize this entire bounded scope,
+# never arbitrary inventory/backend/test files.
+LEDGER_762_REQUIRED = {
+    ".github/workflows/inventory-ledger-762-acceptance.yml",
+    "dashboard/e2e/ledger-762.config.ts",
+    "dashboard/e2e/ledger-762.spec.ts",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerMobileCards.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerReferenceModal.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerTable.tsx",
+    "dashboard/src/pages/inventory/ledger/contracts.ts",
+    "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
+    "dashboard/src/pages/inventory/ledger/ledgerPresentation.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerReference.ts",
+    "dashboard/src/test/inventory-cp10-ledger-contract.test.ts",
+    "dashboard/src/test/inventory-cp10-ledger-revocation.test.tsx",
+    "wa_backend/api/warehouse/ledger.py",
+    "wa_backend/domains/ledger/read.py",
+    "wa_backend/tests/test_cp10_ledger_postgres.py",
+    "wa_backend/tests/test_inbound_no_lot_frozen_contract.py",
+}
+LEDGER_762_ALLOWED = LEDGER_762_REQUIRED | {HELPER}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and LEDGER_762_REQUIRED <= changed:
+        extra = sorted(changed - LEDGER_762_ALLOWED)
+        if extra:
+            return "fail", [f"LEDGER_762_SCOPE=FAIL extra={extra}"]
+        return "ledger-762", []
+
     if mode in {"ux", "operational"} and BATCH_SELECTOR_OWNER_REQUIRED <= changed:
         extra = sorted(changed - BATCH_SELECTOR_OWNER_ALLOWED)
         if extra:
@@ -781,6 +812,16 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    ledger_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for ledger_mode in ("ux", "operational"):
+        assert classify(ledger_mode, LEDGER_762_REQUIRED, ledger_none)[0] == "ledger-762"
+        assert classify(ledger_mode, LEDGER_762_ALLOWED, ledger_none)[0] == "ledger-762"
+        for forbidden in ("dashboard/src/pages/inventory/batches/BatchIndexTable.tsx",
+                          "dashboard/src/pages/inventory/stocktake/StocktakeTable.tsx",
+                          "wa_backend/services.py", "flutter/lib/main.dart",
+                          "dashboard/src/pages/DispatchBoard.tsx", "LIVE_STOCK_V1_CLOSURE_PLAN.md"):
+            _expect_fail(ledger_mode, LEDGER_762_ALLOWED | {forbidden}, ledger_none)
+
     selector_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for selector_mode in ("ux", "operational"):
         assert classify(selector_mode, BATCH_SELECTOR_OWNER_REQUIRED, selector_none)[0] == "batch-selector-owner"

@@ -64,6 +64,7 @@ jobs:
           changed=set(subprocess.check_output(["git","diff","--name-only","a740c69135f418bbf60b989ae55b11f72bdbc471","HEAD"], text=True).splitlines())
           allowed_exact={
             "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+            ".github/scripts/live_stock_ci_ownership.py",
             "wa_backend/api/warehouse/ledger.py",
             "wa_backend/domains/ledger/read.py",
             "wa_backend/tests/test_cp10_ledger_postgres.py",
