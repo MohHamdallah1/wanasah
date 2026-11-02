@@ -34,7 +34,9 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
   test(`ledger reference fail closed ${locale} ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     await installUxApi(page, 1, { allowOtherInventoryReads: true });
+    let revoked = false;
     await page.route("**/api/inventory/access/me*", route => {
+      if (revoked) return send(route, { detail: { code: "LEDGER_READ_FORBIDDEN" } }, 403);
       const url = new URL(route.request().url());
       const location = url.searchParams.get("location_id");
       return send(route, { company_id: 1, principal_id: 7, backoffice_user_id: 17,
@@ -52,7 +54,10 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
           total_cost: "10.000000", average_cost_after: "1.125000", input_uom_code: "EACH" }),
       ]));
       referencePages += 1;
-      if (url.searchParams.has("cursor")) return send(route, { detail: { code: "LEDGER_READ_FORBIDDEN" } }, 403);
+      if (url.searchParams.has("cursor")) {
+        revoked = true;
+        return send(route, { detail: { code: "LEDGER_READ_FORBIDDEN" } }, 403);
+      }
       return send(route, pageData([entry(101, "RESERVATION")], "signed-next"));
     });
     await seedUx(page, locale, "light", "ledger");
@@ -71,10 +76,10 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
       "فتح دليل المرجع REF-762" : "Open evidence for reference REF-762" }).first();
     await link.click();
     await expect.poll(() => referencePages).toBeGreaterThanOrEqual(2);
-    await expect(panel.getByText(locale === "ar" ?
-      "توقف عرض السجل بعد تغير الصلاحيات. أعد فتح التبويب بعد التحقق من الوصول." :
-      "Ledger access changed. Reopen this tab after access is verified.")).toBeVisible();
-    await expect(panel.getByText("Sensitive ledger item 101")).toHaveCount(0);
+    // The shell may remove the whole tab after its fresh 403 capability read.
+    // Both paths must hide *all* old Ledger evidence, never report zero/empty.
+    await expect(page.getByText("Sensitive ledger item 101")).toHaveCount(0);
+    await expect(page.getByText("Sensitive operator")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.screenshot({ path: `node_modules/.cache/ledger-762/${locale}-${width}-revoked.png`, fullPage: true });
   });
