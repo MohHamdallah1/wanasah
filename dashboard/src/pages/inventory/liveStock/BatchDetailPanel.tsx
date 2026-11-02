@@ -117,6 +117,8 @@ export function BatchDetailPanel({
           (batch) => compareQuantity(batch.unavailable_quantity, "0") > 0,
         )
       : batches;
+  const showProductGate = saleGateLoading || saleGateError || saleGate === null ||
+    saleGate.operational_hold !== "NONE" || saleGate.lifecycle_status !== "ACTIVE";
   const productGateText =
     saleGateLoading
       ? copy.productGateLoading
@@ -195,8 +197,7 @@ export function BatchDetailPanel({
 
         {batches.length > 0 && !loading ? (
           <>
-            <p role="note" className="text-xs font-semibold text-slate-600">{copy.freshnessNotice}</p>
-            {mode === "unavailable" ? (
+            {mode === "unavailable" && showProductGate ? (
               <p role="note" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-950"
                 data-live-stock-unavailable-summary="true">
                 <strong>{copy.productSaleGate}: </strong>{productGateText}
