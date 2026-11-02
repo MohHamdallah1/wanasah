@@ -6,7 +6,7 @@ import { STOCKTAKE_STOCK_STATUSES, type StocktakeStockStatus } from "../inventor
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { parseCycleProductPage, getErrorMessage } from "./parsers";
 import { buildDiscoveredRow, parseDiscoveredBatches, type DiscoveredBatch, type DiscoveredRow } from "./discoveredContract";
-import { useStocktakeCopy } from "./copy";
+import { useStocktakeUiCopy } from "./uiCopy";
 import type { CycleProductOption, StocktakeAuthFetch } from "./types";
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
 }
 
 export function StocktakeDiscoveredModal({ open, sessionId, authenticatedFetch, onClose, onAdd }: Props) {
-  const { copy, dir } = useStocktakeCopy();
+  const { copy, dir } = useStocktakeUiCopy();
   const { t } = useTranslation();
   const text = copy.discovered;
   const [productSearch, setProductSearch] = useState("");
