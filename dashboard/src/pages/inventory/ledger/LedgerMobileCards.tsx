@@ -5,7 +5,7 @@ import { compareQuantity } from "@/lib/quantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { formatLedgerDate, type LedgerEntry } from "./contracts";
 import { ledgerBadgeClass, ledgerMovementLabel, ledgerText } from "./ledgerI18n";
-import { ledgerLocationEvidence, ledgerSignedQuantity } from "./ledgerPresentation";
+import { ledgerBalance, ledgerLocationEvidence, ledgerMoney, ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
 
 interface Props {
   t: TFunction;
@@ -56,11 +56,20 @@ export function LedgerMobileCards({
                 data-cp13-movement-direction={outgoing ? "out" : "in"}
               >
                 <DirectionIcon aria-hidden="true" className="h-4 w-4" />
-                <span dir="ltr">{ledgerSignedQuantity(entry, unit)}</span>
+                <bdi dir="auto">{ledgerSignedQuantity(entry, unit)}</bdi>
               </div>
             </div>
 
+            <div className="mt-1 text-[10px] leading-4 text-slate-500" data-ledger-quantity-kind={entry.movement_kind ?? "PHYSICAL"}>{ledgerQuantityMeaning(t, language, entry)}</div>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2 text-[10px]">
+              <div className="min-w-0">
+                <dt className="font-bold text-slate-400">{text("before")}</dt>
+                <dd className="mt-0.5 font-black text-slate-700" dir="auto">{ledgerBalance(entry, entry.balance_before, unit)}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="font-bold text-slate-400">{text("after")}</dt>
+                <dd className="mt-0.5 font-black text-slate-700" dir="auto">{ledgerBalance(entry, entry.balance_after, unit)}</dd>
+              </div>
               <div className="min-w-0">
                 <dt className="font-bold text-slate-400">{text("batch")}</dt>
                 <dd className="mt-0.5 truncate font-black text-slate-700">{formatPublicBatchNumber(entry.batch_number, text("noLot"))}</dd>
@@ -79,6 +88,14 @@ export function LedgerMobileCards({
               </div>
             </dl>
 
+            {entry.input_unit_cost ? (
+              <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] leading-5 text-slate-600">
+                <span className="font-bold">{text("cost")}:</span> {ledgerMoney(entry.input_unit_cost, entry.currency_code)} / {unit(entry.input_uom_code ?? entry.base_uom_code)}
+                {entry.total_cost ? <div>{text("totalCost")}: {ledgerMoney(entry.total_cost, entry.currency_code)}</div> : null}
+                {entry.average_cost_after ? <div>{text("averageAfter")}: {ledgerMoney(entry.average_cost_after, entry.currency_code)}</div> : null}
+                <div>{text("costMeaning")}</div>
+              </div>
+            ) : null}
             <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
               {entry.reference ? (
                 <button
