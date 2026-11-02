@@ -222,6 +222,16 @@ export function TabBatches({
   }, [access.data?.company_id, access.data?.principal_id, authFetch, closeSelectedBatch, locationId, selectorScope]);
 
   useEffect(() => {
+    const revoke = () => {
+      validationSeq.current += 1;
+      setChoices({ scope: "", families: [], products: [] });
+      setFilters(DEFAULT_BATCH_INDEX_FILTERS);
+    };
+    window.addEventListener("inventory-permission-denied", revoke);
+    return () => window.removeEventListener("inventory-permission-denied", revoke);
+  }, []);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       const clean = searchInput.trim();
       setFilters((current) =>
