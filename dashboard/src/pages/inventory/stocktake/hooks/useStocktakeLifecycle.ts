@@ -34,8 +34,8 @@ interface UseStocktakeLifecycleArgs {
   sessionsLoading: boolean;
   sessionsLoadFailed: boolean;
   authenticatedFetch: StocktakeAuthFetch;
-  loadCountSheet: (sessionId: string, sessionLocationId?: number) => Promise<void>;
-  loadReview: (sessionId: string, sessionLocationId?: number) => Promise<void>;
+  loadCountSheet: (sessionId: string, sessionLocationId?: number, isCurrent?: () => boolean) => Promise<void>;
+  loadReview: (sessionId: string, sessionLocationId?: number, isCurrent?: () => boolean) => Promise<void>;
   setSessionId: (value: string | null) => void;
   setSessionLocationId: (value: number | null) => void;
   setPhase: (value: StocktakePhase) => void;
@@ -71,6 +71,8 @@ export function useStocktakeLifecycle({
   const { copy } = useStocktakeCopy();
   const [locking, setLocking] = useState(false);
   const handledFocusRef = useRef<number | null>(null);
+  // Session selection governs context and all following sheet/review requests.
+  const sessionReadGeneration = useRef(0);
 
   const fetchSessionContext = useCallback(async (sid: string): Promise<StocktakeSessionContext> => {
     const params = new URLSearchParams({ anchor_location_id: String(locationId) });
@@ -78,23 +80,31 @@ export function useStocktakeLifecycle({
     return parseStocktakeSessionContext(raw, locationId);
   }, [authenticatedFetch, locationId]);
 
-  const openResolvedSession = useCallback(async (sid: string, context: StocktakeSessionContext) => {
+  const openResolvedSession = useCallback(async (
+    sid: string,
+    context: StocktakeSessionContext,
+    isCurrent: () => boolean,
+  ) => {
+    if (!isCurrent()) return;
     localStorage.setItem(sessionKey, sid);
     setSessionLocationId(context.location_id);
     if (context.status === "PENDING_REVIEW") {
-      await loadReview(sid, context.location_id);
+      await loadReview(sid, context.location_id, isCurrent);
       return;
     }
     if (context.status === "COUNTING" || context.status === "RECOUNT_REQUIRED") {
-      await loadCountSheet(sid, context.location_id);
+      await loadCountSheet(sid, context.location_id, isCurrent);
       return;
     }
     throw new Error(copy.lifecycle.unsupportedState(context.status));
   }, [copy.lifecycle, loadCountSheet, loadReview, sessionKey, setSessionLocationId]);
 
   const openSessionById = useCallback(async (sid: string) => {
+    const generation = ++sessionReadGeneration.current;
     const context = await fetchSessionContext(sid);
-    await openResolvedSession(sid, context);
+    const isCurrent = () => generation === sessionReadGeneration.current;
+    if (!isCurrent()) return;
+    await openResolvedSession(sid, context, isCurrent);
   }, [fetchSessionContext, openResolvedSession]);
 
   const openServerSession = useCallback(async (session: StocktakeSessionSummary) => {
@@ -108,7 +118,13 @@ export function useStocktakeLifecycle({
   useEffect(() => {
     // Preserve the durable session/drafts while hidden, but never refresh
     // session context or count sheets until this tab is re-entered.
-    if (!active) return;
+    if (!active) {
+      sessionReadGeneration.current += 1;
+      return;
+    }
+    const generation = ++sessionReadGeneration.current;
+    let cancelled = false;
+    const isCurrent = () => !cancelled && generation === sessionReadGeneration.current;
     const requestedFocus = focusSessionId !== undefined && handledFocusRef.current !== focusSessionId;
     const previousSession = localStorage.getItem(sessionKey);
     const previousPhase = localStorage.getItem(phaseKey);
@@ -123,11 +139,10 @@ export function useStocktakeLifecycle({
       return;
     }
 
-    let cancelled = false;
     const recover = async () => {
       try {
         const context = await fetchSessionContext(sid);
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (requestedFocus && (context.session_id !== focusSessionId || !["COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED"].includes(context.status))) {
           throw Object.assign(new Error("ARCHIVE_OWNER_UNAVAILABLE"), { code: "ARCHIVE_OWNER_UNAVAILABLE" });
         }
@@ -135,8 +150,8 @@ export function useStocktakeLifecycle({
         setSessionId(sid);
         setSessionLocationId(context.location_id);
         try {
-          await openResolvedSession(sid, context);
-          if (requestedFocus && !cancelled) handledFocusRef.current = focusSessionId ?? null;
+          await openResolvedSession(sid, context, isCurrent);
+          if (requestedFocus && isCurrent()) handledFocusRef.current = focusSessionId ?? null;
           return;
         } catch (error: unknown) {
           if (
@@ -147,13 +162,13 @@ export function useStocktakeLifecycle({
             clearRows();
             clearReview();
             setPhase("WAITING_INDEPENDENT");
-            if (requestedFocus && !cancelled) handledFocusRef.current = focusSessionId ?? null;
+            if (requestedFocus && isCurrent()) handledFocusRef.current = focusSessionId ?? null;
             return;
           }
           throw error;
         }
       } catch (error: unknown) {
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (requestedFocus) {
           handledFocusRef.current = focusSessionId ?? null;
           if (localStorage.getItem(sessionKey) === sid) {

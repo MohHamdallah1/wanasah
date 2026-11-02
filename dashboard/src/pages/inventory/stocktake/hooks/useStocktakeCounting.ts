@@ -1,5 +1,5 @@
 import { parseInventoryCapabilities, hasInventoryPermission } from "@/hooks/useInventoryAccess";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import { useStocktakeCopy } from "../copy";
@@ -46,8 +46,13 @@ export function useStocktakeCounting({
   const { copy } = useStocktakeCopy();
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const pendingDraftRef = useRef<{ key: string; snapshot: string } | null>(null);
 
-  const loadCountSheet = useCallback(async (sid: string, targetLocationId?: number) => {
+  const loadCountSheet = useCallback(async (
+    sid: string,
+    targetLocationId?: number,
+    isCurrent: () => boolean = () => true,
+  ) => {
     const effectiveLocationId = targetLocationId ?? sessionLocationId;
     if (effectiveLocationId === null || !Number.isInteger(effectiveLocationId) || effectiveLocationId <= 0) {
       throw new Error(copy.lifecycle.unknownLocation);
@@ -56,6 +61,7 @@ export function useStocktakeCounting({
     const capabilities = parseInventoryCapabilities(await authenticatedFetch(
       `/inventory/access/me?location_id=${effectiveLocationId}`
     ));
+    if (!isCurrent()) return;
     if (capabilities.location_id !== effectiveLocationId) throw new Error(copy.count.scopeMismatch);
     if (!hasInventoryPermission(capabilities, "stocktake.count")) {
       setSessionLocationId(effectiveLocationId);
@@ -67,6 +73,7 @@ export function useStocktakeCounting({
     }
 
     const raw = await authenticatedFetch(`/warehouse/unified/stocktake/${sid}/count-sheet`);
+    if (!isCurrent()) return;
     const data = parseCountSheet(raw);
     const baseRows: StocktakeRow[] = data.map((item) => ({
       row_key: rowKey(item.product_variant_id, item.batch_id, item.stock_status),
@@ -86,6 +93,8 @@ export function useStocktakeCounting({
     }));
 
     const key = `wanasah_audit_draft:${companyScope}:${effectiveLocationId}:${sid}`;
+    // A previously submitted attempt cannot silently restore its old draft.
+    if (pendingDraftRef.current?.key === key) pendingDraftRef.current = null;
     const saved = localStorage.getItem(key);
     if (saved) {
       try {
@@ -113,13 +122,36 @@ export function useStocktakeCounting({
   }, [authenticatedFetch, companyScope, copy.count.scopeMismatch, copy.lifecycle.unknownLocation, phaseKey, sessionLocationId, setPhase, setReview, setRows, setSessionId, setSessionLocationId]);
 
   useEffect(() => {
-    if (phase === "COUNTING" && draftKey && rows.length > 0) {
-      const timeoutId = window.setTimeout(() => {
-        localStorage.setItem(draftKey, JSON.stringify(rows));
-      }, 800);
-      return () => window.clearTimeout(timeoutId);
-    }
+    if (phase !== "COUNTING" || !draftKey || rows.length === 0) return;
+    const pending = { key: draftKey, snapshot: JSON.stringify(rows) };
+    pendingDraftRef.current = pending;
+    const timeoutId = window.setTimeout(() => {
+      // Successful submission invalidates this pending write. Do not
+      // resurrect an obsolete count draft after the server has accepted it.
+      if (pendingDraftRef.current !== pending) return;
+      localStorage.setItem(pending.key, pending.snapshot);
+      pendingDraftRef.current = null;
+    }, 800);
+    return () => window.clearTimeout(timeoutId);
   }, [draftKey, phase, rows]);
+
+  // Losing the component or switching sessions before the debounce fires
+  // must not discard the last physical count. Only the current scoped draft
+  // is flushed, never a different company/user/location's data.
+  useEffect(() => {
+    const flush = () => {
+      const pending = pendingDraftRef.current;
+      if (pending && pending.key === draftKey) {
+        localStorage.setItem(pending.key, pending.snapshot);
+        pendingDraftRef.current = null;
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [draftKey]);
 
   const updateRow = useCallback((key: string, value: string) => {
     setRows((prev) => prev.map((row) => row.row_key === key
@@ -178,7 +210,10 @@ export function useStocktakeCounting({
         ),
       });
 
-      if (draftKey) localStorage.removeItem(draftKey);
+      if (draftKey) {
+        if (pendingDraftRef.current?.key === draftKey) pendingDraftRef.current = null;
+        localStorage.removeItem(draftKey);
+      }
       setNotes("");
       await onSubmitted(sessionId, sessionLocationId);
       toast.success(copy.count.submitted);
