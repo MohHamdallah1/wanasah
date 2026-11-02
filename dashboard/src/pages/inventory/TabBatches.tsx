@@ -204,11 +204,11 @@ export function TabBatches({
         familyId: family ? family.product_id : null,
         productVariantId: product ? product.product_variant_id : null,
       }));
-      setChoices(current => ({
+      setChoices({
         scope: selectorScope,
         families: family ? mergeFamilies([], [family]) : [],
         products: product ? mergeProducts([], [product]) : [],
-      }));
+      });
     }).catch(() => {
       if (controller.signal.aborted || seq !== validationSeq.current) return;
       // A denied/failed validation cannot leave unverified selections active.
