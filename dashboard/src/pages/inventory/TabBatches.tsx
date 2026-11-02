@@ -32,6 +32,7 @@ import {
   type ReservationOwner,
 } from "./batches/batchStockSourcesContract";
 import { useBatchIndex } from "./batches/useBatchIndex";
+import { useBatchSelectorDiscovery } from "./batches/useBatchSelectorDiscovery";
 
 interface Props {
   locationId: number;
@@ -101,8 +102,26 @@ export function TabBatches({
   const [expiryWarningDays, setExpiryWarningDays] = useState(
     DEFAULT_BATCH_EXPIRY_WARNING_DAYS,
   );
-  const [families, setFamilies] = useState<BatchFilterFamilyOption[]>([]);
-  const [products, setProducts] = useState<BatchFilterProductOption[]>([]);
+  const [choices, setChoices] = useState<{
+    scope: string; families: BatchFilterFamilyOption[]; products: BatchFilterProductOption[];
+  }>({ scope: "", families: [], products: [] });
+  const selectorScope = [access.data?.company_id, access.data?.principal_id, locationId].join(":");
+  const discovery = useBatchSelectorDiscovery({
+    locationId,
+    companyId: access.data?.company_id ?? null,
+    principalId: access.data?.principal_id ?? null,
+    active,
+  });
+  const families = useMemo(() => {
+    const values = new Map((choices.scope === selectorScope ? choices.families : []).map(item => [item.id, item]));
+    for (const item of discovery.families) values.set(item.id, item);
+    return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [choices, discovery.families, selectorScope]);
+  const products = useMemo(() => {
+    const values = new Map((choices.scope === selectorScope ? choices.products : []).map(item => [item.id, item]));
+    for (const item of discovery.products) values.set(item.id, item);
+    return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [choices, discovery.products, selectorScope]);
   const [selectedBatchContext, setSelectedBatchContext] =
     useState<SelectedBatchContext | null>(null);
   const selectedRefreshSeq = useRef(0);
@@ -136,8 +155,7 @@ export function TabBatches({
   useEffect(() => {
     setSearchInput("");
     setFilters(DEFAULT_BATCH_INDEX_FILTERS);
-    setFamilies([]);
-    setProducts([]);
+    setChoices({ scope: "", families: [], products: [] });
     closeSelectedBatch();
   }, [closeSelectedBatch, locationId]);
 
@@ -162,8 +180,11 @@ export function TabBatches({
 
   useEffect(() => {
     if (batchIndex.items.length === 0) return;
-    setFamilies((current) => mergeFamilies(current, batchIndex.items));
-    setProducts((current) => mergeProducts(current, batchIndex.items));
+    setChoices(current => ({
+      scope: selectorScope,
+      families: mergeFamilies(current.scope === selectorScope ? current.families : [], batchIndex.items),
+      products: mergeProducts(current.scope === selectorScope ? current.products : [], batchIndex.items),
+    }));
     setSelectedBatchContext((current) => {
       if (!current) return current;
       const detail = batchIndex.items.find(
@@ -180,7 +201,7 @@ export function TabBatches({
           }
         : current;
     });
-  }, [batchIndex.items]);
+  }, [batchIndex.items, selectorScope]);
 
   const refreshSelectedBatch = useCallback(async () => {
     const current = selectedBatchContext;
@@ -350,6 +371,15 @@ export function TabBatches({
             onExpiryWarningDaysChange={updateExpiryWarningDays}
             families={families}
             products={products}
+            familySearch={discovery.familySearch}
+            productSearch={discovery.productSearch}
+            onFamilySearchChange={discovery.setFamilySearch}
+            onProductSearchChange={discovery.setProductSearch}
+            onOpenSelector={discovery.open}
+            onMoreSelector={discovery.loadMore}
+            onRetrySelector={discovery.retry}
+            familyDiscovery={discovery.family}
+            productDiscovery={discovery.product}
           />
 
           <BatchIndexSummary

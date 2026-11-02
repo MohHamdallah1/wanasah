@@ -14,6 +14,7 @@ import {
   type BatchIndexSort,
 } from "./batchIndexContracts";
 import { batchIndexText } from "./batchIndexI18n";
+import { batchUiNote } from "./batchUiNotes";
 
 export interface BatchFilterFamilyOption {
   id: number;
@@ -37,6 +38,15 @@ interface Props {
   onExpiryWarningDaysChange: (value: number) => void;
   families: BatchFilterFamilyOption[];
   products: BatchFilterProductOption[];
+  familySearch: string;
+  productSearch: string;
+  onFamilySearchChange: (value: string) => void;
+  onProductSearchChange: (value: string) => void;
+  onOpenSelector: (kind: "family" | "product") => void;
+  onMoreSelector: (kind: "family" | "product") => void;
+  onRetrySelector: (kind: "family" | "product") => void;
+  familyDiscovery: { cursor: string | null; loading: boolean; loadingMore: boolean; error: boolean };
+  productDiscovery: { cursor: string | null; loading: boolean; loadingMore: boolean; error: boolean };
 }
 
 const controlClass =
@@ -53,6 +63,15 @@ export function BatchIndexFilters({
   onExpiryWarningDaysChange,
   families,
   products,
+  familySearch,
+  productSearch,
+  onFamilySearchChange,
+  onProductSearchChange,
+  onOpenSelector,
+  onMoreSelector,
+  onRetrySelector,
+  familyDiscovery,
+  productDiscovery,
 }: Props) {
   const text = (key: Parameters<typeof batchIndexText>[2]) =>
     batchIndexText(t, language, key);
@@ -125,31 +144,61 @@ export function BatchIndexFilters({
           ))}
         </select>
 
-        <select
-          aria-label={text("family")}
-          value={filters.familyId ?? ""}
-          onChange={(event) => patch({ familyId: event.target.value ? Number(event.target.value) : null })}
-          className={controlClass}
-        >
-          <option value="">{text("allFamilies")}</option>
-          {families.map((family) => (
-            <option key={family.id} value={family.id}>{family.name}</option>
-          ))}
-        </select>
+        <div className="min-w-0 space-y-1">
+          <input
+            type="search"
+            aria-label={batchUiNote(language, "familySearch")}
+            placeholder={batchUiNote(language, "familySearch")}
+            value={familySearch}
+            onFocus={() => onOpenSelector("family")}
+            onChange={event => onFamilySearchChange(event.target.value)}
+            maxLength={100}
+            className={`${controlClass} w-full`}
+          />
+          <select
+            aria-label={text("family")}
+            value={filters.familyId ?? ""}
+            onFocus={() => onOpenSelector("family")}
+            onChange={event => patch({ familyId: event.target.value ? Number(event.target.value) : null, productVariantId: null })}
+            className={`${controlClass} w-full`}
+          >
+            <option value="">{text("allFamilies")}</option>
+            {families.map(family => <option key={family.id} value={family.id}>{family.name}</option>)}
+          </select>
+          {familySearch.trim().length === 1 ? <p className="text-[10px] text-slate-500">{batchUiNote(language, "searchMin")}</p> : null}
+          {familyDiscovery.loading ? <p role="status" className="text-[10px] text-slate-500">{batchUiNote(language, "loading")}</p> : null}
+          {familyDiscovery.error ? <button type="button" onClick={() => onRetrySelector("family")} className="text-[10px] text-red-700 underline">{batchUiNote(language, "retry")}</button> : null}
+          {familyDiscovery.cursor ? <button type="button" disabled={familyDiscovery.loadingMore} onClick={() => onMoreSelector("family")} className="text-[10px] text-slate-700 underline">{batchUiNote(language, "loadMore")}</button> : null}
+        </div>
 
-        <select
-          aria-label={text("product")}
-          value={filters.productVariantId ?? ""}
-          onChange={(event) => patch({ productVariantId: event.target.value ? Number(event.target.value) : null })}
-          className={controlClass}
-        >
-          <option value="">{text("allProducts")}</option>
-          {products.map((product) => (
-            <option key={product.id} value={product.id}>
+        <div className="min-w-0 space-y-1">
+          <input
+            type="search"
+            aria-label={batchUiNote(language, "productSearch")}
+            placeholder={batchUiNote(language, "productSearch")}
+            value={productSearch}
+            onFocus={() => onOpenSelector("product")}
+            onChange={event => onProductSearchChange(event.target.value)}
+            maxLength={100}
+            className={`${controlClass} w-full`}
+          />
+          <select
+            aria-label={text("product")}
+            value={filters.productVariantId ?? ""}
+            onFocus={() => onOpenSelector("product")}
+            onChange={event => patch({ productVariantId: event.target.value ? Number(event.target.value) : null, familyId: null })}
+            className={`${controlClass} w-full`}
+          >
+            <option value="">{text("allProducts")}</option>
+            {products.map(product => <option key={product.id} value={product.id}>
               {product.name}{product.sku ? ` · ${product.sku}` : ""}
-            </option>
-          ))}
-        </select>
+            </option>)}
+          </select>
+          {productSearch.trim().length === 1 ? <p className="text-[10px] text-slate-500">{batchUiNote(language, "searchMin")}</p> : null}
+          {productDiscovery.loading ? <p role="status" className="text-[10px] text-slate-500">{batchUiNote(language, "loading")}</p> : null}
+          {productDiscovery.error ? <button type="button" onClick={() => onRetrySelector("product")} className="text-[10px] text-red-700 underline">{batchUiNote(language, "retry")}</button> : null}
+          {productDiscovery.cursor ? <button type="button" disabled={productDiscovery.loadingMore} onClick={() => onMoreSelector("product")} className="text-[10px] text-slate-700 underline">{batchUiNote(language, "loadMore")}</button> : null}
+        </div>
 
         <select
           aria-label={text("sort")}
