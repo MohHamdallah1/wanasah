@@ -267,6 +267,8 @@ test("remaining V1 operational clauses on production Dashboard and real FastAPI/
       };
       await op.route(API + "/warehouse/inventory/**", raceHandler);
 
+      // Extended source evidence is opt-in; explicitly expand the batch first.
+      await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
       await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
       await ready.get("source");
       await op.keyboard.press("Escape");
