@@ -10,6 +10,7 @@ import { useStocktakeLifecycle } from "./stocktake/hooks/useStocktakeLifecycle";
 import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
 import { useStocktakeCopy } from "./stocktake/copy";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
+import { StocktakeDiscoveredModal } from "./stocktake/StocktakeDiscoveredModal";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
 import { StocktakeIdlePanel } from "./stocktake/StocktakeIdlePanel";
 import { StocktakeIndependentWait } from "./stocktake/StocktakeIndependentWait";
@@ -55,6 +56,7 @@ export function Tab3Stocktake({
   const [showRecountModal, setShowRecountModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showCycleModal, setShowCycleModal] = useState(false);
+  const [showDiscoveredModal, setShowDiscoveredModal] = useState(false);
 
   const stocktakeState = useStocktakeState({ companyId, locationId });
   const warehouseAccess = useInventoryAccess(locationId);
@@ -237,6 +239,8 @@ export function Tab3Stocktake({
             progress={countingWorkflow.countProgress}
             onUpdateRow={countingWorkflow.updateRow}
             onConfirmZero={countingWorkflow.confirmZeroCount}
+            onAddDiscovered={() => setShowDiscoveredModal(true)}
+            onRemoveDiscovered={countingWorkflow.removeDiscoveredRow}
             onCancel={() => setShowCancelModal(true)}
             onSubmit={() => setShowSubmitModal(true)}
           />
@@ -268,6 +272,13 @@ export function Tab3Stocktake({
         </p>
       )}
 
+      <StocktakeDiscoveredModal
+        open={active && showDiscoveredModal && stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count")}
+        sessionId={stocktakeState.sessionId}
+        authenticatedFetch={authenticatedFetch}
+        onClose={() => setShowDiscoveredModal(false)}
+        onAdd={countingWorkflow.addDiscoveredRow}
+      />
       <StocktakeCycleStartModal
         open={active && showCycleModal}
         controller={cycleWorkflow}
