@@ -1,0 +1,42 @@
+name: Inventory Access V1 role-grant safety
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "dashboard/src/pages/inventory/TabInventoryAccess.tsx"
+      - "dashboard/src/pages/inventory/TabInventoryAccess.rolePageSafety.test.tsx"
+      - "dashboard/src/pages/inventory/access/**"
+      - ".github/workflows/inventory-access-v1-role-grant-safety.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-role-grant:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Inventory Access role selection and current permissions regressions
+        working-directory: dashboard
+        run: >-
+          npm test --
+          src/pages/inventory/TabInventoryAccess.rolePageSafety.test.tsx
+          src/pages/inventory/TabInventoryAccess.vehicles.test.ts
+          src/pages/inventory/TabInventoryAccess.representatives.test.ts
+      - name: TypeScript
+        working-directory: dashboard
+        run: npx tsc --noEmit
