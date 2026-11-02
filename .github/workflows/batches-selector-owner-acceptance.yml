@@ -1,0 +1,65 @@
+name: Inventory Batches Selector Owner Acceptance
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/TabBatches.tsx"
+      - "dashboard/src/pages/inventory/batches/**"
+      - "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx"
+      - "dashboard/e2e/batches-selector-owner.*"
+      - ".github/workflows/batches-selector-owner-acceptance.yml"
+permissions:
+  contents: read
+jobs:
+  batch-selector-owner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: \${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dependencies
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+      - name: Focused frontend regressions, static validation and build
+        working-directory: dashboard
+        run: |
+          npx vitest run src/test/inventory-cp2-batches-dashboard.test.tsx src/pages/inventory/batches/batch-reentry.test.tsx
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/TabBatches.tsx src/pages/inventory/batches/BatchIndexFilters.tsx src/pages/inventory/batches/BatchIndexSummary.tsx src/pages/inventory/batches/BatchIndexTable.tsx src/pages/inventory/batches/useBatchSelectorDiscovery.ts src/pages/inventory/batches/batchUiNotes.ts
+          VITE_API_URL=http://127.0.0.1:4174/api npm run build
+      - name: Disposable Chromium
+        working-directory: dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Start built Dashboard
+        working-directory: dashboard
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/batches-owner-preview.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/inventory > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/batches-owner-preview.log
+          exit 1
+      - name: AR/EN desktop and phone Chromium screenshots
+        working-directory: dashboard
+        run: npx playwright test --config e2e/batches-selector-owner.config.ts
+      - name: Scope guard
+        run: |
+          git cat-file -e 2b2a09a4c55030f3c924cc68bca9d67fdb03c2c8^{commit}
+          git diff --check 2b2a09a4c55030f3c924cc68bca9d67fdb03c2c8 HEAD
+      - name: Owner screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batches-selector-owner-visual
+          path: dashboard/node_modules/.cache/batches-selector-owner
+          if-no-files-found: ignore
