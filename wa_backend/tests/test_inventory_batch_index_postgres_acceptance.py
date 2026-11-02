@@ -471,11 +471,14 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                         text(
                             "UPDATE product_variants "
                             "SET lifecycle_status=:lifecycle, operational_hold=:hold, "
-                            "retired_at=CASE WHEN :lifecycle='RETIRING' "
-                            "THEN CURRENT_TIMESTAMP ELSE NULL END "
+                            "retired_at=:retired_at "
                             "WHERE company_id=9101 AND id=9111"
                         ),
-                        {"lifecycle": lifecycle, "hold": hold},
+                        {
+                            "lifecycle": lifecycle,
+                            "hold": hold,
+                            "retired_at": datetime.now() if lifecycle == "RETIRING" else None,
+                        },
                     )
                     await rebuild_live_stock_company(db, company_id=9101)
                     focused = await _cursor(db, owner, 9131, product_variant_id=9111)
