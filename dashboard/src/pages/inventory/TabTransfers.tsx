@@ -48,6 +48,7 @@ class TransferWorkspaceErrorBoundary extends Component<
 }
 
 function TabTransfersWorkspace({
+  active = true,
   focus = null,
   onFocusConsumed,
   onInventoryChanged,
@@ -57,7 +58,7 @@ function TabTransfersWorkspace({
   const timeZone = tenantIdentity.data?.timezone;
   const focusIdRef = useRef<number | null>(null);
   const [focusedTransfer, setFocusedTransfer] = useState<WarehouseTransferListItem | null>(null);
-  const transferList = useTransferList();
+  const transferList = useTransferList(active);
   const {
     items,
     status,
@@ -89,12 +90,12 @@ function TabTransfersWorkspace({
   }, [refreshTransfers, resetDetail]);
 
   useEffect(() => {
-    if (!focus) return;
+    if (!active || !focus) return;
     focusIdRef.current = focus.headerId;
     setSearchInput(focus.reference);
     onFocusConsumed?.();
     void openDetailById(focus.headerId);
-  }, [focus, onFocusConsumed, openDetailById, setSearchInput]);
+  }, [active, focus, onFocusConsumed, openDetailById, setSearchInput]);
 
   useEffect(() => {
     if (detail?.transfer.id === focusIdRef.current) setFocusedTransfer(detail.transfer);
@@ -116,6 +117,7 @@ function TabTransfersWorkspace({
   } = transferActions;
 
   const transferCreate = useTransferCreate({
+    active,
     onInventoryChanged,
     onCompleted: refreshTransfers,
   });
@@ -247,14 +249,14 @@ function TabTransfersWorkspace({
         </div>
       ) : null}
 
-      <TransferCreateModal controller={transferCreate} />
-      <TransferDetailModal
+      {active && <TransferCreateModal controller={transferCreate} />}
+      {active && <TransferDetailModal
         detail={detail}
         loading={detailLoading}
         timeZone={timeZone}
         onClose={closeDetail}
-      />
-      <TransferDecisionModal
+      />}
+      {active && <TransferDecisionModal
         action={action}
         transfer={actionTransfer}
         decisionReason={decisionReason}
@@ -265,7 +267,7 @@ function TabTransfersWorkspace({
         onClose={closeAction}
         onDecisionReasonChange={updateDecisionReason}
         onSubmit={handleAction}
-      />
+      />}
     </div>
   );
 }

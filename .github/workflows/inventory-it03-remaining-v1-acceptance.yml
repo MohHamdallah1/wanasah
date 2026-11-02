@@ -1,0 +1,56 @@
+name: Inventory IT03 Remaining V1 Tab Reentry Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/MainInventory.tsx"
+      - "dashboard/src/pages/inventory/Tab2Inbound.tsx"
+      - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
+      - "dashboard/src/pages/inventory/Tab4Ledger.tsx"
+      - "dashboard/src/pages/inventory/TabTransfers.tsx"
+      - "dashboard/src/pages/inventory/TabWarehouseLocations.tsx"
+      - "dashboard/src/pages/inventory/it03-remaining-reentry.test.tsx"
+      - "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts"
+      - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts"
+      - "dashboard/src/pages/inventory/transfers/**"
+      - ".github/workflows/inventory-it03-remaining-v1-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-it03-remaining-v1-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  remaining-reentry:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused IT03 retained tab behavioral and scope tests
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/it03-remaining-reentry.test.tsx
+      - name: TypeScript and focused touched-source lint
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/MainInventory.tsx src/pages/inventory/Tab2Inbound.tsx src/pages/inventory/Tab3Stocktake.tsx src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/TabTransfers.tsx src/pages/inventory/TabWarehouseLocations.tsx src/pages/inventory/it03-remaining-reentry.test.tsx src/pages/inventory/ledger/useLedgerQuery.ts src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts src/pages/inventory/transfers/hooks/useTransferList.ts src/pages/inventory/transfers/hooks/useTransferCreate.ts
+      - name: Diff safety relative to accepted main
+        run: |
+          base="e07f112440909dde315b963380208ec98578345d"
+          git cat-file -e "${base}^{commit}"
+          git diff --check "$base" HEAD

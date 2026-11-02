@@ -18,17 +18,18 @@ import { useLedgerQuery } from "./ledger/useLedgerQuery";
 import { useLedgerReference } from "./ledger/useLedgerReference";
 
 interface Props {
+  active?: boolean;
   locationId: number;
   refreshKey: number;
   onInventoryChanged: () => void;
 }
 
-export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props) {
+export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryChanged }: Props) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const locale = resolveI18nLocale(i18n);
   const access = useInventoryAccess(locationId);
-  const query = useLedgerQuery(locationId, refreshKey);
+  const query = useLedgerQuery(locationId, refreshKey, active);
   const reference = useLedgerReference(locationId);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
@@ -139,7 +140,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
       </section>
 
       <Modal
-        isOpen={noteEntry !== null}
+        isOpen={active && noteEntry !== null}
         onClose={() => setNoteEntry(null)}
         title={text("noteDetails")}
         maxWidth="max-w-md"
@@ -149,8 +150,8 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
         </p>
       </Modal>
 
-      <LedgerReferenceModal t={t} language={language} controller={reference} />
-      <LedgerAdjustmentModal
+      {active && <LedgerReferenceModal t={t} language={language} controller={reference} />}
+      {active && <LedgerAdjustmentModal
         t={t}
         language={language}
         controller={adjustment}
@@ -158,7 +159,7 @@ export function Tab4Ledger({ locationId, refreshKey, onInventoryChanged }: Props
           query.refresh();
           onInventoryChanged();
         }}
-      />
+      />}
     </div>
   );
 }

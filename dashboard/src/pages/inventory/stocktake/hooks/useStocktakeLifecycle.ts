@@ -20,6 +20,7 @@ import {
 } from "../parsers";
 
 interface UseStocktakeLifecycleArgs {
+  active?: boolean;
   durableIdentity: StocktakeDurableIdentity | null;
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
@@ -44,6 +45,7 @@ interface UseStocktakeLifecycleArgs {
 }
 
 export function useStocktakeLifecycle({
+  active = true,
   durableIdentity,
   focusSessionId,
   onFocusUnavailable,
@@ -104,6 +106,9 @@ export function useStocktakeLifecycle({
   }, [copy.generic.sessionOpenFailed, openSessionById]);
 
   useEffect(() => {
+    // Preserve the durable session/drafts while hidden, but never refresh
+    // session context or count sheets until this tab is re-entered.
+    if (!active) return;
     const requestedFocus = focusSessionId !== undefined && handledFocusRef.current !== focusSessionId;
     const previousSession = localStorage.getItem(sessionKey);
     const previousPhase = localStorage.getItem(phaseKey);
@@ -173,7 +178,7 @@ export function useStocktakeLifecycle({
 
     void recover();
     return () => { cancelled = true; };
-  }, [focusSessionId, onFocusUnavailable, clearReview, clearRows, copy.generic.sessionRestoreFailed, fetchSessionContext, openResolvedSession, phaseKey, sessionKey, setPhase, setSessionId, setSessionLocationId]);
+  }, [active, focusSessionId, onFocusUnavailable, clearReview, clearRows, copy.generic.sessionRestoreFailed, fetchSessionContext, openResolvedSession, phaseKey, sessionKey, setPhase, setSessionId, setSessionLocationId]);
 
   const startStocktake = useCallback(async () => {
     if (sessionsLoading || sessionsLoadFailed) {

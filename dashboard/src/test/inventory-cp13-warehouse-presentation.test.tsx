@@ -79,7 +79,7 @@ describe("CP13 Warehouse setup final presentation", () => {
     const policyHook = read("src/features/inventory/quality/useTransferDestinationPolicy.ts");
     expect(source).toContain('access.can("inventory.transfer_policy.manage")');
     expect(source).toContain("setQualityDestinationsOpen(true)");
-    expect(source).toContain("isOpen={qualityDestinationsOpen && canManageQualityDestinations}");
+    expect(source).toContain("isOpen={active && qualityDestinationsOpen && canManageQualityDestinations}");
     expect(source).not.toContain("WarehouseSetupView");
     expect(source).not.toContain('data-warehouse-setup-view="quality"');
     expect(source.match(/<QualityHandlingDestinationsCard/g)?.length).toBe(1);

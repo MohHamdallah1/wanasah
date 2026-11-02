@@ -72,6 +72,7 @@ export interface TransferFocus {
 }
 
 export interface Props {
+  active?: boolean;
   focus?: TransferFocus | null;
   onFocusConsumed?: () => void;
   onInventoryChanged: () => void | Promise<void>;

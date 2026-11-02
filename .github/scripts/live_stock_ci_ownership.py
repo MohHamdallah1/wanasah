@@ -590,7 +590,59 @@ IT03_IT04_REENTRY_REQUIRED = {
 IT03_IT04_REENTRY_ALLOWED = IT03_IT04_REENTRY_REQUIRED | {HELPER}
 
 
+# IT-03 remaining Dashboard V1: only the full, independently tested
+# five-tab reentry correction is allowed through shared Live Stock gates.
+# This is an exact-file scope, NOT a wildcard for inventory components.
+IT03_REMAINING_REQUIRED = {
+    ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+    "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/TabTransfers.tsx",
+    "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+    "dashboard/src/pages/inventory/it03-remaining-reentry.test.tsx",
+    "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+    "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
+    "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts",
+    "dashboard/src/pages/inventory/transfers/TransferRowActions.tsx",
+    "dashboard/src/pages/inventory/transfers/TransferTable.tsx",
+    "dashboard/src/pages/inventory/transfers/hooks/useTransferCreate.ts",
+    "dashboard/src/pages/inventory/transfers/hooks/useTransferList.ts",
+    "dashboard/src/pages/inventory/transfers/types.ts",
+    "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+}
+IT03_REMAINING_ALLOWED = {
+    ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+    "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/TabTransfers.tsx",
+    "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+    "dashboard/src/pages/inventory/it03-remaining-reentry.test.tsx",
+    "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+    "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
+    "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts",
+    "dashboard/src/pages/inventory/transfers/TransferRowActions.tsx",
+    "dashboard/src/pages/inventory/transfers/TransferTable.tsx",
+    "dashboard/src/pages/inventory/transfers/hooks/useTransferCreate.ts",
+    "dashboard/src/pages/inventory/transfers/hooks/useTransferList.ts",
+    "dashboard/src/pages/inventory/transfers/types.ts",
+    "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/inventory-cp13-shell-polish.yml",
+    ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and IT03_REMAINING_REQUIRED <= changed:
+        extra = sorted(changed - IT03_REMAINING_ALLOWED)
+        if extra:
+            return "fail", [f"IT03_REMAINING_SCOPE=FAIL extra={extra}"]
+        return "it03-remaining-v1", []
+
     if mode in {"ux", "operational"} and IT03_IT04_REENTRY_REQUIRED <= changed:
         extra = sorted(changed - IT03_IT04_REENTRY_ALLOWED)
         if extra:
@@ -669,6 +721,12 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
 
 def selftest() -> None:
     none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(IT03_REMAINING_REQUIRED), none)[0] == "it03-remaining-v1"
+        assert classify(mode, set(IT03_REMAINING_ALLOWED), none)[0] == "it03-remaining-v1"
+        for foreign in ("dashboard/src/pages/DispatchBoard.tsx",
+                        "wa_backend/services.py", "LIVE_STOCK_V1_CLOSURE_PLAN.md"):
+            _expect_fail(mode, IT03_REMAINING_ALLOWED | {foreign}, none)
     for mode in ("ux", "operational"):
         assert classify(mode, set(IT03_IT04_REENTRY_REQUIRED), none)[0] == "it03-it04-batch-reentry"
         assert classify(mode, set(IT03_IT04_REENTRY_ALLOWED), none)[0] == "it03-it04-batch-reentry"

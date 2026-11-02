@@ -193,10 +193,41 @@ jobs:
               "dashboard/src/pages/inventory/inventory.css",
               "dashboard/src/pages/inventory/liveStock/i18n.ts",
           }
+          # The separately tested final IT-03 V1 correction touches other
+          # Inventory panels. Permit only this exact complete scope.
+          it03_remaining_required = {
+              ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+              "dashboard/src/pages/inventory/TabTransfers.tsx",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/it03-remaining-reentry.test.tsx",
+              "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts",
+              "dashboard/src/pages/inventory/transfers/TransferRowActions.tsx",
+              "dashboard/src/pages/inventory/transfers/TransferTable.tsx",
+              "dashboard/src/pages/inventory/transfers/hooks/useTransferCreate.ts",
+              "dashboard/src/pages/inventory/transfers/hooks/useTransferList.ts",
+              "dashboard/src/pages/inventory/transfers/types.ts",
+              "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+          }
+          it03_remaining_allowed = it03_remaining_required | {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+          }
+          it03_scope = it03_remaining_required <= changed
+          if it03_scope:
+              assert not (changed - it03_remaining_allowed), sorted(changed - it03_remaining_allowed)
+              assert (it03_remaining_allowed | {"wa_backend/services.py"}) - it03_remaining_allowed == {"wa_backend/services.py"}
           permitted = (
               set(allowed)
               | (combined_additional if combined_required <= changed else set())
               | (live_stock_presentation_files if live_stock_presentation_roots <= changed else set())
+              | (it03_remaining_allowed if it03_scope else set())
           )
           assert changed <= permitted, sorted(changed - permitted)
           for forbidden in ("wa_backend/services.py",

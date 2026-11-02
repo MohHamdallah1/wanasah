@@ -154,7 +154,35 @@ jobs:
               "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx",
           }
 
+          it03_remaining_required = {
+              ".github/workflows/inventory-it03-remaining-v1-acceptance.yml",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+              "dashboard/src/pages/inventory/TabTransfers.tsx",
+              "dashboard/src/pages/inventory/TabWarehouseLocations.tsx",
+              "dashboard/src/pages/inventory/it03-remaining-reentry.test.tsx",
+              "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts",
+              "dashboard/src/pages/inventory/transfers/TransferRowActions.tsx",
+              "dashboard/src/pages/inventory/transfers/TransferTable.tsx",
+              "dashboard/src/pages/inventory/transfers/hooks/useTransferCreate.ts",
+              "dashboard/src/pages/inventory/transfers/hooks/useTransferList.ts",
+              "dashboard/src/pages/inventory/transfers/types.ts",
+              "dashboard/src/test/inventory-cp13-warehouse-presentation.test.tsx",
+          }
+          it03_remaining_allowed = it03_remaining_required | {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/inventory-cp13-shell-polish.yml",
+              ".github/workflows/inventory-cp6-minimum-stock-dashboard-acceptance.yml",
+          }
           def ownership_mode(candidate):
+              if it03_remaining_required <= candidate:
+                  unexpected = candidate - it03_remaining_allowed
+                  assert not unexpected, sorted(unexpected)
+                  return "IT03_REMAINING_V1"
               if warehouse_minimum_sort_required <= candidate and candidate <= warehouse_minimum_sort_allowed:
                   return "WAREHOUSE_MINIMUM_SORT_STRICT"
               if candidate <= cp6_allowed:
@@ -165,6 +193,8 @@ jobs:
               assert "dashboard/src/test/inventory-cp6-minimum-stock-dashboard.test.tsx" in candidate
               return "AUTH_SESSION_COMPAT"
 
+          assert ownership_mode(set(it03_remaining_required)) == "IT03_REMAINING_V1"
+          assert ownership_mode(set(it03_remaining_allowed)) == "IT03_REMAINING_V1"
           mode = ownership_mode(changed)
           unexpected_probe = "wa_backend/domains/inventory/services.py"
           try:

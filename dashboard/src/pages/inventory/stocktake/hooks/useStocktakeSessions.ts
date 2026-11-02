@@ -47,19 +47,24 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
       if (!append) { setSessions([]); setTotal(null); setNextCursor(null); setLoadFailed(true); }
       toast.error(getErrorMessage(error, copy.generic.sessionsFailed));
     } finally {
-      if (seq === requestSeq.current) append ? setLoadingMore(false) : setLoading(false);
+      if (seq === requestSeq.current) {
+        if (append) setLoadingMore(false);
+        else setLoading(false);
+      }
     }
   }, [authenticatedFetch, copy.generic.sessionsFailed, enabled, locationId]);
 
+  // The mounted panel is only retained for one authorized location. Hiding it
+  // invalidates pending reads without erasing its admitted list; reentry
+  // revalidates the first page without presenting an empty loading frame.
   useEffect(() => {
     requestSeq.current += 1;
-    setSessions([]);
-    setTotal(null);
-    setNextCursor(null);
-    setLoading(false);
-    setLoadingMore(false);
-    setLoadFailed(false);
     if (enabled) void fetchSessions(null, false);
+    else {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+    return () => { requestSeq.current += 1; };
   }, [enabled, fetchSessions, locationId]);
 
   const refreshSessions = useCallback(() => {

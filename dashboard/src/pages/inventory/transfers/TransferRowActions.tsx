@@ -2,9 +2,10 @@ import { Ban, CheckCircle2, Eye, XCircle } from "lucide-react";
 import { useTransferTranslation } from "./i18n";
 import type { TransferAction, WarehouseTransferListItem } from "./types";
 
-export function TransferRowActions({ transfer, canAt, onOpenDetail, onOpenAction }: {
+export function TransferRowActions({ transfer, canAt, disabled = false, onOpenDetail, onOpenAction }: {
   transfer: WarehouseTransferListItem;
   canAt: (locationId: number, code: string) => boolean;
+  disabled?: boolean;
   onOpenDetail: (transfer: WarehouseTransferListItem) => void | Promise<void>;
   onOpenAction: (transfer: WarehouseTransferListItem, action: TransferAction) => void;
 }) {
@@ -40,6 +41,7 @@ export function TransferRowActions({ transfer, canAt, onOpenDetail, onOpenAction
     <div className="flex flex-wrap items-center justify-center gap-1.5" data-cp13-action-group="transfer-row">
       <button
         type="button"
+        disabled={disabled}
         aria-label={t("inventoryTransfers.details")}
         title={t("inventoryTransfers.details")}
         onClick={() => void onOpenDetail(transfer)}
@@ -57,7 +59,7 @@ export function TransferRowActions({ transfer, canAt, onOpenDetail, onOpenAction
               <button
                 key={action}
                 type="button"
-                disabled={!allowed}
+                disabled={disabled || !allowed}
                 aria-label={t(`inventoryTransfers.${action}`)}
                 title={t(allowed ? `inventoryTransfers.${action}` : "inventoryTransfers.permissions")}
                 onClick={() => onOpenAction(transfer, action)}
