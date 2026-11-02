@@ -187,8 +187,8 @@ export function GrantAccessPanel({
           return (
             <div key={grant.id} className="inventory-grant-row">
               <span>
-                <strong>{role?.name ?? copy.role}</strong>
-                <small>{location ? locationLabel(location) : copy.wholeCompany}</small>
+                <strong>{role?.name ?? copy.roleNotShown}</strong>
+                <small>{grant.location_id === null ? copy.wholeCompany : location ? locationLabel(location) : copy.locationNotShown}</small>
               </span>
               <button
                 type="button"
