@@ -326,15 +326,34 @@ describe("CP7 Live Stock Dashboard closure", () => {
       />,
     );
 
-    expect(screen.getByText("Total unavailable for sale")).toBeInTheDocument();
+    expect(screen.getByTestId("live-stock-batch-detail")).toHaveAttribute("data-live-stock-detail-mode", "unavailable");
+    expect(screen.queryByText("Total unavailable for sale")).not.toBeInTheDocument();
     expect(screen.getByText("There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.")).toBeInTheDocument();
     expect(screen.getAllByText("Expiry restriction").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Recalled").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Withdrawn from sale").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("LOT-EXPIRED")).toBeInTheDocument();
     expect(screen.getByTestId("live-stock-batch-detail")).toHaveAttribute(
       "data-live-stock-detail-mode",
       "unavailable",
     );
+  });
+
+  it("opens only the affected batch for authorized follow-up, without repeating aggregate table totals", () => {
+    const onGoToBatch = vi.fn();
+    const affected = { ...product, unavailable_quantity: "10" as const, available_for_sale_quantity: "0" as const };
+    const affectedBatch = { ...batch, batch_number: "LOT-ISSUE", unavailable_quantity: "10" as const,
+      restricted_quantity: "0" as const, recalled_quantity: "10" as const };
+    const goodBatch = { ...batch, batch_id: 72, batch_number: "LOT-GOOD" };
+    render(<BatchDetailPanel product={affected} batches={[affectedBatch, goodBatch]}
+      mode="unavailable" onGoToBatch={onGoToBatch}
+      hasMore={false} loading={false} error={null} sourceByBatch={{}}
+      sourceLoadingId={null} sourceErrorId={null}
+      onClose={vi.fn()} onRetry={vi.fn()} onLoadMore={vi.fn()} onLoadSource={vi.fn()} />);
+    expect(screen.getByText("LOT-ISSUE")).toBeInTheDocument();
+    expect(screen.queryByText("LOT-GOOD")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Open batch and expiry" }));
+    expect(onGoToBatch).toHaveBeenCalledExactlyOnceWith(71);
+    expect(screen.queryByText("Total unavailable for sale")).not.toBeInTheDocument();
   });
 
   it("renders anonymous lot without leaking internal identity in batch detail", () => {
@@ -418,7 +437,8 @@ describe("CP7 Live Stock Dashboard closure", () => {
         onLoadSource={loadSource}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Actionable Warehouse source and reservations" }));
+    fireEvent.click(screen.getByText("Additional stock and reservation details"));
+    fireEvent.click(screen.getByRole("button", { name: "Stock and reservation details" }));
     expect(loadSource).toHaveBeenCalledWith(71);
   });
 
@@ -441,8 +461,9 @@ describe("CP7 Live Stock Dashboard closure", () => {
         onLoadSource={vi.fn()}
       />,
     );
+    fireEvent.click(screen.getByText("Additional stock and reservation details"));
     expect(screen.getByText(/Warehouse A1/)).toBeInTheDocument();
-    expect(screen.getByText("Movable quantity")).toBeInTheDocument();
+    expect(screen.getByText("Not reserved")).toBeInTheDocument();
     expect(screen.getByText(/Known reservations/)).toBeInTheDocument();
     expect(
       screen.queryAllByRole("button", {
