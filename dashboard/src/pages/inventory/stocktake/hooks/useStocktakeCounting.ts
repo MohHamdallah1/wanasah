@@ -47,7 +47,11 @@ export function useStocktakeCounting({
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const loadCountSheet = useCallback(async (sid: string, targetLocationId?: number) => {
+  const loadCountSheet = useCallback(async (
+    sid: string,
+    targetLocationId?: number,
+    isCurrent: () => boolean = () => true,
+  ) => {
     const effectiveLocationId = targetLocationId ?? sessionLocationId;
     if (effectiveLocationId === null || !Number.isInteger(effectiveLocationId) || effectiveLocationId <= 0) {
       throw new Error(copy.lifecycle.unknownLocation);
@@ -56,6 +60,7 @@ export function useStocktakeCounting({
     const capabilities = parseInventoryCapabilities(await authenticatedFetch(
       `/inventory/access/me?location_id=${effectiveLocationId}`
     ));
+    if (!isCurrent()) return;
     if (capabilities.location_id !== effectiveLocationId) throw new Error(copy.count.scopeMismatch);
     if (!hasInventoryPermission(capabilities, "stocktake.count")) {
       setSessionLocationId(effectiveLocationId);
@@ -67,6 +72,7 @@ export function useStocktakeCounting({
     }
 
     const raw = await authenticatedFetch(`/warehouse/unified/stocktake/${sid}/count-sheet`);
+    if (!isCurrent()) return;
     const data = parseCountSheet(raw);
     const baseRows: StocktakeRow[] = data.map((item) => ({
       row_key: rowKey(item.product_variant_id, item.batch_id, item.stock_status),
