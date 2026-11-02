@@ -493,6 +493,13 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                         Decimal("25") if expected_reason is None else Decimal("33")
                     )
                     assert mixed["recalled_quantity"] == "5"
+                    assert mixed["allowed_disposition_targets"] == [
+                        "QUARANTINED", "BLOCKED", "RECALLED",
+                    ]
+                    assert by_id[9144]["allowed_disposition_targets"] == ["RECALLED"]
+                    assert by_id[9143]["allowed_disposition_targets"] == [
+                        "RELEASED", "BLOCKED", "RECALLED",
+                    ]
                     assert mixed["blocked_quantity"] == "4"
                     assert mixed["damaged_quantity"] == "6"
                     assert by_id[9141]["sellability_state"] == "NOT_SELLABLE"
@@ -545,6 +552,30 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                             limit=1, cursor=limited["next_cursor"],
                         )
                         assert following["items"][0]["batch_id"] != limited["items"][0]["batch_id"]
+                    # Location and batch disposition remain separate from
+                    # the product-wide policy; a second warehouse keeps its
+                    # own physical quantity and the same product sale gate.
+                    other_location = await _cursor(
+                        db, owner, 9132, product_variant_id=9111,
+                    )
+                    assert len(other_location["items"]) == 1
+                    other = other_location["items"][0]
+                    assert other["batch_id"] == 9150
+                    assert other["on_hand_quantity"] == "9"
+                    assert other["reserved_quantity"] == "0"
+                    assert other["available_status_quantity"] == "9"
+                    assert other["available_for_sale_quantity"] == (
+                        "9" if expected_reason is None else "0"
+                    )
+                    assert other["unavailable_quantity"] == (
+                        "0" if expected_reason is None else "9"
+                    )
+                    other_summary = await _summary(db, owner, 9132)
+                    assert other_summary["total_relevant_batches"] == 1
+                    assert other_summary["non_sellable_count"] == (
+                        0 if expected_reason is None else 1
+                    )
+
                     status = await _summary(db, owner, 9131)
                     assert status["non_sellable_count"] == (
                         3 if expected_reason is None else 5
