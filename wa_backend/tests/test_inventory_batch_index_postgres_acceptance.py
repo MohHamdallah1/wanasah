@@ -14,7 +14,8 @@ from api.warehouse.batch_index import (
     get_warehouse_inventory_batch_index_cursor,
     get_warehouse_inventory_batch_index_summary,
 )
-from api.warehouse.live_stock import get_warehouse_inventory_batches
+from api.warehouse.live_stock import get_warehouse_inventory, get_warehouse_inventory_batches
+from domains.live_stock_projection.service import rebuild_live_stock_company
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_subject import BackofficeAuthorizationSubject
 from models import (
@@ -457,6 +458,139 @@ async def test_cp2_batch_index_real_postgres_acceptance():
                     9146,
                 }
 
+                # The same real physical stock must not gain saleability when
+                # a product-level hold/release changes. Projection is rebuilt
+                # from canonical stock (not adjusted by the batch index).
+                for lifecycle, hold, expected_free, expected_reason in (
+                    ("ACTIVE", "NONE", Decimal("14"), None),
+                    ("ACTIVE", "SALES_HOLD", Decimal("0"), "PRODUCT_SALES_HOLD"),
+                    ("ACTIVE", "RECALL", Decimal("0"), "PRODUCT_RECALL"),
+                    ("RETIRING", "NONE", Decimal("0"), "PRODUCT_NOT_ACTIVE"),
+                ):
+                    await db.execute(
+                        text(
+                            "UPDATE product_variants "
+                            "SET lifecycle_status=:lifecycle, operational_hold=:hold "
+                            "WHERE company_id=9101 AND id=9111"
+                        ),
+                        {"lifecycle": lifecycle, "hold": hold},
+                    )
+                    await rebuild_live_stock_company(db, company_id=9101)
+                    focused = await _cursor(db, owner, 9131, product_variant_id=9111)
+                    assert focused["as_of_date"] == today
+                    assert len(focused["items"]) == 5
+                    by_id = {item["batch_id"]: item for item in focused["items"]}
+                    mixed = by_id[9145]
+                    assert mixed["on_hand_quantity"] == "35"
+                    assert mixed["reserved_quantity"] == "2"
+                    assert mixed["available_status_quantity"] == "10"
+                    assert mixed["available_for_sale_quantity"] == (
+                        "8" if expected_reason is None else "0"
+                    )
+                    assert Decimal(mixed["unavailable_quantity"]) == (
+                        Decimal("25") if expected_reason is None else Decimal("33")
+                    )
+                    assert mixed["recalled_quantity"] == "5"
+                    assert mixed["blocked_quantity"] == "4"
+                    assert mixed["damaged_quantity"] == "6"
+                    assert by_id[9141]["sellability_state"] == "NOT_SELLABLE"
+                    assert "EXPIRED" in by_id[9141]["sellability_reason_codes"]
+                    assert by_id[9144]["sellability_state"] == "NOT_SELLABLE"
+                    assert "DISPOSITION_NOT_RELEASED" in by_id[9144]["sellability_reason_codes"]
+                    if expected_reason:
+                        assert all(
+                            row["sellability_state"] == "NOT_SELLABLE"
+                            and expected_reason in row["sellability_reason_codes"]
+                            for row in focused["items"]
+                        )
+                    else:
+                        assert mixed["sellability_state"] == "SELLABLE"
+                        assert mixed["sellability_reason_codes"] == []
+                    for row in focused["items"]:
+                        assert (
+                            Decimal(row["on_hand_quantity"])
+                            == Decimal(row["reserved_quantity"])
+                            + Decimal(row["available_for_sale_quantity"])
+                            + Decimal(row["unavailable_quantity"])
+                        )
+                    assert sum(
+                        (Decimal(row["available_for_sale_quantity"]) for row in focused["items"]),
+                        Decimal("0"),
+                    ) == expected_free
+
+                    sellable_only = await _cursor(
+                        db, owner, 9131, product_variant_id=9111,
+                        sellability="SELLABLE", limit=1,
+                    )
+                    unavailable_only = await _cursor(
+                        db, owner, 9131, product_variant_id=9111,
+                        has_unavailable=True,
+                    )
+                    assert bool(sellable_only["items"]) == (expected_reason is None)
+                    assert {x["batch_id"] for x in unavailable_only["items"]} == (
+                        {9141, 9143, 9144, 9145} if expected_reason is None
+                        else {9141, 9143, 9144, 9145, 9146}
+                    )
+                    limited = await _cursor(
+                        db, owner, 9131, product_variant_id=9111,
+                        sellability="NOT_SELLABLE", sort="UNAVAILABLE_DESC", limit=1,
+                    )
+                    assert limited["items"][0]["sellability_state"] == "NOT_SELLABLE"
+                    if limited["next_cursor"]:
+                        following = await _cursor(
+                            db, owner, 9131, product_variant_id=9111,
+                            sellability="NOT_SELLABLE", sort="UNAVAILABLE_DESC",
+                            limit=1, cursor=limited["next_cursor"],
+                        )
+                        assert following["items"][0]["batch_id"] != limited["items"][0]["batch_id"]
+                    status = await _summary(db, owner, 9131)
+                    assert status["non_sellable_count"] == (
+                        3 if expected_reason is None else 5
+                    )
+                    assert status["total_relevant_batches"] == 7
+                    drill = await get_warehouse_inventory_batches(
+                        product_variant_id=9111, location_id=9131,
+                        cursor=None, limit=100, db=db, access=owner,
+                    )
+                    drill_mixed = next(x for x in drill["batches"] if x["batch_id"] == 9145)
+                    for quantity in (
+                        "on_hand_quantity", "reserved_quantity",
+                        "available_for_sale_quantity", "unavailable_quantity",
+                    ):
+                        assert Decimal(drill_mixed[quantity]) == Decimal(mixed[quantity])
+
+                    live = await get_warehouse_inventory(
+                        location_id=9131, cursor=None, limit=50, search=None,
+                        only_alerts=False, stock_state="all", family_id=None,
+                        has_reserved=False, has_unavailable=False,
+                        has_damaged=False, has_recalled=False,
+                        has_vehicle=False, minimum_unset=False,
+                        view="warehouse", sort="name_asc", db=db, access=owner,
+                    )
+                    live_variant = next(
+                        x for x in live["items"] if x["product_variant_id"] == 9111
+                    )
+                    for quantity in (
+                        "on_hand_quantity", "reserved_quantity",
+                        "available_for_sale_quantity", "unavailable_quantity",
+                    ):
+                        assert Decimal(live_variant[quantity]) == sum(
+                            (Decimal(row[quantity]) for row in focused["items"]),
+                            Decimal("0"),
+                        )
+                    assert Decimal(live_variant["available_for_sale_quantity"]) == expected_free
+                    # A second warehouse's stock never leaks into this sum.
+                    assert Decimal(live_variant["on_hand_quantity"]) == Decimal("52")
+
+                # Keep the existing CP2 query-count gate on the original,
+                # unchanged release state; no new per-row reads are introduced.
+                await db.execute(
+                    text(
+                        "UPDATE product_variants "
+                        "SET lifecycle_status='ACTIVE', operational_hold='NONE' "
+                        "WHERE company_id=9101 AND id=9111"
+                    )
+                )
                 statements.clear()
                 await _cursor(db, owner, 9131, limit=1)
                 count_limit_1 = len(statements)
