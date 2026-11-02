@@ -124,7 +124,7 @@ export function LiveStockMobileCards({
                   {product.family_name}
                 </p>
                 <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
-                  {t("inventoryLive.minimumStockLabel")}: <span dir="ltr">{minimum}</span>
+                  {t("inventoryLive.minimumStockLabel")}: <bdi dir={i18n.dir()}>{minimum}</bdi>
                 </p>
               </div>
               <button
