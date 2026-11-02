@@ -328,7 +328,7 @@ describe("CP7 Live Stock Dashboard closure", () => {
 
     expect(screen.getByTestId("live-stock-batch-detail")).toHaveAttribute("data-live-stock-detail-mode", "unavailable");
     expect(screen.queryByText("Total unavailable for sale")).not.toBeInTheDocument();
-    expect(screen.getByText("There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.")).toBeInTheDocument();
+    expect(screen.queryByText("There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.")).not.toBeInTheDocument();
     expect(screen.getAllByText("Expiry restriction").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Withdrawn from sale").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("LOT-EXPIRED")).toBeInTheDocument();
