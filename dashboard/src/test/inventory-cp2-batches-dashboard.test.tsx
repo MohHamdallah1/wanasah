@@ -348,7 +348,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     expect(container.querySelector(".hidden.md\\:block")).not.toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Manage batch status" })[0]);
     expect(screen.getByTestId("batch-action-workspace")).toHaveTextContent("LOT-1");
-    expect(screen.getByRole("searchbox")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", { name: /Search product, SKU|ابحث بالمنتج/ })).toBeInTheDocument();
     expect(screen.getAllByRole("combobox").length).toBeGreaterThanOrEqual(7);
   });
 
@@ -368,7 +368,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
     expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
 
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "needle" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: /Search product, SKU|ابحث بالمنتج/ }), { target: { value: "needle" } });
     await waitFor(() => {
       const request = mocks.authFetch.mock.calls
         .map(([path]) => String(path))
@@ -444,7 +444,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     renderPage();
     expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
 
-    const search = screen.getByRole("searchbox");
+    const search = screen.getByRole("searchbox", { name: /Search product, SKU|ابحث بالمنتج/ });
     const expiry = screen.getByRole("combobox", { name: "Expiry" });
     const manage = screen.getAllByRole("button", { name: "Manage batch status" })[0] as HTMLButtonElement;
 
