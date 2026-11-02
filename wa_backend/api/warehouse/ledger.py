@@ -32,8 +32,10 @@ class WarehouseLedgerEvidenceItem(WarehouseLedgerItem):
     batch_id: Optional[int] = Field(None, gt=0)
     source_location_id: Optional[int] = Field(None, gt=0)
     source_location_name: Optional[str] = Field(None, max_length=200)
+    source_location_type: Optional[str] = Field(None, max_length=20)
     destination_location_id: Optional[int] = Field(None, gt=0)
     destination_location_name: Optional[str] = Field(None, max_length=200)
+    destination_location_type: Optional[str] = Field(None, max_length=20)
     source_stock_status: Optional[str] = Field(None, max_length=30)
     destination_stock_status: Optional[str] = Field(None, max_length=30)
 

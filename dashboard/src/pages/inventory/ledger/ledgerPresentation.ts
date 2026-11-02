@@ -51,13 +51,18 @@ export const ledgerLocationEvidence = (
   const text = (key: Parameters<typeof ledgerText>[2]) => ledgerText(t, language, key);
   const location = (name: string | null, id: number | null) =>
     name ?? (id !== null ? `#${new Intl.NumberFormat("en-US", { useGrouping: false }).format(id)}` : text("external"));
-  const withStatus = (name: string, status: string | null) => {
-    const label = ledgerStatusLabel(t, language, status);
-    return label ? `${name} · ${label}` : name;
+  const withEvidence = (name: string, kind: string | null | undefined, status: string | null) => {
+    const locationKind = kind === "WAREHOUSE" ? text("locationWarehouse")
+      : kind === "VEHICLE" ? text("locationVehicle")
+      : kind === "IN_TRANSIT" ? text("locationTransit") : null;
+    const statusLabel = ledgerStatusLabel(t, language, status);
+    return [locationKind, name, statusLabel].filter(Boolean).join(" · ");
   };
   return {
-    source: withStatus(location(entry.source_location_name, entry.source_location_id), entry.source_stock_status),
-    destination: withStatus(location(entry.destination_location_name, entry.destination_location_id), entry.destination_stock_status),
+    source: withEvidence(location(entry.source_location_name, entry.source_location_id),
+      entry.source_location_type, entry.source_stock_status),
+    destination: withEvidence(location(entry.destination_location_name, entry.destination_location_id),
+      entry.destination_location_type, entry.destination_stock_status),
   };
 };
 

@@ -525,13 +525,17 @@ async def read_warehouse_ledger_page(
         for value in (row[0].source_location_id, row[0].destination_location_id)
         if value is not None
     })
-    location_name_by_id: dict[int, str] = {}
+    location_evidence_by_id: dict[int, tuple[str, str]] = {}
     if location_ids:
-        location_name_by_id = {
-            int(location_id_value): str(location_name)
-            for location_id_value, location_name in (
+        location_evidence_by_id = {
+            int(location_id_value): (str(location_name), str(location_type))
+            for location_id_value, location_name, location_type in (
                 await db.execute(
-                    select(InventoryLocation.id, InventoryLocation.name).where(
+                    select(
+                        InventoryLocation.id,
+                        InventoryLocation.name,
+                        InventoryLocation.location_type,
+                    ).where(
                         InventoryLocation.company_id == company_id,
                         InventoryLocation.id.in_(location_ids),
                     )
@@ -687,9 +691,11 @@ async def read_warehouse_ledger_page(
                 "batch_id": int(movement.batch_id) if movement.batch_id is not None else None,
                 "batch_number": batch_number_by_id.get(int(movement.batch_id)) if movement.batch_id is not None else None,
                 "source_location_id": int(movement.source_location_id) if movement.source_location_id is not None else None,
-                "source_location_name": location_name_by_id.get(int(movement.source_location_id)) if movement.source_location_id is not None else None,
+                "source_location_name": location_evidence_by_id.get(int(movement.source_location_id), (None, None))[0] if movement.source_location_id is not None else None,
+                "source_location_type": location_evidence_by_id.get(int(movement.source_location_id), (None, None))[1] if movement.source_location_id is not None else None,
                 "destination_location_id": int(movement.destination_location_id) if movement.destination_location_id is not None else None,
-                "destination_location_name": location_name_by_id.get(int(movement.destination_location_id)) if movement.destination_location_id is not None else None,
+                "destination_location_name": location_evidence_by_id.get(int(movement.destination_location_id), (None, None))[0] if movement.destination_location_id is not None else None,
+                "destination_location_type": location_evidence_by_id.get(int(movement.destination_location_id), (None, None))[1] if movement.destination_location_id is not None else None,
                 "source_stock_status": str(movement.source_stock_status) if movement.source_stock_status is not None else None,
                 "destination_stock_status": str(movement.destination_stock_status) if movement.destination_stock_status is not None else None,
                 "display_uom_id": display_uom_id,
