@@ -15,9 +15,9 @@ const ar = {
   movement: "الحركة",
   product: "المنتج",
   batch: "رقم التشغيلة",
-  before: "الرصيد قبل",
+  before: "الرصيد الفعلي قبل",
   quantity: "الكمية",
-  after: "الرصيد بعد",
+  after: "الرصيد الفعلي بعد",
   evidence: "المصدر / الوجهة",
   reference: "المرجع",
   cost: "دليل التكلفة",
@@ -54,7 +54,18 @@ const ar = {
   confirm: "تسجيل التصحيح",
   saving: "جاري الحفظ...",
   totalCost: "الإجمالي",
-  averageAfter: "المتوسط بعد الحركة",
+  averageAfter: "متوسط تكلفة المخزون التاريخي بعد الحركة",
+  costMeaning: "دليل تاريخي من محاسبة المخزون، وليس تكلفة البضاعة المباعة أو الربح.",
+  physicalChange: "تغير الرصيد الفعلي",
+  reservationChange: "تغير الكمية المتاحة بالحجز، دون نقل بضاعة",
+  statusChange: "إعادة تصنيف حالة المخزون، دون إضافة أو إخراج بضاعة",
+  referenceAccessChanged: "توقف عرض السجل بعد تغير الصلاحيات. أعد فتح التبويب بعد التحقق من الوصول.",
+  status_AVAILABLE: "متاح",
+  status_QUARANTINED: "محجور",
+  status_BLOCKED: "محظور",
+  status_DAMAGED: "تالف",
+  status_RECALLED: "مسحوب من البيع",
+  status_DISPOSAL_PENDING: "بانتظار الإتلاف",
   supplier: "المورد",
   unknown: "غير معروف",
   available: "متاح",
@@ -83,9 +94,9 @@ const en: Record<keyof typeof ar, string> = {
   movement: "Movement",
   product: "Product",
   batch: "Lot number",
-  before: "Balance before",
+  before: "Physical balance before",
   quantity: "Quantity",
-  after: "Balance after",
+  after: "Physical balance after",
   evidence: "Source / destination",
   reference: "Reference",
   cost: "Cost evidence",
@@ -122,7 +133,18 @@ const en: Record<keyof typeof ar, string> = {
   confirm: "Record correction",
   saving: "Saving...",
   totalCost: "Total",
-  averageAfter: "Average after movement",
+  averageAfter: "Historical inventory average after movement",
+  costMeaning: "Historical inventory costing evidence, not cost of goods sold or profit.",
+  physicalChange: "Physical on-hand change",
+  reservationChange: "Available quantity changed by reservation; no physical movement",
+  statusChange: "Stock status reclassified; no physical stock added or removed",
+  referenceAccessChanged: "Ledger access changed. Reopen this tab after access is verified.",
+  status_AVAILABLE: "Available",
+  status_QUARANTINED: "Quarantined",
+  status_BLOCKED: "Blocked",
+  status_DAMAGED: "Damaged",
+  status_RECALLED: "Withdrawn from sale",
+  status_DISPOSAL_PENDING: "Pending disposal",
   supplier: "Supplier",
   unknown: "Unknown",
   available: "Available",
@@ -165,4 +187,10 @@ export const ledgerBadgeClass = (type: string): string => {
   if (type.includes("TRANSFER")) return "bg-blue-50 text-blue-700 border-blue-200";
   if (type === "STATUS_CHANGE") return "bg-slate-100 text-slate-700 border-slate-200";
   return "bg-slate-50 text-slate-700 border-slate-200";
+};
+
+export const ledgerStatusLabel = (t: TFunction, language: string, status: string | null): string | null => {
+  if (!status) return null;
+  const key = `status_${status}` as LedgerTextKey;
+  return key in ar ? ledgerText(t, language, key) : status;
 };
