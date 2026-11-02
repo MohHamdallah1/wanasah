@@ -1554,26 +1554,47 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
         # physical stock, using the same authoritative posting transaction.
         # Expiry/status is physical evidence, not permission to sell.
         async with _runtime_session(runtime_engine, a.company_id) as db:
-            existing_batch = await db.get(ProductBatch, a.batch)
-            assert existing_batch is not None
-            existing_batch.expiry_date = date(2025, 1, 1)
+            # A registered but never received batch has actual zero stock.
+            # Limit this cycle-count snapshot to precisely that genuine Batch;
+            # other live warehouse balances must remain untouched.
+            new_batch = ProductBatch(
+                company_id=a.company_id,
+                product_variant_id=a.variant,
+                batch_number="CP14C-DISCOVERED-" + uuid4().hex,
+                production_date=date(2024, 12, 1),
+                expiry_date=date(2025, 1, 1),
+            )
+            db.add(new_batch)
+            await db.flush()
+            found_batch_id = new_batch.id
             await db.commit()
-            _, found_started = await _start(db, a.operator, a.a2)
+            found_start = StocktakeStartCommand(
+                request_id=uuid4(),
+                location_id=a.a2,
+                stocktake_type="CYCLE_COUNT",
+                product_variant_id=a.variant,
+                batch_id=found_batch_id,
+                notes="CP14-C zero-onhand discovered Batch",
+            )
+            found_started = await stocktake.start_unified_stocktake(
+                found_start, db=db, access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
             found_id = int(found_started["session_id"])
-            before_found = await _balance(db, a.company_id, a.a2, a.variant, a.batch)
+            before_found = await _balance(db, a.company_id, a.a2, a.variant, found_batch_id)
             assert before_found == (Decimal("0"), Decimal("0"))
             found_options = await stocktake_discovery.stocktake_discovery_options(
                 found_id, product_variant_id=a.variant, batch_ids=None,
                 search=None, cursor=None, limit=50, db=db,
                 access=a.operator.access(db), actor=a.operator.operational_driver,
             )
-            found_lot = next(row for row in found_options["items"] if row["id"] == a.batch)
+            found_lot = next(row for row in found_options["items"] if row["id"] == found_batch_id)
             assert found_lot["expiry_date"] == date(2025, 1, 1)
             command = StocktakeCountCommand(
                 request_id=uuid4(),
                 items=[{
                     "product_variant_id": a.variant,
-                    "batch_id": a.batch,
+                    "batch_id": found_batch_id,
                     "stock_status": "QUARANTINED",
                     "actual_quantity": Decimal("1.000"),
                     "uom_id": a.uom,
@@ -1584,7 +1605,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 legacy_actor=a.operator.operational_driver,
             )
             assert found_count["status"] == "PENDING_REVIEW"
-            assert await _balance(db, a.company_id, a.a2, a.variant, a.batch) == before_found
+            assert await _balance(db, a.company_id, a.a2, a.variant, found_batch_id) == before_found
             found_review = await stocktake.get_stocktake_review(
                 found_id, db, a.operator.access(db),
             )
@@ -1610,7 +1631,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 InventoryBalance.company_id == a.company_id,
                 InventoryBalance.location_id == a.a2,
                 InventoryBalance.product_variant_id == a.variant,
-                InventoryBalance.batch_id == a.batch,
+                InventoryBalance.batch_id == found_batch_id,
                 InventoryBalance.stock_status == "QUARANTINED",
             ))
             assert Decimal(status_qty) == Decimal("1.000")
