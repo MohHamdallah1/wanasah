@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 
 import { Modal } from "@/components/ui/modal";
-import { absoluteQuantity, compareQuantity, formatQuantity } from "@/lib/quantity";
+import { ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
 import type { LedgerReferenceState } from "./useLedgerReference";
 import { ledgerBadgeClass, ledgerMovementLabel, ledgerText } from "./ledgerI18n";
 
@@ -43,8 +43,8 @@ export function LedgerReferenceModal({ t, language, controller }: Props) {
                   <tr key={item.id}>
                     <td className="px-3 py-3 font-bold text-slate-800">{item.product_name}</td>
                     <td className="px-3 py-3 font-black text-slate-700">
-                      {compareQuantity(item.quantity, "0") < 0 ? "-" : "+"}
-                      {formatQuantity(absoluteQuantity(item.quantity), item.base_uom_code)}
+                      <bdi dir="auto">{ledgerSignedQuantity(item, code => t(`uom.${code}`, { defaultValue: code }))}</bdi>
+                      <div className="text-[10px] font-normal text-slate-500" data-ledger-quantity-kind={item.movement_kind ?? "PHYSICAL"}>{ledgerQuantityMeaning(t, language, item)}</div>
                     </td>
                     <td className="px-3 py-3">
                       <span className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-black ${ledgerBadgeClass(item.type)}`}>
