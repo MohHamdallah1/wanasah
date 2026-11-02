@@ -126,8 +126,11 @@ export function useStocktakeCounting({
     const pending = { key: draftKey, snapshot: JSON.stringify(rows) };
     pendingDraftRef.current = pending;
     const timeoutId = window.setTimeout(() => {
+      // Successful submission invalidates this pending write. Do not
+      // resurrect an obsolete count draft after the server has accepted it.
+      if (pendingDraftRef.current !== pending) return;
       localStorage.setItem(pending.key, pending.snapshot);
-      if (pendingDraftRef.current === pending) pendingDraftRef.current = null;
+      pendingDraftRef.current = null;
     }, 800);
     return () => window.clearTimeout(timeoutId);
   }, [draftKey, phase, rows]);
