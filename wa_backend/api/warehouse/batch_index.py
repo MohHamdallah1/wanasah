@@ -77,6 +77,10 @@ BatchIndexSort = Literal[
 ]
 
 _REASON_ORDER = (
+    "PRODUCT_NOT_ACTIVE",
+    "PRODUCT_SALES_HOLD",
+    "PRODUCT_RECALL",
+    "PRODUCT_OPERATIONAL_HOLD",
     "BATCH_INACTIVE",
     "DISPOSITION_NOT_RELEASED",
     "PRODUCTION_DATE_IN_FUTURE",
@@ -479,12 +483,23 @@ def _reason_codes(
     minimum_remaining_shelf_life_days: int,
     is_active: bool,
     disposition: str,
+    lifecycle_status: str = "ACTIVE",
+    operational_hold: str = "NONE",
 ) -> tuple[str, ...]:
     mode = str(expiry_control_mode or "").upper()
     disposition_value = str(disposition or "").upper()
     minimum_days = int(minimum_remaining_shelf_life_days or 0)
     reasons: set[str] = set()
 
+    if str(lifecycle_status or "").upper() != "ACTIVE":
+        reasons.add("PRODUCT_NOT_ACTIVE")
+    hold = str(operational_hold or "").upper()
+    if hold == "SALES_HOLD":
+        reasons.add("PRODUCT_SALES_HOLD")
+    elif hold == "RECALL":
+        reasons.add("PRODUCT_RECALL")
+    elif hold != "NONE":
+        reasons.add("PRODUCT_OPERATIONAL_HOLD")
     if not bool(is_active):
         reasons.add("BATCH_INACTIVE")
     if disposition_value != "RELEASED":
@@ -506,7 +521,10 @@ def _reason_codes(
         elif mode != "NONE" and (expiry_date - as_of_date).days < minimum_days:
             reasons.add("MINIMUM_REMAINING_SHELF_LIFE_NOT_MET")
 
-    sellable = batch_metadata_is_sellable(
+    sellable = (
+        str(lifecycle_status or "").upper() == "ACTIVE"
+        and hold == "NONE"
+        and batch_metadata_is_sellable(
         as_of_date=as_of_date,
         expiry_control_mode=mode,
         production_date=production_date,
@@ -514,6 +532,7 @@ def _reason_codes(
         minimum_remaining_shelf_life_days=minimum_days,
         is_active=bool(is_active),
         disposition=disposition_value,
+        )
     )
     ordered = tuple(reason for reason in _REASON_ORDER if reason in reasons)
     if sellable and ordered:
@@ -657,10 +676,16 @@ def _batch_index_query_parts(
         InventoryStockPolicy.minimum_remaining_shelf_life_days,
         0,
     )
-    batch_is_sellable = batch_sellability_predicate(
-        as_of_date,
-        expiry_control_mode=ProductVariant.expiry_control_mode,
-        minimum_remaining_shelf_life_days=policy_minimum,
+    # Mirror the canonical Live Stock product-level safety gate. The
+    # underlying batch predicate stays the single owner of batch/shelf life.
+    batch_is_sellable = and_(
+        ProductVariant.lifecycle_status == "ACTIVE",
+        ProductVariant.operational_hold == "NONE",
+        batch_sellability_predicate(
+            as_of_date,
+            expiry_control_mode=ProductVariant.expiry_control_mode,
+            minimum_remaining_shelf_life_days=policy_minimum,
+        ),
     )
     available_for_sale = case(
         (
@@ -820,6 +845,8 @@ async def get_warehouse_inventory_batch_index_cursor(
             ProductVariant.sku,
             ProductVariant.lot_control_mode,
             ProductVariant.expiry_control_mode,
+            ProductVariant.lifecycle_status,
+            ProductVariant.operational_hold,
             ProductVariant.quantity_scale,
             ProductVariant.quantity_step,
             Product.name.label("family_name"),
@@ -881,8 +908,13 @@ async def get_warehouse_inventory_batch_index_cursor(
             minimum_remaining_shelf_life_days=minimum_days,
             is_active=bool(row.batch_is_active),
             disposition=str(row.disposition),
+            lifecycle_status=str(row.lifecycle_status),
+            operational_hold=str(row.operational_hold),
         )
-        sellable = batch_metadata_is_sellable(
+        sellable = (
+            str(row.lifecycle_status) == "ACTIVE"
+            and str(row.operational_hold) == "NONE"
+            and batch_metadata_is_sellable(
             as_of_date=as_of_date,
             expiry_control_mode=str(row.expiry_control_mode),
             production_date=row.production_date,
@@ -890,6 +922,7 @@ async def get_warehouse_inventory_batch_index_cursor(
             minimum_remaining_shelf_life_days=minimum_days,
             is_active=bool(row.batch_is_active),
             disposition=str(row.disposition),
+            )
         )
         if bool(row.is_sellable) != sellable:
             raise RuntimeError("SQL/Python batch sellability parity failed.")
