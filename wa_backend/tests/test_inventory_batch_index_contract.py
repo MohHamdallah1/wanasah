@@ -75,6 +75,10 @@ def _reasons(**overrides):
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     [
+        ({"lifecycle_status": "RETIRING"}, ("PRODUCT_NOT_ACTIVE",)),
+        ({"operational_hold": "SALES_HOLD"}, ("PRODUCT_SALES_HOLD",)),
+        ({"operational_hold": "RECALL"}, ("PRODUCT_RECALL",)),
+        ({"operational_hold": "SUSPENDED"}, ("PRODUCT_OPERATIONAL_HOLD",)),
         ({"is_active": False}, ("BATCH_INACTIVE",)),
         ({"disposition": "BLOCKED"}, ("DISPOSITION_NOT_RELEASED",)),
         (
@@ -127,6 +131,25 @@ def test_sellability_reason_order_and_canonical_parity():
         "EXPIRED",
     )
     assert batch_metadata_is_sellable(**values) is False
+
+
+
+def test_product_gate_and_batch_shelf_reasons_are_independent_and_ordered():
+    reasons = _reasons(
+        lifecycle_status="RETIRING",
+        operational_hold="RECALL",
+        is_active=False,
+        disposition="BLOCKED",
+        expiry_control_mode="REQUIRED",
+        expiry_date=date(2026, 10, 15),
+    )
+    assert reasons == (
+        "PRODUCT_NOT_ACTIVE",
+        "PRODUCT_RECALL",
+        "BATCH_INACTIVE",
+        "DISPOSITION_NOT_RELEASED",
+        "EXPIRED",
+    )
 
 
 def test_shelf_life_boundary_matches_canonical_authority():
