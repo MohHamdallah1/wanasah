@@ -68,6 +68,9 @@ vi.mock("@/pages/inventory/batches/BatchDispositionManager", () => ({
 }));
 
 import { TabBatches } from "@/pages/inventory/TabBatches";
+import { BatchSellabilitySignal } from "@/pages/inventory/batches/BatchIndexSignals";
+import { batchIndexText } from "@/pages/inventory/batches/batchIndexI18n";
+import type { TFunction } from "i18next";
 
 const item = (
   id: number,
@@ -158,6 +161,43 @@ beforeEach(() => {
 });
 
 describe("CP2 Batches Dashboard batch-first contract", () => {
+  it.each([
+    ["PRODUCT_NOT_ACTIVE", "Product is not active for sale", "المنتج غير نشط للبيع"],
+    ["PRODUCT_SALES_HOLD", "Product sales hold", "إيقاف بيع المنتج"],
+    ["PRODUCT_RECALL", "Product recall", "سحب المنتج من البيع"],
+    ["PRODUCT_OPERATIONAL_HOLD", "Product operational hold", "قيد تشغيلي يمنع بيع المنتج"],
+  ] as const)("accepts product-level %s as server-owned blocked sellability in both languages",
+    (reason, english, arabic) => {
+      const raw = page([item(71, {
+        sellability_state: "NOT_SELLABLE",
+        sellability_reason_codes: [reason],
+        available_for_sale_quantity: "0",
+        unavailable_quantity: "9",
+      })]);
+      const parsed = parseBatchIndexCursorPage(raw).items[0];
+      expect(parsed.sellability_reason_codes).toEqual([reason]);
+      expect(parsed.available_for_sale_quantity).toBe("0");
+      const t = ((key: string, options?: { defaultValue?: string }) =>
+        options?.defaultValue ?? key) as TFunction;
+      for (const [language, expected] of [["en", english], ["ar", arabic]] as const) {
+        const { unmount, container } = render(
+          <BatchSellabilitySignal t={t} language={language}
+            locale={language === "ar" ? "ar-JO" : "en-US"} item={parsed} allReasons />,
+        );
+        expect(screen.getByText(expected)).toBeInTheDocument();
+        expect(screen.getByText(
+          batchIndexText(t, language, "sellability_NOT_SELLABLE"),
+        )).toBeInTheDocument();
+        expect(container.querySelector(".bg-emerald-50")).toBeNull();
+        unmount();
+      }
+      expect(() => parseBatchIndexCursorPage(page([item(71, {
+        sellability_state: "SELLABLE",
+        sellability_reason_codes: [reason],
+      })]))).toThrow();
+    },
+  );
+
   it("loads warehouse-wide batches without product selection and keeps summary independent", async () => {
     mocks.authFetch.mockImplementation(async (path: string) => {
       if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([item(1)]);

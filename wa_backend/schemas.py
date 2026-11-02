@@ -2886,6 +2886,10 @@ BatchIndexTrackingMode = Literal["NONE", "OPTIONAL", "REQUIRED"]
 BatchIndexDisposition = Literal["RELEASED", "QUARANTINED", "BLOCKED", "RECALLED"]
 BatchIndexSellabilityState = Literal["SELLABLE", "NOT_SELLABLE"]
 BatchIndexSellabilityReason = Literal[
+    "PRODUCT_NOT_ACTIVE",
+    "PRODUCT_SALES_HOLD",
+    "PRODUCT_RECALL",
+    "PRODUCT_OPERATIONAL_HOLD",
     "BATCH_INACTIVE",
     "DISPOSITION_NOT_RELEASED",
     "PRODUCTION_DATE_IN_FUTURE",
@@ -2911,7 +2915,7 @@ class WarehouseInventoryBatchIndexItem(BaseModel):
     days_to_expiry: Optional[int] = None
     minimum_remaining_shelf_life_days: int = Field(..., ge=0)
     sellability_state: BatchIndexSellabilityState
-    sellability_reason_codes: List[BatchIndexSellabilityReason] = Field(default_factory=list, max_length=7)
+    sellability_reason_codes: List[BatchIndexSellabilityReason] = Field(default_factory=list, max_length=11)
     disposition: BatchIndexDisposition
     disposition_reason: Optional[str] = None
     disposition_revision: PositiveDbInt

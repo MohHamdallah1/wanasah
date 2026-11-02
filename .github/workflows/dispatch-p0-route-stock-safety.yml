@@ -316,7 +316,31 @@ jobs:
               "dashboard/src/test/live-stock-batch-detail-freshness.test.tsx",
           }
 
+          # Cross-workflow read-contract maintenance: Dispatch's shared
+          # schemas.py trigger also runs for CP2-only changes. Recognize only
+          # the complete audited CP2 product-gate correction; never add its
+          # files to Dispatch/P0 or auth-session permissions.
+          cp2_product_gate_required = {
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_inventory_batch_index_contract.py",
+              "wa_backend/tests/test_inventory_batch_index_postgres_acceptance.py",
+              "dashboard/src/pages/inventory/batches/batchIndexContracts.ts",
+              "dashboard/src/pages/inventory/batches/batchIndexI18n.ts",
+              "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
+              ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+          }
+          cp2_product_gate_allowed = cp2_product_gate_required | {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+          }
+          def assert_cp2_product_gate(candidate):
+              unexpected = sorted(candidate - cp2_product_gate_allowed)
+              assert not unexpected, f"Forbidden P0/CP2 product-gate scope: {unexpected}"
+              return "CP2_PRODUCT_GATE_READ_ONLY"
+
           def ownership_mode(candidate):
+              if cp2_product_gate_required <= candidate:
+                  return assert_cp2_product_gate(candidate)
               if owner_visual_required <= candidate:
                   unexpected = sorted(candidate - owner_visual_allowed)
                   assert not unexpected, f"Forbidden P0/owner-visual scope: {unexpected}"
@@ -333,6 +357,38 @@ jobs:
               assert not unexpected, f"Forbidden P0/auth-session scope: {sorted(unexpected)}"
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
+
+          # Exact-scope positive + adversarial controls, including a partial
+          # CP2 contract and tempting Dispatch/auth/runtime hitchhikers.
+          assert ownership_mode(cp2_product_gate_required) == "CP2_PRODUCT_GATE_READ_ONLY"
+          assert ownership_mode(cp2_product_gate_allowed) == "CP2_PRODUCT_GATE_READ_ONLY"
+          for missing in (
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/schemas.py",
+              "dashboard/src/pages/inventory/batches/batchIndexContracts.ts",
+          ):
+              try:
+                  ownership_mode(cp2_product_gate_required - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Partial CP2 product-gate scope admitted: {missing}")
+          for foreign in (
+              "wa_backend/api/dispatch.py",
+              "wa_backend/services.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/domains/inventory_costing/service.py",
+              "dashboard/src/features/dispatch/adjustLoad.ts",
+              "dashboard/src/lib/authStorage.ts",
+              "wa_backend/alembic/versions/foreign.py",
+              "flutter_app/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(cp2_product_gate_allowed | {foreign})
+              except AssertionError as exc:
+                  assert foreign in str(exc)
+              else:
+                  raise AssertionError(f"CP2 product-gate foreign file admitted: {foreign}")
 
           mode = ownership_mode(paths)
           unexpected_probe = "wa_backend/domains/inventory/services.py"
