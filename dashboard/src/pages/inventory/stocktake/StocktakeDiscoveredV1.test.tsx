@@ -66,9 +66,15 @@ describe("V1 discovered physical stock and real Batch identity", () => {
     ], [selected], [buildDiscoveredRow(selected, "AVAILABLE", "1.000")])).toThrow();
   });
 
-  it.each([["ar", "إضافة إلى مسودة العد"], ["en", "Add to count draft"]])(
-    "adds real discovered stock with keyboard-accessible %s controls", async (lang, saveLabel) => {
+  it.each([
+    ["ar", "إضافة إلى مسودة العد", 390],
+    ["ar", "إضافة إلى مسودة العد", 1280],
+    ["en", "Add to count draft", 390],
+    ["en", "Add to count draft", 1280],
+  ])(
+    "adds real discovered stock with keyboard-accessible %s controls at %ipx", async (lang, saveLabel, width) => {
       language.value = lang;
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
       const fetch: StocktakeAuthFetch = vi.fn(async (url) =>
         url.includes("product_variant_id=11") ? page([batch]) : page([product]));
       const onAdd = vi.fn(() => true);
@@ -81,7 +87,11 @@ describe("V1 discovered physical stock and real Batch identity", () => {
       const quantity = screen.getByLabelText(lang === "ar"
         ? /الكمية الفعلية بوحدة الأساس/ : /Actual quantity in base UOM/);
       fireEvent.change(quantity, { target: { value: "1.25" } });
-      fireEvent.click(screen.getByRole("button", { name: saveLabel }));
+      const save = screen.getByRole("button", { name: saveLabel });
+      expect(save.tagName).toBe("BUTTON");
+      save.focus();
+      expect(document.activeElement).toBe(save);
+      fireEvent.click(save);
       expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({
         line_origin: "DISCOVERED", product_variant_id: 11, batch_id: 22,
         stock_status: "QUARANTINED", actual_quantity: "1.25",
