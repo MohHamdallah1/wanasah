@@ -25,8 +25,10 @@ export interface LedgerEntry {
   batch_number: string | null;
   source_location_id: number | null;
   source_location_name: string | null;
+  source_location_type?: string | null;
   destination_location_id: number | null;
   destination_location_name: string | null;
+  destination_location_type?: string | null;
   source_stock_status: string | null;
   destination_stock_status: string | null;
   display_uom_id: number;
@@ -173,8 +175,10 @@ export function parseLedgerPage(raw: unknown): LedgerCursorPage {
       batch_number: publicBatch(row.batch_number),
       source_location_id: optionalInt(row.source_location_id, "source_location_id"),
       source_location_name: optional(row.source_location_name, "source_location_name"),
+      source_location_type: optional(row.source_location_type, "source_location_type"),
       destination_location_id: optionalInt(row.destination_location_id, "destination_location_id"),
       destination_location_name: optional(row.destination_location_name, "destination_location_name"),
+      destination_location_type: optional(row.destination_location_type, "destination_location_type"),
       source_stock_status: optional(row.source_stock_status, "source_stock_status"),
       destination_stock_status: optional(row.destination_stock_status, "destination_stock_status"),
       display_uom_id: int(row.display_uom_id, "display_uom_id", 1),

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -30,14 +30,24 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
   const locale = resolveI18nLocale(i18n);
   const access = useInventoryAccess(locationId);
   const query = useLedgerQuery(locationId, refreshKey, active);
-  const reference = useLedgerReference(locationId);
+  const reference = useLedgerReference(locationId, active);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
+  const accessAlertRef = useRef<HTMLDivElement>(null);
 
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
-  const canAdjust = access.can("ledger.adjust");
-  const total = query.total === null
+  const denied = reference.denied;
+  useEffect(() => {
+    if (denied) {
+      setNoteEntry(null);
+      adjustment.close();
+      accessAlertRef.current?.focus();
+    }
+  }, [denied, adjustment.close]);
+  const visibleEntries = denied ? [] : query.entries;
+  const canAdjust = !denied && access.can("ledger.adjust");
+  const total = denied || query.total === null
     ? null
     : new Intl.NumberFormat(locale, {
         maximumFractionDigits: 0,
@@ -53,7 +63,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
     t,
     language,
     locale,
-    entries: query.entries,
+    entries: visibleEntries,
     canAdjust,
     onOpenReference: reference.open,
     onOpenNotes: (entry: LedgerEntry) => setNoteEntry(entry),
@@ -80,7 +90,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           </div>
         </header>
 
-        <LedgerFilters
+        {!denied && <LedgerFilters
           t={t}
           language={language}
           search={query.searchInput}
@@ -90,9 +100,14 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           availableTypes={query.availableTypes}
           loading={query.loading}
           onRefresh={query.refresh}
-        />
+        />}
 
-        {query.error ? (
+        {denied ? (
+          <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
+            {text("referenceAccessChanged")}
+          </div>
+        ) : null}
+        {!denied && query.error ? (
           <div
             role="alert"
             data-cp13-state={query.entries.length > 0 ? "stale" : "error"}
@@ -114,10 +129,10 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
         ) : null}
 
         {/* The desktop header must exist on the first frame, not appear after HTTP. */}
-        <LedgerTable {...commonRows} loading={query.loading} error={query.error} />
+        <LedgerTable {...commonRows} loading={query.loading} error={query.error || denied} />
         <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
-          {query.entries.length > 0 ? <LedgerMobileCards {...commonRows} /> : (
-            !query.error && (
+          {visibleEntries.length > 0 ? <LedgerMobileCards {...commonRows} /> : (
+            !query.error && !denied && (
               <p role="status" data-cp13-state={query.loading ? "loading" : "empty"}
                 className="p-8 text-center text-sm font-semibold text-slate-500">
                 {text(query.loading ? "loading" : "empty")}
@@ -126,21 +141,21 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           )}
         </div>
 
-        <LedgerPagination
+        {!denied && <LedgerPagination
           t={t}
           language={language}
           pageIndex={query.pageIndex}
-          count={query.entries.length}
+          count={visibleEntries.length}
           canPrevious={query.canGoPrevious}
           canNext={query.hasMore}
           loading={query.loading}
           onPrevious={query.goPrevious}
           onNext={query.goNext}
-        />
+        />}
       </section>
 
       <Modal
-        isOpen={active && noteEntry !== null}
+        isOpen={active && !denied && noteEntry !== null}
         onClose={() => setNoteEntry(null)}
         title={text("noteDetails")}
         maxWidth="max-w-md"
@@ -150,8 +165,8 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
         </p>
       </Modal>
 
-      {active && <LedgerReferenceModal t={t} language={language} controller={reference} />}
-      {active && <LedgerAdjustmentModal
+      {active && !denied && <LedgerReferenceModal t={t} language={language} controller={reference} />}
+      {active && !denied && <LedgerAdjustmentModal
         t={t}
         language={language}
         controller={adjustment}

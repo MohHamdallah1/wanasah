@@ -238,8 +238,8 @@ describe('unified ledger response contract', () => {
       items: [{
         ...entry,
         reference_type: 'INBOUND_SUPPLIER', movement_kind: null, batch_id: null,
-        source_location_id: null, source_location_name: null,
-        destination_location_id: null, destination_location_name: null,
+        source_location_id: null, source_location_name: null, source_location_type: null,
+        destination_location_id: null, destination_location_name: null, destination_location_type: null,
         source_stock_status: null, destination_stock_status: null,
         supplier_id: null, supplier_name: null, supplier_code: null,
       }], next_cursor: null, has_more: false,

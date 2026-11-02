@@ -14,13 +14,16 @@ import pytest
 import pytest_asyncio
 from alembic.config import Config as AlembicConfig
 from alembic.script import ScriptDirectory
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api.warehouse import inbound_adjustments, ledger
+from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
+from database import get_db
 from context import tenant_context
 from domains.ledger import inbound_adjustment as adjustment_domain
 from domains.ledger.inbound_adjustment import LedgerAdjustmentError
@@ -262,6 +265,52 @@ async def pg():
         await admin_engine.dispose()
 
 
+async def test_http_postgres_ledger_response_and_exact_location_authority(pg):
+    """HTTP serialization and real restricted-RLS scope, not a mocked ledger read."""
+    async with pg.session(pg.a) as db:
+        access = pg.a.ordinary.access(db)
+        app = FastAPI()
+        app.include_router(ledger.router)
+        # Transport identity fixture only; real Ledger capability/RLS SQL remains active.
+        app.dependency_overrides[get_db] = lambda: db
+        app.dependency_overrides[get_current_backoffice_capability_access] = lambda: access
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://ledger-cp10") as client:
+            allowed = await client.get("/warehouse/ledger/cursor", params={
+                "location_id": pg.a.locations[0], "limit": 1,
+            })
+            assert allowed.status_code == 200, allowed.text
+            body = allowed.json()
+            assert len(body["items"]) == 1 and body["has_more"] is True
+            assert body["items"][0]["destination_location_type"] == "WAREHOUSE"
+            assert body["items"][0]["source_location_type"] is None
+
+            continued = await client.get("/warehouse/ledger/cursor", params={
+                "location_id": pg.a.locations[0], "limit": 1,
+                "cursor": body["next_cursor"],
+            })
+            assert continued.status_code == 200 and len(continued.json()["items"]) == 1
+            assert continued.json()["items"][0]["id"] != body["items"][0]["id"]
+
+            denied = await client.get("/warehouse/ledger/cursor", params={
+                "location_id": pg.a.locations[1],
+            })
+            assert denied.status_code == 403
+            assert denied.json()["detail"]["code"] == "LEDGER_READ_FORBIDDEN"
+
+            foreign = await client.get("/warehouse/ledger/cursor", params={
+                "location_id": pg.b.locations[0],
+            })
+            assert foreign.status_code == 404
+            assert foreign.json()["detail"]["code"] == "LEDGER_LOCATION_NOT_FOUND"
+
+            wrong_cursor = await client.get("/warehouse/ledger/cursor", params={
+                "location_id": pg.a.locations[0], "limit": 2,
+                "cursor": body["next_cursor"],
+            })
+            assert wrong_cursor.status_code == 400
+            assert wrong_cursor.json()["detail"]["code"] == "LEDGER_CURSOR_INVALID"
+
+
 async def test_company_location_scope_search_reference_cursor_and_non_owner_grant(pg):
     async with pg.session(pg.a) as db:
         access = pg.a.ordinary.access(db)
@@ -270,6 +319,10 @@ async def test_company_location_scope_search_reference_cursor_and_non_owner_gran
         )
         assert len(first["items"]) == 1
         assert first["has_more"] is True and first["next_cursor"]
+        # The counterpart physical kind must come from InventoryLocation,
+        # never a route/source-name heuristic.
+        assert first["items"][0]["destination_location_type"] == "WAREHOUSE"
+        assert first["items"][0]["source_location_type"] is None
         assert first["total"] == 2
         visible_ids = {item["id"] for item in first["items"]}
         assert pg.a.a2_inbound not in visible_ids
