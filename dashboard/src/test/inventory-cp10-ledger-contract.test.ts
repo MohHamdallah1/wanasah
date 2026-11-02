@@ -4,7 +4,8 @@ import {
   adjustmentDelta,
   parseLedgerPage,
 } from "@/pages/inventory/ledger/contracts";
-import { ledgerMovementLabel } from "@/pages/inventory/ledger/ledgerI18n";
+import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
+import { ledgerBalance, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
 
 const rawEntry = (batchNumber: string | null = null) => ({
   id: 1,
@@ -69,6 +70,25 @@ describe("CP10 Ledger business contracts", () => {
   it("keeps adjustment decimal math exact without Number conversion", () => {
     expect(adjustmentDelta("8.000001", "10.250001")).toBe("-2.25");
     expect(adjustmentDelta("10.250002", "10.250001")).toBe("0.000001");
+  });
+
+  it("never presents reservation or stock-status movement as physical on-hand change", () => {
+    const t = vi.fn((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key));
+    const base = parseLedgerPage(page(null)).items[0];
+    const reservation = { ...base, movement_kind: "RESERVATION", quantity: "-3",
+      balance_before: "10", balance_after: "10" } as const;
+    const statusChange = { ...base, movement_kind: "STATUS_CHANGE", quantity: "-3",
+      balance_before: "10", balance_after: "10", source_stock_status: "AVAILABLE",
+      destination_stock_status: "DAMAGED" } as const;
+    expect(ledgerBalance(reservation, reservation.balance_before, code => code)).toBe("10 EACH");
+    expect(ledgerBalance(reservation, reservation.balance_after, code => code)).toBe("10 EACH");
+    expect(ledgerQuantityMeaning(t as never, "en", reservation)).toContain("no physical movement");
+    expect(ledgerQuantityMeaning(t as never, "ar", reservation)).toContain("دون نقل بضاعة");
+    expect(ledgerQuantityMeaning(t as never, "en", statusChange)).toContain("no physical stock added");
+    expect(ledgerQuantityMeaning(t as never, "ar", statusChange)).toContain("دون إضافة");
+    expect(ledgerStatusLabel(t as never, "ar", "DAMAGED")).toBe("تالف");
+    expect(ledgerStatusLabel(t as never, "ar", "RECALLED")).toBe("مسحوب من البيع");
+    expect(ledgerQuantityMeaning(t as never, "en", base)).toContain("Physical");
   });
 
   it("identifies practical V1 cross-link movement evidence in both languages", () => {
