@@ -64,14 +64,16 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
     await expect(statusChange).toBeVisible();
     await expect(reservation).toContainText(locale === "ar" ? "الحجز" : "reservation");
     await expect(statusChange).toContainText(locale === "ar" ? "دون إضافة" : "no physical stock");
-    await expect(panel.getByText(locale === "ar" ? "متوسط تكلفة المخزون التاريخي بعد الحركة" : "Historical inventory average after movement").first()).toBeVisible();
+    const average = panel.getByText(locale === "ar" ? "متوسط تكلفة المخزون التاريخي بعد الحركة" : "Historical inventory average after movement", { exact: false });
+    await expect(width === 390 ? average.last() : average.first()).toBeVisible();
     await page.screenshot({ path: `node_modules/.cache/ledger-762/${locale}-${width}-movements.png`, fullPage: true });
     const link = panel.getByRole("button", { name: locale === "ar" ?
       "فتح دليل المرجع REF-762" : "Open evidence for reference REF-762" }).first();
     await link.click();
     await expect.poll(() => referencePages).toBeGreaterThanOrEqual(2);
-    await expect(panel.getByRole("alert", { name: "" })).toContainText(locale === "ar" ?
-      "توقف عرض السجل" : "Ledger access changed");
+    await expect(panel.getByText(locale === "ar" ?
+      "توقف عرض السجل بعد تغير الصلاحيات. أعد فتح التبويب بعد التحقق من الوصول." :
+      "Ledger access changed. Reopen this tab after access is verified.")).toBeVisible();
     await expect(panel.getByText("Sensitive ledger item 101")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.screenshot({ path: `node_modules/.cache/ledger-762/${locale}-${width}-revoked.png`, fullPage: true });
