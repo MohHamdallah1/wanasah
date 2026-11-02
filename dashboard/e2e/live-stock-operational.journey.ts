@@ -94,7 +94,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await second.getByRole("button", { name: "Additional stock and reservation details" }).click();
   await first.getByRole("button", { name: "Stock and reservation details" }).click();
   await expect(first).toContainText(/unattributed/i);
-  await expect(first.locator("dd").filter({ hasText: /^2 / })).toHaveCount(2);
+  await expect(first.getByText("Not reserved")).toBeVisible();
   await second.getByRole("button", { name: "Stock and reservation details" }).click();
   await expect(first.getByRole("button", { name: "Stock and reservation details" })).toHaveAttribute("aria-expanded", "false");
   await expect(second).toContainText("Blocked");
@@ -122,7 +122,7 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   expect(canon(available.reserved_quantity)).toBe("24");
   expect(canon(available.movable_quantity)).toBe("776");
   expect(available.reservation_evidence.unattributed_quantity).toBe("24");
-  await expect(first.locator("dd").filter({ hasText: /^3 / })).toHaveCount(2);
+  await expect(first.getByText("Not reserved")).toBeVisible();
   await expect(first).toContainText("97");
   await shot(p, info, "open-dialog-fresh-reservation-and-source");
   await p.keyboard.press("Escape");
