@@ -2072,7 +2072,7 @@ export default function MainInventory() {
             onReadDenied={rejectLiveStockEvidence}
             onOpenBatch={tabAllowed("batches") && liveAuthorityVerified && selectedLocationId !== null
               ? (product, batchId) => {
-                  if (!requestStillAuthorized(warmScopeKey, selectedLocationId) || !tabAllowed("batches")) return;
+                  if (selectedLocationId === null || !requestStillAuthorized(warmScopeKey, selectedLocationId) || !tabAllowed("batches")) return;
                   setBatchNavigationFocus({
                     version: 1, kind: "batch-focus", tab: "batches",
                     variantId: product.id, batchId,
