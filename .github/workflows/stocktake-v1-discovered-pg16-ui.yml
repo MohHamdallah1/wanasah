@@ -121,6 +121,7 @@ jobs:
           ).splitlines())
           required = {
               ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-session-read-fence.yml",
               "wa_backend/api/warehouse/stocktake.py",
               "wa_backend/api/warehouse/stocktake_discovery.py",
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
