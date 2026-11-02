@@ -128,6 +128,8 @@ export function TabBatches({
   const selectedRefreshSeq = useRef(0);
   const selectionRef = useRef(filters);
   selectionRef.current = filters;
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const validationSeq = useRef(0);
   const previousSelectorIdentity = useRef<string | null>(null);
   const selectedRefreshAbort = useRef<AbortController | null>(null);
@@ -173,8 +175,8 @@ export function TabBatches({
     setChoices({ scope: "", families: [], products: [] });
     setFilters({ ...DEFAULT_BATCH_INDEX_FILTERS, familyId, productVariantId });
     closeSelectedBatch();
-    if (!active || !access.data || (familyId === null && productVariantId === null)) {
-      if (!active || !access.data) {
+    if (!activeRef.current || !access.data || (familyId === null && productVariantId === null)) {
+      if (!activeRef.current || !access.data) {
         setFilters(DEFAULT_BATCH_INDEX_FILTERS);
       }
       return () => controller.abort();
@@ -217,7 +219,7 @@ export function TabBatches({
       controller.abort();
       validationSeq.current += 1;
     };
-  }, [active, access.data?.company_id, access.data?.principal_id, authFetch, closeSelectedBatch, locationId, selectorScope]);
+  }, [access.data?.company_id, access.data?.principal_id, authFetch, closeSelectedBatch, locationId, selectorScope]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
