@@ -1,5 +1,5 @@
 import { parseInventoryCapabilities, hasInventoryPermission } from "@/hooks/useInventoryAccess";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { executeStocktakeDurableCommand, type StocktakeDurableIdentity } from "../durableCommand";
 import { useStocktakeCopy } from "../copy";
@@ -46,6 +46,7 @@ export function useStocktakeCounting({
   const { copy } = useStocktakeCopy();
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const pendingDraftRef = useRef<{ key: string; snapshot: string } | null>(null);
 
   const loadCountSheet = useCallback(async (
     sid: string,
@@ -92,6 +93,8 @@ export function useStocktakeCounting({
     }));
 
     const key = `wanasah_audit_draft:${companyScope}:${effectiveLocationId}:${sid}`;
+    // A previously submitted attempt cannot silently restore its old draft.
+    if (pendingDraftRef.current?.key === key) pendingDraftRef.current = null;
     const saved = localStorage.getItem(key);
     if (saved) {
       try {
@@ -119,13 +122,33 @@ export function useStocktakeCounting({
   }, [authenticatedFetch, companyScope, copy.count.scopeMismatch, copy.lifecycle.unknownLocation, phaseKey, sessionLocationId, setPhase, setReview, setRows, setSessionId, setSessionLocationId]);
 
   useEffect(() => {
-    if (phase === "COUNTING" && draftKey && rows.length > 0) {
-      const timeoutId = window.setTimeout(() => {
-        localStorage.setItem(draftKey, JSON.stringify(rows));
-      }, 800);
-      return () => window.clearTimeout(timeoutId);
-    }
+    if (phase !== "COUNTING" || !draftKey || rows.length === 0) return;
+    const pending = { key: draftKey, snapshot: JSON.stringify(rows) };
+    pendingDraftRef.current = pending;
+    const timeoutId = window.setTimeout(() => {
+      localStorage.setItem(pending.key, pending.snapshot);
+      if (pendingDraftRef.current === pending) pendingDraftRef.current = null;
+    }, 800);
+    return () => window.clearTimeout(timeoutId);
   }, [draftKey, phase, rows]);
+
+  // Losing the component or switching sessions before the debounce fires
+  // must not discard the last physical count. Only the current scoped draft
+  // is flushed, never a different company/user/location's data.
+  useEffect(() => {
+    const flush = () => {
+      const pending = pendingDraftRef.current;
+      if (pending && pending.key === draftKey) {
+        localStorage.setItem(pending.key, pending.snapshot);
+        pendingDraftRef.current = null;
+      }
+    };
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, [draftKey]);
 
   const updateRow = useCallback((key: string, value: string) => {
     setRows((prev) => prev.map((row) => row.row_key === key
@@ -184,7 +207,10 @@ export function useStocktakeCounting({
         ),
       });
 
-      if (draftKey) localStorage.removeItem(draftKey);
+      if (draftKey) {
+        if (pendingDraftRef.current?.key === draftKey) pendingDraftRef.current = null;
+        localStorage.removeItem(draftKey);
+      }
       setNotes("");
       await onSubmitted(sessionId, sessionLocationId);
       toast.success(copy.count.submitted);
