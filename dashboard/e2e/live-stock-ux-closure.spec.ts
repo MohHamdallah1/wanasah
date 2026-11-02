@@ -57,9 +57,9 @@ for (const locale of ["ar", "en"] as const) {
           const rect = node.getBoundingClientRect();
           return rect.left + rect.width / 2;
         };
-        const part = [...element.querySelectorAll("[data-quantity-part]")];
-        const numbers = [...element.querySelectorAll("[data-quantity-number]")];
-        const units = [...element.querySelectorAll("[data-quantity-unit]")];
+        const part = Array.from(element.querySelectorAll("[data-quantity-part]"));
+        const numbers = Array.from(element.querySelectorAll("[data-quantity-number]"));
+        const units = Array.from(element.querySelectorAll("[data-quantity-unit]"));
         const join = element.querySelector("[data-quantity-join]");
         if (part.length !== 2 || numbers.length !== 2 || units.length !== 2 || !join) return null;
         return [center(part[0]), center(join), center(part[1]), center(numbers[0]), center(units[0]), center(numbers[1]), center(units[1])];
