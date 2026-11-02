@@ -212,6 +212,20 @@ jobs:
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
           }
 
+          # CP2 V1 read-truth repair: an exact, independently testable
+          # backend + Dashboard contract change. Existing standalone CP2
+          # maintenance and historical introduction scopes remain unchanged.
+          product_gate_read_required = {
+              "wa_backend/api/warehouse/batch_index.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_inventory_batch_index_contract.py",
+              "wa_backend/tests/test_inventory_batch_index_postgres_acceptance.py",
+              "dashboard/src/pages/inventory/batches/batchIndexContracts.ts",
+              "dashboard/src/pages/inventory/batches/batchIndexI18n.ts",
+              "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
+          }
+          product_gate_read_allowed = product_gate_read_required | {cp2_workflow}
+
           cp2_schema_roots = {
               "BatchIndexTrackingMode",
               "BatchIndexDisposition",
@@ -312,6 +326,16 @@ jobs:
               return cp2_schema_contract_from_source(source)
 
           def classify(changed, *, is_pr, cp2_schema_changed=False):
+              if is_pr and product_gate_read_required <= changed:
+                  extra = changed - product_gate_read_allowed
+                  if extra:
+                      raise ValueError(
+                          "CP2_SCOPE=FAIL product-gate read crossover\\n"
+                          f"extra={sorted(extra)}"
+                      )
+                  if not cp2_schema_changed:
+                      raise ValueError("CP2_SCOPE=FAIL product-gate schema unchanged")
+                  return "product-gate-read-contract"
               if is_pr and live_stock_route_extension_required <= changed:
                   extra = changed - live_stock_route_extension_allowed
                   if extra:
@@ -409,6 +433,29 @@ jobs:
           assert baseline_contract != cp2_schema_contract_from_source(
               synthetic_literal_import
           )
+
+          assert classify(
+              product_gate_read_required, is_pr=True, cp2_schema_changed=True,
+          ) == "product-gate-read-contract"
+          assert classify(
+              product_gate_read_allowed, is_pr=True, cp2_schema_changed=True,
+          ) == "product-gate-read-contract"
+          for foreign in (
+              "wa_backend/services.py",
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "flutter_app/lib/main.dart",
+          ):
+              try:
+                  classify(
+                      product_gate_read_allowed | {foreign},
+                      is_pr=True, cp2_schema_changed=True,
+                  )
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError(
+                      f"CP2 product-gate read scope admitted foreign file: {foreign}"
+                  )
 
           positive_cases = (
               ({"wa_backend/api/warehouse/live_stock.py"}, False, "not-applicable"),
