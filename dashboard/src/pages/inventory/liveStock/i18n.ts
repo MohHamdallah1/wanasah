@@ -25,6 +25,7 @@ export type LiveStockCp7Copy = {
   productGateClear: string;
   otherSaleRestriction: string;
   restrictedQuantity: string;
+  restrictedQuantityHelp: string;
   expiryUnavailable: string;
   dispositionReason: string;
   unavailableBreakdownNote: string;
@@ -75,6 +76,7 @@ const ar: LiveStockCp7Copy = {
   productGateClear: "لا يوجد قيد بيع على مستوى المنتج؛ السبب أدناه من التشغيلات أو الصلاحية أو حالة المخزون.",
   otherSaleRestriction: "قيد بيع آخر على مستوى المنتج أو التشغيلة",
   restrictedQuantity: "إجمالي قيود البيع",
+  restrictedQuantityHelp: "كمية ممنوعة من البيع بسبب الصلاحية أو قيد على المنتج أو التشغيلة، بعد استبعاد كميات الحجر والحظر والاستدعاء والتلف وانتظار الإتلاف التي تظهر منفصلة. هذه الكمية جزء من «غير متاح للبيع»، وليست كمية إضافية.",
   expiryUnavailable: "بسبب الصلاحية",
   dispositionReason: "سبب تقييد التشغيلة",
   unavailableBreakdownNote: "هذا العرض يفسّر الرقم فقط ولا يغيّر أي حالة. الكمية غير المتاحة قد تكون بسبب الصلاحية أو الحجر أو الحظر أو الاستدعاء أو التلف أو قيد بيع على المنتج/التشغيلة. الصلاحية جزء من إجمالي قيود البيع وليست كمية إضافية.",
@@ -148,6 +150,7 @@ const en: LiveStockCp7Copy = {
   productGateClear: "There is no product-level sale hold; the cause below comes from batch, expiry, or stock status.",
   otherSaleRestriction: "Other product or batch sale restriction",
   restrictedQuantity: "Total sale restrictions",
+  restrictedQuantityHelp: "Quantity restricted from sale by expiry or a product/batch restriction, excluding separately shown quarantined, blocked, recalled, damaged and disposal-pending stock. This is already part of Unavailable for sale; do not add it again.",
   expiryUnavailable: "Expiry restriction",
   dispositionReason: "Batch restriction reason",
   unavailableBreakdownNote: "This view explains the number only; it does not change any state. Unavailable stock may come from expiry, quarantine, blocking, recall, damage, or a product/batch sale restriction. Expiry is part of the restricted total, not an additional quantity.",
