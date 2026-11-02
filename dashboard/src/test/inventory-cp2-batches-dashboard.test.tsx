@@ -225,7 +225,8 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
     mocks.language = "ar";
     const arabic = renderPage();
-    expect(await screen.findAllByText("بدون تشغيلة")).not.toHaveLength(0);
+    // Assert the canonical Arabic public no-lot label, not an obsolete paraphrase.
+    expect(await screen.findAllByText("بدون رقم تشغيلة")).not.toHaveLength(0);
     expect(arabic.container.querySelector(".inventory-batches-view")).toHaveAttribute("dir", "rtl");
 
     expect(() =>
