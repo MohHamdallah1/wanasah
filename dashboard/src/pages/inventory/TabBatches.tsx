@@ -179,7 +179,19 @@ export function TabBatches({
     setSearchInput("");
     setChoices({ scope: "", families: [], products: [] });
     setPinned({ scope: "", family: null, product: null });
-    setFilters({ ...DEFAULT_BATCH_INDEX_FILTERS, familyId, productVariantId });
+    // Preserve the exact filter object when the values did not change.
+    // Reconstructing an identical object triggers a second first-page request
+    // (and can cancel the first real batch cursor before it settles).
+    setFilters(current => {
+      const next: BatchIndexFilterState = {
+        ...DEFAULT_BATCH_INDEX_FILTERS,
+        familyId: null,
+        productVariantId: null,
+      };
+      return (Object.keys(next) as (keyof BatchIndexFilterState)[]).every(
+        key => current[key] === next[key],
+      ) ? current : next;
+    });
     closeSelectedBatch();
     if (!activeRef.current || !access.data || (familyId === null && productVariantId === null)) {
       if (!activeRef.current || !access.data) {
@@ -205,11 +217,13 @@ export function TabBatches({
       productVariantId === null ? Promise.resolve(null) : validate("product_variant_id", productVariantId),
     ]).then(([family, product]) => {
       if (controller.signal.aborted || seq !== validationSeq.current) return;
-      setFilters(current => ({
-        ...current,
-        familyId: family ? family.product_id : null,
-        productVariantId: product ? product.product_variant_id : null,
-      }));
+      setFilters(current => {
+        const nextFamily = family ? family.product_id : null;
+        const nextProduct = product ? product.product_variant_id : null;
+        return current.familyId === nextFamily && current.productVariantId === nextProduct
+          ? current
+          : { ...current, familyId: nextFamily, productVariantId: nextProduct };
+      });
       setChoices({
         scope: selectorScope,
         families: family ? mergeFamilies([], [family]) : [],
@@ -223,7 +237,8 @@ export function TabBatches({
     }).catch(() => {
       if (controller.signal.aborted || seq !== validationSeq.current) return;
       // A denied/failed validation cannot leave unverified selections active.
-      setFilters(current => ({ ...current, familyId: null, productVariantId: null }));
+      setFilters(current => current.familyId === null && current.productVariantId === null
+        ? current : { ...current, familyId: null, productVariantId: null });
       setChoices({ scope: "", families: [], products: [] });
       setPinned({ scope: "", family: null, product: null });
     });
