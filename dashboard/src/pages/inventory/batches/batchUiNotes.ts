@@ -1,6 +1,6 @@
 type Key =
   | "familySearch" | "productSearch" | "searchMin" | "loading"
-  | "loadMore" | "retry" | "loadFailed" | "summaryScope" | "summaryDisposition";
+  | "loadMore" | "retry" | "loadFailed" | "summaryScope" | "summaryDisposition" | "summaryExplain";
 
 const messages: Record<"ar" | "en", Record<Key, string>> = {
   ar: {
@@ -11,6 +11,7 @@ const messages: Record<"ar" | "en", Record<Key, string>> = {
     loadMore: "عرض خيارات أخرى",
     retry: "إعادة محاولة الخيارات",
     loadFailed: "تعذر تحميل الخيارات. أعد المحاولة.",
+    summaryExplain: "توضيح الأرقام",
     summaryScope: "هذا الملخص يتبع بحث التشغيلات والعائلة والمنتج في المستودع؛ فلاتر الصلاحية وقابلية البيع وحالة التشغيلة والتنبيهات لا تغيّر أرقامه.",
     summaryDisposition: "الحجر والحظر والسحب هنا أعداد تشغيلات حسب حالتها، وليست كميات مخزون.",
   },
@@ -22,6 +23,7 @@ const messages: Record<"ar" | "en", Record<Key, string>> = {
     loadMore: "Show more options",
     retry: "Retry options",
     loadFailed: "Could not load options. Try again.",
+    summaryExplain: "About these counts",
     summaryScope: "This summary follows the warehouse batch search, family and product. Expiry, sellability, disposition and attention filters do not change its counts.",
     summaryDisposition: "Quarantined, blocked and recalled are batch disposition counts, not stock quantities.",
   },

@@ -56,6 +56,7 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     await page.goto("/inventory");
     const panel = page.locator('[data-batch-panel-active="true"]');
     await expect(panel.getByText("LOT-41").first()).toBeVisible();
+    await panel.getByText(locale === "ar" ? "توضيح الأرقام" : "About these counts", { exact: true }).click();
     await expect(panel.getByText(new RegExp(locale === "ar" ? "هذا الملخص يتبع" : "This summary follows"))).toBeVisible();
     await expect(panel.locator('[data-commercial-quantity="true"]').first().locator('[data-quantity-number]')).toHaveText(["1", "4"]);
     await panel.getByRole("searchbox", { name: locale === "ar" ?
