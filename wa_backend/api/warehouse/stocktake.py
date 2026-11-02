@@ -79,10 +79,12 @@ from models import (
 
 
 from ._shared import _escape_like
+from .stocktake_discovery import router as stocktake_discovery_router
 
 
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
+router.include_router(stocktake_discovery_router)
 
 
 def _stocktake_authorization_rejected() -> HTTPException:
