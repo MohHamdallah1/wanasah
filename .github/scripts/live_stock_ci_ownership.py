@@ -665,7 +665,33 @@ OWNER_VISUAL_ALLOWED = OWNER_VISUAL_REQUIRED | {
 }
 
 
+# PR #758: a complete, specifically owned Batches selector/summary/UOM fix.
+# Shared BatchIndexTable triggers UX/operational gates; admit this exact
+# acceptance set only. No broad inventory wildcard or bypass of the gates.
+BATCH_SELECTOR_OWNER_REQUIRED = {
+    ".github/workflows/batches-selector-owner-acceptance.yml",
+    "dashboard/e2e/batches-selector-owner.config.ts",
+    "dashboard/e2e/batches-selector-owner.spec.ts",
+    "dashboard/src/pages/inventory/TabBatches.tsx",
+    "dashboard/src/pages/inventory/batches/BatchIndexFilters.tsx",
+    "dashboard/src/pages/inventory/batches/BatchIndexSummary.tsx",
+    "dashboard/src/pages/inventory/batches/BatchIndexTable.tsx",
+    "dashboard/src/pages/inventory/batches/batchUiNotes.ts",
+    "dashboard/src/pages/inventory/batches/useBatchSelectorDiscovery.ts",
+    "dashboard/src/test/inventory-cp13-batches-browser.mjs",
+    "dashboard/src/test/inventory-cp13-batches-presentation.test.tsx",
+    "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
+}
+BATCH_SELECTOR_OWNER_ALLOWED = BATCH_SELECTOR_OWNER_REQUIRED | {HELPER}
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and BATCH_SELECTOR_OWNER_REQUIRED <= changed:
+        extra = sorted(changed - BATCH_SELECTOR_OWNER_ALLOWED)
+        if extra:
+            return "fail", [f"BATCH_SELECTOR_OWNER_SCOPE=FAIL extra={extra}"]
+        return "batch-selector-owner", []
+
     if mode in {"ux", "operational"} and OWNER_VISUAL_REQUIRED <= changed:
         extra = sorted(changed - OWNER_VISUAL_ALLOWED)
         if extra:
@@ -755,6 +781,14 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    selector_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for selector_mode in ("ux", "operational"):
+        assert classify(selector_mode, BATCH_SELECTOR_OWNER_REQUIRED, selector_none)[0] == "batch-selector-owner"
+        assert classify(selector_mode, BATCH_SELECTOR_OWNER_ALLOWED, selector_none)[0] == "batch-selector-owner"
+        for foreign_path in ("wa_backend/services.py", "dashboard/src/pages/DispatchBoard.tsx",
+                             "LIVE_STOCK_V1_CLOSURE_PLAN.md", "dashboard/src/pages/inventory/batches/batchIndexI18n.ts"):
+            _expect_fail(selector_mode, BATCH_SELECTOR_OWNER_ALLOWED | {foreign_path}, selector_none)
+
     no_semantics = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for owner_mode in ("ux", "operational"):
         assert classify(owner_mode, OWNER_VISUAL_REQUIRED, no_semantics)[0] == "owner-visual-v1"

@@ -20,6 +20,7 @@ import {
 } from "./batches/batchDisplayPreferences";
 import {
   DEFAULT_BATCH_INDEX_FILTERS,
+  parseBatchIndexCursorPage,
   toBatchActionSnapshot,
   type BatchIndexFilters as BatchIndexFilterState,
   type WarehouseBatchIndexItem,
@@ -32,6 +33,7 @@ import {
   type ReservationOwner,
 } from "./batches/batchStockSourcesContract";
 import { useBatchIndex } from "./batches/useBatchIndex";
+import { useBatchSelectorDiscovery } from "./batches/useBatchSelectorDiscovery";
 
 interface Props {
   locationId: number;
@@ -101,11 +103,40 @@ export function TabBatches({
   const [expiryWarningDays, setExpiryWarningDays] = useState(
     DEFAULT_BATCH_EXPIRY_WARNING_DAYS,
   );
-  const [families, setFamilies] = useState<BatchFilterFamilyOption[]>([]);
-  const [products, setProducts] = useState<BatchFilterProductOption[]>([]);
+  const [choices, setChoices] = useState<{
+    scope: string; families: BatchFilterFamilyOption[]; products: BatchFilterProductOption[];
+  }>({ scope: "", families: [], products: [] });
+  const selectorScope = [access.data?.company_id, access.data?.principal_id, locationId].join(":");
+  const [pinned, setPinned] = useState<{
+    scope: string; family: BatchFilterFamilyOption | null; product: BatchFilterProductOption | null;
+  }>({ scope: "", family: null, product: null });
+  const discovery = useBatchSelectorDiscovery({
+    locationId,
+    companyId: access.data?.company_id ?? null,
+    principalId: access.data?.principal_id ?? null,
+    active,
+  });
+  const families = useMemo(() => {
+    const values = new Map((choices.scope === selectorScope ? choices.families : []).map(item => [item.id, item]));
+    for (const item of discovery.families) values.set(item.id, item);
+    if (pinned.scope === selectorScope && pinned.family) values.set(pinned.family.id, pinned.family);
+    return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [choices, discovery.families, pinned, selectorScope]);
+  const products = useMemo(() => {
+    const values = new Map((choices.scope === selectorScope ? choices.products : []).map(item => [item.id, item]));
+    for (const item of discovery.products) values.set(item.id, item);
+    if (pinned.scope === selectorScope && pinned.product) values.set(pinned.product.id, pinned.product);
+    return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [choices, discovery.products, pinned, selectorScope]);
   const [selectedBatchContext, setSelectedBatchContext] =
     useState<SelectedBatchContext | null>(null);
   const selectedRefreshSeq = useRef(0);
+  const selectionRef = useRef(filters);
+  selectionRef.current = filters;
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const validationSeq = useRef(0);
+  const previousSelectorIdentity = useRef<string | null>(null);
   const selectedRefreshAbort = useRef<AbortController | null>(null);
 
   const batchIndex = useBatchIndex({
@@ -133,13 +164,100 @@ export function TabBatches({
     if (!active) closeSelectedBatch();
   }, [active, closeSelectedBatch]);
 
+  // Retain a selected value when changing warehouses ONLY if the new
+  // warehouse's own authorized batch cursor independently confirms it.
+  // Old company/principal labels are never carried into a new identity.
   useEffect(() => {
+    const identity = [access.data?.company_id, access.data?.principal_id].join(":");
+    const samePrincipal = previousSelectorIdentity.current === null ||
+      previousSelectorIdentity.current === identity;
+    previousSelectorIdentity.current = identity;
+    const { familyId, productVariantId } = samePrincipal ? selectionRef.current :
+      DEFAULT_BATCH_INDEX_FILTERS;
+    const seq = ++validationSeq.current;
+    const controller = new AbortController();
     setSearchInput("");
-    setFilters(DEFAULT_BATCH_INDEX_FILTERS);
-    setFamilies([]);
-    setProducts([]);
+    setChoices({ scope: "", families: [], products: [] });
+    setPinned({ scope: "", family: null, product: null });
+    // Preserve the exact filter object when the values did not change.
+    // Reconstructing an identical object triggers a second first-page request
+    // (and can cancel the first real batch cursor before it settles).
+    setFilters(current => {
+      const next: BatchIndexFilterState = {
+        ...DEFAULT_BATCH_INDEX_FILTERS,
+        familyId: null,
+        productVariantId: null,
+      };
+      return (Object.keys(next) as (keyof BatchIndexFilterState)[]).every(
+        key => current[key] === next[key],
+      ) ? current : next;
+    });
     closeSelectedBatch();
-  }, [closeSelectedBatch, locationId]);
+    if (!activeRef.current || !access.data || (familyId === null && productVariantId === null)) {
+      if (!activeRef.current || !access.data) {
+        setFilters(DEFAULT_BATCH_INDEX_FILTERS);
+      }
+      return () => controller.abort();
+    }
+    const validate = async (key: "family_id" | "product_variant_id", id: number) => {
+      const params = new URLSearchParams({
+        location_id: String(locationId), limit: "1", sort: "PRODUCT_ASC", [key]: String(id),
+      });
+      const response = parseBatchIndexCursorPage(await authFetch(
+        "/warehouse/inventory/batches/cursor?" + params.toString(),
+        { signal: controller.signal },
+      ));
+      if (response.location_id !== locationId) throw new Error("BATCH_SELECTOR_SCOPE_MISMATCH");
+      const match = response.items[0];
+      return match && (key === "family_id" ? match.product_id : match.product_variant_id) === id
+        ? match : null;
+    };
+    void Promise.all([
+      familyId === null ? Promise.resolve(null) : validate("family_id", familyId),
+      productVariantId === null ? Promise.resolve(null) : validate("product_variant_id", productVariantId),
+    ]).then(([family, product]) => {
+      if (controller.signal.aborted || seq !== validationSeq.current) return;
+      setFilters(current => {
+        const nextFamily = family ? family.product_id : null;
+        const nextProduct = product ? product.product_variant_id : null;
+        return current.familyId === nextFamily && current.productVariantId === nextProduct
+          ? current
+          : { ...current, familyId: nextFamily, productVariantId: nextProduct };
+      });
+      setChoices({
+        scope: selectorScope,
+        families: family ? mergeFamilies([], [family]) : [],
+        products: product ? mergeProducts([], [product]) : [],
+      });
+      setPinned({
+        scope: selectorScope,
+        family: family ? { id: family.product_id, name: family.family_name } : null,
+        product: product ? { id: product.product_variant_id, name: product.product_name, sku: product.sku } : null,
+      });
+    }).catch(() => {
+      if (controller.signal.aborted || seq !== validationSeq.current) return;
+      // A denied/failed validation cannot leave unverified selections active.
+      setFilters(current => current.familyId === null && current.productVariantId === null
+        ? current : { ...current, familyId: null, productVariantId: null });
+      setChoices({ scope: "", families: [], products: [] });
+      setPinned({ scope: "", family: null, product: null });
+    });
+    return () => {
+      controller.abort();
+      validationSeq.current += 1;
+    };
+  }, [access.data?.company_id, access.data?.principal_id, authFetch, closeSelectedBatch, locationId, selectorScope]);
+
+  useEffect(() => {
+    const revoke = () => {
+      validationSeq.current += 1;
+      setChoices({ scope: "", families: [], products: [] });
+      setPinned({ scope: "", family: null, product: null });
+      setFilters(DEFAULT_BATCH_INDEX_FILTERS);
+    };
+    window.addEventListener("inventory-permission-denied", revoke);
+    return () => window.removeEventListener("inventory-permission-denied", revoke);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -162,8 +280,11 @@ export function TabBatches({
 
   useEffect(() => {
     if (batchIndex.items.length === 0) return;
-    setFamilies((current) => mergeFamilies(current, batchIndex.items));
-    setProducts((current) => mergeProducts(current, batchIndex.items));
+    setChoices(current => ({
+      scope: selectorScope,
+      families: mergeFamilies(current.scope === selectorScope ? current.families : [], batchIndex.items),
+      products: mergeProducts(current.scope === selectorScope ? current.products : [], batchIndex.items),
+    }));
     setSelectedBatchContext((current) => {
       if (!current) return current;
       const detail = batchIndex.items.find(
@@ -180,7 +301,7 @@ export function TabBatches({
           }
         : current;
     });
-  }, [batchIndex.items]);
+  }, [batchIndex.items, selectorScope]);
 
   const refreshSelectedBatch = useCallback(async () => {
     const current = selectedBatchContext;
@@ -345,11 +466,29 @@ export function TabBatches({
             filters={filters}
             searchInput={searchInput}
             onSearchInputChange={setSearchInput}
-            onFiltersChange={setFilters}
+            onFiltersChange={next => {
+              setPinned(current => ({
+                scope: selectorScope,
+                family: next.familyId === null ? null : families.find(item => item.id === next.familyId) ??
+                  (current.scope === selectorScope && current.family?.id === next.familyId ? current.family : null),
+                product: next.productVariantId === null ? null : products.find(item => item.id === next.productVariantId) ??
+                  (current.scope === selectorScope && current.product?.id === next.productVariantId ? current.product : null),
+              }));
+              setFilters(next);
+            }}
             expiryWarningDays={expiryWarningDays}
             onExpiryWarningDaysChange={updateExpiryWarningDays}
             families={families}
             products={products}
+            familySearch={discovery.familySearch}
+            productSearch={discovery.productSearch}
+            onFamilySearchChange={discovery.setFamilySearch}
+            onProductSearchChange={discovery.setProductSearch}
+            onOpenSelector={discovery.open}
+            onMoreSelector={discovery.loadMore}
+            onRetrySelector={discovery.retry}
+            familyDiscovery={discovery.family}
+            productDiscovery={discovery.product}
           />
 
           <BatchIndexSummary

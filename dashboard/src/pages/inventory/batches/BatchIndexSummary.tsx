@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 
 import type { WarehouseBatchIndexSummary } from "./batchIndexContracts";
 import { batchIndexText } from "./batchIndexI18n";
+import { batchUiNote } from "./batchUiNotes";
 
 interface Props {
   t: TFunction;
@@ -76,6 +77,14 @@ export function BatchIndexSummary({
           </div>
         ))}
       </dl>
+      <details className="mt-1.5 text-[10px] text-slate-500">
+        <summary className="w-fit cursor-pointer rounded-sm font-semibold underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-slate-500">
+          {batchUiNote(language, "summaryExplain")}
+        </summary>
+        <p className="mt-1 leading-4">
+          {batchUiNote(language, "summaryScope")} {batchUiNote(language, "summaryDisposition")}
+        </p>
+      </details>
     </section>
   );
 }

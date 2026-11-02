@@ -3,6 +3,7 @@ import type { TFunction } from "i18next";
 
 import { compareQuantity } from "@/lib/quantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
+import { CommercialQuantityDisplay } from "../liveStock/CommercialQuantityDisplay";
 import type { WarehouseBatchIndexItem } from "./batchIndexContracts";
 import { batchIndexText } from "./batchIndexI18n";
 import { DEFAULT_BATCH_EXPIRY_WARNING_DAYS } from "./batchDisplayPreferences";
@@ -68,7 +69,7 @@ export function BatchIndexTable({
         return (
           <div key={key} className="flex items-baseline justify-between gap-2">
             <span className="text-slate-500">{text(key)}</span>
-            <span className="text-end font-bold tabular-nums text-slate-800" title={rendered.secondary ?? undefined}>{rendered.primary}</span>
+            <span className="text-end font-bold tabular-nums text-slate-800" title={rendered.secondary ?? undefined}><CommercialQuantityDisplay text={rendered.primary} direction={language.toLowerCase().startsWith("ar") ? "rtl" : "ltr"} /></span>
           </div>
         );
       })}
