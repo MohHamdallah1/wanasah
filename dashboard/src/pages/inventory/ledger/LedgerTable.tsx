@@ -9,6 +9,7 @@ import {
   ledgerLocationEvidence,
   ledgerMoney,
   ledgerSignedQuantity,
+  ledgerQuantityMeaning,
 } from "./ledgerPresentation";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 
@@ -84,8 +85,9 @@ export function LedgerTable({
                     data-cp13-movement-direction={outgoing ? "out" : "in"}
                   >
                     <DirectionIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-                    <span dir="ltr">{ledgerSignedQuantity(entry, unit)}</span>
+                    <bdi dir="auto">{ledgerSignedQuantity(entry, unit)}</bdi>
                   </span>
+                  <div className="mt-0.5 max-w-44 text-[10px] leading-4 text-slate-500" data-ledger-quantity-kind={entry.movement_kind ?? "PHYSICAL"}>{ledgerQuantityMeaning(t, language, entry)}</div>
                 </td>
                 <td className="px-3 py-2 text-xs font-black text-slate-700">{ledgerBalance(entry, entry.balance_after, unit)}</td>
                 <td className="px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
@@ -116,6 +118,7 @@ export function LedgerTable({
                       <div>{ledgerMoney(entry.input_unit_cost, entry.currency_code)} / {entry.input_uom_code ?? entry.base_uom_code}</div>
                       {entry.total_cost ? <div>{text("totalCost")}: {ledgerMoney(entry.total_cost, entry.currency_code)}</div> : null}
                       {entry.average_cost_after ? <div>{text("averageAfter")}: {ledgerMoney(entry.average_cost_after, entry.currency_code)}</div> : null}
+                      <div className="mt-0.5 text-slate-500">{text("costMeaning")}</div>
                     </>
                   ) : "—"}
                 </td>
