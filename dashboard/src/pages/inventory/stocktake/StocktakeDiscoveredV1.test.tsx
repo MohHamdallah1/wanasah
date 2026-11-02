@@ -71,7 +71,7 @@ describe("V1 discovered physical stock and real Batch identity", () => {
     ["ar", "إضافة إلى مسودة العد", 1280],
     ["en", "Add to count draft", 390],
     ["en", "Add to count draft", 1280],
-  ])(
+  ] as const)(
     "adds real discovered stock with keyboard-accessible %s controls at %ipx", async (lang, saveLabel, width) => {
       language.value = lang;
       Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
