@@ -75,7 +75,7 @@ async def stocktake_discovery_options(
     )).one_or_none()
     if session is None:
         raise HTTPException(status_code=404, detail="جلسة الجرد غير موجودة.")
-    if session.stocktake_type not in {"FULL_COUNT", "CYCLE_COUNT"} or session.status not in {
+    if session.stocktake_type not in {"FULL_COUNT", "CYCLE_COUNT", "VEHICLE_RECON"} or session.status not in {
         "COUNTING", "RECOUNT_REQUIRED"
     }:
         raise HTTPException(status_code=409, detail="لا يمكن إضافة أسطر مكتشفة في حالة الجرد الحالية.")
