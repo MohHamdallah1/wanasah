@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -33,6 +33,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
   const reference = useLedgerReference(locationId, active);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
+  const accessAlertRef = useRef<HTMLDivElement>(null);
 
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
@@ -41,6 +42,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
     if (denied) {
       setNoteEntry(null);
       adjustment.close();
+      accessAlertRef.current?.focus();
     }
   }, [denied, adjustment.close]);
   const visibleEntries = denied ? [] : query.entries;
@@ -101,7 +103,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
         />
 
         {denied ? (
-          <div role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
+          <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
             {text("referenceAccessChanged")}
           </div>
         ) : null}
