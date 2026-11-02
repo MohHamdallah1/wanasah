@@ -114,8 +114,12 @@ export async function detailFreshness(p: Page, info: TestInfo) {
   await expect(dialog).toBeVisible();
   await batchUpdate;
   await expect(dialog).toContainText("OP-FIRST");
-  await expect(first.getByRole("button", { name: "Stock and reservation details", exact: true })).toHaveAttribute("aria-expanded", "false");
+  // Refresh invalidates the expanded disclosure and never presents old
+  // source evidence as verified. Reopen it before requesting fresh evidence.
+  await expect(first.getByRole("button", { name: "Additional stock and reservation details", exact: true }))
+    .toHaveAttribute("aria-expanded", "false");
   await expect(first.locator('[id^="live-stock-source"]')).toHaveCount(0);
+  await first.getByRole("button", { name: "Additional stock and reservation details", exact: true }).click();
   await first.getByRole("button", { name: "Stock and reservation details", exact: true }).click();
   const evidence = await api(p, "/warehouse/inventory/" + state.mainId + "/batches/" + state.firstBatch + "/source?location_id=" + state.warehouse);
   const available = evidence.body.statuses.find((x: { stock_status: string }) => x.stock_status === "AVAILABLE");
