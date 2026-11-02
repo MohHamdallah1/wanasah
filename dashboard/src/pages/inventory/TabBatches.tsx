@@ -20,6 +20,7 @@ import {
 } from "./batches/batchDisplayPreferences";
 import {
   DEFAULT_BATCH_INDEX_FILTERS,
+  parseBatchIndexCursorPage,
   toBatchActionSnapshot,
   type BatchIndexFilters as BatchIndexFilterState,
   type WarehouseBatchIndexItem,
@@ -125,6 +126,10 @@ export function TabBatches({
   const [selectedBatchContext, setSelectedBatchContext] =
     useState<SelectedBatchContext | null>(null);
   const selectedRefreshSeq = useRef(0);
+  const selectionRef = useRef(filters);
+  selectionRef.current = filters;
+  const validationSeq = useRef(0);
+  const previousSelectorIdentity = useRef<string | null>(null);
   const selectedRefreshAbort = useRef<AbortController | null>(null);
 
   const batchIndex = useBatchIndex({
@@ -152,12 +157,67 @@ export function TabBatches({
     if (!active) closeSelectedBatch();
   }, [active, closeSelectedBatch]);
 
+  // Retain a selected value when changing warehouses ONLY if the new
+  // warehouse's own authorized batch cursor independently confirms it.
+  // Old company/principal labels are never carried into a new identity.
   useEffect(() => {
+    const identity = [access.data?.company_id, access.data?.principal_id].join(":");
+    const samePrincipal = previousSelectorIdentity.current === null ||
+      previousSelectorIdentity.current === identity;
+    previousSelectorIdentity.current = identity;
+    const { familyId, productVariantId } = samePrincipal ? selectionRef.current :
+      DEFAULT_BATCH_INDEX_FILTERS;
+    const seq = ++validationSeq.current;
+    const controller = new AbortController();
     setSearchInput("");
-    setFilters(DEFAULT_BATCH_INDEX_FILTERS);
     setChoices({ scope: "", families: [], products: [] });
+    setFilters({ ...DEFAULT_BATCH_INDEX_FILTERS, familyId, productVariantId });
     closeSelectedBatch();
-  }, [closeSelectedBatch, locationId]);
+    if (!active || !access.data || (familyId === null && productVariantId === null)) {
+      if (!active || !access.data) {
+        setFilters(DEFAULT_BATCH_INDEX_FILTERS);
+      }
+      return () => controller.abort();
+    }
+    const validate = async (key: "family_id" | "product_variant_id", id: number) => {
+      const params = new URLSearchParams({
+        location_id: String(locationId), limit: "1", sort: "PRODUCT_ASC", [key]: String(id),
+      });
+      const response = parseBatchIndexCursorPage(await authFetch(
+        "/warehouse/inventory/batches/cursor?" + params.toString(),
+        { signal: controller.signal },
+      ));
+      if (response.location_id !== locationId) throw new Error("BATCH_SELECTOR_SCOPE_MISMATCH");
+      const match = response.items[0];
+      return match && (key === "family_id" ? match.product_id : match.product_variant_id) === id
+        ? match : null;
+    };
+    void Promise.all([
+      familyId === null ? Promise.resolve(null) : validate("family_id", familyId),
+      productVariantId === null ? Promise.resolve(null) : validate("product_variant_id", productVariantId),
+    ]).then(([family, product]) => {
+      if (controller.signal.aborted || seq !== validationSeq.current) return;
+      setFilters(current => ({
+        ...current,
+        familyId: family ? family.product_id : null,
+        productVariantId: product ? product.product_variant_id : null,
+      }));
+      setChoices(current => ({
+        scope: selectorScope,
+        families: family ? mergeFamilies([], [family]) : [],
+        products: product ? mergeProducts([], [product]) : [],
+      }));
+    }).catch(() => {
+      if (controller.signal.aborted || seq !== validationSeq.current) return;
+      // A denied/failed validation cannot leave unverified selections active.
+      setFilters(current => ({ ...current, familyId: null, productVariantId: null }));
+      setChoices({ scope: "", families: [], products: [] });
+    });
+    return () => {
+      controller.abort();
+      validationSeq.current += 1;
+    };
+  }, [active, access.data?.company_id, access.data?.principal_id, authFetch, closeSelectedBatch, locationId, selectorScope]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
