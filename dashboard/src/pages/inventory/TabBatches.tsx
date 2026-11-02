@@ -107,6 +107,9 @@ export function TabBatches({
     scope: string; families: BatchFilterFamilyOption[]; products: BatchFilterProductOption[];
   }>({ scope: "", families: [], products: [] });
   const selectorScope = [access.data?.company_id, access.data?.principal_id, locationId].join(":");
+  const [pinned, setPinned] = useState<{
+    scope: string; family: BatchFilterFamilyOption | null; product: BatchFilterProductOption | null;
+  }>({ scope: "", family: null, product: null });
   const discovery = useBatchSelectorDiscovery({
     locationId,
     companyId: access.data?.company_id ?? null,
@@ -116,13 +119,15 @@ export function TabBatches({
   const families = useMemo(() => {
     const values = new Map((choices.scope === selectorScope ? choices.families : []).map(item => [item.id, item]));
     for (const item of discovery.families) values.set(item.id, item);
+    if (pinned.scope === selectorScope && pinned.family) values.set(pinned.family.id, pinned.family);
     return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [choices, discovery.families, selectorScope]);
+  }, [choices, discovery.families, pinned, selectorScope]);
   const products = useMemo(() => {
     const values = new Map((choices.scope === selectorScope ? choices.products : []).map(item => [item.id, item]));
     for (const item of discovery.products) values.set(item.id, item);
+    if (pinned.scope === selectorScope && pinned.product) values.set(pinned.product.id, pinned.product);
     return [...values.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [choices, discovery.products, selectorScope]);
+  }, [choices, discovery.products, pinned, selectorScope]);
   const [selectedBatchContext, setSelectedBatchContext] =
     useState<SelectedBatchContext | null>(null);
   const selectedRefreshSeq = useRef(0);
@@ -173,6 +178,7 @@ export function TabBatches({
     const controller = new AbortController();
     setSearchInput("");
     setChoices({ scope: "", families: [], products: [] });
+    setPinned({ scope: "", family: null, product: null });
     setFilters({ ...DEFAULT_BATCH_INDEX_FILTERS, familyId, productVariantId });
     closeSelectedBatch();
     if (!activeRef.current || !access.data || (familyId === null && productVariantId === null)) {
@@ -209,11 +215,17 @@ export function TabBatches({
         families: family ? mergeFamilies([], [family]) : [],
         products: product ? mergeProducts([], [product]) : [],
       });
+      setPinned({
+        scope: selectorScope,
+        family: family ? { id: family.product_id, name: family.family_name } : null,
+        product: product ? { id: product.product_variant_id, name: product.product_name, sku: product.sku } : null,
+      });
     }).catch(() => {
       if (controller.signal.aborted || seq !== validationSeq.current) return;
       // A denied/failed validation cannot leave unverified selections active.
       setFilters(current => ({ ...current, familyId: null, productVariantId: null }));
       setChoices({ scope: "", families: [], products: [] });
+      setPinned({ scope: "", family: null, product: null });
     });
     return () => {
       controller.abort();
@@ -225,6 +237,7 @@ export function TabBatches({
     const revoke = () => {
       validationSeq.current += 1;
       setChoices({ scope: "", families: [], products: [] });
+      setPinned({ scope: "", family: null, product: null });
       setFilters(DEFAULT_BATCH_INDEX_FILTERS);
     };
     window.addEventListener("inventory-permission-denied", revoke);
@@ -438,7 +451,16 @@ export function TabBatches({
             filters={filters}
             searchInput={searchInput}
             onSearchInputChange={setSearchInput}
-            onFiltersChange={setFilters}
+            onFiltersChange={next => {
+              setPinned(current => ({
+                scope: selectorScope,
+                family: next.familyId === null ? null : families.find(item => item.id === next.familyId) ??
+                  (current.scope === selectorScope && current.family?.id === next.familyId ? current.family : null),
+                product: next.productVariantId === null ? null : products.find(item => item.id === next.productVariantId) ??
+                  (current.scope === selectorScope && current.product?.id === next.productVariantId ? current.product : null),
+              }));
+              setFilters(next);
+            }}
             expiryWarningDays={expiryWarningDays}
             onExpiryWarningDaysChange={updateExpiryWarningDays}
             families={families}
