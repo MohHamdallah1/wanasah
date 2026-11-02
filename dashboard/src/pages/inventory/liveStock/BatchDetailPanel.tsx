@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronDown, Info, RefreshCcw } from "lucide-react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Modal } from "@/components/ui/modal";
@@ -86,6 +86,7 @@ export function BatchDetailPanel({
   onRetrySource,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const [advancedOpenIds, setAdvancedOpenIds] = useState<Set<number>>(() => new Set());
   const locale = resolveI18nLocale(i18n);
   const copy = getLiveStockCp7Copy(i18n.resolvedLanguage || i18n.language);
 
@@ -307,9 +308,17 @@ export function BatchDetailPanel({
               ) : null}
 
 
-              <details className="mt-3 border-t border-slate-100 pt-3">
-                <summary className="cursor-pointer rounded-md px-2 py-2 text-xs font-bold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">{copy.advancedInfo}</summary>
-                <div className="mt-2 space-y-2">
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <button type="button" aria-expanded={advancedOpenIds.has(batch.batch_id)}
+                  onClick={() => setAdvancedOpenIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(batch.batch_id)) next.delete(batch.batch_id);
+                    else next.add(batch.batch_id);
+                    return next;
+                  })}
+                  className="cursor-pointer rounded-md px-2 py-2 text-xs font-bold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400">{copy.advancedInfo}</button>
+                {advancedOpenIds.has(batch.batch_id) ? <div className="mt-2 space-y-2">
+
                   {compareQuantity(batch.restricted_quantity, "0") > 0 && (
                     <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2 text-xs">
                       <span className="font-bold">{copy.restrictedQuantity}</span>
@@ -426,8 +435,8 @@ export function BatchDetailPanel({
                     ))}
                   </div>
                 ) : null}
-                </div>
-              </details>
+                </div> : null}
+              </div>
             </article>
           );
         })}
