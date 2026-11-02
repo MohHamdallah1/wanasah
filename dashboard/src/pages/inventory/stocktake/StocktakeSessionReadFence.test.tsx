@@ -120,6 +120,12 @@ describe("Stocktake V1 latest authorized session wins", () => {
     let success = false;
     await act(async () => { success = await hook.result.current.handleSubmit(); });
     expect(success).toBe(true);
+    // The old 800ms autosave timer must not recreate a submitted draft,
+    // even if the component remains mounted on a delayed UI transition.
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 850));
+    });
+    expect(localStorage.getItem(key)).toBeNull();
     hook.unmount();
     expect(localStorage.getItem(key)).toBeNull();
   });
