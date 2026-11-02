@@ -19,11 +19,11 @@ export function CommercialQuantityDisplay({ text, direction }: Props) {
       data-commercial-quantity="true">
       {parts.map((part, index) => (
         <Fragment key={index}>
-          {index > 0 ? <span dir="ltr" className="shrink-0" data-quantity-join="true">+</span> : null}
+          {index > 0 ? <span dir="ltr" className="shrink-0" data-quantity-join="true">{" + "}</span> : null}
           <span dir={direction}
             className="inline-flex shrink-0 flex-nowrap items-baseline gap-x-0.5"
             data-quantity-part={index}>
-            <bdi dir="ltr" className="tabular-nums" data-quantity-number="true">{part!.number}</bdi>
+            <bdi dir="ltr" className="tabular-nums" data-quantity-number="true">{part!.number}</bdi>{" "}
             <bdi dir={direction} data-quantity-unit="true">{part!.unit}</bdi>
           </span>
         </Fragment>
