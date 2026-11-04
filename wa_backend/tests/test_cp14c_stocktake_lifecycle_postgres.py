@@ -1650,6 +1650,21 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )) == 1
             print("CP14C_DISCOVERED_EXPIRED_QUARANTINE_POSTING=PASS")
 
+        # A separate real HTTP acceptance is deliberately run after the
+        # canonical CP14-C fixture. No dependency overrides or fake bearer.
+        from tests.stocktake_v1_real_http_pg16_helper import assert_real_http_stocktake
+        await assert_real_http_stocktake(
+            runtime_engine=runtime_engine,
+            admin_engine=admin_engine,
+            a=a,
+            b=b,
+            earlier_discovered_batch_id=found_batch_id,
+            runtime_session=_runtime_session,
+            grant_location=_grant_location,
+            operator_password=PASSWORD,
+            recounter_password=RECOUNT_PASSWORD,
+        )
+
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")
         print("CP14C_VARIANCE_RECOUNT=PASS")
         print("CP14C_CANCEL=PASS")
