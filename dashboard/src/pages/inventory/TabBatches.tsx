@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCcw } from "lucide-react";
+import { RefreshCcw, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
@@ -37,6 +37,8 @@ import { useBatchSelectorDiscovery } from "./batches/useBatchSelectorDiscovery";
 
 interface Props {
   locationId: number;
+  warehouses: { id: number; name: string }[];
+  onWarehouseChange: (id: string) => void;
   active?: boolean;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
@@ -82,6 +84,8 @@ const mergeProducts = (
 
 export function TabBatches({
   locationId,
+  warehouses,
+  onWarehouseChange,
   active = true,
   focus = null,
   onFocusConsumed,
@@ -429,27 +433,6 @@ export function TabBatches({
       className="inventory-batches-view min-h-0 flex-1 overflow-auto bg-slate-50/60 p-2 sm:p-3"
     >
       <div className="mx-auto flex w-full min-w-0 max-w-[1800px] flex-col gap-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-sm font-black text-slate-900">{text("title")}</h2>
-            <p className="text-[10px] font-semibold text-slate-500">
-              {text("loadedCount", { count: loadedCount })}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void batchIndex.refresh()}
-            disabled={batchIndex.loading || batchIndex.summaryLoading}
-            className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-black text-slate-700 shadow-sm outline-none transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-slate-300"
-          >
-            <RefreshCcw
-              aria-hidden="true"
-              className={`h-3.5 w-3.5 ${batchIndex.loading ? "animate-spin" : ""}`}
-            />
-            {text("refresh")}
-          </button>
-        </div>
-
         {focus ? (
           <div
             role="status"
@@ -460,12 +443,51 @@ export function TabBatches({
         ) : null}
 
         <section aria-label={text("title")} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-2.5 py-2.5" data-batches-compact-toolbar="true">
+            <div className="relative min-w-[11rem] flex-[1_1_13rem] sm:max-w-[25rem]">
+              <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={searchInput}
+                onChange={event => setSearchInput(event.target.value)}
+                aria-label={text("searchPlaceholder")}
+                placeholder={text("searchPlaceholder")}
+                maxLength={200}
+                className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-sm font-semibold text-slate-800 outline-none placeholder:font-medium placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-slate-300"
+              />
+            </div>
+            <select
+              aria-label={text("warehouseLabel")}
+              value={locationId}
+              onChange={event => onWarehouseChange(event.target.value)}
+              className="h-9 min-w-0 flex-[0_1_11rem] rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+            >
+              {warehouses.map(warehouse => (
+                <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
+              ))}
+            </select>
+            <span
+              className="inline-flex h-9 shrink-0 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold tabular-nums text-slate-700"
+              title={text("loadedCount", { count: loadedCount })}
+              aria-live="polite"
+              data-batches-loaded-count="true"
+            >
+              {text("loadedCount", { count: loadedCount })}
+            </span>
+            <button
+              type="button"
+              onClick={() => void batchIndex.refresh()}
+              disabled={batchIndex.loading || batchIndex.summaryLoading}
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 outline-none hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-slate-300"
+            >
+              <RefreshCcw aria-hidden="true" className={`h-3.5 w-3.5 ${batchIndex.loading ? "animate-spin" : ""}`} />
+              {text("refresh")}
+            </button>
+          </div>
           <BatchIndexFilters
             t={t}
             language={language}
             filters={filters}
-            searchInput={searchInput}
-            onSearchInputChange={setSearchInput}
             onFiltersChange={next => {
               setPinned(current => ({
                 scope: selectorScope,
@@ -485,6 +507,7 @@ export function TabBatches({
             onFamilySearchChange={discovery.setFamilySearch}
             onProductSearchChange={discovery.setProductSearch}
             onOpenSelector={discovery.open}
+            onCloseSelector={discovery.close}
             onMoreSelector={discovery.loadMore}
             onRetrySelector={discovery.retry}
             familyDiscovery={discovery.family}
