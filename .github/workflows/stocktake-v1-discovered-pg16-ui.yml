@@ -147,14 +147,22 @@ jobs:
               "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
               "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
           }
+          # Exact test-only #778 scope: reuse CP14C fixture and add one
+          # authenticated ASGI bearer journey. No production files allowed.
+          http_778 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
+              frozenset(http_778): "REAL_BEARER_HTTP_778",
           }
           matched = valid_scopes.get(frozenset(changed))
           assert matched is not None, {
               "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-              "unexpected": sorted(changed - discovered_764 - keyboard_776),
+              "unexpected": sorted(changed - discovered_764 - keyboard_776 - http_778),
               "changed": sorted(changed),
           }
           for foreign in (
