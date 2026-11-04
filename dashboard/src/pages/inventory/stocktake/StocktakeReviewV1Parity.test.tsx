@@ -94,6 +94,11 @@ describe("Stocktake V1 #779 canonical Review evidence parity", () => {
       expect(within(surface as HTMLElement).getAllByText(/Evidence product/)).toHaveLength(2);
     }
 
+    const disclosure = container.querySelector("details");
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).not.toHaveAttribute("open");
+    fireEvent.click(disclosure!.querySelector("summary")!);
+    expect(disclosure).toHaveAttribute("open");
     const history = screen.getByRole("list", { name: historyTitle });
     const historicalAttempts = within(history).getAllByRole("listitem");
     expect(historicalAttempts).toHaveLength(2);
@@ -126,6 +131,10 @@ describe("Stocktake V1 #779 canonical Review evidence parity", () => {
       canRecount={false} onRecount={vi.fn()} canApprove={false} onApprove={vi.fn()} onVariance={vi.fn()}
     />);
     expect(screen.getAllByText(/Evidence product/)).toHaveLength(2); // mobile and desktop copies
+    const disclosure = container.querySelector("details");
+    expect(disclosure).not.toHaveAttribute("open");
+    fireEvent.click(disclosure!.querySelector("summary")!);
+    expect(disclosure).toHaveAttribute("open");
     expect(screen.queryByText("Independent counter")).not.toBeInTheDocument();
     expect(screen.queryByText(/Shelf discrepancy confirmed/)).not.toBeInTheDocument();
     expect(container.querySelectorAll("time")).toHaveLength(1);
