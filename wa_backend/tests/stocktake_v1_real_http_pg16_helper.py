@@ -23,7 +23,7 @@ from domains.auth_sessions.codec import issue_access_token
 from domains.identity.models import CompanyPrincipal
 from domains.live_stock_projection.service import rebuild_live_stock_company
 from models import (
-    Company, InventoryBalance, InventoryCostEvent, InventoryCostState,
+    Company, Driver, InventoryBalance, InventoryCostEvent, InventoryCostState,
     InventoryLock, InventoryMovement, ProductBatch, StocktakeSession,
 )
 
@@ -82,7 +82,11 @@ async def assert_real_http_stocktake(
             CompanyPrincipal.id == a.counter.context.principal_id,
             CompanyPrincipal.company_id == a.company_id,
         ))
-        assert operator_name and recounter_name
+        authorizer_legacy_username = await db.scalar(select(Driver.username).where(
+            Driver.company_id == a.company_id,
+            Driver.id == a.counter.driver_id,
+        ))
+        assert operator_name and recounter_name and authorizer_legacy_username
         await db.commit()
 
     # Rebuild only this disposable company through the real canonical
@@ -226,7 +230,7 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
             "reason": "Independent physical recount for zero stock",
-            "authorizer_username": recounter_name,
+            "authorizer_username": authorizer_legacy_username,
             "authorizer_password": recounter_password,
         }, headers=auth_header))
         assert recounted["requires_independent_counter"] is True
