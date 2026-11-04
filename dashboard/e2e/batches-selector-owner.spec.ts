@@ -57,6 +57,15 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     const panel = page.locator('[data-batch-panel-active="true"]');
     const visibleRow = panel.locator("tr:visible, article:visible").filter({ hasText: "LOT-41" });
     await expect(visibleRow).toHaveCount(1);
+    const toolbar = panel.locator('[data-batches-compact-toolbar="true"]');
+    await expect(toolbar.getByRole("searchbox", { name: locale === "ar" ?
+      "ابحث بالمنتج أو SKU أو رقم التشغيلة..." : "Search product, SKU, or lot number..." })).toBeVisible();
+    await expect(toolbar.getByRole("combobox", { name: locale === "ar" ? "المستودع" : "Warehouse" })).toBeVisible();
+    await expect(toolbar.locator('[data-batches-loaded-count="true"]')).toContainText("1");
+    await expect(toolbar.getByRole("button", { name: locale === "ar" ? "تحديث" : "Refresh", exact: true })).toBeVisible();
+    await expect(panel.getByRole("spinbutton", { name: locale === "ar" ?
+      "عدد أيام التنبيه قبل انتهاء الصلاحية" : "Expiry warning window in days" })).toHaveValue("30");
+    await expect(page.locator(".inventory-shared-context-row")).toHaveCount(0);
     // Regression: the legacy two-column Batches CSS pushed the only
     // list into a 19rem-wide RTL grid track and left most of the page empty.
     // Check the real rendered geometry for Arabic/English, desktop/phone.
@@ -74,17 +83,27 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     await panel.getByText(locale === "ar" ? "توضيح الأرقام" : "About these counts", { exact: true }).click();
     await expect(panel.getByText(new RegExp(locale === "ar" ? "هذا الملخص يتبع" : "This summary follows"))).toBeVisible();
     await expect(visibleRow.locator('[data-commercial-quantity="true"]').first().locator('[data-quantity-number]')).toHaveText(["1", "4"]);
-    await panel.getByRole("searchbox", { name: locale === "ar" ?
+    // One combined selector per family/product, with lazy authorized discovery.
+    const familyLabel = locale === "ar" ? "العائلة" : "Family";
+    const productLabel = locale === "ar" ? "المنتج" : "Product";
+    const familyPicker = panel.getByRole("combobox", { name: familyLabel, exact: true });
+    const productPicker = panel.getByRole("combobox", { name: productLabel, exact: true });
+    await expect(panel.getByRole("searchbox")).toHaveCount(1); // Global batch search only when menus are closed.
+    await familyPicker.click();
+    await page.getByRole("searchbox", { name: locale === "ar" ?
       "ابحث عن عائلة لها تشغيلات في المستودع" : "Search families with batches in this warehouse" }).fill("Target Family");
-    await expect(panel.getByRole("option", { name: "Target Family" })).toHaveAttribute("value", "901");
-    await panel.getByRole("combobox", { name: locale === "ar" ? "العائلة" : "Family" }).selectOption("901");
+    await expect(page.getByRole("option", { name: "Target Family" })).toHaveAttribute("data-choice-id", "901");
+    await page.getByRole("option", { name: "Target Family" }).click();
+    await expect(familyPicker).toHaveAttribute("aria-expanded", "false");
     await expect.poll(() => batchReads).toBeGreaterThan(1);
-    await panel.getByRole("searchbox", { name: locale === "ar" ?
+    await productPicker.click();
+    await page.getByRole("searchbox", { name: locale === "ar" ?
       "ابحث عن منتج له تشغيلات في المستودع" : "Search products with batches in this warehouse" }).fill("Remote Product");
-    await panel.getByRole("button", { name: locale === "ar" ? "إعادة محاولة الخيارات" : "Retry options" }).click();
-    await expect(panel.getByRole("option", { name: "Remote Product · R-990" })).toHaveAttribute("value", "990");
-    await panel.getByRole("combobox", { name: locale === "ar" ? "المنتج" : "Product" }).selectOption("990");
-    await expect(panel.getByRole("combobox", { name: locale === "ar" ? "العائلة" : "Family" })).toHaveValue("901");
+    await page.getByRole("button", { name: locale === "ar" ? "إعادة محاولة الخيارات" : "Retry options" }).click();
+    await expect(page.getByRole("option", { name: "Remote Product · R-990" })).toHaveAttribute("data-choice-id", "990");
+    await page.getByRole("option", { name: "Remote Product · R-990" }).click();
+    await expect(familyPicker).toContainText("Target Family");
+    await expect(productPicker).toContainText("Remote Product");
     await panel.getByRole("combobox", { name: locale === "ar" ? "الترتيب" : "Sort" }).selectOption("PRODUCT_ASC");
     await panel.getByRole("combobox", { name: locale === "ar" ? "الصلاحية" : "Expiry" }).selectOption("EXPIRED");
     await page.screenshot({ path: "node_modules/.cache/batches-selector-owner/" + locale + "-" + width + "-filters.png", fullPage: true });
