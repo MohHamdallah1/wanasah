@@ -112,14 +112,21 @@ jobs:
           npx tsc --noEmit
           npx eslint src/pages/inventory/Tab3Stocktake.tsx src/pages/inventory/stocktake/StocktakeCountingPanel.tsx src/pages/inventory/stocktake/StocktakeDiscoveredModal.tsx src/pages/inventory/stocktake/StocktakeDiscoveredV1.test.tsx src/pages/inventory/stocktake/discoveredContract.ts src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts src/pages/inventory/stocktake/uiCopy.ts
       - name: Exact owner scope and whitespace
+        env:
+          PULL_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          git diff --check a740c69135f418bbf60b989ae55b11f72bdbc471 HEAD
-          python - <<'PY'
+          BASE_SHA="${PULL_BASE_SHA:-$(git merge-base origin/main HEAD)}"
+          git diff --check "$BASE_SHA" HEAD
+          BASE_SHA="$BASE_SHA" python - <<'PY'
+          import os
           import subprocess
+
           changed = set(subprocess.check_output(
-              ["git", "diff", "--name-only", "a740c69135f418bbf60b989ae55b11f72bdbc471", "HEAD"], text=True
+              ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD"],
+              text=True,
           ).splitlines())
-          required = {
+          discovered_764 = {
               ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
               ".github/workflows/stocktake-v1-session-read-fence.yml",
               "wa_backend/api/warehouse/stocktake.py",
@@ -133,9 +140,29 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts",
               "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
           }
-          assert changed == required, {"unexpected": sorted(changed - required), "missing": sorted(required - changed)}
-          for foreign in ("dashboard/src/pages/inventory/Tab4Ledger.tsx", "flutter/lib/main.dart",
-                          "wa_backend/services.py", "wa_backend/alembic/versions/fake.py"):
-              assert foreign not in required
-          print("STOCKTAKE_V1_DISCOVERED_OWNER_SCOPE=PASS")
+          keyboard_776 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-ux-776.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.config.ts",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+          }
+          valid_scopes = {
+              frozenset(discovered_764): "DISCOVERED_764",
+              frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
+          }
+          matched = valid_scopes.get(frozenset(changed))
+          assert matched is not None, {
+              "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
+              "unexpected": sorted(changed - discovered_764 - keyboard_776),
+              "changed": sorted(changed),
+          }
+          for foreign in (
+              "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+              "dashboard/src/pages/inventory/TabBatches.tsx",
+              "wa_backend/services.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              assert frozenset(changed | {foreign}) not in valid_scopes
+          print(f"STOCKTAKE_V1_OWNER_SCOPE={matched}_PASS")
           PY
