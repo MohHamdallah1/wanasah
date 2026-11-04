@@ -57,6 +57,20 @@ for (const locale of ["en", "ar"] as const) for (const width of [1440, 390] as c
     const panel = page.locator('[data-batch-panel-active="true"]');
     const visibleRow = panel.locator("tr:visible, article:visible").filter({ hasText: "LOT-41" });
     await expect(visibleRow).toHaveCount(1);
+    // Regression: the legacy two-column Batches CSS pushed the only
+    // list into a 19rem-wide RTL grid track and left most of the page empty.
+    // Check the real rendered geometry for Arabic/English, desktop/phone.
+    const batchGeometry = await panel.locator(".inventory-batches-view").evaluate(view => {
+      const list = view.firstElementChild as HTMLElement | null;
+      return {
+        display: getComputedStyle(view).display,
+        viewportWidth: view.getBoundingClientRect().width,
+        listWidth: list?.getBoundingClientRect().width ?? 0,
+      };
+    });
+    expect(batchGeometry.display).toBe("block");
+    expect(batchGeometry.viewportWidth).toBeGreaterThan(0);
+    expect(batchGeometry.listWidth).toBeGreaterThan(batchGeometry.viewportWidth * 0.90);
     await panel.getByText(locale === "ar" ? "توضيح الأرقام" : "About these counts", { exact: true }).click();
     await expect(panel.getByText(new RegExp(locale === "ar" ? "هذا الملخص يتبع" : "This summary follows"))).toBeVisible();
     await expect(visibleRow.locator('[data-commercial-quantity="true"]').first().locator('[data-quantity-number]')).toHaveText(["1", "4"]);

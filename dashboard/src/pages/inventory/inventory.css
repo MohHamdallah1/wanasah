@@ -1862,13 +1862,16 @@
   }
 }
 
+/* Batches V1 is a single, full-width list; the old two-pane grid is
+   intentionally not applied. Detail actions open an overlay on demand. */
 .inventory-batches-view {
-  display: grid;
-  grid-template-columns: minmax(15rem, 19rem) minmax(0, 1fr);
-  gap: 0.8rem;
+  display: block;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   height: 100%;
   padding: 0.85rem;
+  overflow: auto;
 }
 
 .inventory-batches-products,
@@ -2184,8 +2187,7 @@
 
 @media (max-width: 900px) {
   .inventory-batches-view {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(11rem, 30vh) minmax(0, 1fr);
+    padding: 0.5rem;
   }
 }
 
