@@ -25,6 +25,8 @@ export function StocktakeReviewPanel({
   const { t } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.review;
+  // Preserve the timestamp and its original offset; do not infer a local timezone.
+  const displayTimestamp = (value: string) => value.replace("T", " ").replace(/Z$/, " UTC");
 
   return (
     <div dir={dir} className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
@@ -36,6 +38,31 @@ export function StocktakeReviewPanel({
         </div>
         <div className="text-xs text-slate-300 font-bold"><span dir="ltr">{review.attempt_history.length}</span> {text.history}</div>
       </div>
+
+      <details className="mx-4 mt-3 shrink-0 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-blue-500">
+          {text.historyTitle} (<span dir="ltr">{review.attempt_history.length}</span>)
+        </summary>
+        <ol aria-label={text.historyTitle} className="max-h-40 space-y-2 overflow-y-auto border-t border-slate-200 px-3 py-2 text-xs">
+          {review.attempt_history.map((attempt) => (
+            <li key={attempt.id} className="rounded-md bg-white px-3 py-2 border border-slate-100">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <strong>{text.attempt} <span dir="ltr">#{attempt.attempt_number}</span></strong>
+                <span>{text.countedBy}: {attempt.counted_by_name} <span dir="ltr">#{attempt.counted_by}</span></span>
+                {attempt.submitted_at && (
+                  <span>{text.submittedAt}: <time dir="ltr" dateTime={attempt.submitted_at}>{displayTimestamp(attempt.submitted_at)}</time></span>
+                )}
+              </div>
+              {attempt.authorized_by_name && (
+                <div className="mt-1">{text.authorizedBy}: {attempt.authorized_by_name}
+                  {attempt.authorized_by !== null && <span dir="ltr"> #{attempt.authorized_by}</span>}
+                </div>
+              )}
+              {attempt.recount_reason && <div className="mt-1 break-words">{text.recountReason}: {attempt.recount_reason}</div>}
+            </li>
+          ))}
+        </ol>
+      </details>
 
       {approvalBlocked && (
         <div className="mx-4 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-xs font-bold flex items-center gap-2" role="alert">
@@ -50,7 +77,13 @@ export function StocktakeReviewPanel({
           return (
             <article key={line.attempt_line_id} className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="font-bold text-slate-800">{line.product_name}</div>
-              <div className="text-xs text-slate-500 mt-1">{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</div>
+              <div className="text-xs text-slate-500 mt-1">
+                {formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}
+                <span className="ms-2">{text.expiry}: <span dir="ltr">{line.expiry_date ?? "—"}</span></span>
+              </div>
+              {line.line_origin === "DISCOVERED" && (
+                <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">{text.discovered}</span>
+              )}
               <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-700">
                 {text.stockStatus}: {copy.stockStatuses[line.stock_status]}
               </span>
@@ -82,7 +115,11 @@ export function StocktakeReviewPanel({
               return (
                 <tr key={line.attempt_line_id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-bold text-slate-800">{line.product_name}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500 font-bold">{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500 font-bold">
+                    <div>{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</div>
+                    <div className="mt-1 font-normal">{text.expiry}: <span dir="ltr">{line.expiry_date ?? "—"}</span></div>
+                    {line.line_origin === "DISCOVERED" && <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">{text.discovered}</span>}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">
                       {copy.stockStatuses[line.stock_status]}
