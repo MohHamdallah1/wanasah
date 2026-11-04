@@ -94,6 +94,22 @@ async def assert_real_http_stocktake(
     async with runtime_session(runtime_engine, a.company_id) as db:
         await rebuild_live_stock_company(db, company_id=a.company_id)
         await db.commit()
+        # Independent test fixture truth, not visible to the blind count UI.
+        # Other snapshot lines must be counted at exactly their physical
+        # amounts; never guess an earlier transfer result.
+        physical_before = {
+            (int(balance.batch_id), balance.stock_status):
+                Decimal(balance.on_hand_quantity)
+            for balance in (await db.scalars(select(InventoryBalance).where(
+                InventoryBalance.company_id == a.company_id,
+                InventoryBalance.location_id == a.a2,
+                InventoryBalance.product_variant_id == a.variant,
+                InventoryBalance.on_hand_quantity > 0,
+            ))).all()
+        }
+    old_key = (earlier_discovered_batch_id, "QUARANTINED")
+    assert physical_before[old_key] == Decimal("1.000"), physical_before
+    total_before = sum(physical_before.values(), Decimal("0"))
 
     # Production routers + production auth dependencies. In particular, do
     # NOT override get_db, bearer decoding, capability checks or legacy map.
@@ -161,10 +177,11 @@ async def assert_real_http_stocktake(
                                  headers=auth_header), 409)
         sheet = _check(await client.get(f"{base}/{sid}/count-sheet",
                                         headers=auth_header))
-        assert len(sheet) >= 2 and all(
+        assert len(sheet) == len(physical_before) and all(
             "expected_quantity" not in row and
             int(row["base_uom_id"]) == a.uom for row in sheet
         ), sheet
+        assert {(int(row["batch_id"]), row["stock_status"]) for row in sheet} == set(physical_before)
         assert any(int(row["batch_id"]) == earlier_discovered_batch_id
                    for row in sheet)
         options = _check(await client.get(
@@ -176,8 +193,9 @@ async def assert_real_http_stocktake(
         zero_items = []
         for row in sheet:
             # An explicit 0 is a real physical count, not an omitted line.
-            quantity = ("0.000" if int(row["batch_id"]) == earlier_discovered_batch_id
-                        else "9.875")
+            key = (int(row["batch_id"]), row["stock_status"])
+            quantity = ("0.000" if key == old_key
+                        else format(physical_before[key], "f"))
             zero_items.append({
                 "product_variant_id": row["product_variant_id"],
                 "batch_id": row["batch_id"],
@@ -241,8 +259,10 @@ async def assert_real_http_stocktake(
         recount_items = []
         for row in recount_sheet:
             batch_id = int(row["batch_id"])
-            quantity = ("0.000" if batch_id == earlier_discovered_batch_id
-                        else "1.000" if batch_id == new_batch_id else "9.875")
+            key = (batch_id, row["stock_status"])
+            quantity = ("0.000" if key == old_key
+                        else "1.000" if batch_id == new_batch_id
+                        else format(physical_before[key], "f"))
             recount_items.append({
                 "product_variant_id": row["product_variant_id"],
                 "batch_id": row["batch_id"],
@@ -288,7 +308,7 @@ async def assert_real_http_stocktake(
         stock = next(item for item in page["items"]
                      if int(item["id"]) == a.variant)
         assert stock["total_quantity_scope"] == "WAREHOUSE_PHYSICAL"
-        assert Decimal(stock["on_hand_quantity"]) == Decimal("10.875")
+        assert Decimal(stock["on_hand_quantity"]) == total_before - physical_before[old_key] + Decimal("1.000")
         ledger_page = _check(await client.get("/warehouse/ledger/cursor",
                                                params={"location_id": a.a2,
                                                        "reference_type": "AUDIT_ADJUSTMENT",
@@ -303,7 +323,7 @@ async def assert_real_http_stocktake(
             assert {(m.batch_id, Decimal(m.quantity),
                      m.source_location_id, m.destination_location_id)
                      for m in moves} == {
-                (earlier_discovered_batch_id, Decimal("1.000"), a.a2, None),
+                (earlier_discovered_batch_id, physical_before[old_key], a.a2, None),
                 (new_batch_id, Decimal("1.000"), None, a.a2),
             }
             assert {m.id for m in moves} <= {
