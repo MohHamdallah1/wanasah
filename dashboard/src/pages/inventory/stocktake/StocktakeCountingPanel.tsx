@@ -37,6 +37,11 @@ export function StocktakeCountingPanel({
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.counting;
 
+  // Count actions are per physical batch, not just per product/status. Screen
+  // reader names must distinguish two batches of the same product.
+  const accessibleBatchIdentity = (row: StocktakeRow) =>
+    `${text.batchExpiry}: ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} · ${row.expiry_date ?? "-"}`;
+
   const handleCountEnter = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.currentTarget.value.trim() === "") return;
     event.preventDefault();
@@ -56,7 +61,7 @@ export function StocktakeCountingPanel({
       data-stocktake-count-input="true"
       inputMode="decimal"
       autoFocus={autoFocus}
-      aria-label={`${text.actualFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
+      aria-label={`${text.actualFor(row.product_name)} — ${accessibleBatchIdentity(row)} — ${copy.stockStatuses[row.stock_status]}`}
       value={row.actual_quantity}
       onChange={(event) => onUpdateRow(row.row_key, event.target.value)}
       onKeyDown={handleCountEnter}
@@ -76,7 +81,7 @@ export function StocktakeCountingPanel({
       onClick={() => onConfirmZero(row.row_key)}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
       title={text.zeroHint}
-      aria-label={`${text.confirmZeroFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
+      aria-label={`${text.confirmZeroFor(row.product_name)} — ${accessibleBatchIdentity(row)} — ${copy.stockStatuses[row.stock_status]}`}
     >
       {text.confirmZero}
     </button>
