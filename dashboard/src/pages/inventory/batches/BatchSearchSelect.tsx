@@ -38,18 +38,19 @@ export function BatchSearchSelect<T extends Choice>({
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     setOpen(false);
-    onClose();
-  // The identity of the selected warehouse/user is the admission boundary.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    onCloseRef.current();
+    // Scope changes must close a previously portalled chooser immediately.
   }, [active, scope]);
 
   useEffect(() => {
-    const revoke = () => { setOpen(false); onClose(); };
+    const revoke = () => { setOpen(false); onCloseRef.current(); };
     window.addEventListener("inventory-permission-denied", revoke);
     return () => window.removeEventListener("inventory-permission-denied", revoke);
-  }, [onClose]);
+  }, []);
   const selected = options.find(item => item.id === value);
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleOptions = normalizedSearch
