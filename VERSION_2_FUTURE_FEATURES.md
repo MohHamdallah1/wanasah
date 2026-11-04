@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product and operational capabilities intentionally deferred from Version 1
-**Last updated:** 2026-11-01
+**Last updated:** 2026-11-04
 
 This file is the canonical source of truth for capabilities intentionally deferred from Version 1. Some already have meaningful backend/domain foundations; others are future product or operational workflows that must not be mistaken for unfinished V1 work.
 
@@ -857,3 +857,32 @@ An operator may forget where an infrequently used setting lives (for example, **
 - [ ] **Acceptance:** Arabic/English, RTL/LTR, responsive/keyboard accessibility, policy consistency across entry points, multi-warehouse and zero-stock variants, unavailable/revoked warehouses, and safe partial completion of the optional creation step.
 
 **Scope boundary:** Only document future discoverability/convenience. Do not move the current Warehouse Management minimum-stock control or add new Product creation/edit fields in V1 under this note.
+
+---
+
+## 17. Batches page — three deferred V2 improvements (owner decision 2026-11-04)
+
+**Status:** V2 BACKLOG; do not reopen accepted V1 Warehouse Management, Inbound, Transfers or Live Stock pages for these enhancements. Batches V1 remains the primary place to review current-stock Lot identity, expiry, sellability and approved quality handling.
+
+### 17.1 Make the top batch summary follow every selected table filter
+
+- [ ] Optionally make summary counters follow the active expiry, sellability, disposition and attention filters as well as warehouse, search, family and product. Design a single explicitly documented scope for totals versus selected-results counts; avoid unexpected counter changes and expensive full-warehouse scans.
+- [ ] Keep batch counts distinct from physical stock-status **quantities** and from company-wide disposition. Never equate "recalled batches" with all physically recalled units.
+- [ ] Preserve V1's accurate explanatory text: current summary follows selected warehouse + search + family + product, **not** all list filters. This is an intentionally disclosed semantics difference, not a correctness blocker.
+- [ ] Accept AR/EN RTL/LTR, accessible scope explanation, bounded PostgreSQL16 reads, tenant/location permissions and matching results under combined filters.
+
+### 17.2 Optional zero-stock / historical Lot browser
+
+- [ ] Add an authorized historical mode to inspect Lots whose current warehouse on-hand is zero and their original physical Lot/expiry provenance, without turning the active Batches list into an unbounded archive.
+- [ ] Default V1 remains **stock-bearing Lots in the selected warehouse**; zero-stock historical movements remain available through the existing authoritative inventory Ledger and original source documents.
+- [ ] Distinguish genuinely depleted Lots from never-received catalog products, archived variants and physically active Lots held at other locations or vehicles. The historical mode must not report historical quantities as available today.
+- [ ] Keep cursor pagination, retention/audit rules, company/location authorization, exact Lot identity, FEFO and financial history unchanged.
+
+### 17.3 Controlled correction UX for an already-posted Lot number / expiry date
+
+- [ ] Consider a dedicated, audited, operator-friendly **posted Lot metadata correction** workflow for genuinely mistaken manufacturer Lot numbers or expiry dates, if future business needs justify it. Do not simply edit ProductBatch fields or supplier receipts after stock/cost/dispatch/sales evidence exists.
+- [ ] Define immutable original and corrected evidence, physical batch provenance, effective-date policies, conflict handling, access/revision/idempotency, returns, reservation/dispatch/sale effects, FIFO and moving-average cost truth, and whether correction is permitted after physical custody has left the warehouse.
+- [ ] The current V1 Ledger inbound correction is **quantity-only for an existing recorded Lot/reference**; it is not a Lot-number/expiry patch. Batch hold/quarantine can stop unsafe sale, but does **not** itself repair a wrong manufacturer identity or date.
+- [ ] **Not deferred / V1 release safety condition:** see [issue #773](https://github.com/MohHamdallah1/wanasah/issues/773). Before first-company production acceptance, prove an authorized, safe **stop-and-recover procedure** for mistakenly posted Lot/expiry, or explicitly identify and fix a narrowly proven launch blocker. Do not hide unsafe, uncorrectable saleable stock behind this V2 idea. This V1 condition is distinct from an optional generic V2 editor.
+
+**Scope rule:** None of these V2 UX enhancements changes the approved V1 physical inventory authority, pricing/COGS, sale/recall gates, permissions or existing page closure. Any proven safety or financial-integrity defect remains a V1 blocker regardless of where the improvement is documented.
