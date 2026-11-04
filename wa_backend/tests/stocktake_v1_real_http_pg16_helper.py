@@ -271,7 +271,7 @@ async def assert_real_http_stocktake(
         approved = _check(await client.post(f"{base}/{sid}/approve",
                                             json=approval, headers=auth_header))
         assert approved["status"] == "POSTED"
-        assert int(approved["movement_count"]) == 2
+        assert int(approved["movement_count"]) == 2, {"approval": approved, "review_lines": second_review["lines"]}
         assert _check(await client.post(f"{base}/{sid}/approve",
                                         json=approval, headers=auth_header)) == approved
         locked_after = await client.get(f"{base}/{sid}/count-sheet",
