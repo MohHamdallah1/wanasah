@@ -487,6 +487,8 @@ export function TabBatches({
           <BatchIndexFilters
             t={t}
             language={language}
+            active={active}
+            scope={selectorScope}
             filters={filters}
             onFiltersChange={next => {
               setPinned(current => ({
