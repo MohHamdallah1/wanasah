@@ -181,6 +181,10 @@ for (const locale of ["ar", "en"] as const) {
         if (stage === "review") {
           // #779: exact canonical response -> visible reviewer evidence on both breakpoints.
           const historyLabel = locale === "ar" ? "سجل محاولات العد" : "Count attempt history";
+          const disclosure = stocktake.locator(".inventory-data-panel details");
+          await expect(disclosure).not.toHaveAttribute("open");
+          await disclosure.locator("summary").click();
+          await expect(disclosure).toHaveAttribute("open");
           const list = stocktake.getByRole("list", { name: historyLabel });
           await expect(list).toBeVisible();
           await expect(list.getByRole("listitem")).toHaveCount(2);
@@ -197,6 +201,10 @@ for (const locale of ["ar", "en"] as const) {
             ? stocktake.locator(".inventory-data-panel article:visible")
             : stocktake.locator(".inventory-data-panel tbody tr:visible");
           await expect(currentLines).toHaveCount(2); // Never invent previous attempt count lines.
+          // Retain an expanded audit screenshot separately; default view keeps Lot lines accessible.
+          await page.screenshot({ path: test.info().outputPath(locale + "-" + size.name + "-review-history.png"), fullPage: true });
+          await disclosure.locator("summary").click();
+          await expect(disclosure).not.toHaveAttribute("open");
           console.log("STOCKTAKE_779_REVIEW_PARITY=PASS " + JSON.stringify({ locale, size: size.name }));
         }
         await page.screenshot({ path: test.info().outputPath(locale + "-" + size.name + "-" + stage + ".png"), fullPage: true });
