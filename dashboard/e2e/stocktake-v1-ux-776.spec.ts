@@ -32,31 +32,35 @@ const countSheet = [
     base_uom_name: "Each", quantity_scale: 0, quantity_step: "1",
   },
 ];
+const firstAttempt = {
+  id: 91, attempt_number: 1, counted_by: 17,
+  counted_by_name: "Original counter",
+  authorized_by: null, authorized_by_name: null,
+  recount_of_attempt_id: null, recount_reason: null,
+  requires_independent_recount: true,
+  submitted_at: "2026-11-04T09:00:00Z",
+};
+const secondAttempt = {
+  id: 92, attempt_number: 2, counted_by: 18,
+  counted_by_name: "Independent counter",
+  authorized_by: 30, authorized_by_name: "Review supervisor",
+  recount_of_attempt_id: 91, recount_reason: "Damaged shelf recount",
+  requires_independent_recount: false,
+  submitted_at: "2026-11-04T11:15:00+03:00",
+};
 const review = {
   session_id: 77, reference_number: "STK-000077",
   stocktake_type: "FULL_COUNT", status: "PENDING_REVIEW", location_id: 11,
-  independent_recount_satisfied: false,
-  latest_attempt: {
-    id: 91, attempt_number: 1, counted_by: 17,
-    counted_by_name: "Warehouse Operator",
-    authorized_by: null, authorized_by_name: null,
-    recount_of_attempt_id: null, recount_reason: null,
-    requires_independent_recount: true,
-    submitted_at: "2026-11-04T09:00:00Z",
-  },
-  attempt_history: [{
-    id: 91, attempt_number: 1, counted_by: 17,
-    counted_by_name: "Warehouse Operator",
-    authorized_by: null, authorized_by_name: null,
-    recount_of_attempt_id: null, recount_reason: null,
-    requires_independent_recount: true,
-    submitted_at: "2026-11-04T09:00:00Z",
-  }],
+  independent_recount_satisfied: true,
+  latest_attempt: secondAttempt,
+  attempt_history: [firstAttempt, secondAttempt],
+  // Only latest attempt lines are in this canonical response.
   lines: countSheet.map((item, i) => ({
-    attempt_line_id: 101 + i, ...item, line_origin: "SNAPSHOT",
-    expected_quantity: i ? "5" : "20",
+    attempt_line_id: 101 + i, ...item,
+    line_origin: i ? "DISCOVERED" : "SNAPSHOT",
+    expected_quantity: i ? "0" : "20",
     actual_quantity: i ? "5" : "18",
-    variance_quantity: i ? "0" : "-2", notes: null,
+    variance_quantity: i ? "5" : "-2", notes: null,
   })),
 };
 function respond(route: Route, data: unknown, status = 200) {
@@ -174,6 +178,35 @@ for (const locale of ["ar", "en"] as const) {
           ? locale === "ar" ? "عد أعمى نشط" : "Blind count in progress"
           : locale === "ar" ? "مراجعة محاولة" : "Review attempt";
         await expect(stocktake.getByText(needle, { exact: false }).first()).toBeVisible({ timeout: 15000 });
+        if (stage === "review") {
+          // #779: exact canonical response -> visible reviewer evidence on both breakpoints.
+          const historyLabel = locale === "ar" ? "سجل محاولات العد" : "Count attempt history";
+          const disclosure = stocktake.locator(".inventory-data-panel details");
+          await expect(disclosure).not.toHaveAttribute("open");
+          await disclosure.locator("summary").click();
+          await expect(disclosure).toHaveAttribute("open");
+          const list = stocktake.getByRole("list", { name: historyLabel });
+          await expect(list).toBeVisible();
+          await expect(list.getByRole("listitem")).toHaveCount(2);
+          await expect(list.getByText("Original counter", { exact: false })).toBeVisible();
+          await expect(list.getByText("Independent counter", { exact: false })).toBeVisible();
+          await expect(list.getByText("Review supervisor", { exact: false })).toBeVisible();
+          await expect(list.getByText("Damaged shelf recount", { exact: false })).toBeVisible();
+          await expect(list.locator("time")).toHaveCount(2);
+          await expect(list.locator("time").nth(1)).toHaveAttribute("datetime", secondAttempt.submitted_at);
+          await expect(stocktake.locator("span:visible").filter({ hasText: "2027-02-28" }).first()).toBeVisible();
+          const originLabel = locale === "ar" ? "بضاعة مكتشفة أثناء الجرد" : "Discovered during count";
+          await expect(stocktake.getByText(originLabel, { exact: true }).locator("visible=true")).toBeVisible();
+          const currentLines = size.name === "phone"
+            ? stocktake.locator(".inventory-data-panel article:visible")
+            : stocktake.locator(".inventory-data-panel tbody tr:visible");
+          await expect(currentLines).toHaveCount(2); // Never invent previous attempt count lines.
+          // Retain an expanded audit screenshot separately; default view keeps Lot lines accessible.
+          await page.screenshot({ path: test.info().outputPath(locale + "-" + size.name + "-review-history.png"), fullPage: true });
+          await disclosure.locator("summary").click();
+          await expect(disclosure).not.toHaveAttribute("open");
+          console.log("STOCKTAKE_779_REVIEW_PARITY=PASS " + JSON.stringify({ locale, size: size.name }));
+        }
         await page.screenshot({ path: test.info().outputPath(locale + "-" + size.name + "-" + stage + ".png"), fullPage: true });
         // Observe actual usable controls and horizontal overflow; do not mutate stocktake.
         const overflow = await page.evaluate(() => ({
