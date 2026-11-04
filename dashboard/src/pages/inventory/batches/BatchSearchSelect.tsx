@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,6 +11,8 @@ interface Props<T extends Choice> {
   label: string;
   allLabel: string;
   language: string;
+  active: boolean;
+  scope: string;
   value: number | null;
   options: T[];
   search: string;
@@ -30,12 +32,24 @@ interface Props<T extends Choice> {
 }
 
 export function BatchSearchSelect<T extends Choice>({
-  label, allLabel, language, value, options, search,
+  label, allLabel, language, active, scope, value, options, search,
   onSearchChange, onSelect, onOpen, onClose,
   discovery, onMore, onRetry, searchLabel,
 }: Props<T>) {
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setOpen(false);
+    onClose();
+  // The identity of the selected warehouse/user is the admission boundary.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, scope]);
+
+  useEffect(() => {
+    const revoke = () => { setOpen(false); onClose(); };
+    window.addEventListener("inventory-permission-denied", revoke);
+    return () => window.removeEventListener("inventory-permission-denied", revoke);
+  }, [onClose]);
   const selected = options.find(item => item.id === value);
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const visibleOptions = normalizedSearch
@@ -52,7 +66,8 @@ export function BatchSearchSelect<T extends Choice>({
   };
 
   return (
-    <Popover open={open} onOpenChange={next => {
+    <Popover open={open && active} onOpenChange={next => {
+      if (next && !active) return;
       setOpen(next);
       if (next) {
         onSearchChange("");
