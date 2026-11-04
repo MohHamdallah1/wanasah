@@ -95,7 +95,7 @@ for (const { locale, width } of [
     }).first()).toBeDisabled();
 
     // Change the authorized Warehouse while its old HTTP response is held.
-    await page.getByLabel(locale === "ar" ? "المستودع المحدد" : "Selected warehouse")
+    await batchPanel.getByRole("combobox", { name: locale === "ar" ? "المستودع" : "Warehouse" })
       .selectOption(String(WAREHOUSE_B));
     await expect(visibleBatch(41)).toHaveCount(0);
     await expect(visibleBatch(42)).toHaveCount(1);
@@ -120,7 +120,7 @@ test("IT04 browser: revocation of batch access hides previously admitted LOT imm
   await gotoInventory(page);
   await expect(page.locator(".inventory-batches-view").getByText("IT-LOT-41").first()).toBeVisible();
   denied = true;
-  await page.getByRole("button", { name: "Refresh batches" }).click();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(page.getByText("IT-LOT-41")).toHaveCount(0);
   await expect(page.locator(".inventory-batches-view button", { hasText: "View batch details" })).toHaveCount(0);
 });
