@@ -685,6 +685,15 @@ BATCH_SELECTOR_OWNER_REQUIRED = {
 BATCH_SELECTOR_OWNER_ALLOWED = BATCH_SELECTOR_OWNER_REQUIRED | {HELPER}
 
 
+# PR #769: one verified Batches full-width correction, plus the real
+# AR/EN browser geometry acceptance. No other inventory, auth or Backend files.
+BATCHES_LAYOUT_769_REQUIRED = {
+    "dashboard/src/pages/inventory/inventory.css",
+    "dashboard/e2e/batches-selector-owner.spec.ts",
+}
+BATCHES_LAYOUT_769_ALLOWED = BATCHES_LAYOUT_769_REQUIRED | {HELPER}
+
+
 # Issue #762: exact Ledger reference revocation and physical evidence ownership.
 # Both operational and UX modes must recognize this entire bounded scope,
 # never arbitrary inventory/backend/test files.
@@ -712,6 +721,12 @@ LEDGER_762_ALLOWED = LEDGER_762_REQUIRED | {HELPER}
 
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and BATCHES_LAYOUT_769_REQUIRED <= changed:
+        extra = sorted(changed - BATCHES_LAYOUT_769_ALLOWED)
+        if extra:
+            return "fail", [f"BATCHES_LAYOUT_769_SCOPE=FAIL extra={extra}"]
+        return "batches-layout-769", []
+
     if mode in {"ux", "operational"} and LEDGER_762_REQUIRED <= changed:
         extra = sorted(changed - LEDGER_762_ALLOWED)
         if extra:
@@ -813,6 +828,18 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    batch_layout_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "operational"):
+        assert classify(mode, BATCHES_LAYOUT_769_REQUIRED, batch_layout_none)[0] == "batches-layout-769"
+        assert classify(mode, BATCHES_LAYOUT_769_ALLOWED, batch_layout_none)[0] == "batches-layout-769"
+        for foreign in (
+            "dashboard/src/pages/inventory/TabBatches.tsx",
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "wa_backend/services.py",
+            "wanasah_frontend/lib/main.dart",
+        ):
+            _expect_fail(mode, BATCHES_LAYOUT_769_ALLOWED | {foreign}, batch_layout_none)
+
     ledger_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for ledger_mode in ("ux", "operational"):
         assert classify(ledger_mode, LEDGER_762_REQUIRED, ledger_none)[0] == "ledger-762"
