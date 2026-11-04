@@ -29,6 +29,8 @@ export interface InventoryAccessCopy {
   chooseUserToView: string;
   noGrants: string;
   wholeCompany: string;
+  locationNotShown: string;
+  roleNotShown: string;
   revoke: string;
   first: string;
   next: string;
@@ -69,6 +71,8 @@ const ar: InventoryAccessCopy = {
   chooseUserToView: 'اختر مستخدمًا لعرض المنح الحالية.',
   noGrants: 'لا توجد منح ضمن هذا النطاق.',
   wholeCompany: 'الشركة كاملة',
+  locationNotShown: 'موقع غير معروض في هذه الصفحة',
+  roleNotShown: 'دور غير معروض في هذه الصفحة',
   revoke: 'سحب المنح',
   first: 'البداية',
   next: 'التالي',
@@ -109,6 +113,8 @@ const en: InventoryAccessCopy = {
   chooseUserToView: 'Choose a user to view current grants.',
   noGrants: 'No grants exist in this scope.',
   wholeCompany: 'Whole company',
+  locationNotShown: 'Location not shown on this page',
+  roleNotShown: 'Role not shown on this page',
   revoke: 'Revoke grant',
   first: 'First',
   next: 'Next',

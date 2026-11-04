@@ -111,7 +111,12 @@ export function TabInventoryAccess() {
           codes={codes}
           busy={access.busy}
           roleAfter={roleAfter}
-          setRoleAfter={setRoleAfter}
+          setRoleAfter={next => {
+            // The grant picker shares this role page. Never retain a hidden role
+            // after paging, even if its id is still valid on the server.
+            setRoleId('');
+            setRoleAfter(next);
+          }}
           setEditing={setEditing}
           setName={setName}
           setCodes={setCodes}
