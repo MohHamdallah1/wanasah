@@ -1820,7 +1820,7 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (
+      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {locations.length > 0 && (
@@ -2109,6 +2109,8 @@ export default function MainInventory() {
               key={batchPanelScope}
               active={activeTab === "batches"}
               locationId={selectedLocationId!}
+              warehouses={locations}
+              onWarehouseChange={handleLocationChange}
               focus={activeTab === "batches" ? batchNavigationFocus : null}
               onFocusConsumed={handleBatchFocusConsumed}
               onOpenTransfers={handleOpenTransfers}
