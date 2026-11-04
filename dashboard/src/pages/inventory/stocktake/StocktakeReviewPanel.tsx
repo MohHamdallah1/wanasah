@@ -39,7 +39,7 @@ export function StocktakeReviewPanel({
         <div className="text-xs text-slate-300 font-bold"><span dir="ltr">{review.attempt_history.length}</span> {text.history}</div>
       </div>
 
-      <details open className="mx-4 mt-3 shrink-0 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
+      <details className="mx-4 mt-3 shrink-0 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
         <summary className="cursor-pointer px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-blue-500">
           {text.historyTitle} (<span dir="ltr">{review.attempt_history.length}</span>)
         </summary>
