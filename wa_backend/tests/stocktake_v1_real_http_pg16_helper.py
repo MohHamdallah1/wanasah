@@ -348,7 +348,7 @@ async def assert_real_http_stocktake(
             assert int(await db.scalar(select(func.count(InventoryLock.id)).where(
                 InventoryLock.company_id == a.company_id,
                 InventoryLock.stocktake_session_id == sid,
-                InventoryLock.is_active.is_(True),
+                InventoryLock.released_at.is_(None),
             ))) == 0
             costs = (await db.scalars(select(InventoryCostEvent).where(
                 InventoryCostEvent.company_id == a.company_id,
@@ -386,7 +386,7 @@ async def assert_real_http_stocktake(
             assert int(await db.scalar(select(func.count(InventoryLock.id)).where(
                 InventoryLock.company_id == a.company_id,
                 InventoryLock.stocktake_session_id == cancel_id,
-                InventoryLock.is_active.is_(True),
+                InventoryLock.released_at.is_(None),
             ))) == 0
 
     print("CP14C_REAL_ASGI_BEARER_HTTP_START_ZERO_DISCOVERED_RECOUNT_APPROVE_LEDGER=PASS")
