@@ -1,4 +1,3 @@
-import { Search } from "lucide-react";
 import type { TFunction } from "i18next";
 
 import {
@@ -15,6 +14,7 @@ import {
 } from "./batchIndexContracts";
 import { batchIndexText } from "./batchIndexI18n";
 import { batchUiNote } from "./batchUiNotes";
+import { BatchSearchSelect } from "./BatchSearchSelect";
 
 export interface BatchFilterFamilyOption {
   id: number;
@@ -30,9 +30,9 @@ export interface BatchFilterProductOption {
 interface Props {
   t: TFunction;
   language: string;
+  active: boolean;
+  scope: string;
   filters: BatchIndexFilters;
-  searchInput: string;
-  onSearchInputChange: (value: string) => void;
   onFiltersChange: (next: BatchIndexFilters) => void;
   expiryWarningDays: number;
   onExpiryWarningDaysChange: (value: number) => void;
@@ -43,6 +43,7 @@ interface Props {
   onFamilySearchChange: (value: string) => void;
   onProductSearchChange: (value: string) => void;
   onOpenSelector: (kind: "family" | "product") => void;
+  onCloseSelector: (kind: "family" | "product") => void;
   onMoreSelector: (kind: "family" | "product") => void;
   onRetrySelector: (kind: "family" | "product") => void;
   familyDiscovery: { cursor: string | null; loading: boolean; loadingMore: boolean; error: boolean };
@@ -55,9 +56,9 @@ const controlClass =
 export function BatchIndexFilters({
   t,
   language,
+  active,
+  scope,
   filters,
-  searchInput,
-  onSearchInputChange,
   onFiltersChange,
   expiryWarningDays,
   onExpiryWarningDaysChange,
@@ -68,6 +69,7 @@ export function BatchIndexFilters({
   onFamilySearchChange,
   onProductSearchChange,
   onOpenSelector,
+  onCloseSelector,
   onMoreSelector,
   onRetrySelector,
   familyDiscovery,
@@ -83,23 +85,7 @@ export function BatchIndexFilters({
       aria-label={text("filters")}
       className="border-b border-slate-200 bg-white p-2.5"
     >
-      <div className="relative mb-2">
-        <Search
-          aria-hidden="true"
-          className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-        />
-        <input
-          type="search"
-          value={searchInput}
-          onChange={(event) => onSearchInputChange(event.target.value)}
-          placeholder={text("searchPlaceholder")}
-          aria-label={text("searchPlaceholder")}
-          maxLength={200}
-          className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-8">
         <select
           aria-label={text("expiry")}
           value={filters.expiryState}
@@ -144,61 +130,42 @@ export function BatchIndexFilters({
           ))}
         </select>
 
-        <div className="min-w-0 space-y-1">
-          <input
-            type="search"
-            aria-label={batchUiNote(language, "familySearch")}
-            placeholder={batchUiNote(language, "familySearch")}
-            value={familySearch}
-            onFocus={() => onOpenSelector("family")}
-            onChange={event => onFamilySearchChange(event.target.value)}
-            maxLength={100}
-            className={`${controlClass} w-full`}
-          />
-          <select
-            aria-label={text("family")}
-            value={filters.familyId ?? ""}
-            onFocus={() => onOpenSelector("family")}
-            onChange={event => patch({ familyId: event.target.value ? Number(event.target.value) : null })}
-            className={`${controlClass} w-full`}
-          >
-            <option value="">{text("allFamilies")}</option>
-            {families.map(family => <option key={family.id} value={family.id}>{family.name}</option>)}
-          </select>
-          {familySearch.trim().length === 1 ? <p className="text-[10px] text-slate-500">{batchUiNote(language, "searchMin")}</p> : null}
-          {familyDiscovery.loading ? <p role="status" className="text-[10px] text-slate-500">{batchUiNote(language, "loading")}</p> : null}
-          {familyDiscovery.error ? <button type="button" onClick={() => onRetrySelector("family")} className="text-[10px] text-red-700 underline">{batchUiNote(language, "retry")}</button> : null}
-          {familyDiscovery.cursor ? <button type="button" disabled={familyDiscovery.loadingMore} onClick={() => onMoreSelector("family")} className="text-[10px] text-slate-700 underline">{batchUiNote(language, "loadMore")}</button> : null}
-        </div>
-
-        <div className="min-w-0 space-y-1">
-          <input
-            type="search"
-            aria-label={batchUiNote(language, "productSearch")}
-            placeholder={batchUiNote(language, "productSearch")}
-            value={productSearch}
-            onFocus={() => onOpenSelector("product")}
-            onChange={event => onProductSearchChange(event.target.value)}
-            maxLength={100}
-            className={`${controlClass} w-full`}
-          />
-          <select
-            aria-label={text("product")}
-            value={filters.productVariantId ?? ""}
-            onFocus={() => onOpenSelector("product")}
-            onChange={event => patch({ productVariantId: event.target.value ? Number(event.target.value) : null })}
-            className={`${controlClass} w-full`}
-          >
-            <option value="">{text("allProducts")}</option>
-            {products.map(product => <option key={product.id} value={product.id}>
-              {product.name}{product.sku ? ` · ${product.sku}` : ""}
-            </option>)}
-          </select>
-          {productSearch.trim().length === 1 ? <p className="text-[10px] text-slate-500">{batchUiNote(language, "searchMin")}</p> : null}
-          {productDiscovery.loading ? <p role="status" className="text-[10px] text-slate-500">{batchUiNote(language, "loading")}</p> : null}
-          {productDiscovery.error ? <button type="button" onClick={() => onRetrySelector("product")} className="text-[10px] text-red-700 underline">{batchUiNote(language, "retry")}</button> : null}
-          {productDiscovery.cursor ? <button type="button" disabled={productDiscovery.loadingMore} onClick={() => onMoreSelector("product")} className="text-[10px] text-slate-700 underline">{batchUiNote(language, "loadMore")}</button> : null}
-        </div>
+        <BatchSearchSelect
+          label={text("family")}
+          active={active}
+          scope={scope}
+          allLabel={text("allFamilies")}
+          language={language}
+          value={filters.familyId}
+          options={families}
+          search={familySearch}
+          onSearchChange={onFamilySearchChange}
+          onSelect={id => patch({ familyId: id })}
+          onOpen={() => onOpenSelector("family")}
+          onClose={() => onCloseSelector("family")}
+          discovery={familyDiscovery}
+          onMore={() => onMoreSelector("family")}
+          onRetry={() => onRetrySelector("family")}
+          searchLabel={batchUiNote(language, "familySearch")}
+        />
+        <BatchSearchSelect
+          label={text("product")}
+          active={active}
+          scope={scope}
+          allLabel={text("allProducts")}
+          language={language}
+          value={filters.productVariantId}
+          options={products}
+          search={productSearch}
+          onSearchChange={onProductSearchChange}
+          onSelect={id => patch({ productVariantId: id })}
+          onOpen={() => onOpenSelector("product")}
+          onClose={() => onCloseSelector("product")}
+          discovery={productDiscovery}
+          onMore={() => onMoreSelector("product")}
+          onRetry={() => onRetrySelector("product")}
+          searchLabel={batchUiNote(language, "productSearch")}
+        />
 
         <select
           aria-label={text("sort")}
@@ -211,28 +178,28 @@ export function BatchIndexFilters({
           ))}
         </select>
 
-        <label className="min-w-0">
-          <span className="sr-only">{text("warningDays")}</span>
+        <label
+          className="flex h-9 min-w-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-700"
+          title={text("warningDaysHint")}
+        >
+          <span className="min-w-0 flex-1 truncate">{text("warningDaysShort")}</span>
           <input
             type="number"
             min={1}
             max={MAX_BATCH_EXPIRY_WARNING_DAYS}
             value={expiryWarningDays}
-            onChange={(event) => {
+            onChange={event => {
               const value = Number(event.target.value);
               if (Number.isFinite(value) && value >= 1) {
                 onExpiryWarningDaysChange(normalizeBatchExpiryWarningDays(value));
               }
             }}
             aria-label={text("warningDays")}
-            title={text("warningDaysHint")}
-            className={`${controlClass} w-full`}
+            className="h-7 w-12 min-w-0 rounded border border-slate-200 bg-white px-1 text-center text-[11px] font-semibold tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
           />
+          <span className="shrink-0">{text("daysUnit")}</span>
         </label>
       </div>
-      <p className="mt-1.5 text-[10px] font-medium text-slate-500">
-        {text("warningDaysHint")}
-      </p>
     </section>
   );
 }

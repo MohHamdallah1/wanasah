@@ -362,7 +362,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
     expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh batches" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findAllByText("Refreshed Product")).not.toHaveLength(0);
     expect(screen.queryByText("Product 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Product 2")).not.toBeInTheDocument();
@@ -458,10 +458,8 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     expect(firstParams.has("product_variant_id")).toBe(false);
     expect(firstParams.has("family_id")).toBe(false);
 
-    expect(screen.getByRole("option", { name: "Family 41" })).toHaveValue("41");
-    fireEvent.change(screen.getByRole("combobox", { name: "Family" }), {
-      target: { value: "41" },
-    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Family" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Family 41" }));
 
     await waitFor(() => {
       const request = mocks.authFetch.mock.calls

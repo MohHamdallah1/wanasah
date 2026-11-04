@@ -694,6 +694,23 @@ BATCHES_LAYOUT_769_REQUIRED = {
 BATCHES_LAYOUT_769_ALLOWED = BATCHES_LAYOUT_769_REQUIRED | {HELPER}
 
 
+# V1 Batches compact toolbar: exact UI/authorized chooser and admission tests.
+# This cannot bypass stock, cost, auth, Flutter or other inventory controls.
+BATCHES_COMPACT_V1_REQUIRED = {
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/TabBatches.tsx",
+    "dashboard/src/pages/inventory/batches/BatchIndexFilters.tsx",
+    "dashboard/src/pages/inventory/batches/BatchSearchSelect.tsx",
+    "dashboard/src/pages/inventory/batches/useBatchSelectorDiscovery.ts",
+    "dashboard/src/pages/inventory/batches/batchIndexI18n.ts",
+    "dashboard/src/pages/inventory/batches/batchUiNotes.ts",
+    "dashboard/e2e/batches-selector-owner.spec.ts",
+    "dashboard/e2e/inventory-batch-reentry.spec.ts",
+    "dashboard/src/test/inventory-cp2-batches-dashboard.test.tsx",
+}
+BATCHES_COMPACT_V1_ALLOWED = BATCHES_COMPACT_V1_REQUIRED | {HELPER}
+
+
 # Issue #762: exact Ledger reference revocation and physical evidence ownership.
 # Both operational and UX modes must recognize this entire bounded scope,
 # never arbitrary inventory/backend/test files.
@@ -721,6 +738,12 @@ LEDGER_762_ALLOWED = LEDGER_762_REQUIRED | {HELPER}
 
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if mode in {"ux", "operational"} and BATCHES_COMPACT_V1_REQUIRED <= changed:
+        extra = sorted(changed - BATCHES_COMPACT_V1_ALLOWED)
+        if extra:
+            return "fail", [f"BATCHES_COMPACT_V1_SCOPE=FAIL extra={extra}"]
+        return "batches-compact-v1", []
+
     if mode in {"ux", "operational"} and BATCHES_LAYOUT_769_REQUIRED <= changed:
         extra = sorted(changed - BATCHES_LAYOUT_769_ALLOWED)
         if extra:
@@ -828,6 +851,18 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    batch_compact_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "operational"):
+        assert classify(mode, BATCHES_COMPACT_V1_REQUIRED, batch_compact_none)[0] == "batches-compact-v1"
+        assert classify(mode, BATCHES_COMPACT_V1_ALLOWED, batch_compact_none)[0] == "batches-compact-v1"
+        for foreign in (
+            "wa_backend/services.py",
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "wanasah_frontend/lib/main.dart",
+            "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+        ):
+            _expect_fail(mode, BATCHES_COMPACT_V1_ALLOWED | {foreign}, batch_compact_none)
+
     batch_layout_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for mode in ("ux", "operational"):
         assert classify(mode, BATCHES_LAYOUT_769_REQUIRED, batch_layout_none)[0] == "batches-layout-769"

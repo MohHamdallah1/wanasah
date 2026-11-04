@@ -1,10 +1,11 @@
 type Key =
-  | "familySearch" | "productSearch" | "searchMin" | "loading"
+  | "familySearch" | "productSearch" | "selectedNotShown" | "searchMin" | "loading"
   | "loadMore" | "retry" | "loadFailed" | "summaryScope" | "summaryDisposition" | "summaryExplain";
 
 const messages: Record<"ar" | "en", Record<Key, string>> = {
   ar: {
     familySearch: "ابحث عن عائلة لها تشغيلات في المستودع",
+    selectedNotShown: "الخيار المحدد غير ظاهر",
     productSearch: "ابحث عن منتج له تشغيلات في المستودع",
     searchMin: "اكتب حرفين على الأقل للبحث.",
     loading: "جاري تحميل الخيارات...",
@@ -17,6 +18,7 @@ const messages: Record<"ar" | "en", Record<Key, string>> = {
   },
   en: {
     familySearch: "Search families with batches in this warehouse",
+    selectedNotShown: "Selected option not shown",
     productSearch: "Search products with batches in this warehouse",
     searchMin: "Enter at least two characters to search.",
     loading: "Loading options...",

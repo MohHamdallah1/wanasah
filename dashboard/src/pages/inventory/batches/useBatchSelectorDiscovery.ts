@@ -166,6 +166,7 @@ export function useBatchSelectorDiscovery({
   return {
     familySearch, productSearch, setFamilySearch, setProductSearch,
     open: (kind: Kind) => setOpened(value => value[kind] ? value : { ...value, [kind]: true }),
+    close: (kind: Kind) => setOpened(value => !value[kind] ? value : { ...value, [kind]: false }),
     retry: (kind: Kind) => setRetry(value => ({ ...value, [kind]: value[kind] + 1 })),
     loadMore,
     families: active && familyState.key === familyKey ? familyState.items as BatchFilterFamilyOption[] : [],
