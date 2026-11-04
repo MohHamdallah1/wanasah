@@ -168,6 +168,8 @@ for (const locale of ["ar", "en"] as const) {
         await page.goto("/inventory");
         const stocktake = page.locator(".inventory-stocktake");
         await expect(stocktake).toBeVisible();
+        // Session list is intentionally the operator navigation; open the selected fixture explicitly.
+        await stocktake.getByRole("button", { name: locale === "ar" ? "فتح" : "Open", exact: true }).click();
         const needle = stage === "counting"
           ? locale === "ar" ? "عد أعمى نشط" : "Blind count in progress"
           : locale === "ar" ? "مراجعة محاولة" : "Review attempt";
