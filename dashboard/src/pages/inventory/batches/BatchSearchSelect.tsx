@@ -67,7 +67,7 @@ export function BatchSearchSelect<T extends Choice>({
   };
 
   return (
-    <Popover open={open && active} onOpenChange={next => {
+    <Popover dir={language.toLowerCase().startsWith("ar") ? "rtl" : "ltr"} open={open && active} onOpenChange={next => {
       if (next && !active) return;
       setOpen(next);
       if (next) {
@@ -92,6 +92,7 @@ export function BatchSearchSelect<T extends Choice>({
         </button>
       </PopoverTrigger>
       <PopoverContent
+        dir={language.toLowerCase().startsWith("ar") ? "rtl" : "ltr"}
         align="start"
         sideOffset={4}
         className="w-[min(21rem,calc(100vw-1.5rem))] border border-slate-200 bg-white p-2 shadow-lg"
