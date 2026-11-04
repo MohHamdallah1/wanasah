@@ -147,6 +147,16 @@ jobs:
               "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
               "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
           }
+          # #779 Review UI parity was merged first. Preserve its exact
+          # original ownership case alongside this independent HTTP test.
+          review_779 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
           # Exact test-only #778 scope: reuse CP14C fixture and add one
           # authenticated ASGI bearer journey. No production files allowed.
           http_778 = {
@@ -157,12 +167,13 @@ jobs:
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
+              frozenset(review_779): "REVIEW_EVIDENCE_779",
               frozenset(http_778): "REAL_BEARER_HTTP_778",
           }
           matched = valid_scopes.get(frozenset(changed))
           assert matched is not None, {
               "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-              "unexpected": sorted(changed - discovered_764 - keyboard_776 - http_778),
+              "unexpected": sorted(changed - discovered_764 - keyboard_776 - review_779 - http_778),
               "changed": sorted(changed),
           }
           for foreign in (
