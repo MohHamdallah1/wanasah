@@ -362,7 +362,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
     expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Load more batches" }));
     expect(await screen.findAllByText("Product 2")).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findAllByText("Refreshed Product")).not.toHaveLength(0);
     expect(screen.queryByText("Product 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Product 2")).not.toBeInTheDocument();
