@@ -1,0 +1,69 @@
+name: Stocktake V1 #776 Chromium UX evidence
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/e2e/stocktake-v1-ux-776.spec.ts"
+      - "dashboard/e2e/stocktake-v1-ux-776.config.ts"
+      - "dashboard/src/pages/inventory/stocktake/**"
+      - ".github/workflows/stocktake-v1-ux-776.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  screenshot-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Build Dashboard for Chromium
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+      - name: Install disposable Chromium
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Start readonly UI preview
+        working-directory: dashboard
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/stocktake-776-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/inventory >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/stocktake-776-preview.log
+          exit 1
+      - name: Exact-head AR-EN desktop and phone Chromium screenshots
+        working-directory: dashboard
+        env:
+          STOCKTAKE_776_BASE_URL: http://127.0.0.1:4173
+        run: npx playwright test --config e2e/stocktake-v1-ux-776.config.ts
+      - name: Upload actual screenshots and traces even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stocktake-776-chromium-${{ github.sha }}
+          path: dashboard/node_modules/.cache/stocktake-v1-ux-776/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: TypeScript check
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Exact scope diff check
+        run: |
+          git diff --check 9ecdf8291e98d644cda8069b985ad329d4b46f8a HEAD
