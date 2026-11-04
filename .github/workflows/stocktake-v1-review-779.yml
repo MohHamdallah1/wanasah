@@ -1,0 +1,62 @@
+name: Stocktake V1 Review evidence parity #779
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx"
+      - "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx"
+      - "dashboard/src/pages/inventory/stocktake/uiCopy.ts"
+      - "dashboard/e2e/stocktake-v1-ux-776.spec.ts"
+      - ".github/workflows/stocktake-v1-review-779.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  review-evidence-ar-en:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dashboard install
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused AR EN review parity tests
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx
+      - name: TypeScript and scoped lint
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/stocktake/StocktakeReviewPanel.tsx src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx src/pages/inventory/stocktake/uiCopy.ts e2e/stocktake-v1-ux-776.spec.ts
+      - name: Exact frontend owner scope and diff check
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff --check "$BASE_SHA" HEAD
+          python - <<'PY'
+          import os
+          import subprocess
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE_SHA"], "HEAD"],
+              text=True,
+          ).splitlines())
+          expected = {
+              ".github/workflows/stocktake-v1-review-779.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          assert files == expected, {"unexpected": sorted(files - expected), "missing": sorted(expected - files)}
+          print("STOCKTAKE_779_FRONTEND_ONLY=PASS")
+          PY
