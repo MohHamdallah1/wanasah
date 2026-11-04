@@ -30,6 +30,8 @@ export interface BatchFilterProductOption {
 interface Props {
   t: TFunction;
   language: string;
+  active: boolean;
+  scope: string;
   filters: BatchIndexFilters;
   onFiltersChange: (next: BatchIndexFilters) => void;
   expiryWarningDays: number;
@@ -54,6 +56,8 @@ const controlClass =
 export function BatchIndexFilters({
   t,
   language,
+  active,
+  scope,
   filters,
   onFiltersChange,
   expiryWarningDays,
@@ -128,6 +132,8 @@ export function BatchIndexFilters({
 
         <BatchSearchSelect
           label={text("family")}
+          active={active}
+          scope={scope}
           allLabel={text("allFamilies")}
           language={language}
           value={filters.familyId}
@@ -144,6 +150,8 @@ export function BatchIndexFilters({
         />
         <BatchSearchSelect
           label={text("product")}
+          active={active}
+          scope={scope}
           allLabel={text("allProducts")}
           language={language}
           value={filters.productVariantId}
