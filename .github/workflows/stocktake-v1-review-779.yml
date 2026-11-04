@@ -51,6 +51,7 @@ jobs:
               text=True,
           ).splitlines())
           expected = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
               ".github/workflows/stocktake-v1-review-779.yml",
               "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
