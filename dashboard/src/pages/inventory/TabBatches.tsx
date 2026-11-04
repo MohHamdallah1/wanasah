@@ -37,8 +37,8 @@ import { useBatchSelectorDiscovery } from "./batches/useBatchSelectorDiscovery";
 
 interface Props {
   locationId: number;
-  warehouses: { id: number; name: string }[];
-  onWarehouseChange: (id: string) => void;
+  warehouses?: { id: number; name: string }[];
+  onWarehouseChange?: (id: string) => void;
   active?: boolean;
   focus?: InventoryBatchFocusIntent | null;
   onFocusConsumed: () => void;
@@ -456,7 +456,7 @@ export function TabBatches({
                 className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-sm font-semibold text-slate-800 outline-none placeholder:font-medium placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-slate-300"
               />
             </div>
-            <select
+            {warehouses && onWarehouseChange ? <select
               aria-label={text("warehouseLabel")}
               value={locationId}
               onChange={event => onWarehouseChange(event.target.value)}
@@ -465,7 +465,7 @@ export function TabBatches({
               {warehouses.map(warehouse => (
                 <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
               ))}
-            </select>
+            </select> : null}
             <span
               className="inline-flex h-9 shrink-0 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-bold tabular-nums text-slate-700"
               title={text("loadedCount", { count: loadedCount })}
