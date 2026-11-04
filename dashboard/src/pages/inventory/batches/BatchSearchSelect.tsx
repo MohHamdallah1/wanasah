@@ -37,6 +37,10 @@ export function BatchSearchSelect<T extends Choice>({
   const [open, setOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const selected = options.find(item => item.id === value);
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const visibleOptions = normalizedSearch
+    ? options.filter(item => (`${item.name} ${item.sku ?? ""}`).toLocaleLowerCase().includes(normalizedSearch))
+    : options;
   const labelText = selected
     ? selected.name
     : value === null ? allLabel : batchUiNote(language, "selectedNotShown");
@@ -91,9 +95,9 @@ export function BatchSearchSelect<T extends Choice>({
             placeholder={searchLabel}
             onChange={event => onSearchChange(event.target.value)}
             onKeyDown={event => {
-              if (event.key === "Enter" && options.length === 1 && search.trim().length >= 2) {
+              if (event.key === "Enter" && visibleOptions.length === 1 && search.trim().length >= 2) {
                 event.preventDefault();
-                choose(options[0].id);
+                choose(visibleOptions[0].id);
               }
             }}
             className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-8 pe-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
@@ -110,7 +114,7 @@ export function BatchSearchSelect<T extends Choice>({
             <span>{allLabel}</span>
             {value === null ? <Check aria-hidden="true" className="h-3.5 w-3.5" /> : null}
           </button>
-          {options.map(item => (
+          {visibleOptions.map(item => (
             <button
               key={item.id}
               role="option"
