@@ -40,7 +40,9 @@ export function StocktakeCountingPanel({
   const handleCountEnter = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || event.currentTarget.value.trim() === "") return;
     event.preventDefault();
-    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']"));
+    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']")).filter(
+      (input) => input.getClientRects().length > 0,
+    );
     const index = inputs.indexOf(event.currentTarget);
     const next = inputs[index + 1];
     if (next) {
