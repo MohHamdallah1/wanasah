@@ -67,7 +67,7 @@ export function BatchSearchSelect<T extends Choice>({
   };
 
   return (
-    <Popover dir={language.toLowerCase().startsWith("ar") ? "rtl" : "ltr"} open={open && active} onOpenChange={next => {
+    <Popover open={open && active} onOpenChange={next => {
       if (next && !active) return;
       setOpen(next);
       if (next) {
