@@ -115,7 +115,7 @@ async function setup(page: Page, locale: "ar" | "en", stage: "counting" | "revie
       accessible_warehouse_count: 1, can_create: false,
     });
     if (path === "/warehouse/status") return respond(route, {
-      status: "ACTIVE", stocktake_session_id: 77,
+      status: "AUDIT_LOCK", stocktake_session_id: 77,
       stocktake_reference: "STK-000077",
       stocktake_status: stage === "review" ? "PENDING_REVIEW" : "COUNTING",
     });
@@ -193,6 +193,19 @@ for (const locale of ["ar", "en"] as const) {
             };
           });
           console.log("STOCKTAKE_776_COUNT_FOCUS=" + JSON.stringify({ locale, size: size.name, ...focus }));
+          // Two count views exist in the DOM for responsive rendering; only visible
+          // fields belong to the operator's Enter navigation sequence.
+          const inputs = stocktake.locator("input[data-stocktake-count-input='true']:visible");
+          await expect(inputs).toHaveCount(2);
+          await inputs.nth(0).fill("18");
+          await inputs.nth(0).press("Enter");
+          await expect(inputs.nth(1)).toBeFocused();
+          await inputs.nth(1).fill("5");
+          await inputs.nth(1).press("Enter");
+          // Enter on the last VISIBLE field must open confirmation; it must
+          // never jump into the other breakpoint's hidden field.
+          await expect(page.getByRole("dialog")).toBeVisible();
+          console.log("STOCKTAKE_776_ENTER_VISIBLE_SUBMIT=PASS " + JSON.stringify({ locale, size: size.name }));
         }
       });
     }
