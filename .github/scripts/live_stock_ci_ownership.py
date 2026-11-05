@@ -755,9 +755,31 @@ STOCKTAKE_784_EXACT = frozenset({
 })
 
 
+# Isolated, owner-approved final single-toolbar UX PR #789. No broad
+# directory allowlist; MainInventory is shared with Live Stock consumers.
+STOCKTAKE_789_SHELL_EXACT = frozenset({
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+    "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+})
+# Exactly the four independently reviewed CI policy files in this PR.
+STOCKTAKE_FINAL_CI_782_EXACT = frozenset({
+    ".github/workflows/stocktake-v1-operator-782.yml",
+    ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+    ".github/workflows/stocktake-v1-review-779.yml",
+    HELPER,
+})
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
+    if changed == STOCKTAKE_FINAL_CI_782_EXACT:
+        return "policy-maintenance", []
+    if mode in {"ux", "operational"} and changed == STOCKTAKE_789_SHELL_EXACT:
+        return "stocktake-789-shell-exact", []
     if mode in {"ux", "operational"} and changed == STOCKTAKE_784_EXACT:
         return "stocktake-784-exact", []
     if mode in {"ux", "operational"} and BATCHES_COMPACT_V1_REQUIRED <= changed:
@@ -906,6 +928,34 @@ def selftest() -> None:
         )
     assert classify("r3", set(STOCKTAKE_784_EXACT), stocktake_sem) == (
         "not-applicable", []
+    )
+    assert len(STOCKTAKE_789_SHELL_EXACT) == 5
+    assert len(STOCKTAKE_FINAL_CI_782_EXACT) == 4
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(STOCKTAKE_789_SHELL_EXACT), stocktake_sem) == (
+            "stocktake-789-shell-exact", []
+        )
+        for missing in STOCKTAKE_789_SHELL_EXACT:
+            partial = set(STOCKTAKE_789_SHELL_EXACT) - {missing}
+            assert classify(mode, partial, stocktake_sem)[0] != "stocktake-789-shell-exact"
+            if "dashboard/src/pages/inventory/MainInventory.tsx" in partial:
+                _expect_fail(mode, partial, stocktake_sem)
+        for foreign in (HELPER, "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+                        "wa_backend/api/warehouse/stocktake.py"):
+            _expect_fail(mode, set(STOCKTAKE_789_SHELL_EXACT) | {foreign}, stocktake_sem)
+        assert classify(mode, set(STOCKTAKE_FINAL_CI_782_EXACT), stocktake_sem) == (
+            "policy-maintenance", []
+        )
+        for missing in STOCKTAKE_FINAL_CI_782_EXACT:
+            assert classify(mode, set(STOCKTAKE_FINAL_CI_782_EXACT) - {missing}, stocktake_sem)[0] != "policy-maintenance"
+        _expect_fail(mode, set(STOCKTAKE_FINAL_CI_782_EXACT) | {
+            "dashboard/src/pages/inventory/MainInventory.tsx"
+        }, stocktake_sem)
+    assert classify("r3", set(STOCKTAKE_789_SHELL_EXACT), stocktake_sem) == (
+        "not-applicable", []
+    )
+    assert classify("r3", set(STOCKTAKE_FINAL_CI_782_EXACT), stocktake_sem) == (
+        "policy-maintenance", []
     )
 
     batch_compact_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}

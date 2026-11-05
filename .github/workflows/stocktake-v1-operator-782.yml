@@ -31,7 +31,12 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Focused AR EN operator and inherited review tests
         working-directory: dashboard
-        run: npm test -- src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx
+        run: |
+          tests=(src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx)
+          for test_file in src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx; do
+            if [ -f "$test_file" ]; then tests+=("$test_file"); fi
+          done
+          npm test -- "${tests[@]}"
       - name: TypeScript and owned frontend ESLint
         working-directory: dashboard
         run: |
@@ -60,6 +65,52 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts",
               "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
           }
-          assert changed == expected, {"unexpected": sorted(changed - expected), "missing": sorted(expected - changed)}
-          print("STOCKTAKE_782_FRONTEND_ONLY_AND_FULL_DOOR_IMMUTABLE=PASS")
+          shell_789 = {
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+          }
+          workspace_788 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeIndependentWait.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          ci_782 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+          }
+          allowed = {frozenset(x): label for label, x in (
+              ("OPERATOR_UX_784", expected),
+              ("SINGLE_TOOLBAR_789", shell_789),
+              ("UNIFIED_WORKSPACE_788", workspace_788),
+              ("FINAL_CI_782", ci_782),
+          )}
+          assert len(allowed) == 4
+          def verify(paths):
+              label = allowed.get(frozenset(paths))
+              assert label is not None, {"error": "STOCKTAKE_782_SCOPE_FAIL", "changed": sorted(paths)}
+              return label
+          for label, paths in (
+              ("OPERATOR_UX_784", expected),
+              ("SINGLE_TOOLBAR_789", shell_789),
+              ("UNIFIED_WORKSPACE_788", workspace_788),
+              ("FINAL_CI_782", ci_782),
+          ):
+              assert verify(paths) == label
+              for invalid in (set(), paths - {next(iter(paths))},
+                              paths | {"wa_backend/api/warehouse/stocktake.py"},
+                              paths | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"}):
+                  try:
+                      verify(invalid)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError("An incomplete or foreign Stocktake scope was accepted")
+          print(f"STOCKTAKE_782_FRONTEND_ONLY_AND_FULL_DOOR_IMMUTABLE={verify(changed)}_PASS")
           PY

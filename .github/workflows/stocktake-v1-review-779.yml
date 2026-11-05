@@ -77,10 +77,33 @@ jobs:
               ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
               ".github/workflows/stocktake-v1-review-779.yml",
           }
+          shell_789 = {
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+          }
+          workspace_788 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeIndependentWait.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          final_ci_782 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+          }
           valid_scopes = {
               frozenset(expected): "REVIEW_EVIDENCE_779",
               frozenset(operator_784): "OPERATOR_UX_784",
               frozenset(ci_compat_784): "CI_COMPAT_784",
+              frozenset(shell_789): "SINGLE_TOOLBAR_789",
+              frozenset(workspace_788): "UNIFIED_WORKSPACE_788",
+              frozenset(final_ci_782): "FINAL_CI_782",
           }
           foreign = "wa_backend/api/warehouse/stocktake.py"
 
@@ -88,7 +111,7 @@ jobs:
               matched = valid_scopes.get(frozenset(changed))
               assert matched is not None, {
                   "error": "STOCKTAKE_REVIEW_OWNER_SCOPE_FAIL",
-                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784),
+                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782),
                   "changed": sorted(changed),
               }
               return matched
@@ -97,12 +120,22 @@ jobs:
           assert verify_scope(expected) == "REVIEW_EVIDENCE_779"
           assert verify_scope(operator_784) == "OPERATOR_UX_784"
           assert verify_scope(ci_compat_784) == "CI_COMPAT_784"
+          assert verify_scope(shell_789) == "SINGLE_TOOLBAR_789"
+          assert verify_scope(workspace_788) == "UNIFIED_WORKSPACE_788"
+          assert verify_scope(final_ci_782) == "FINAL_CI_782"
           for invalid in (
               set(),
               operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
               operator_784 | {foreign},
               ci_compat_784 | {foreign},
               expected | {foreign},
+              shell_789 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
+              shell_789 | {foreign},
+              workspace_788 - {"dashboard/src/pages/inventory/stocktake/uiCopy.ts"},
+              workspace_788 | {foreign},
+              final_ci_782 | {foreign},
+              final_ci_782 - {".github/scripts/live_stock_ci_ownership.py"},
+              shell_789 | workspace_788,
           ):
               try:
                   verify_scope(invalid)
