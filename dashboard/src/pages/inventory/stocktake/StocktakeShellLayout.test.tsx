@@ -86,7 +86,7 @@ describe("Stocktake #782 final shell: sessions and single workspace", () => {
     expect(container.querySelector("[data-stocktake-sessions='compact']")).not.toBeNull();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
     expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(container.textContent).toContain(language === "ar" ? "لا توجد جلسات جرد نشطة" : "No active stocktake");
+    expect(container.textContent).toContain(language === "ar" ? "لا توجد جلسات جرد نشطة" : "There are no active stocktake sessions");
   });
 
   it("moves the single MainInventory warehouse selector only for the selected Stocktake tab", () => {
