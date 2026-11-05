@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Layers3, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { useTranslation } from "react-i18next";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
@@ -17,6 +17,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
   const { copy, isArabic, dir } = useStocktakeUiCopy();
   const text = copy.cycle;
   const {
+    locationId, productSource, selectProductSource,
     productSearchInput, setProductSearchInput, products, productsNextCursor,
     productsLoading, productsLoadingMore, selectedProduct, chooseProduct,
     clearProduct, loadMoreProducts, batchSearchInput, setBatchSearchInput,
@@ -41,15 +42,21 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
       }
     >
       <div dir={dir} className="space-y-5">
-        <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-blue-800">
-          {text.hint}
+        <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm font-bold text-blue-800">
+          <div>{text.warehouseContext} <span dir="ltr">#${locationId}</span></div>
+          <p className="mt-1 text-xs font-medium">{text.hint}</p>
         </div>
 
         {!selectedProduct ? (
           <div className="space-y-3">
+            <div role="group" aria-label={text.productSourceTitle} className="grid grid-cols-2 gap-2">
+              <button type="button" aria-pressed={productSource === "warehouse"} onClick={() => selectProductSource("warehouse")} className={`rounded-lg border px-3 py-2 text-xs font-bold ${productSource === "warehouse" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>{text.warehouseProducts}</button>
+              <button type="button" aria-pressed={productSource === "catalog"} onClick={() => selectProductSource("catalog")} className={`rounded-lg border px-3 py-2 text-xs font-bold ${productSource === "catalog" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-600"}`}>{text.companyCatalog}</button>
+            </div>
+            <p className="text-xs text-slate-500">{productSource === "warehouse" ? text.warehouseProductsHint : text.companyCatalogHint}</p>
             <div className="relative">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
-              <input autoFocus value={productSearchInput} onChange={(event) => setProductSearchInput(event.target.value)} maxLength={100} placeholder={text.productSearch} className="w-full rounded-xl border border-slate-200 bg-white ps-10 pe-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
+              <input autoFocus value={productSearchInput} onChange={(event) => setProductSearchInput(event.target.value)} maxLength={100} aria-label={text.productSearch} placeholder={text.productSearch} className="w-full rounded-xl border border-slate-200 bg-white ps-10 pe-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500/20" />
             </div>
             <div className="max-h-72 overflow-auto rounded-xl border border-slate-200 divide-y divide-slate-100">
               {products.map((product) => (
@@ -62,7 +69,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
                 </button>
               ))}
               {productsLoading && products.length === 0 && <div className="p-8 text-center text-sm text-slate-400">{text.loadingProducts}</div>}
-              {!productsLoading && products.length === 0 && <div className="p-8 text-center text-sm text-slate-400">{text.noProducts}</div>}
+              {!productsLoading && products.length === 0 && <div className="p-8 text-center text-sm text-slate-500">{productSource === "warehouse" ? text.noWarehouseProducts : text.noProducts}</div>}
             </div>
             {productsNextCursor && <button type="button" onClick={loadMoreProducts} disabled={productsLoadingMore} className="w-full py-2.5 rounded-xl bg-blue-50 text-blue-700 text-xs font-black disabled:opacity-50">{productsLoadingMore ? text.loadingMore : text.loadMore}</button>}
           </div>
@@ -70,15 +77,19 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
           <div className="space-y-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-xs text-slate-500 font-bold">{text.selectedProduct}</div>
+                <div className="text-xs text-slate-500 font-bold">{text.selectedProduct} · {text.warehouseContext} <span dir="ltr">#{locationId}</span></div>
                 <div className="font-black text-slate-800 mt-1">{selectedProduct.name}</div>
                 <div className="text-[11px] text-slate-500 mt-1" dir="ltr">SKU: {selectedProduct.sku || "—"}</div>
               </div>
               <button type="button" onClick={clearProduct} disabled={starting} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 disabled:opacity-50" title={text.changeProduct} aria-label={text.changeProduct}><X className="w-4 h-4" aria-hidden="true" /></button>
             </div>
 
-            <div>
-              <div className="flex items-center gap-2 mb-2"><Layers3 className="w-4 h-4 text-blue-600" aria-hidden="true" /><span className="text-sm font-black text-slate-800">{text.batchScope}</span></div>
+            <details key={selectedProduct.id} className="rounded-xl border border-slate-200 bg-white">
+              <summary className="cursor-pointer p-3 text-xs font-bold text-blue-700 focus-visible:outline-2 focus-visible:outline-blue-500">
+                {text.advancedBatch} · {selectedBatch ? formatPublicBatchNumber(selectedBatch.batch_number, t("inventoryLive.noLotSupplied")) : text.allBatches}
+              </summary>
+              <div className="border-t border-slate-100 p-3">
+                <p className="mb-3 text-xs text-slate-600">{text.batchScopeHint}</p>
               <button type="button" onClick={() => setSelectedBatch(null)} className={`w-full rounded-xl border p-3 text-start mb-3 transition-colors ${selectedBatch === null ? "border-blue-400 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
                 <div className="font-black text-sm text-slate-800">{text.allBatches}</div>
                 <div className="text-[11px] text-slate-500 mt-1">{text.allBatchesHint}</div>
@@ -95,7 +106,8 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
                 {!batchesLoading && batches.length === 0 && <div className="p-6 text-center text-xs text-slate-400">{text.noBatches}</div>}
               </div>
               {batchesNextCursor && <button type="button" onClick={loadMoreBatches} disabled={batchesLoadingMore} className="mt-2 w-full py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-black disabled:opacity-50">{batchesLoadingMore ? text.loadingMore : text.loadMoreBatches}</button>}
-            </div>
+              </div>
+            </details>
           </div>
         )}
 
