@@ -1,4 +1,4 @@
-name: Stocktake V1 #782 operator UX React AR-EN
+name: "Stocktake V1 #782 operator UX React AR-EN"
 
 on:
   pull_request:
