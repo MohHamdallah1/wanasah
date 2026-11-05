@@ -14,6 +14,7 @@ import { createDispatchReservationFocusState } from "@/features/dispatch/navigat
 import { resolveI18nLocale } from "@/lib/locale";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { TabBatches } from "./TabBatches";
+import { batchIndexText } from "./batches/batchIndexI18n";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
@@ -1804,7 +1805,7 @@ export default function MainInventory() {
         ? "inventory-location-label shrink-0 whitespace-nowrap"
         : "inventory-location-label"}>
         {stocktakeShellAdmitted
-          ? locale.startsWith("ar") ? "المستودع:" : "Warehouse:"
+          ? `${batchIndexText(t, locale, "warehouseLabel")}:`
           : t("inventoryShell.warehouseSelectLabel")}
       </span>
       <select
