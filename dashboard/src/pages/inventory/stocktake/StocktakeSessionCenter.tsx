@@ -1,4 +1,5 @@
-import { Boxes, Car, ClipboardCheck, RefreshCcw } from "lucide-react";
+import { Boxes, Car, ChevronDown, ClipboardCheck } from "lucide-react";
+import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { useStocktakeUiCopy } from "./uiCopy";
@@ -11,9 +12,6 @@ interface StocktakeSessionCenterProps {
   loadingMore: boolean;
   nextCursor: string | null;
   currentSessionId: number | null;
-  onRefresh: () => void;
-  onStartCycle: () => void;
-  cycleStartDisabled: boolean;
   onLoadMore: () => void;
   onOpenSession: (session: StocktakeSessionSummary) => void | Promise<void>;
 }
@@ -33,12 +31,14 @@ const canOpenSession = (status: StocktakeStatus): boolean =>
 
 export function StocktakeSessionCenter({
   sessions, total, loading, loadingMore, nextCursor, currentSessionId,
-  onRefresh, onStartCycle, cycleStartDisabled,
   onLoadMore, onOpenSession,
 }: StocktakeSessionCenterProps) {
   const { t } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.sessions;
+  // Expanded by default so no actionable session is silently hidden.
+  const [expanded, setExpanded] = useState(true);
+  const listId = useId();
 
   const sessionScope = (session: StocktakeSessionSummary): string => {
     if (session.stocktake_type === "FULL_COUNT") return text.entireLocation;
@@ -54,56 +54,70 @@ export function StocktakeSessionCenter({
   };
 
   return (
-    <section dir={dir} className="glass-card inventory-data-panel rounded-2xl border border-slate-200 overflow-hidden shrink-0">
-      <div className="inventory-panel-toolbar px-4 py-3 flex flex-wrap items-center justify-between gap-3 bg-white/70">
-        <div className="flex items-center gap-2">
-          <ClipboardCheck className="w-4 h-4 text-[#1e87bb]" aria-hidden="true" />
-          <div>
-            <h3 className="text-sm font-black text-slate-800">{text.title}</h3>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              {total !== null ? text.total(total) : text.sourceServer}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={onStartCycle} disabled={cycleStartDisabled} className="px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-black disabled:opacity-40 disabled:cursor-not-allowed" title={cycleStartDisabled ? text.cycleLocked : text.cycleHint}>{text.cycleAction}</button>
-          <button type="button" onClick={onRefresh} disabled={loading} aria-label={text.refresh} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-[#1e87bb] disabled:opacity-50" title={text.refresh}><RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" /></button>
-        </div>
-      </div>
+    <section dir={dir} data-stocktake-sessions="compact" aria-label={text.title}
+      className="shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white/90">
+      <button type="button" aria-expanded={expanded} aria-controls={listId}
+        onClick={() => setExpanded(value => !value)}
+        className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+        <ClipboardCheck className="h-4 w-4 shrink-0 text-[#1e87bb]" aria-hidden="true" />
+        <span className="text-xs font-black text-slate-800">{text.title}</span>
+        <span className="min-w-0 truncate text-[11px] text-slate-500">
+          {total !== null ? text.total(total) : text.sourceServer}
+        </span>
+        <ChevronDown className={`ms-auto h-4 w-4 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+      </button>
 
-      {loading && sessions.length === 0 ? (
-        <div className="px-4 py-5 text-xs text-slate-400 text-center">{text.loading}</div>
-      ) : sessions.length === 0 ? (
-        <div className="px-4 py-4 text-xs text-slate-400 text-center border-t border-slate-100">{text.empty}</div>
-      ) : (
-        <div className="border-t border-slate-100">
-          <div className="max-h-48 overflow-auto divide-y divide-slate-100">
-            {sessions.map((session) => {
-              const selected = currentSessionId === session.id;
-              const TypeIcon = session.stocktake_type === "VEHICLE_RECON" ? Car : Boxes;
-              return (
-                <div key={session.id} className={`px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${selected ? "bg-blue-50/60" : "bg-white hover:bg-slate-50/70"}`}>
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0"><TypeIcon className="w-4 h-4 text-slate-600" aria-hidden="true" /></div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-black text-slate-800">{text.types[session.stocktake_type]}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${STATUS_CLASS[session.status]}`}>{text.statuses[session.status]}</span>
-                        {session.pending_independent_recount_required && <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-red-100 text-red-700">{text.independent}</span>}
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-1 truncate" dir="auto">
-                        {session.reference_number} · {sessionScope(session)} · {text.startedBy} {session.started_by_name}
+      <div id={listId} hidden={!expanded} className="border-t border-slate-100">
+        {loading && sessions.length === 0 ? (
+          <p role="status" className="px-3 py-2 text-xs text-slate-500">{text.loading}</p>
+        ) : sessions.length === 0 ? (
+          <p className="px-3 py-2 text-xs text-slate-500">{text.empty}</p>
+        ) : (
+          <>
+            <div role="list" className="max-h-40 overflow-y-auto divide-y divide-slate-100" data-stocktake-session-list="true">
+              {sessions.map((session) => {
+                const selected = currentSessionId === session.id;
+                const TypeIcon = session.stocktake_type === "VEHICLE_RECON" ? Car : Boxes;
+                return (
+                  <div role="listitem" key={session.id}
+                    className={`flex min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:flex-nowrap ${selected ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <TypeIcon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-black text-slate-800">{text.types[session.stocktake_type]}</span>
+                          <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${STATUS_CLASS[session.status]}`}>{text.statuses[session.status]}</span>
+                          {session.pending_independent_recount_required && (
+                            <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">{text.independent}</span>
+                          )}
+                        </div>
+                        <p className="truncate text-[11px] text-slate-500" dir="auto">
+                          {session.reference_number} · {sessionScope(session)} · {text.startedBy} {session.started_by_name}
+                        </p>
                       </div>
                     </div>
+                    <button type="button"
+                      disabled={!canOpenSession(session.status) || selected}
+                      aria-current={selected ? "true" : undefined}
+                      onClick={() => void onOpenSession(session)}
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+                      {selected ? text.opened : text.open}
+                    </button>
                   </div>
-                  <button type="button" disabled={!canOpenSession(session.status) || selected} onClick={() => void onOpenSession(session)} className="px-3 py-1.5 rounded-lg text-xs font-black border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0">{selected ? text.opened : text.open}</button>
-                </div>
-              );
-            })}
-          </div>
-          {nextCursor && <div className="p-2 border-t border-slate-100"><button type="button" onClick={onLoadMore} disabled={loadingMore} className="w-full py-2 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50">{loadingMore ? text.loadingMore : text.loadMore}</button></div>}
-        </div>
-      )}
+                );
+              })}
+            </div>
+            {nextCursor && (
+              <div className="border-t border-slate-100 px-3 py-1.5">
+                <button type="button" onClick={onLoadMore} disabled={loadingMore}
+                  className="w-full rounded-lg bg-blue-50 px-2 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+                  {loadingMore ? text.loadingMore : text.loadMore}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </section>
   );
 }
