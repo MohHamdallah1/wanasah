@@ -133,7 +133,7 @@ for (const locale of ["ar", "en"] as const) {
         locale === "ar" ? "المستودع:" : "Warehouse:",
       );
       const sessionsTrigger = toolbar.locator('[data-stocktake-sessions-trigger="true"]');
-      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (2)" : "Sessions (2)");
+      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (٢)" : "Sessions (2)");
       await expect(page.getByRole("dialog")).toHaveCount(0);
 
       const door = stocktake.getByRole("button", {
@@ -173,7 +173,7 @@ for (const locale of ["ar", "en"] as const) {
       await expect(stocktake.locator("[data-stocktake-toolbar='true'] select.inventory-location-select")).toHaveValue("12");
       await expect(stocktake.locator("[data-stocktake-workspace='idle']")).toBeVisible();
       await expect(stocktake.locator("[data-stocktake-toolbar='true'] select.inventory-location-select")).toHaveCount(1);
-      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (0)" : "Sessions (0)");
+      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (٠)" : "Sessions (0)");
       await sessionsTrigger.click();
       const emptyDrawer = page.getByRole("dialog", {
         name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
