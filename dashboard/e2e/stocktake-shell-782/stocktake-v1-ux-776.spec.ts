@@ -147,7 +147,9 @@ for (const locale of ["ar", "en"] as const) {
       });
       await expect(drawer).toBeVisible();
       await expect(drawer.locator("[role='listitem']")).toHaveCount(2);
-      await expect(door).toBeAttached(); // Modal overlays, never replaces the work area.
+      // Radix correctly aria-hides the background while modal; query DOM,
+      // not the accessibility tree, to prove the immutable door is still mounted.
+      await expect(stocktake.locator(`button[aria-label="${locale === "ar" ? "إغلاق المستودع وبدء الجرد الشامل" : "Lock warehouse and start full stocktake"}"]`)).toBeAttached();
       await page.keyboard.press("Escape");
       await expect(drawer).toHaveCount(0);
       await expect(sessionsTrigger).toBeFocused();
