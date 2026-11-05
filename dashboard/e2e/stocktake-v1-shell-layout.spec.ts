@@ -124,7 +124,9 @@ for (const locale of ["ar", "en"] as const) {
 
       const sessions = stocktake.locator("[data-stocktake-sessions='compact']");
       await expect(sessions.getByRole("listitem")).toHaveCount(2);
-      const toggle = sessions.getByRole("button", { expanded: true });
+      // Keep the locator stable when aria-expanded flips after the first click.
+      const toggle = sessions.locator("button[aria-controls]").first();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
       await toggle.click();
       await expect(sessions.getByRole("listitem")).toHaveCount(0);
       await toggle.click();
@@ -142,7 +144,9 @@ for (const locale of ["ar", "en"] as const) {
 
       // Same-scope tab reentry must retain the active session workspace.
       await page.locator("nav.inventory-top-dock__dock [role='tab']").first().click();
-      await page.locator("nav.inventory-top-dock__dock [role='tab']").nth(5).click();
+      await page.getByRole("tab", {
+        name: locale === "ar" ? "جرد وتسوية" : "Stocktake & adjustment",
+      }).click();
       await expect(stocktake.locator("[data-stocktake-workspace='counting']")).toBeVisible();
       await expect(stocktake.locator("[data-stocktake-toolbar='true'] select.inventory-location-select")).toHaveCount(1);
 
