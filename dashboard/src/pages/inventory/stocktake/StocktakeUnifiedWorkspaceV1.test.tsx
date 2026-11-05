@@ -225,6 +225,10 @@ describe("Stocktake compact count viewport — owner #782", () => {
     );
     expect(hiddenLocation).toHaveTextContent("Main Warehouse");
     expect(hiddenLocation).toHaveTextContent(language === "ar" ? "موقع الجرد" : "Count location");
+    const hiddenStatus = Array.from(header.querySelectorAll(".sr-only")).find(
+      element => element.textContent?.includes(language === "ar" ? "العد جارٍ" : "Count in progress"),
+    );
+    expect(hiddenStatus).toHaveTextContent(language === "ar" ? "العد جارٍ" : "Count in progress");
     const scope = header.querySelector('[title="' + productName + '"]');
     expect(scope).toHaveClass("truncate");
     expect(scope).toHaveTextContent(productName);
