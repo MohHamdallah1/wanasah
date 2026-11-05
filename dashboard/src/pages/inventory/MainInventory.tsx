@@ -1859,11 +1859,11 @@ export default function MainInventory() {
     <div className="flex min-w-0 flex-wrap items-center gap-2">
       {warehouseSelector}
       {warehouseDiscoveryNeeded && (
-        <details className="relative min-w-0 text-xs">
+        <details className="static min-w-0 text-xs">
           <summary className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-bold text-slate-700">
             {t("inventoryShell.warehouseSearch")}
           </summary>
-          <div className="absolute start-0 top-full z-20 mt-1 flex w-[min(90vw,26rem)] flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+          <div className="absolute inset-x-2 top-full z-20 mt-1 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
             {warehouseDiscoveryControls}
           </div>
         </details>
