@@ -131,6 +131,7 @@ export function StocktakeCountingPanel({
             </button>
           )}
         </div>
+        <span className="sr-only">{text.active}</span>
         <span className="sr-only">{text.warehouseContext}: <strong>{warehouseName || text.warehouseUnknown}</strong></span>
       </header>
 
