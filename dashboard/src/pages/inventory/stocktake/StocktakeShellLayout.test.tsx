@@ -49,7 +49,7 @@ beforeEach(() => { locale.value = "ar"; });
 describe("Stocktake #782 final shell: sessions and single workspace", () => {
   it.each([
     ["ar", "جلسات الجرد النشطة", "فتح", "مفتوحة"],
-    ["en", "Active stocktake sessions", "Open", "Opened"],
+    ["en", "Active stocktake sessions", "Open", "Open"],
   ] as const)("keeps multiple sessions reachable in a compact keyboard-accessible strip in %s", (language, title, open, opened) => {
     locale.value = language;
     const onOpenSession = vi.fn();
@@ -65,8 +65,14 @@ describe("Stocktake #782 final shell: sessions and single workspace", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     const list = within(region).getByRole("list");
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    expect(within(list).getByRole("button", { name: opened })).toBeDisabled();
-    fireEvent.click(within(list).getByRole("button", { name: open }));
+    const sessionButtons = within(list).getAllByRole("button");
+    expect(sessionButtons).toHaveLength(2);
+    expect(sessionButtons[0]).toHaveAttribute("aria-current", "true");
+    expect(sessionButtons[0]).toHaveAccessibleName(opened);
+    expect(sessionButtons[0]).toBeDisabled();
+    expect(sessionButtons[1]).toHaveAccessibleName(open);
+    expect(sessionButtons[1]).toBeEnabled();
+    fireEvent.click(sessionButtons[1]);
     expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ id: 78, location_id: 11 }));
     const more = within(region).getByRole("button", { name: language === "ar" ? "تحميل المزيد" : "Load more" });
     fireEvent.click(more);
