@@ -10,6 +10,7 @@ import { useStocktakeActions } from "./stocktake/hooks/useStocktakeActions";
 import { useStocktakeLifecycle } from "./stocktake/hooks/useStocktakeLifecycle";
 import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
 import { useStocktakeCopy } from "./stocktake/copy";
+import { useStocktakeUiCopy } from "./stocktake/uiCopy";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
 import { StocktakeDiscoveredModal } from "./stocktake/StocktakeDiscoveredModal";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
@@ -54,6 +55,7 @@ export function Tab3Stocktake({
   onStocktakeChanged,
 }: Props) {
   const { copy, dir } = useStocktakeCopy();
+  const { copy: uiCopy } = useStocktakeUiCopy();
   const [showLockModal, setShowLockModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showVarianceModal, setShowVarianceModal] = useState(false);
@@ -226,16 +228,16 @@ export function Tab3Stocktake({
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
-            aria-label={copy.sessions.refresh} title={copy.sessions.refresh}
+            aria-label={uiCopy.sessions.refresh} title={uiCopy.sessions.refresh}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-40">
             <RefreshCcw className={`h-4 w-4 ${sessionsLoading ? "animate-spin" : ""}`} aria-hidden="true" />
-            <span>{copy.sessions.refresh}</span>
+            <span>{uiCopy.sessions.refresh}</span>
           </button>
           <button type="button" onClick={() => setShowCycleModal(true)}
             disabled={cycleStartDisabled}
-            title={cycleStartDisabled ? copy.sessions.cycleLocked : copy.sessions.cycleHint}
+            title={cycleStartDisabled ? uiCopy.sessions.cycleLocked : uiCopy.sessions.cycleHint}
             className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
-            {copy.sessions.cycleAction}
+            {uiCopy.sessions.cycleAction}
           </button>
         </div>
       </div>
@@ -257,7 +259,7 @@ export function Tab3Stocktake({
         {!isIdle && selectedSession && (
           <div data-stocktake-scope="true"
             className="flex shrink-0 flex-wrap items-center gap-2 px-2 pb-2 text-xs font-bold text-slate-600">
-            <span className="text-slate-800">{copy.sessions.types[selectedSession.stocktake_type]}</span>
+            <span className="text-slate-800">{uiCopy.sessions.types[selectedSession.stocktake_type]}</span>
             <span dir="auto">{selectedSession.reference_number}</span>
           </div>
         )}
