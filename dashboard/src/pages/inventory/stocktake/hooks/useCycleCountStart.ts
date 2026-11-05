@@ -10,6 +10,7 @@ import { getErrorMessage, parseCycleBatchPage, parseCycleProductPage, parseStart
 interface UseCycleCountStartArgs {
   durableIdentity: StocktakeDurableIdentity | null;
   locationId: number;
+  locationName?: string | null;
   enabled: boolean;
   authenticatedFetch: StocktakeAuthFetch;
   sessionKey: string;
@@ -21,7 +22,7 @@ interface UseCycleCountStartArgs {
 }
 
 export function useCycleCountStart({
-  durableIdentity, locationId, enabled, authenticatedFetch, sessionKey, phaseKey,
+  durableIdentity, locationId, locationName, enabled, authenticatedFetch, sessionKey, phaseKey,
   setSessionId, setSessionLocationId, loadCountSheet, notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
   const { t } = useTranslation();
@@ -275,7 +276,7 @@ export function useCycleCountStart({
   ]);
 
   return {
-    locationId, productSource, selectProductSource,
+    locationId, locationName, productSource, selectProductSource,
     productSearchInput, setProductSearchInput, products, productsNextCursor,
     productsLoading, productsLoadingMore, selectedProduct, chooseProduct, clearProduct,
     loadMoreProducts, batchSearchInput, setBatchSearchInput, batches, batchesNextCursor,
