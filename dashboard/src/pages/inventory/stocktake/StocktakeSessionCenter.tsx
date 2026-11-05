@@ -57,7 +57,7 @@ export function StocktakeSessionCenter({
   // Reuse the existing AR/EN session noun from "Refresh sessions" rather than
   // hardcode copy or modify the separately owned translation catalog.
   const language = i18n.resolvedLanguage || i18n.language || "ar";
-  const sessionNoun = text.refresh.trim().split(/\\s+/).at(-1) || text.title;
+  const sessionNoun = text.refresh.trim().split(/\s+/).at(-1) || text.title;
   const shortTitle = dir === "ltr"
     ? sessionNoun.replace(/^./u, (letter) => letter.toLocaleUpperCase(language))
     : sessionNoun;
