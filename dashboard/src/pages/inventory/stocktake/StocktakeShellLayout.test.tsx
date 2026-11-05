@@ -90,9 +90,10 @@ describe("Stocktake #782 final shell: sessions and single workspace", () => {
   });
 
   it("moves the single MainInventory warehouse selector only for the selected Stocktake tab", () => {
-    expect(main).toContain('warehouseSelector={activeTab === "stocktake" ? stocktakeWarehouseSelector : null}');
+    expect(main).toContain('warehouseSelector={stocktakeShellAdmitted ? stocktakeWarehouseSelector : null}');
     expect(main).toContain('onChange={(event) => handleLocationChange(event.target.value)}');
-    expect(main).toContain('(activeTab !== "stocktake" || selectedLocationId === null)');
+    expect(main).toContain('!stocktakeShellAdmitted && (');
+    expect(main).toContain('locationTabScope !== null && tabAllowed("stocktake")');
     expect(main).toContain('activeTab !== "stocktake" && (');
     expect(main.match(/className="inventory-location-select/g)).toHaveLength(2); // One shared, one no-location fallback
     expect(main).toContain('data-it03-retained-tab="stocktake"');
