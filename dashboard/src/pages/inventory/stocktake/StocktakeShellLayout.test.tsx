@@ -82,7 +82,7 @@ beforeEach(() => { locale.value = "ar"; });
 
 describe("Stocktake #782 density shell: sessions dialog and shared workspace", () => {
   it.each([
-    ["ar", "الجلسات (3)", "جلسات الجرد النشطة", "فتح", "مفتوحة"],
+    ["ar", "الجلسات (٣)", "جلسات الجرد النشطة", "فتح", "مفتوحة"],
     ["en", "Sessions (3)", "Active stocktake sessions", "Open", "Open"],
   ] as const)("opens a focused authorized dialog with switch, page, escape and focus return in %s", async (language, triggerName, title, openLabel, currentLabel) => {
     locale.value = language;
@@ -118,7 +118,7 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
   it.each(["ar", "en"] as const)("shows one toolbar trigger with 0 and no page-height-consuming list in %s", (language) => {
     locale.value = language;
     render(<SessionsHarness sessions={[]} total={0} currentSessionId={null} />);
-    const trigger = screen.getByRole("button", { name: language === "ar" ? "الجلسات (0)" : "Sessions (0)" });
+    const trigger = screen.getByRole("button", { name: language === "ar" ? "الجلسات (٠)" : "Sessions (0)" });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog");
@@ -128,7 +128,7 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
 
   it("does not open an unauthorized session drawer", () => {
     render(<SessionsHarness canRead={false} />);
-    const trigger = screen.getByRole("button", { name: "الجلسات (3)" });
+    const trigger = screen.getByRole("button", { name: "الجلسات (٣)" });
     expect(trigger).toBeDisabled();
     fireEvent.click(trigger);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
   it("uses one MainInventory warehouse select with inline label only on admitted Stocktake", () => {
     expect(main).toContain('warehouseSelector={stocktakeShellAdmitted ? stocktakeWarehouseSelector : null}');
     expect(main).toContain('onChange={(event) => handleLocationChange(event.target.value)}');
-    expect(main).toContain('locale.startsWith("ar") ? "المستودع:" : "Warehouse:"');
+    expect(main).toContain('batchIndexText(t, locale, "warehouseLabel")');
     expect(main).toContain('!stocktakeShellAdmitted && (');
     expect(main).toContain('locationTabScope !== null && tabAllowed("stocktake")');
     expect(main).toContain('activeTab !== "stocktake" && (');
