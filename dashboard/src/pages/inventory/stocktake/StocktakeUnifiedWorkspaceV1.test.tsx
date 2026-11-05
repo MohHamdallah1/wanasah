@@ -271,7 +271,7 @@ describe("Stocktake compact count viewport — owner #782", () => {
     fireEvent.change(input, { target: { value: "5" } });
     expect(callbacks.update).toHaveBeenCalledWith("118:100:AVAILABLE", "5");
     expect(callbacks.submit).not.toHaveBeenCalled();
-    expect(container.querySelectorAll(".md\\\\:hidden article")).toHaveLength(76);
+    expect(container.querySelectorAll("article")).toHaveLength(76);
   });
 
   it.each(["ar", "en"] as const)("keeps review compact but authoritative, no visible duplicate location in %s", language => {
