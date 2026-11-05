@@ -54,7 +54,7 @@ export function StocktakeReviewPanel({
         </div>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
           <span><span className="text-slate-400">{copy.counting.warehouseContext}: </span><strong>{warehouseName || copy.counting.warehouseUnknown}</strong></span>
-          <span className="min-w-0 break-words"><span className="text-slate-400">{copy.workspace.scope}: </span><strong>{scopeProductName || copy.workspace.allProducts}</strong></span>
+          <span className="min-w-0 break-words"><span className="text-slate-400">{copy.workspace.scope}: </span><strong>{scopeProductName || (review.stocktake_type === "CYCLE_COUNT" ? copy.workspace.productUnknown : copy.workspace.allProducts)}</strong></span>
           <span className="font-bold"><span className="text-slate-400">{copy.workspace.reference}: </span><span dir="ltr">{review.reference_number}</span></span>
           <span className="ms-auto whitespace-nowrap font-bold">{text.attempt} <span dir="ltr">#{review.latest_attempt.attempt_number}</span></span>
         </div>
