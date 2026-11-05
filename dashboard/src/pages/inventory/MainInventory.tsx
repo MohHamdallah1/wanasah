@@ -2150,6 +2150,7 @@ export default function MainInventory() {
             <Tab3Stocktake
               active={activeTab === "stocktake"}
               locationId={selectedLocationId!}
+              locationName={locations.find((location) => location.id === selectedLocationId)?.name ?? null}
               companyId={`${locationAccess.data!.company_id}:${locationAccess.data!.backoffice_user_id}`}
               isAuditLocked={effectiveAuditLocked}
               authenticatedFetch={authFetch}
