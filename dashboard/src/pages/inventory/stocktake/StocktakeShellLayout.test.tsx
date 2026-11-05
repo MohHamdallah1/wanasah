@@ -116,6 +116,7 @@ describe("Stocktake #782 final shell: sessions and single workspace", () => {
     expect(tab).toContain("onClick={refreshSessions}");
     expect(tab).toContain("onClick={() => setShowCycleModal(true)}");
     expect(tab).toContain('data-stocktake-workspace={workspacePhase}');
+    expect(tab).toContain('activeSessions.length > 0 || sessionsLoading || sessionsLoadFailed');
     expect(tab.match(/<StocktakeCountingPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeReviewPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeIdlePanel/g)).toHaveLength(1);
