@@ -51,6 +51,7 @@ jobs:
           expected = {
               ".github/workflows/stocktake-v1-operator-782.yml",
               "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
               "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
