@@ -312,6 +312,7 @@ for (const locale of ["ar", "en"] as const) {
       await expect(dialog.getByText("Main Warehouse")).toBeVisible();
       await expect(dialog.getByRole("button", { name: locale === "ar" ? "أصناف موجودة بالمستودع" : "Products on hand here" })).toHaveAttribute("aria-pressed", "true");
       await expect(dialog.getByRole("button", { name: "Quarantined item" })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("782-" + locale + "-" + size.name + "-warehouse-chooser.png"), fullPage: true });
       await expect(dialog.getByRole("button", { name: "Missing stock" })).toHaveCount(0);
       await expect.poll(() => seen.some(q => q.includes("view=warehouse") && q.includes("stock_state=on_hand") && q.includes("location_id=11"))).toBeTruthy();
 
