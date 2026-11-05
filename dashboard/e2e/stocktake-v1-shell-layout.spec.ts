@@ -12,8 +12,11 @@ const warehouse = (id: number) => ({
 const session = (id: number, kind: "CYCLE_COUNT" | "FULL_COUNT") => ({
   id, reference_number: `STK-0000${id}`, stocktake_type: kind,
   status: "COUNTING", location_id: 11,
-  scope_product_variant_id: kind === "CYCLE_COUNT" ? 118 : null,
-  scope_product_name: kind === "CYCLE_COUNT" ? "Chickpeas 750 g" : null,
+  // Parallel cycle sessions must have disjoint product scopes; the backend
+  // rejects overlapping whole-product inventory locks with 409.
+  scope_product_variant_id: kind === "CYCLE_COUNT" ? (id === 78 ? 119 : 118) : null,
+  scope_product_name: kind === "CYCLE_COUNT"
+    ? (id === 78 ? "Oats 1.5 kg" : "Chickpeas 750 g") : null,
   scope_batch_id: null, scope_batch_number: null,
   related_work_session_id: null, started_by: 17,
   started_by_name: "Warehouse Operator",
@@ -86,10 +89,14 @@ async function setup(page: Page, locale: "ar" | "en") {
       status: "COUNTING", location_id: 11, related_work_session_id: null,
       source_location_id: 11,
     });
-    if (/^\/warehouse\/unified\/stocktake\/(77|78)\/count-sheet$/.test(path)) {
+    const countScope = path.match(/^\/warehouse\/unified\/stocktake\/(77|78)\/count-sheet$/);
+    if (countScope) {
+      const second = countScope[1] === "78";
       return json(route, [
-        { product_variant_id: 118, batch_id: 51, stock_status: "AVAILABLE",
-          product_name: "Chickpeas 750 g", batch_number: "TRUE-LOT-51",
+        { product_variant_id: second ? 119 : 118, batch_id: second ? 52 : 51,
+          stock_status: "AVAILABLE",
+          product_name: second ? "Oats 1.5 kg" : "Chickpeas 750 g",
+          batch_number: second ? "TRUE-LOT-52" : "TRUE-LOT-51",
           expiry_date: "2027-01-17", base_uom_id: 7, base_uom_code: "EACH",
           base_uom_name: "Each", quantity_scale: 0, quantity_step: "1" },
       ]);
