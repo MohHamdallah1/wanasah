@@ -7,7 +7,7 @@ import type { StocktakeRow } from "../inventoryUtils";
 import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeCountingPanelProps {
-  warehouseId?: number | null;
+  warehouseName?: string | null;
   scopeProductName?: string | null;
   rows: StocktakeRow[];
   progress: {
@@ -25,7 +25,7 @@ interface StocktakeCountingPanelProps {
 }
 
 export function StocktakeCountingPanel({
-  warehouseId,
+  warehouseName,
   scopeProductName,
   rows,
   progress,
@@ -106,7 +106,7 @@ export function StocktakeCountingPanel({
 
 
       <div className="px-4 py-2 text-xs text-slate-600 font-bold border-b border-slate-100">
-        {text.warehouseContext}: <span dir="ltr">#{warehouseId ?? "—"}</span>
+        {text.warehouseContext}: {warehouseName || text.warehouseUnknown}
         {scopeProductName && <span className="ms-3">{text.productContext}: {scopeProductName}</span>}
       </div>
       {rows.length === 0 && (
