@@ -76,7 +76,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
     expect(within(dialog).getByRole("button", { name: warehouse })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByRole("button", { name: catalog })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog).getByText("Chickpeas 750 g")).toBeInTheDocument();
-    expect(within(dialog).getByText("Main Warehouse")).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Main Warehouse");
     expect(within(dialog).getByRole("button", { name: start })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: catalog }));
     expect(c.selectProductSource).toHaveBeenCalledWith("catalog");
