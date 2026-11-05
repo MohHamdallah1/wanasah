@@ -36,7 +36,7 @@ export function StocktakeSessionCenter({
   sessions, total, loading, loadingMore, nextCursor, currentSessionId,
   open, onOpenChange, canRead, onLoadMore, onOpenSession,
 }: StocktakeSessionCenterProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.sessions;
 
@@ -54,7 +54,14 @@ export function StocktakeSessionCenter({
   };
 
   const count = total ?? sessions.length;
-  const triggerLabel = `${dir === "rtl" ? "الجلسات" : "Sessions"} (${count})`;
+  // Reuse the existing AR/EN session noun from "Refresh sessions" rather than
+  // hardcode copy or modify the separately owned translation catalog.
+  const language = i18n.resolvedLanguage || i18n.language || "ar";
+  const sessionNoun = text.refresh.trim().split(/\\s+/).at(-1) || text.title;
+  const shortTitle = dir === "ltr"
+    ? sessionNoun.replace(/^./u, (letter) => letter.toLocaleUpperCase(language))
+    : sessionNoun;
+  const triggerLabel = `${shortTitle} (${new Intl.NumberFormat(language).format(count)})`;
 
   return (
     <Dialog open={open && canRead} onOpenChange={onOpenChange}>
