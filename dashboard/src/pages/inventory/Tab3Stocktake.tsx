@@ -220,7 +220,7 @@ export function Tab3Stocktake({
   return (
     <div dir={dir} className="inventory-view inventory-stocktake flex h-full min-h-0 flex-1 flex-col gap-2 pt-0">
       <div data-stocktake-toolbar="true"
-        className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2">
+        className="relative flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2">
           {warehouseSelector}
         </div>
@@ -254,6 +254,13 @@ export function Tab3Stocktake({
       {/* The original door and both count types occupy one workspace; never parallel tables. */}
       <div data-stocktake-workspace={workspacePhase}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {!isIdle && selectedSession && (
+          <div data-stocktake-scope="true"
+            className="flex shrink-0 flex-wrap items-center gap-2 px-2 pb-2 text-xs font-bold text-slate-600">
+            <span className="text-slate-800">{copy.sessions.types[selectedSession.stocktake_type]}</span>
+            <span dir="auto">{selectedSession.reference_number}</span>
+          </div>
+        )}
         {isIdle ? (
           !isAuditLocked && warehouseAccess.can("stocktake.start") && (
             <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
