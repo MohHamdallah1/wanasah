@@ -17,7 +17,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
   const { copy, isArabic, dir } = useStocktakeUiCopy();
   const text = copy.cycle;
   const {
-    locationId, productSource, selectProductSource,
+    locationName, productSource, selectProductSource,
     productSearchInput, setProductSearchInput, products, productsNextCursor,
     productsLoading, productsLoadingMore, selectedProduct, chooseProduct,
     clearProduct, loadMoreProducts, batchSearchInput, setBatchSearchInput,
@@ -43,7 +43,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
     >
       <div dir={dir} className="space-y-5">
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm font-bold text-blue-800">
-          <div>{text.warehouseContext} <span dir="ltr">#{locationId}</span></div>
+          <div>{text.warehouseContext}: {locationName || text.warehouseUnknown}</div>
           <p className="mt-1 text-xs font-medium">{text.hint}</p>
         </div>
 
@@ -77,7 +77,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
           <div className="space-y-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between gap-3">
               <div>
-                <div className="text-xs text-slate-500 font-bold">{text.selectedProduct} · {text.warehouseContext} <span dir="ltr">#{locationId}</span></div>
+                <div className="text-xs text-slate-500 font-bold">{text.selectedProduct} · {text.warehouseContext}: {locationName || text.warehouseUnknown}</div>
                 <div className="font-black text-slate-800 mt-1">{selectedProduct.name}</div>
                 <div className="text-[11px] text-slate-500 mt-1" dir="ltr">SKU: {selectedProduct.sku || "—"}</div>
               </div>
