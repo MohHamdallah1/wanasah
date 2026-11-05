@@ -32,14 +32,14 @@ const countRow = (id: number, status: StocktakeRow["stock_status"], counted = fa
   actual_quantity: counted ? "2" : "", counted,
 });
 
-function counting(options: { product?: string; rows?: StocktakeRow[]; progress?: { total: number; counted: number; remaining: number } } = {}) {
+function counting(options: { product?: string; stocktakeType?: StocktakeType; rows?: StocktakeRow[]; progress?: { total: number; counted: number; remaining: number } } = {}) {
   const callbacks = {
     update: vi.fn(), zero: vi.fn(), discovered: vi.fn(), remove: vi.fn(),
     cancel: vi.fn(), submit: vi.fn(),
   };
   const rows = options.rows ?? [countRow(51, "AVAILABLE"), countRow(52, "BLOCKED")];
   const view = render(
-    <StocktakeCountingPanel warehouseName="Main Warehouse" scopeProductName={options.product}
+    <StocktakeCountingPanel warehouseName="Main Warehouse" scopeProductName={options.product} stocktakeType={options.stocktakeType}
       rows={rows} progress={options.progress ?? { total: rows.length, counted: 0, remaining: rows.length }}
       onUpdateRow={callbacks.update} onConfirmZero={callbacks.zero}
       onAddDiscovered={callbacks.discovered} onRemoveDiscovered={callbacks.remove}
@@ -107,7 +107,7 @@ describe("Stocktake single count/review workspace V1", () => {
     ["en", "Chickpeas 750 g", "Product count", "Count", "Physical count table"],
   ] as const)("uses ONE shared counting surface for %s with product scope %s", (language, product, type, step, table) => {
     locale.value = language;
-    const { container, callbacks } = counting({ product });
+    const { container, callbacks } = counting({ product, stocktakeType: product ? "CYCLE_COUNT" : "FULL_COUNT" });
     expect(screen.getByText(type)).toBeInTheDocument();
     expect(screen.getByText("Main Warehouse")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: table })).toBeInTheDocument();
@@ -128,6 +128,14 @@ describe("Stocktake single count/review workspace V1", () => {
     fireEvent.change(firstInput!, { target: { value: "3" } });
     expect(callbacks.update).toHaveBeenCalledWith("118:51:AVAILABLE", "3");
     expect(callbacks.submit).not.toHaveBeenCalled();
+  });
+
+  it.each(["ar", "en"] as const)("avoids wrongly claiming warehouse-wide scope when a cycle session name is not loaded in %s", language => {
+    locale.value = language;
+    counting({ stocktakeType: "CYCLE_COUNT" });
+    expect(screen.getByText(language === "ar" ? "جرد صنف" : "Product count")).toBeInTheDocument();
+    expect(screen.getByText(language === "ar" ? "الصنف المختار" : "Selected product")).toBeInTheDocument();
+    expect(screen.queryByText(language === "ar" ? "كل أصناف المستودع" : "All warehouse products")).not.toBeInTheDocument();
   });
 
   it.each(["ar", "en"] as const)("keeps zero-stock recovery, disabled empty submit and cancel in %s", (language) => {
