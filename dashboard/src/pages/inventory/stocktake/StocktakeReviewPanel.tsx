@@ -28,25 +28,38 @@ export function StocktakeReviewPanel({
   const { t } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.review;
+  const stages = [copy.workspace.countStep, copy.workspace.reviewStep, copy.workspace.approveStep];
+  const typeLabel = copy.sessions.types[review.stocktake_type];
+
   // Preserve the timestamp and its original offset; do not infer a local timezone.
   const displayTimestamp = (value: string) => value.replace("T", " ").replace(/Z$/, " UTC");
 
   return (
     <div dir={dir} className="glass-card inventory-data-panel flex flex-col border border-slate-200 shadow-sm flex-1 min-h-0 pt-0 overflow-hidden">
-      <div className="px-5 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" aria-hidden="true" />
-          <span className="text-sm font-black">{text.attempt} <span dir="ltr">#{review.latest_attempt.attempt_number}</span></span>
-          <span className="text-xs text-slate-400">{text.by} {review.latest_attempt.counted_by_name}</span>
+      <header className="shrink-0 border-b border-slate-700 bg-slate-900 px-3 py-3 text-white md:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+            <h2 className="text-sm font-black">{text.attempt}</h2>
+            <span className="rounded-md border border-white/20 bg-white/10 px-2 py-0.5 text-xs font-bold">{typeLabel}</span>
+          </div>
+          <ol aria-label={copy.workspace.stages} className="flex flex-wrap items-center gap-1 text-[11px] font-bold">
+            {stages.map((stage, index) => (
+              <li key={stage} aria-current={index === 1 ? "step" : undefined}
+                className={`rounded-md px-2 py-1 ${index === 1 ? "bg-amber-400 text-slate-950" : "text-slate-300"}`}>
+                {index + 1}. {stage}
+              </li>
+            ))}
+          </ol>
         </div>
-        <div className="text-xs text-slate-300 font-bold"><span dir="ltr">{review.attempt_history.length}</span> {text.history}</div>
-      </div>
-
-      <div className="px-4 py-2 border-b border-slate-100 text-xs font-bold text-slate-600">
-        {copy.counting.warehouseContext}: {warehouseName || copy.counting.warehouseUnknown}
-        {scopeProductName && <span className="ms-3">{copy.counting.productContext}: {scopeProductName}</span>}
-        <p className="mt-1 font-normal">{text.reviewHelp}</p>
-      </div>
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
+          <span><span className="text-slate-400">{copy.counting.warehouseContext}: </span><strong>{warehouseName || copy.counting.warehouseUnknown}</strong></span>
+          <span className="min-w-0 break-words"><span className="text-slate-400">{copy.workspace.scope}: </span><strong>{scopeProductName || (review.stocktake_type === "CYCLE_COUNT" ? copy.workspace.productUnknown : copy.workspace.allProducts)}</strong></span>
+          <span className="font-bold"><span className="text-slate-400">{copy.workspace.reference}: </span><span dir="ltr">{review.reference_number}</span></span>
+          <span className="ms-auto whitespace-nowrap font-bold">{text.attempt} <span dir="ltr">#{review.latest_attempt.attempt_number}</span></span>
+        </div>
+        <p className="mt-2 text-xs leading-5 text-slate-300">{text.reviewHelp}</p>
+      </header>
 
       <details className="mx-4 mt-3 shrink-0 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
         <summary className="cursor-pointer px-3 py-2 text-xs font-bold focus-visible:ring-2 focus-visible:ring-blue-500">
@@ -80,7 +93,7 @@ export function StocktakeReviewPanel({
         </div>
       )}
 
-      <div className="md:hidden flex-1 min-h-0 overflow-y-auto bg-slate-50 p-3 space-y-3">
+      <div className="md:hidden flex-1 min-h-0 overflow-y-auto bg-slate-50 p-3 space-y-2">
         {review.lines.map((line) => {
           const variance = compareQuantity(line.variance_quantity, "0");
           return (
@@ -107,15 +120,15 @@ export function StocktakeReviewPanel({
       </div>
 
       <div className="hidden md:block flex-1 min-h-0 overflow-y-auto overflow-x-auto custom-scrollbar">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[850px] text-sm" aria-label={copy.workspace.reviewTable}>
           <thead className="bg-slate-50 border-b border-slate-100 sticky top-0 z-10 shadow-sm">
             <tr>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.product}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-start">{text.batch}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.stockStatus}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.expected}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-[#1e87bb] text-center">{text.countedFixed}</th>
-              <th className="px-4 py-3.5 text-xs font-bold text-slate-500 text-center">{text.variance}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-slate-500 text-start">{text.product}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-slate-500 text-start">{text.batch}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-slate-500 text-center">{text.stockStatus}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-slate-500 text-center">{text.expected}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-[#1e87bb] text-center">{text.countedFixed}</th>
+              <th className="px-3 py-2.5 text-xs font-bold text-slate-500 text-center">{text.variance}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
@@ -123,20 +136,20 @@ export function StocktakeReviewPanel({
               const variance = compareQuantity(line.variance_quantity, "0");
               return (
                 <tr key={line.attempt_line_id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 font-bold text-slate-800">{line.product_name}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500 font-bold">
+                  <td className="px-3 py-2.5 font-bold text-slate-800">{line.product_name}</td>
+                  <td className="px-3 py-2.5 text-xs text-slate-500 font-bold">
                     <div>{formatPublicBatchNumber(line.batch_number, t("inventoryLive.noLotSupplied"))}</div>
                     <div className="mt-1 font-normal">{text.expiry}: <span dir="ltr">{line.expiry_date ?? "—"}</span></div>
                     {line.line_origin === "DISCOVERED" && <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">{text.discovered}</span>}
                   </td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-2.5 text-center">
                     <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-700">
                       {copy.stockStatuses[line.stock_status]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-center font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</td>
-                  <td className="px-4 py-3 text-center font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-2.5 text-center font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2.5 text-center font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2.5 text-center">
                     {variance === 0 ? <span className="text-slate-500 font-bold">{text.match}</span> : (
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${variance > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} dir="ltr">
                         {variance > 0 ? "+ " : "- "}{formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}
@@ -151,7 +164,7 @@ export function StocktakeReviewPanel({
       </div>
 
       <div className="bg-slate-900 text-white rounded-b-2xl overflow-hidden border-t border-slate-700">
-        <div className="px-4 md:px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="px-4 md:px-5 py-3 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-5">
             <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold">{text.matched}</span><span className="text-sm font-extrabold text-emerald-400" dir="ltr">{totals.matched}/{totals.total}</span></div>
             <div className="flex flex-col"><span className="text-[10px] text-slate-400 font-bold">{text.varianceLines}</span><span className={`text-sm font-extrabold ${totals.varianceItems ? "text-red-400" : "text-slate-300"}`} dir="ltr">{totals.varianceItems}</span></div>

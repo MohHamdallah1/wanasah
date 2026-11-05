@@ -282,6 +282,7 @@ export function Tab3Stocktake({
               <StocktakeCountingPanel
                 warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
                 scopeProductName={selectedSession?.scope_product_name ?? null}
+                stocktakeType={selectedSession?.stocktake_type ?? null}
                 canCancel={sessionAccess.can("stocktake.cancel")}
                 rows={stocktakeState.rows}
                 progress={countingWorkflow.countProgress}

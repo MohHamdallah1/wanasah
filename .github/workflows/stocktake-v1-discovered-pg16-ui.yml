@@ -188,6 +188,28 @@ jobs:
               ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
               ".github/workflows/stocktake-v1-review-779.yml",
           }
+          # Owner-approved isolated final #782 visual refinements. Never
+          # admit subsets, supersets or cross-worker combinations.
+          shell_789 = {
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+          }
+          workspace_788 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeIndependentWait.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          final_ci_782 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -196,6 +218,9 @@ jobs:
               frozenset(ci_782): "CI_ONLY_782",
               frozenset(operator_784): "OPERATOR_UX_784",
               frozenset(ci_compat_784): "CI_COMPAT_784",
+              frozenset(shell_789): "SINGLE_TOOLBAR_789",
+              frozenset(workspace_788): "UNIFIED_WORKSPACE_788",
+              frozenset(final_ci_782): "FINAL_CI_782",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -221,7 +246,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -234,6 +259,9 @@ jobs:
           assert verify_owner_scope("pull_request", ci_782) == "CI_ONLY_782"
           assert verify_owner_scope("pull_request", operator_784) == "OPERATOR_UX_784"
           assert verify_owner_scope("pull_request", ci_compat_784) == "CI_COMPAT_784"
+          assert verify_owner_scope("pull_request", shell_789) == "SINGLE_TOOLBAR_789"
+          assert verify_owner_scope("pull_request", workspace_788) == "UNIFIED_WORKSPACE_788"
+          assert verify_owner_scope("pull_request", final_ci_782) == "FINAL_CI_782"
           for event, sample in (
               ("pull_request", set()),
               ("workflow_dispatch", ci_782),
@@ -241,6 +269,13 @@ jobs:
               ("pull_request", operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"}),
               ("pull_request", operator_784 | {foreign_paths[0]}),
               ("pull_request", ci_compat_784 | {foreign_paths[0]}),
+              ("pull_request", shell_789 - {"dashboard/src/pages/inventory/MainInventory.tsx"}),
+              ("pull_request", shell_789 | {foreign_paths[0]}),
+              ("pull_request", workspace_788 - {"dashboard/src/pages/inventory/stocktake/uiCopy.ts"}),
+              ("pull_request", workspace_788 | {foreign_paths[0]}),
+              ("pull_request", shell_789 | workspace_788),
+              ("pull_request", final_ci_782 - {".github/scripts/live_stock_ci_ownership.py"}),
+              ("pull_request", final_ci_782 | {foreign_paths[0]}),
           ):
               try:
                   verify_owner_scope(event, sample)
