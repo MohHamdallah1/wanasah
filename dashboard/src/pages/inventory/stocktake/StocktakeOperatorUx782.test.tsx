@@ -38,7 +38,7 @@ const batch = {
 };
 function controller(selected: typeof product | null = null): CycleCountStartController {
   return {
-    locationId: 11, productSource: "warehouse", selectProductSource: vi.fn(),
+    locationId: 11, locationName: "Main Warehouse", productSource: "warehouse", selectProductSource: vi.fn(),
     productSearchInput: "", setProductSearchInput: vi.fn(),
     products: [product], productsNextCursor: null,
     productsLoading: false, productsLoadingMore: false,
@@ -76,7 +76,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
     expect(within(dialog).getByRole("button", { name: warehouse })).toHaveAttribute("aria-pressed", "true");
     expect(within(dialog).getByRole("button", { name: catalog })).toHaveAttribute("aria-pressed", "false");
     expect(within(dialog).getByText("Chickpeas 750 g")).toBeInTheDocument();
-    expect(within(dialog).getByText(/#11/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Main Warehouse")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: start })).toBeDisabled();
     fireEvent.click(within(dialog).getByRole("button", { name: catalog }));
     expect(c.selectProductSource).toHaveBeenCalledWith("catalog");
@@ -111,7 +111,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
   ] as const)("explains zero snapshot and provides registered Lot recovery without phantom submission %s", (language, hint, finish) => {
     locale.value = language;
     const discovered = vi.fn(), submit = vi.fn(), cancel = vi.fn();
-    render(<StocktakeCountingPanel warehouseId={11} scopeProductName="No-stock product"
+    render(<StocktakeCountingPanel warehouseName="Main Warehouse" scopeProductName="No-stock product"
       rows={[]} progress={{ total: 0, counted: 0, remaining: 0 }}
       onUpdateRow={vi.fn()} onConfirmZero={vi.fn()} onAddDiscovered={discovered}
       onRemoveDiscovered={vi.fn()} canCancel onCancel={cancel} onSubmit={submit} />);
@@ -133,7 +133,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
   ] as const)("keeps separate batch/status counts and protects expected quantities in %s", (language, label) => {
     locale.value = language;
     const first = row(51, "AVAILABLE"), second = row(52, "QUARANTINED");
-    const { container } = render(<StocktakeCountingPanel warehouseId={11} scopeProductName="Chickpeas 750 g"
+    const { container } = render(<StocktakeCountingPanel warehouseName="Main Warehouse" scopeProductName="Chickpeas 750 g"
       rows={[first, second]} progress={{ total: 2, counted: 0, remaining: 2 }}
       onUpdateRow={vi.fn()} onConfirmZero={vi.fn()} onAddDiscovered={vi.fn()}
       onRemoveDiscovered={vi.fn()} canCancel onCancel={vi.fn()} onSubmit={vi.fn()} />);
