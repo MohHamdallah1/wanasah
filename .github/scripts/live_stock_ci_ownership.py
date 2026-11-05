@@ -737,7 +737,29 @@ LEDGER_762_REQUIRED = {
 LEDGER_762_ALLOWED = LEDGER_762_REQUIRED | {HELPER}
 
 
+# Owner-approved Stocktake operator UX PR #784. MainInventory is a shared
+# entrypoint that triggers both Live Stock browser gates. Admit only the FULL,
+# independently tested ten-file PR #784 diff, never a generic Stocktake
+# directory/prefix or a subset combined with unrelated code/CI changes.
+STOCKTAKE_784_EXACT = frozenset({
+    ".github/workflows/stocktake-v1-operator-782.yml",
+    "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx",
+    "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+    "dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts",
+    "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+})
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    # Exact membership only; all previous classifying/negative protections
+    # remain unchanged for every other PR, including cross-domain combinations.
+    if mode in {"ux", "operational"} and changed == STOCKTAKE_784_EXACT:
+        return "stocktake-784-exact", []
     if mode in {"ux", "operational"} and BATCHES_COMPACT_V1_REQUIRED <= changed:
         extra = sorted(changed - BATCHES_COMPACT_V1_ALLOWED)
         if extra:
@@ -851,6 +873,41 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    # The two Live Stock gates must accept the complete approved #784 diff,
+    # yet reject partial Stocktake scope, foreign files, and combinations with
+    # other otherwise approved Live Stock or backend scopes.
+    stocktake_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    assert len(STOCKTAKE_784_EXACT) == 10
+    assert "dashboard/src/pages/inventory/MainInventory.tsx" in STOCKTAKE_784_EXACT
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(STOCKTAKE_784_EXACT), stocktake_sem) == (
+            "stocktake-784-exact", []
+        )
+        for missing in STOCKTAKE_784_EXACT:
+            partial = set(STOCKTAKE_784_EXACT) - {missing}
+            assert classify(mode, partial, stocktake_sem)[0] != "stocktake-784-exact"
+            # Without MainInventory, Live Stock's normal no-owner outcome is
+            # deliberately preserved; with the shared owner present, reject.
+            if "dashboard/src/pages/inventory/MainInventory.tsx" in partial:
+                _expect_fail(mode, partial, stocktake_sem)
+        for foreign in (
+            HELPER,  # The policy-fix PR itself must not inflate #784's diff.
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+            "wa_backend/services.py",
+            "flutter_app/lib/main.dart",
+            "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+        ):
+            _expect_fail(mode, set(STOCKTAKE_784_EXACT) | {foreign}, stocktake_sem)
+        _expect_fail(
+            mode, set(STOCKTAKE_784_EXACT) | BATCHES_COMPACT_V1_REQUIRED,
+            stocktake_sem,
+        )
+    assert classify("r3", set(STOCKTAKE_784_EXACT), stocktake_sem) == (
+        "not-applicable", []
+    )
+
     batch_compact_none = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     for mode in ("ux", "operational"):
         assert classify(mode, BATCHES_COMPACT_V1_REQUIRED, batch_compact_none)[0] == "batches-compact-v1"
