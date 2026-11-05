@@ -3,14 +3,14 @@ import { useTranslation } from "react-i18next";
 const ar = {
   idle: {
     title: "نظام تسوية المخزون",
-    body: "الجرد الشامل يبدأ بعد قفل المستودع المحدد وأخذ Snapshot ثابت",
+    body: "يبدأ الجرد الشامل بعد قفل المستودع المحدد وتثبيت حالة المخزون.",
     start: "إغلاق المستودع وبدء الجرد",
     startLabel: "إغلاق المستودع وبدء الجرد الشامل",
-    blindHint: "العد الأول أعمى، ولا يظهر الرصيد المتوقع إلا بعد تثبيت المحاولة",
+    blindHint: "لا يظهر الرصيد المسجل إلا بعد إنهاء العد وتثبيت المحاولة.",
   },
   independentWait: {
     title: "إعادة عد مستقلة مطلوبة",
-    body: "تم تثبيت العجز وتفويض Recount جديد. منفذ المحاولة السابقة ممنوع رقابياً من تنفيذ المحاولة التالية. سجّل الدخول بحساب مستخدم مخول آخر، وستظهر له ورقة عد عمياء جديدة تلقائياً.",
+    body: "تم تثبيت نتيجة العد، وتلزم إعادة عد مستقلة. لا يمكن لمن أجرى العد السابق تنفيذ الإعادة. يسجّل مستخدم آخر مخوّل الدخول لفتح ورقة عد جديدة دون إظهار الرصيد المسجل.",
     cancel: "إلغاء جلسة الجرد",
   },
   stockStatuses: {
@@ -20,6 +20,19 @@ const ar = {
     RECALLED: "مستدعى",
     DAMAGED: "تالف",
     DISPOSAL_PENDING: "بانتظار الإتلاف",
+  },
+  workspace: {
+    stages: "مراحل الجرد",
+    countStep: "العد",
+    reviewStep: "المراجعة",
+    approveStep: "الاعتماد",
+    scope: "نطاق الجرد",
+    allProducts: "كل أصناف المستودع",
+    productUnknown: "الصنف المختار",
+    progress: "تقدم العد",
+    reference: "مرجع الجرد",
+    countTable: "جدول العد الفعلي",
+    reviewTable: "جدول مراجعة الجرد",
   },
   counting: {
     actualFor: (name: string) => `الكمية الفعلية لـ ${name}`,
@@ -207,14 +220,14 @@ const ar = {
 const en: typeof ar = {
   idle: {
     title: "Inventory reconciliation",
-    body: "A full stocktake starts after locking the selected warehouse and taking a fixed snapshot.",
+    body: "A full count starts after the selected warehouse is locked and its stock is recorded.",
     start: "Lock warehouse and start stocktake",
     startLabel: "Lock warehouse and start full stocktake",
-    blindHint: "The first count is blind; expected stock appears only after the attempt is submitted.",
+    blindHint: "Recorded stock stays hidden until the count attempt is submitted.",
   },
   independentWait: {
     title: "Independent recount required",
-    body: "The shortage was submitted and a new recount was authorized. The user who performed the previous attempt cannot perform the next one. Sign in with another authorized account to receive a new blind count sheet automatically.",
+    body: "The count was submitted and an independent recount is required. The previous counter cannot perform it. Another authorized user must sign in to receive a new sheet without seeing recorded stock.",
     cancel: "Cancel stocktake session",
   },
   stockStatuses: {
@@ -224,6 +237,19 @@ const en: typeof ar = {
     RECALLED: "Recalled",
     DAMAGED: "Damaged",
     DISPOSAL_PENDING: "Disposal pending",
+  },
+  workspace: {
+    stages: "Stocktake stages",
+    countStep: "Count",
+    reviewStep: "Review",
+    approveStep: "Approve",
+    scope: "Count scope",
+    allProducts: "All warehouse products",
+    productUnknown: "Selected product",
+    progress: "Count progress",
+    reference: "Stocktake reference",
+    countTable: "Physical count table",
+    reviewTable: "Count review table",
   },
   counting: {
     actualFor: (name: string) => `Actual quantity for ${name}`,
