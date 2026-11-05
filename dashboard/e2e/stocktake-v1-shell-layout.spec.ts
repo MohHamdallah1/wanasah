@@ -77,12 +77,12 @@ async function setup(page: Page, locale: "ar" | "en") {
       stocktake_reference: null, stocktake_status: null,
     });
     if (path === "/warehouse/unified/stocktakes/active") {
-      const items = location === 11 ? [session(77, "FULL_COUNT"), session(78, "CYCLE_COUNT")] : [];
+      const items = location === 11 ? [session(77, "CYCLE_COUNT"), session(78, "CYCLE_COUNT")] : [];
       return json(route, { items, total: items.length, next_cursor: null, has_more: false });
     }
     const context = path.match(/^\/warehouse\/unified\/stocktake\/(77|78)\/context$/);
     if (context) return json(route, {
-      session_id: Number(context[1]), stocktake_type: context[1] === "77" ? "FULL_COUNT" : "CYCLE_COUNT",
+      session_id: Number(context[1]), stocktake_type: "CYCLE_COUNT",
       status: "COUNTING", location_id: 11, related_work_session_id: null,
       source_location_id: 11,
     });
