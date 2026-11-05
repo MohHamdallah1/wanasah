@@ -1809,6 +1809,11 @@ export default function MainInventory() {
       </select>
     </label>
   ) : null;
+  // If Stocktake is not currently admitted, leave the shared picker visible
+  // so the operator can recover by choosing another authorized warehouse.
+  const stocktakeShellAdmitted =
+    activeTab === "stocktake" && selectedLocationId !== null &&
+    locationTabScope !== null && tabAllowed("stocktake");
   const warehouseDiscoveryNeeded =
     locationsTruncated || warehouseCursorTrail.length > 1 || warehouseSearchInput.length > 0;
   const warehouseDiscoveryControls = (
@@ -1895,7 +1900,7 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (activeTab !== "stocktake" || selectedLocationId === null) && (
+      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && !stocktakeShellAdmitted && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {warehouseSelector}
@@ -1964,7 +1969,7 @@ export default function MainInventory() {
         </div>
       )}
 
-      {warehouseDiscoveryNeeded && !(activeTab === "stocktake" && selectedLocationId !== null) && (
+      {warehouseDiscoveryNeeded && !stocktakeShellAdmitted && (
         <div className="inventory-alert-banner flex flex-wrap items-center gap-2 px-4 py-2 text-sm font-bold">
           {warehouseDiscoveryControls}
         </div>
@@ -2172,7 +2177,7 @@ export default function MainInventory() {
               active={activeTab === "stocktake"}
               locationId={selectedLocationId!}
               locationName={locations.find((location) => location.id === selectedLocationId)?.name ?? null}
-              warehouseSelector={activeTab === "stocktake" ? stocktakeWarehouseSelector : null}
+              warehouseSelector={stocktakeShellAdmitted ? stocktakeWarehouseSelector : null}
               companyId={`${locationAccess.data!.company_id}:${locationAccess.data!.backoffice_user_id}`}
               isAuditLocked={effectiveAuditLocked}
               authenticatedFetch={authFetch}
