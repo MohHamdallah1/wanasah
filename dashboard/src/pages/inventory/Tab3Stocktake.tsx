@@ -241,7 +241,7 @@ export function Tab3Stocktake({
       {stocktakeState.sessionId !== null &&
         stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count") && (
           <StocktakeCountingPanel
-            warehouseName={locationName}
+            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
             scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             rows={stocktakeState.rows}
@@ -259,7 +259,7 @@ export function Tab3Stocktake({
         stocktakeState.phase === "REVIEW" &&
         stocktakeState.review && sessionAccess.can("stocktake.review") && (
           <StocktakeReviewPanel
-            warehouseName={locationName}
+            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
             scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             canRecount={sessionAccess.can("stocktake.recount")}
