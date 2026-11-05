@@ -301,6 +301,11 @@ for (const locale of ["ar", "en"] as const) {
       });
       await page.goto("/inventory");
       const stocktake = page.locator(".inventory-stocktake");
+      const fullCountDoor = stocktake.getByRole("button", {
+        name: locale === "ar" ? "إغلاق المستودع وبدء الجرد الشامل" : "Lock warehouse and start full stocktake",
+      });
+      await expect(fullCountDoor).toBeVisible();
+      await expect(fullCountDoor.locator(".animate-spin")).toHaveCount(2); // Exact existing warehouse-door artwork.
       await stocktake.getByRole("button", { name: locale === "ar" ? "جرد صنف" : "Count product" }).click();
       const dialog = page.getByRole("dialog", { name: locale === "ar" ? "جرد صنف" : "Product count" });
       await expect(dialog).toBeVisible();
