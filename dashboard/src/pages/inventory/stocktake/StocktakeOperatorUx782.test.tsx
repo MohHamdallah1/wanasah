@@ -149,7 +149,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
 
 
 describe("Stocktake #782 authorized server cursor and warehouse change", () => {
-  const createHook = (authenticatedFetch: StocktakeAuthFetch, locationId: number) =>
+  const useCycleFixture = (authenticatedFetch: StocktakeAuthFetch, locationId: number) =>
     useCycleCountStart({
       durableIdentity: { companyId: 1, backofficeUserId: 17 },
       locationId, enabled: true, authenticatedFetch,
@@ -171,7 +171,7 @@ describe("Stocktake #782 authorized server cursor and warehouse change", () => {
       if (params.get("cursor") === "next50") return page([{ ...product, id: 180, name: "Quarantined item" }], null);
       return page(Array.from({ length: 50 }, (_, i) => ({ ...product, id: 1000 + i, name: "Warehoused " + i })), "next50");
     };
-    const { result } = renderHook(() => createHook(inventory, 11));
+    const { result } = renderHook(() => useCycleFixture(inventory, 11));
     await waitFor(() => expect(result.current.products).toHaveLength(50));
     expect(urls[0]).toContain("view=warehouse");
     expect(urls[0]).toContain("stock_state=on_hand");
@@ -196,7 +196,7 @@ describe("Stocktake #782 authorized server cursor and warehouse change", () => {
       }
       return { items: [{ ...product, id: 777, name: "Warehouse B only" }], has_more: false, next_cursor: null, total: 1 };
     };
-    const { result, rerender } = renderHook(({ warehouse }) => createHook(inventory, warehouse), {
+    const { result, rerender } = renderHook(({ warehouse }) => useCycleFixture(inventory, warehouse), {
       initialProps: { warehouse: 11 },
     });
     await waitFor(() => expect(releaseA).toBeDefined());
