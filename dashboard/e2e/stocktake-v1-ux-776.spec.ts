@@ -304,6 +304,7 @@ for (const locale of ["ar", "en"] as const) {
       await stocktake.getByRole("button", { name: locale === "ar" ? "جرد صنف" : "Count product" }).click();
       const dialog = page.getByRole("dialog", { name: locale === "ar" ? "جرد صنف" : "Product count" });
       await expect(dialog).toBeVisible();
+      await expect(dialog.getByText("Main Warehouse")).toBeVisible();
       await expect(dialog.getByRole("button", { name: locale === "ar" ? "أصناف موجودة بالمستودع" : "Products on hand here" })).toHaveAttribute("aria-pressed", "true");
       await expect(dialog.getByRole("button", { name: "Quarantined item" })).toBeVisible();
       await expect(dialog.getByRole("button", { name: "Missing stock" })).toHaveCount(0);
