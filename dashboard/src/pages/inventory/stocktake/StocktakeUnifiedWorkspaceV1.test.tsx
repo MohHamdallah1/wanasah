@@ -220,8 +220,11 @@ describe("Stocktake compact count viewport — owner #782", () => {
     expect(within(footer).getByRole("progressbar")).toHaveAttribute("aria-valuemax", "1");
     expect(header.textContent).not.toContain("1/1");
     // Warehouse belongs to the single authorized toolbar, but remains accessible here.
-    expect(header.querySelector(".sr-only")).toHaveTextContent("Main Warehouse");
-    expect(header.querySelector(".sr-only")).toHaveTextContent(language === "ar" ? "موقع الجرد" : "Count location");
+    const hiddenLocation = Array.from(header.querySelectorAll(".sr-only")).find(
+      element => element.textContent?.includes("Main Warehouse"),
+    );
+    expect(hiddenLocation).toHaveTextContent("Main Warehouse");
+    expect(hiddenLocation).toHaveTextContent(language === "ar" ? "موقع الجرد" : "Count location");
     const scope = header.querySelector('[title="' + productName + '"]');
     expect(scope).toHaveClass("truncate");
     expect(scope).toHaveTextContent(productName);
