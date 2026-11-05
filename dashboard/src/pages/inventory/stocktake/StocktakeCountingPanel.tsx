@@ -7,6 +7,8 @@ import type { StocktakeRow } from "../inventoryUtils";
 import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeCountingPanelProps {
+  warehouseId: number | null;
+  scopeProductName: string | null;
   rows: StocktakeRow[];
   progress: {
     total: number;
@@ -23,6 +25,8 @@ interface StocktakeCountingPanelProps {
 }
 
 export function StocktakeCountingPanel({
+  warehouseId,
+  scopeProductName,
   rows,
   progress,
   onUpdateRow,
@@ -58,7 +62,7 @@ export function StocktakeCountingPanel({
       data-stocktake-count-input="true"
       inputMode="decimal"
       autoFocus={autoFocus}
-      aria-label={`${text.actualFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
+      aria-label={`${text.actualFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]}`}
       value={row.actual_quantity}
       onChange={(event) => onUpdateRow(row.row_key, event.target.value)}
       onKeyDown={handleCountEnter}
@@ -78,7 +82,7 @@ export function StocktakeCountingPanel({
       onClick={() => onConfirmZero(row.row_key)}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
       title={text.zeroHint}
-      aria-label={`${text.confirmZeroFor(row.product_name)} — ${copy.stockStatuses[row.stock_status]}`}
+      aria-label={`${text.confirmZeroFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]}`}
     >
       {text.confirmZero}
     </button>
@@ -99,6 +103,19 @@ export function StocktakeCountingPanel({
           </button>
         </div>
       </div>
+
+
+      <div className="px-4 py-2 text-xs text-slate-600 font-bold border-b border-slate-100">
+        {text.warehouseContext}: <span dir="ltr">#{warehouseId ?? "—"}</span>
+        {scopeProductName && <span className="ms-3">{text.productContext}: {scopeProductName}</span>}
+      </div>
+      {rows.length === 0 && (
+        <div role="status" className="mx-4 mt-3 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          <p className="font-bold">{text.zeroRows}</p>
+          <p className="mt-2 text-xs">{text.noRowsSubmit}</p>
+          <button type="button" onClick={onAddDiscovered} className="mt-3 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white">{copy.discovered.add}</button>
+        </div>
+      )}
 
       <div className="md:hidden flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-slate-50 p-3 space-y-3">
         {rows.map((row, index) => (
@@ -182,7 +199,7 @@ export function StocktakeCountingPanel({
             <button type="button" disabled={!canCancel} onClick={onCancel} className="flex-1 px-4 h-9 bg-slate-800 hover:bg-red-500/20 disabled:opacity-50 text-slate-300 hover:text-red-300 border border-transparent hover:border-red-500/30 text-xs font-bold rounded-xl transition-all">
               {text.cancel}
             </button>
-            <button type="button" onClick={onSubmit} disabled={progress.remaining > 0} className="flex-[2.5] px-4 h-9 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-600 disabled:text-slate-300 text-slate-900 text-sm font-black rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+            <button type="button" onClick={onSubmit} disabled={progress.total === 0 || progress.remaining > 0} className="flex-[2.5] px-4 h-9 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-600 disabled:text-slate-300 text-slate-900 text-sm font-black rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
               <Check className="w-5 h-5" aria-hidden="true" />
               {text.finish}
             </button>
