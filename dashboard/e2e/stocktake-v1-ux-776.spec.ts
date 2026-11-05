@@ -68,7 +68,8 @@ function respond(route: Route, data: unknown, status = 200) {
     status, contentType: "application/json", body: JSON.stringify(data),
   });
 }
-async function setup(page: Page, locale: "ar" | "en", stage: "counting" | "review") {
+async function setup(page: Page, locale: "ar" | "en", stage: "counting" | "review" | "cycle") {
+  let cycleStartedProduct: number | null = null;
   await page.addInitScript(({ locale, stage }) => {
     const jwt = "x." + btoa(JSON.stringify({
       type: "refresh", sub: "7", company_id: 1,
@@ -83,8 +84,10 @@ async function setup(page: Page, locale: "ar" | "en", stage: "counting" | "revie
     localStorage.setItem("wanasah.language", locale);
     localStorage.setItem("inventory_active_tab:1", "stocktake");
     localStorage.setItem("inventory_selected_location:1", "11");
-    localStorage.setItem("unified_stocktake_session:1:11", "77");
-    localStorage.setItem("unified_stocktake_phase:1:11", stage === "review" ? "REVIEW" : "COUNTING");
+    if (stage !== "cycle") {
+      localStorage.setItem("unified_stocktake_session:1:11", "77");
+      localStorage.setItem("unified_stocktake_phase:1:11", stage === "review" ? "REVIEW" : "COUNTING");
+    }
   }, { locale, stage });
 
   await page.route("**/api/**", async route => {
@@ -119,25 +122,65 @@ async function setup(page: Page, locale: "ar" | "en", stage: "counting" | "revie
       accessible_warehouse_count: 1, can_create: false,
     });
     if (path === "/warehouse/status") return respond(route, {
-      status: "AUDIT_LOCK", stocktake_session_id: 77,
-      stocktake_reference: "STK-000077",
-      stocktake_status: stage === "review" ? "PENDING_REVIEW" : "COUNTING",
+      status: stage === "cycle" && cycleStartedProduct === null ? "ACTIVE" : "AUDIT_LOCK",
+      stocktake_session_id: stage === "cycle" && cycleStartedProduct === null ? null : 77,
+      stocktake_reference: stage === "cycle" && cycleStartedProduct === null ? null : "STK-000077",
+      stocktake_status: stage === "cycle" && cycleStartedProduct === null ? null : stage === "review" ? "PENDING_REVIEW" : "COUNTING",
     });
     if (path === "/warehouse/unified/stocktakes/active") {
       return respond(route, {
-        items: [{ ...items[0], status: stage === "review" ? "PENDING_REVIEW" : "COUNTING" }],
-        next_cursor: null, has_more: false, total: 1,
+        items: stage === "cycle" && cycleStartedProduct === null ? [] : [{
+          ...items[0], stocktake_type: stage === "cycle" ? "CYCLE_COUNT" : "FULL_COUNT",
+          scope_product_variant_id: stage === "cycle" ? cycleStartedProduct : null,
+          scope_product_name: stage === "cycle" ? (cycleStartedProduct === 120 ? "Missing stock" : "Chickpeas 750 g") : null,
+          status: stage === "review" ? "PENDING_REVIEW" : "COUNTING",
+        }],
+        next_cursor: null, has_more: false, total: stage === "cycle" && cycleStartedProduct === null ? 0 : 1,
       });
     }
     if (path.includes("/stocktake/77/context")) {
       return respond(route, {
-        session_id: 77, stocktake_type: "FULL_COUNT",
+        session_id: 77, stocktake_type: stage === "cycle" ? "CYCLE_COUNT" : "FULL_COUNT",
         status: stage === "review" ? "PENDING_REVIEW" : "COUNTING",
         location_id: 11, related_work_session_id: null,
         source_location_id: 11,
       });
     }
-    if (path === "/warehouse/unified/stocktake/77/count-sheet") return respond(route, countSheet);
+    if (path === "/warehouse/unified/stocktake/77/count-sheet") return respond(route,
+      stage !== "cycle" ? countSheet : cycleStartedProduct === 120 ? [] : [
+        { ...countSheet[0], product_variant_id: 118, batch_id: 51, batch_number: "LOT-2026-A", stock_status: "AVAILABLE" },
+        { ...countSheet[0], product_variant_id: 118, batch_id: 52, batch_number: "LOT-2026-B", stock_status: "QUARANTINED" },
+      ]);
+    if (stage === "cycle" && path === "/warehouse/unified/stocktake/start") {
+      const body = JSON.parse(request.postData() ?? "{}");
+      cycleStartedProduct = Number(body.product_variant_id);
+      return respond(route, { session_id: 77, id: 77, reference_number: "STK-000077" });
+    }
+    if (stage === "cycle" && path === "/warehouse/inventory/cursor") {
+      const query = new URL(request.url()).searchParams;
+      if (query.get("location_id") !== "11") return respond(route, { detail: "Wrong warehouse" }, 403);
+      const meta = {
+        base_uom_id: 7, base_uom_code: "EACH", base_uom_name: "Each",
+        quantity_scale: 0, quantity_step: "1",
+      };
+      const product = (id: number, name: string) => ({ id, name, sku: "P-" + id, ...meta });
+      const raw = query.get("view") === "warehouse" && query.get("stock_state") === "on_hand"
+        ? [product(118, "Chickpeas 750 g"), product(119, "Quarantined item")]
+        : query.get("view") === "catalog" && query.get("stock_state") === "all"
+          ? [product(118, "Chickpeas 750 g"), product(119, "Quarantined item"), product(120, "Missing stock")]
+          : [];
+      const search = (query.get("search") ?? "").toLowerCase();
+      const filtered = raw.filter(item => !search || item.name.toLowerCase().includes(search) || item.sku.toLowerCase().includes(search));
+      return respond(route, { items: filtered, next_cursor: null, has_more: false, total: filtered.length });
+    }
+    if (stage === "cycle" && path === "/warehouse/unified/stocktake/cycle-batches") {
+      const query = new URL(request.url()).searchParams;
+      if (query.get("product_variant_id") !== "118") return respond(route, { items: [], next_cursor: null, has_more: false, total: 0 });
+      return respond(route, { items: [
+        { id: 51, product_variant_id: 118, batch_number: "LOT-2026-A", production_date: "2026-01-10", expiry_date: "2027-01-17", is_active: true },
+        { id: 52, product_variant_id: 118, batch_number: "LOT-2026-B", production_date: "2026-01-10", expiry_date: "2027-02-28", is_active: true },
+      ], next_cursor: null, has_more: false, total: 2 });
+    }
     if (path === "/warehouse/unified/stocktake/77/review") return respond(route, review);
     if (path.includes("/stocktake/77/discovery-options")) {
       const url = new URL(request.url());
@@ -175,8 +218,8 @@ for (const locale of ["ar", "en"] as const) {
         // Session list is intentionally the operator navigation; open the selected fixture explicitly.
         await stocktake.getByRole("button", { name: locale === "ar" ? "فتح" : "Open", exact: true }).click();
         const needle = stage === "counting"
-          ? locale === "ar" ? "عد أعمى نشط" : "Blind count in progress"
-          : locale === "ar" ? "مراجعة محاولة" : "Review attempt";
+          ? locale === "ar" ? "العد جارٍ" : "Count in progress"
+          : locale === "ar" ? "مراجعة العد" : "Review count";
         await expect(stocktake.getByText(needle, { exact: false }).first()).toBeVisible({ timeout: 15000 });
         if (stage === "review") {
           // #779: exact canonical response -> visible reviewer evidence on both breakpoints.
@@ -242,5 +285,88 @@ for (const locale of ["ar", "en"] as const) {
         }
       });
     }
+  }
+}
+
+
+for (const locale of ["ar", "en"] as const) {
+  for (const size of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone", width: 390, height: 844 }]) {
+    test("#782 " + locale + " " + size.name + " product-first all-batch count", async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await setup(page, locale, "cycle");
+      const seen: string[] = [];
+      page.on("request", request => {
+        const url = new URL(request.url());
+        if (url.pathname === "/api/warehouse/inventory/cursor") seen.push(url.search);
+      });
+      await page.goto("/inventory");
+      const stocktake = page.locator(".inventory-stocktake");
+      const fullCountDoor = stocktake.getByRole("button", {
+        name: locale === "ar" ? "إغلاق المستودع وبدء الجرد الشامل" : "Lock warehouse and start full stocktake",
+      });
+      await expect(fullCountDoor).toBeVisible();
+      await expect(fullCountDoor.locator(".animate-spin")).toHaveCount(2); // Exact existing warehouse-door artwork.
+      await stocktake.getByRole("button", { name: locale === "ar" ? "جرد صنف" : "Count product" }).click();
+      const dialog = page.getByRole("dialog", { name: locale === "ar" ? "جرد صنف" : "Product count" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText("Main Warehouse")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: locale === "ar" ? "أصناف موجودة بالمستودع" : "Products on hand here" })).toHaveAttribute("aria-pressed", "true");
+      await expect(dialog.getByRole("button", { name: "Quarantined item" })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("782-" + locale + "-" + size.name + "-warehouse-chooser.png"), fullPage: true });
+      await expect(dialog.getByRole("button", { name: "Missing stock" })).toHaveCount(0);
+      await expect.poll(() => seen.some(q => q.includes("view=warehouse") && q.includes("stock_state=on_hand") && q.includes("location_id=11"))).toBeTruthy();
+
+      // Optional catalog mode includes zero-stock products, but all-batches remains the default.
+      const catalogLabel = locale === "ar" ? "بحث في جميع أصناف الشركة" : "Search entire company catalog";
+      await dialog.getByRole("button", { name: catalogLabel }).click();
+      await expect(dialog.getByRole("button", { name: "Missing stock" })).toBeVisible();
+      await expect.poll(() => seen.some(q => q.includes("view=catalog") && q.includes("stock_state=all") && q.includes("location_id=11"))).toBeTruthy();
+      await dialog.getByRole("button", { name: "Chickpeas 750 g" }).click();
+      await expect(dialog.locator("details")).not.toHaveAttribute("open");
+      // Optional advanced single-batch choice is genuine, and returning to all is explicit.
+      await dialog.locator("details summary").click();
+      const lot = dialog.getByRole("button", { name: /LOT-2026-A/ });
+      await expect(lot).toBeVisible();
+      await lot.click();
+      await expect(dialog.locator("details summary")).toContainText("LOT-2026-A");
+      await dialog.getByRole("button", { name: locale === "ar" ? "كل تشغيلات الصنف" : "All product batches" }).click();
+      await expect(dialog.locator("details summary")).toContainText(locale === "ar" ? "كل تشغيلات الصنف" : "All product batches");
+      const startLabel = locale === "ar" ? "بدء العد" : "Start count";
+      const startRequest = page.waitForRequest(req => req.url().endsWith("/warehouse/unified/stocktake/start") && req.method() === "POST");
+      await dialog.getByRole("button", { name: startLabel }).click();
+      const request = await startRequest;
+      const payload = request.postDataJSON() as { stocktake_type: string; product_variant_id: number; batch_id: number | null; location_id: number };
+      expect(payload).toMatchObject({ stocktake_type: "CYCLE_COUNT", product_variant_id: 118, batch_id: null, location_id: 11 });
+      await expect(stocktake.getByText(locale === "ar" ? "العد جارٍ" : "Count in progress")).toBeVisible();
+      await expect(dialog).toBeHidden(); // Wait for mobile modal/backdrop exit before judging rendered page.
+      await expect(stocktake.locator("input[data-stocktake-count-input='true']:visible")).toHaveCount(2);
+      await expect(stocktake.getByText("LOT-2026-A", { exact: false }).locator("visible=true")).toBeVisible();
+      await expect(stocktake.getByText("LOT-2026-B", { exact: false }).locator("visible=true")).toBeVisible();
+      // No expected inventory is ever disclosed on an unsubmitted count.
+      await expect(stocktake.getByRole("button", { name: locale === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
+      await page.screenshot({ path: test.info().outputPath("782-" + locale + "-" + size.name + "-count.png"), fullPage: true });
+      console.log("STOCKTAKE_782_PRODUCT_COUNT=PASS " + JSON.stringify({ locale, size: size.name }));
+    });
+
+    test("#782 " + locale + " " + size.name + " zero stock guidance & cancellation", async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await setup(page, locale, "cycle");
+      await page.goto("/inventory");
+      const stocktake = page.locator(".inventory-stocktake");
+      await stocktake.getByRole("button", { name: locale === "ar" ? "جرد صنف" : "Count product" }).click();
+      const dialog = page.getByRole("dialog", { name: locale === "ar" ? "جرد صنف" : "Product count" });
+      await dialog.getByRole("button", { name: locale === "ar" ? "بحث في جميع أصناف الشركة" : "Search entire company catalog" }).click();
+      await dialog.getByRole("button", { name: "Missing stock" }).click();
+      await dialog.getByRole("button", { name: locale === "ar" ? "بدء العد" : "Start count" }).click();
+      await expect(dialog).toBeHidden();
+      const hint = locale === "ar" ? "لا توجد كميات مسجلة" : "There is no recorded stock";
+      await expect(stocktake.getByRole("status").getByText(hint, { exact: false })).toBeVisible();
+      await expect(stocktake.getByRole("button", { name: locale === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
+      await expect(stocktake.getByRole("status").getByRole("button")).toBeVisible();
+      await stocktake.getByRole("button", { name: locale === "ar" ? "إلغاء الجرد" : "Cancel stocktake" }).click();
+      await expect(page.getByRole("dialog", { name: locale === "ar" ? "إلغاء جلسة الجرد" : "Cancel stocktake session" })).toBeVisible();
+      await page.screenshot({ path: test.info().outputPath("782-" + locale + "-" + size.name + "-zero.png"), fullPage: true });
+      console.log("STOCKTAKE_782_ZERO_STOCK=PASS " + JSON.stringify({ locale, size: size.name }));
+    });
   }
 }

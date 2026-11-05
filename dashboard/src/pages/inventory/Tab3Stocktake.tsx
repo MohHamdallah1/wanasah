@@ -32,6 +32,7 @@ interface Props {
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
+  locationName?: string | null;
   companyId: string;
   isAuditLocked: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -43,6 +44,7 @@ export function Tab3Stocktake({
   focusSessionId,
   onFocusUnavailable,
   locationId,
+  locationName,
   companyId,
   isAuditLocked,
   authenticatedFetch,
@@ -126,6 +128,7 @@ export function Tab3Stocktake({
   const cycleWorkflow = useCycleCountStart({
     durableIdentity,
     locationId,
+    locationName,
     enabled: active && showCycleModal,
     authenticatedFetch,
     sessionKey: stocktakeState.sessionKey,
@@ -202,6 +205,10 @@ export function Tab3Stocktake({
   const startCycle = async () => {
     if (await cycleWorkflow.startCycleCount()) setShowCycleModal(false);
   };
+  const selectedSession = activeSessions.find((session) =>
+    session.id === Number(stocktakeState.sessionId) &&
+    session.location_id === stocktakeState.sessionLocationId,
+  );
   return (
     <div dir={dir} className="inventory-view inventory-stocktake flex h-full min-h-0 flex-1 flex-col gap-4 pt-1">
       <StocktakeSessionCenter
@@ -234,6 +241,8 @@ export function Tab3Stocktake({
       {stocktakeState.sessionId !== null &&
         stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count") && (
           <StocktakeCountingPanel
+            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
+            scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             rows={stocktakeState.rows}
             progress={countingWorkflow.countProgress}
@@ -250,6 +259,8 @@ export function Tab3Stocktake({
         stocktakeState.phase === "REVIEW" &&
         stocktakeState.review && sessionAccess.can("stocktake.review") && (
           <StocktakeReviewPanel
+            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
+            scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             canRecount={sessionAccess.can("stocktake.recount")}
             canApprove={sessionAccess.can("stocktake.approve")}

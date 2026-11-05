@@ -10,6 +10,7 @@ import { getErrorMessage, parseCycleBatchPage, parseCycleProductPage, parseStart
 interface UseCycleCountStartArgs {
   durableIdentity: StocktakeDurableIdentity | null;
   locationId: number;
+  locationName?: string | null;
   enabled: boolean;
   authenticatedFetch: StocktakeAuthFetch;
   sessionKey: string;
@@ -21,11 +22,12 @@ interface UseCycleCountStartArgs {
 }
 
 export function useCycleCountStart({
-  durableIdentity, locationId, enabled, authenticatedFetch, sessionKey, phaseKey,
+  durableIdentity, locationId, locationName, enabled, authenticatedFetch, sessionKey, phaseKey,
   setSessionId, setSessionLocationId, loadCountSheet, notifyStocktakeChanged,
 }: UseCycleCountStartArgs) {
   const { t } = useTranslation();
   const { copy } = useStocktakeCopy();
+  const [productSource, setProductSource] = useState<"warehouse" | "catalog">("warehouse");
   const [productSearchInput, setProductSearchInput] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [products, setProducts] = useState<CycleProductOption[]>([]);
@@ -64,6 +66,7 @@ export function useCycleCountStart({
   const resetForm = useCallback(() => {
     productRequestSeq.current += 1;
     batchRequestSeq.current += 1;
+    setProductSource("warehouse");
     setProductSearchInput("");
     setProductSearch("");
     setProducts([]);
@@ -81,6 +84,26 @@ export function useCycleCountStart({
     setNotes("");
   }, []);
 
+  // Changing warehouse invalidates selected company products and in-flight pagination.
+  useEffect(() => {
+    resetForm();
+  }, [locationId, resetForm]);
+
+  const selectProductSource = useCallback((next: "warehouse" | "catalog") => {
+    if (next === productSource) return;
+    productRequestSeq.current += 1;
+    batchRequestSeq.current += 1;
+    setProductSource(next);
+    setProductSearchInput("");
+    setProductSearch("");
+    setProducts([]);
+    setProductsNextCursor(null);
+    setSelectedProduct(null);
+    setSelectedBatch(null);
+    setBatches([]);
+    setBatchesNextCursor(null);
+  }, [productSource]);
+
   const fetchProducts = useCallback(async (cursor: string | null = null, append = false) => {
     if (!enabled) return;
     const seq = ++productRequestSeq.current;
@@ -91,7 +114,13 @@ export function useCycleCountStart({
     }
     if (!append) setProductsNextCursor(null);
     try {
-      const params = new URLSearchParams({ location_id: String(locationId), limit: "50" });
+      // Filter inside the authorized server query BEFORE cursor pagination.
+      // on_hand includes quarantined/blocked/damaged stock; not just sellable.
+      const params = new URLSearchParams({
+        location_id: String(locationId), limit: "50", sort: "name_asc",
+        view: productSource,
+        stock_state: productSource === "warehouse" ? "on_hand" : "all",
+      });
       if (productSearch) params.set("search", productSearch);
       if (cursor) params.set("cursor", cursor);
       const raw = await authenticatedFetch(`/warehouse/inventory/cursor?${params.toString()}`);
@@ -118,7 +147,7 @@ export function useCycleCountStart({
         }
       }
     }
-  }, [authenticatedFetch, copy.generic.cycleProductsFailed, enabled, locationId, productSearch]);
+  }, [authenticatedFetch, copy.generic.cycleProductsFailed, enabled, locationId, productSearch, productSource]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -247,6 +276,7 @@ export function useCycleCountStart({
   ]);
 
   return {
+    locationId, locationName, productSource, selectProductSource,
     productSearchInput, setProductSearchInput, products, productsNextCursor,
     productsLoading, productsLoadingMore, selectedProduct, chooseProduct, clearProduct,
     loadMoreProducts, batchSearchInput, setBatchSearchInput, batches, batchesNextCursor,
