@@ -164,24 +164,91 @@ jobs:
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
               "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
           }
+          # #782 CI-only correction. This exact one-file PR is independent
+          # of the previous business/UX scopes; it cannot admit foreign files.
+          ci_782 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+          }
+          # #784 approved operator UX: exact GitHub PR changed-file set.
+          # Keep this separate from all historical original PR scopes.
+          operator_784 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          # Independent Worker 1 CI-only PR, not part of #784 UX scope.
+          ci_compat_784 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
               frozenset(review_779): "REVIEW_EVIDENCE_779",
               frozenset(http_778): "REAL_BEARER_HTTP_778",
+              frozenset(ci_782): "CI_ONLY_782",
+              frozenset(operator_784): "OPERATOR_UX_784",
+              frozenset(ci_compat_784): "CI_COMPAT_784",
           }
-          matched = valid_scopes.get(frozenset(changed))
-          assert matched is not None, {
-              "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-              "unexpected": sorted(changed - discovered_764 - keyboard_776 - review_779 - http_778),
-              "changed": sorted(changed),
-          }
-          for foreign in (
+          foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
               "dashboard/src/pages/inventory/TabBatches.tsx",
               "wa_backend/services.py",
               "wanasah_frontend/lib/main.dart",
+          )
+
+          def verify_owner_scope(event_name, files):
+              if event_name == "workflow_dispatch":
+                  # A manual run on the selected main has no PR diff. Do NOT
+                  # reuse this exemption for pull_request events or a run
+                  # containing uncommitted/foreign changes.
+                  assert not files, {
+                      "error": "STOCKTAKE_DISPATCH_DIRTY_SCOPE",
+                      "changed": sorted(files),
+                  }
+                  return "DISPATCH_CLEAN_MAIN"
+              assert event_name == "pull_request", {
+                  "error": "STOCKTAKE_UNEXPECTED_EVENT",
+                  "event": event_name,
+              }
+              matched = valid_scopes.get(frozenset(files))
+              assert matched is not None, {
+                  "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784),
+                  "changed": sorted(files),
+              }
+              for foreign in foreign_paths:
+                  assert frozenset(files | {foreign}) not in valid_scopes
+              return matched
+
+          # Focused cross-event regression inside the existing narrow gate:
+          # empty dispatch passes, empty PR or nonempty dispatch fails.
+          assert verify_owner_scope("workflow_dispatch", set()) == "DISPATCH_CLEAN_MAIN"
+          assert verify_owner_scope("pull_request", ci_782) == "CI_ONLY_782"
+          assert verify_owner_scope("pull_request", operator_784) == "OPERATOR_UX_784"
+          assert verify_owner_scope("pull_request", ci_compat_784) == "CI_COMPAT_784"
+          for event, sample in (
+              ("pull_request", set()),
+              ("workflow_dispatch", ci_782),
+              ("pull_request", ci_782 | {foreign_paths[0]}),
+              ("pull_request", operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"}),
+              ("pull_request", operator_784 | {foreign_paths[0]}),
+              ("pull_request", ci_compat_784 | {foreign_paths[0]}),
           ):
-              assert frozenset(changed | {foreign}) not in valid_scopes
+              try:
+                  verify_owner_scope(event, sample)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Stocktake owner gate accepted forbidden {event}: {sorted(sample)}")
+
+          matched = verify_owner_scope(os.environ["EVENT_NAME"], changed)
           print(f"STOCKTAKE_V1_OWNER_SCOPE={matched}_PASS")
           PY

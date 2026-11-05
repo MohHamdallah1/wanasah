@@ -58,6 +58,57 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
               "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
           }
-          assert files == expected, {"unexpected": sorted(files - expected), "missing": sorted(expected - files)}
-          print("STOCKTAKE_779_FRONTEND_ONLY=PASS")
+          # #784 owner-approved operator UX: exact GitHub changed-file list.
+          # Retain the original #779 expected scope byte-for-byte.
+          operator_784 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          # Worker 1's separate CI-only compatibility PR. No UX edit allowed.
+          ci_compat_784 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+          }
+          valid_scopes = {
+              frozenset(expected): "REVIEW_EVIDENCE_779",
+              frozenset(operator_784): "OPERATOR_UX_784",
+              frozenset(ci_compat_784): "CI_COMPAT_784",
+          }
+          foreign = "wa_backend/api/warehouse/stocktake.py"
+
+          def verify_scope(changed):
+              matched = valid_scopes.get(frozenset(changed))
+              assert matched is not None, {
+                  "error": "STOCKTAKE_REVIEW_OWNER_SCOPE_FAIL",
+                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784),
+                  "changed": sorted(changed),
+              }
+              return matched
+
+          # Neither foreign files nor subsets gain approval from this change.
+          assert verify_scope(expected) == "REVIEW_EVIDENCE_779"
+          assert verify_scope(operator_784) == "OPERATOR_UX_784"
+          assert verify_scope(ci_compat_784) == "CI_COMPAT_784"
+          for invalid in (
+              set(),
+              operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
+              operator_784 | {foreign},
+              ci_compat_784 | {foreign},
+              expected | {foreign},
+          ):
+              try:
+                  verify_scope(invalid)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Stocktake Review owner gate accepted forbidden scope: {sorted(invalid)}")
+          print(f"STOCKTAKE_779_FRONTEND_ONLY={verify_scope(files)}_PASS")
           PY
