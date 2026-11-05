@@ -1791,6 +1791,81 @@ export default function MainInventory() {
     );
   }
 
+  // One authorized selector from MainInventory owns every tab's location.
+  // Only its placement changes for an admitted Stocktake workspace.
+  const warehouseSelector = locations.length > 0 ? (
+    <label className="inventory-location-field">
+      <span className="inventory-location-label">{t("inventoryShell.warehouseSelectLabel")}</span>
+      <select
+        aria-label={t("inventoryShell.warehouseSelectLabel")}
+        className="inventory-location-select px-3 py-2 text-sm font-bold"
+        value={selectedLocationId ?? ""}
+        onChange={(event) => handleLocationChange(event.target.value)}
+      >
+        <option value="" disabled>{t("inventoryShell.chooseWarehouse")}</option>
+        {locations.map((loc) => (
+          <option key={loc.id} value={loc.id}>{loc.name}</option>
+        ))}
+      </select>
+    </label>
+  ) : null;
+  const warehouseDiscoveryNeeded =
+    locationsTruncated || warehouseCursorTrail.length > 1 || warehouseSearchInput.length > 0;
+  const warehouseDiscoveryControls = (
+    <>
+
+          <label className="flex min-w-[180px] flex-1 items-center gap-2">
+            <span>{t("inventoryShell.warehouseSearch")}</span>
+            <input
+              type="search"
+              value={warehouseSearchInput}
+              onChange={(event) => setWarehouseSearchInput(event.target.value)}
+              maxLength={100}
+              aria-label={t("inventoryShell.warehouseSearch")}
+              className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={loadingLocations || warehouseCursorTrail.length <= 1}
+            onClick={() => setWarehouseCursorTrail((trail) => trail.slice(0, -1))}
+            className="rounded-lg border px-2 py-1 disabled:opacity-50"
+          >
+            {t("inventoryShell.previousWarehouses")}
+          </button>
+          <button
+            type="button"
+            disabled={loadingLocations || !warehouseNextCursor}
+            onClick={() => {
+              if (warehouseNextCursor) {
+                setWarehouseCursorTrail((trail) => [...trail, warehouseNextCursor]);
+              }
+            }}
+            className="rounded-lg border px-2 py-1 disabled:opacity-50"
+          >
+            {t("inventoryShell.nextWarehouses")}
+          </button>
+          {locationsTruncated ? (
+            <span role="status">{t("inventoryShell.locationsTruncated")}</span>
+          ) : null}
+    </>
+  );
+  const stocktakeWarehouseSelector = (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      {warehouseSelector}
+      {warehouseDiscoveryNeeded && (
+        <details className="relative min-w-0 text-xs">
+          <summary className="cursor-pointer rounded-lg border border-slate-200 bg-white px-2.5 py-2 font-bold text-slate-700">
+            {t("inventoryShell.warehouseSearch")}
+          </summary>
+          <div className="absolute start-0 top-full z-20 mt-1 flex w-[min(90vw,26rem)] flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+            {warehouseDiscoveryControls}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+
   // ─── UI ─────────────────────────────────────────────────────────────────────
   return (
     <div
@@ -1820,31 +1895,10 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (
+      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && (activeTab !== "stocktake" || selectedLocationId === null) && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
-            {locations.length > 0 && (
-              <label className="inventory-location-field">
-                <span className="inventory-location-label">
-                  {t("inventoryShell.warehouseSelectLabel")}
-                </span>
-                <select
-                  aria-label={t("inventoryShell.warehouseSelectLabel")}
-                  className="inventory-location-select px-3 py-2 text-sm font-bold"
-                  value={selectedLocationId ?? ""}
-                  onChange={(e) => handleLocationChange(e.target.value)}
-                >
-                  <option value="" disabled>
-                    {t("inventoryShell.chooseWarehouse")}
-                  </option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            {warehouseSelector}
 
             <div className="inventory-sync flex min-w-fit flex-col items-start justify-center border-e pe-3">
               <div className="flex items-center gap-2">
@@ -1910,42 +1964,9 @@ export default function MainInventory() {
         </div>
       )}
 
-      {(locationsTruncated || warehouseCursorTrail.length > 1 || warehouseSearchInput.length > 0) && (
+      {warehouseDiscoveryNeeded && !(activeTab === "stocktake" && selectedLocationId !== null) && (
         <div className="inventory-alert-banner flex flex-wrap items-center gap-2 px-4 py-2 text-sm font-bold">
-          <label className="flex min-w-[180px] flex-1 items-center gap-2">
-            <span>{t("inventoryShell.warehouseSearch")}</span>
-            <input
-              type="search"
-              value={warehouseSearchInput}
-              onChange={(event) => setWarehouseSearchInput(event.target.value)}
-              maxLength={100}
-              aria-label={t("inventoryShell.warehouseSearch")}
-              className="min-w-0 flex-1 rounded-lg border px-2 py-1 text-sm"
-            />
-          </label>
-          <button
-            type="button"
-            disabled={loadingLocations || warehouseCursorTrail.length <= 1}
-            onClick={() => setWarehouseCursorTrail((trail) => trail.slice(0, -1))}
-            className="rounded-lg border px-2 py-1 disabled:opacity-50"
-          >
-            {t("inventoryShell.previousWarehouses")}
-          </button>
-          <button
-            type="button"
-            disabled={loadingLocations || !warehouseNextCursor}
-            onClick={() => {
-              if (warehouseNextCursor) {
-                setWarehouseCursorTrail((trail) => [...trail, warehouseNextCursor]);
-              }
-            }}
-            className="rounded-lg border px-2 py-1 disabled:opacity-50"
-          >
-            {t("inventoryShell.nextWarehouses")}
-          </button>
-          {locationsTruncated ? (
-            <span role="status">{t("inventoryShell.locationsTruncated")}</span>
-          ) : null}
+          {warehouseDiscoveryControls}
         </div>
       )}
       {locationAccess.isError && selectedLocationId !== null && (
@@ -2003,7 +2024,7 @@ export default function MainInventory() {
                   ? t("inventoryShell.noAccessibleWarehouse")
                   : t("inventoryShell.noWarehouseSelected")}
             </p>
-            {locations.length > 0 && (
+            {locations.length > 0 && activeTab !== "stocktake" && (
               <select aria-label={t("inventoryShell.warehouseSelectLabel")} className="inventory-location-select px-3 py-2 text-sm font-bold" value="" onChange={(e) => handleLocationChange(e.target.value)}>
                 <option value="" disabled>{t("inventoryShell.chooseWarehouse")}</option>
                 {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
@@ -2151,6 +2172,7 @@ export default function MainInventory() {
               active={activeTab === "stocktake"}
               locationId={selectedLocationId!}
               locationName={locations.find((location) => location.id === selectedLocationId)?.name ?? null}
+              warehouseSelector={activeTab === "stocktake" ? stocktakeWarehouseSelector : null}
               companyId={`${locationAccess.data!.company_id}:${locationAccess.data!.backoffice_user_id}`}
               isAuditLocked={effectiveAuditLocked}
               authenticatedFetch={authFetch}
