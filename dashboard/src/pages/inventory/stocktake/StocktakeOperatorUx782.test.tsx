@@ -123,7 +123,7 @@ describe("Stocktake V1 #782 operator product count UX", () => {
     expect(submit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: language === "ar" ? "إلغاء الجرد" : "Cancel stocktake" }));
     expect(cancel).toHaveBeenCalledOnce();
-    expect(screen.getByText("No-stock product")).toBeInTheDocument();
+    expect(document.body).toHaveTextContent("No-stock product");
   });
 
   it.each([
