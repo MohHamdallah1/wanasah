@@ -1,5 +1,6 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { RefreshCcw } from "lucide-react";
 import type { StocktakeAuthFetch } from "./stocktake/types";
 import { useStocktakeSessions } from "./stocktake/hooks/useStocktakeSessions";
 import { useStocktakeState } from "./stocktake/hooks/useStocktakeState";
@@ -33,6 +34,7 @@ interface Props {
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
   locationName?: string | null;
+  warehouseSelector?: ReactNode;
   companyId: string;
   isAuditLocked: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -45,6 +47,7 @@ export function Tab3Stocktake({
   onFocusUnavailable,
   locationId,
   locationName,
+  warehouseSelector,
   companyId,
   isAuditLocked,
   authenticatedFetch,
@@ -209,8 +212,34 @@ export function Tab3Stocktake({
     session.id === Number(stocktakeState.sessionId) &&
     session.location_id === stocktakeState.sessionLocationId,
   );
+  const cycleStartDisabled =
+    isAuditLocked || sessionsLoading || !warehouseAccess.can("stocktake.start");
+  const isIdle = stocktakeState.sessionId === null;
+  const workspacePhase = isIdle ? "idle" : stocktakeState.phase.toLowerCase();
+
   return (
-    <div dir={dir} className="inventory-view inventory-stocktake flex h-full min-h-0 flex-1 flex-col gap-4 pt-1">
+    <div dir={dir} className="inventory-view inventory-stocktake flex h-full min-h-0 flex-1 flex-col gap-2 pt-0">
+      <div data-stocktake-toolbar="true"
+        className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white/90 px-3 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {warehouseSelector}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
+            aria-label={copy.sessions.refresh} title={copy.sessions.refresh}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-40">
+            <RefreshCcw className={`h-4 w-4 ${sessionsLoading ? "animate-spin" : ""}`} aria-hidden="true" />
+            <span>{copy.sessions.refresh}</span>
+          </button>
+          <button type="button" onClick={() => setShowCycleModal(true)}
+            disabled={cycleStartDisabled}
+            title={cycleStartDisabled ? copy.sessions.cycleLocked : copy.sessions.cycleHint}
+            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+            {copy.sessions.cycleAction}
+          </button>
+        </div>
+      </div>
+
       <StocktakeSessionCenter
         sessions={activeSessions}
         total={activeSessionsTotal}
@@ -218,70 +247,70 @@ export function Tab3Stocktake({
         loadingMore={sessionsLoadingMore}
         nextCursor={activeSessionsNextCursor}
         currentSessionId={lifecycle.selectedSessionId}
-        onRefresh={refreshSessions}
-        onStartCycle={() => setShowCycleModal(true)}
-        cycleStartDisabled={isAuditLocked || sessionsLoading || !warehouseAccess.can("stocktake.start")}
         onLoadMore={loadMoreSessions}
         onOpenSession={lifecycle.openServerSession}
       />
 
-      {stocktakeState.sessionId === null &&
-        !isAuditLocked && warehouseAccess.can("stocktake.start") && (
-          <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
-        )}
+      {/* The original door and both count types occupy one workspace; never parallel tables. */}
+      <div data-stocktake-workspace={workspacePhase}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {isIdle ? (
+          !isAuditLocked && warehouseAccess.can("stocktake.start") && (
+            <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
+          )
+        ) : (
+          <>
+            {stocktakeState.phase === "WAITING_INDEPENDENT" && (
+              <StocktakeIndependentWait
+                canCancel={sessionAccess.can("stocktake.cancel")}
+                onCancel={() => setShowCancelModal(true)}
+              />
+            )}
 
-      {stocktakeState.sessionId !== null &&
-        stocktakeState.phase === "WAITING_INDEPENDENT" && (
-          <StocktakeIndependentWait
-            canCancel={sessionAccess.can("stocktake.cancel")}
-            onCancel={() => setShowCancelModal(true)}
-          />
-        )}
+            {stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count") && (
+              <StocktakeCountingPanel
+                warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
+                scopeProductName={selectedSession?.scope_product_name ?? null}
+                canCancel={sessionAccess.can("stocktake.cancel")}
+                rows={stocktakeState.rows}
+                progress={countingWorkflow.countProgress}
+                onUpdateRow={countingWorkflow.updateRow}
+                onConfirmZero={countingWorkflow.confirmZeroCount}
+                onAddDiscovered={() => setShowDiscoveredModal(true)}
+                onRemoveDiscovered={countingWorkflow.removeDiscoveredRow}
+                onCancel={() => setShowCancelModal(true)}
+                onSubmit={() => setShowSubmitModal(true)}
+              />
+            )}
 
-      {stocktakeState.sessionId !== null &&
-        stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count") && (
-          <StocktakeCountingPanel
-            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
-            scopeProductName={selectedSession?.scope_product_name ?? null}
-            canCancel={sessionAccess.can("stocktake.cancel")}
-            rows={stocktakeState.rows}
-            progress={countingWorkflow.countProgress}
-            onUpdateRow={countingWorkflow.updateRow}
-            onConfirmZero={countingWorkflow.confirmZeroCount}
-            onAddDiscovered={() => setShowDiscoveredModal(true)}
-            onRemoveDiscovered={countingWorkflow.removeDiscoveredRow}
-            onCancel={() => setShowCancelModal(true)}
-            onSubmit={() => setShowSubmitModal(true)}
-          />
-        )}
+            {stocktakeState.phase === "REVIEW" && stocktakeState.review && sessionAccess.can("stocktake.review") && (
+              <StocktakeReviewPanel
+                warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
+                scopeProductName={selectedSession?.scope_product_name ?? null}
+                canCancel={sessionAccess.can("stocktake.cancel")}
+                canRecount={sessionAccess.can("stocktake.recount")}
+                canApprove={sessionAccess.can("stocktake.approve")}
+                review={stocktakeState.review}
+                totals={reviewWorkflow.reviewTotals}
+                approvalBlocked={reviewWorkflow.approvalBlocked}
+                onVariance={() => setShowVarianceModal(true)}
+                onCancel={() => setShowCancelModal(true)}
+                onRecount={() => setShowRecountModal(true)}
+                onApprove={() => setShowApproveModal(true)}
+              />
+            )}
 
-      {stocktakeState.sessionId !== null &&
-        stocktakeState.phase === "REVIEW" &&
-        stocktakeState.review && sessionAccess.can("stocktake.review") && (
-          <StocktakeReviewPanel
-            warehouseName={stocktakeState.sessionLocationId === locationId ? locationName : null}
-            scopeProductName={selectedSession?.scope_product_name ?? null}
-            canCancel={sessionAccess.can("stocktake.cancel")}
-            canRecount={sessionAccess.can("stocktake.recount")}
-            canApprove={sessionAccess.can("stocktake.approve")}
-            review={stocktakeState.review}
-            totals={reviewWorkflow.reviewTotals}
-            approvalBlocked={reviewWorkflow.approvalBlocked}
-            onVariance={() => setShowVarianceModal(true)}
-            onCancel={() => setShowCancelModal(true)}
-            onRecount={() => setShowRecountModal(true)}
-            onApprove={() => setShowApproveModal(true)}
-          />
+            {(
+              (stocktakeState.phase === "REVIEW" && !sessionAccess.can("stocktake.review")) ||
+              (stocktakeState.phase === "COUNTING" && !sessionAccess.can("stocktake.count"))
+            ) && (
+              <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
+                {copy.generic.authorizationRequired}
+              </p>
+            )}
+          </>
         )}
-
-      {stocktakeState.sessionId !== null && (
-        (stocktakeState.phase === "REVIEW" && !sessionAccess.can("stocktake.review")) ||
-        (stocktakeState.phase === "COUNTING" && !sessionAccess.can("stocktake.count"))
-      ) && (
-        <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-          {copy.generic.authorizationRequired}
-        </p>
-      )}
+      </div>
 
       <StocktakeDiscoveredModal
         open={active && showDiscoveredModal && stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count")}
