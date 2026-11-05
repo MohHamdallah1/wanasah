@@ -1,7 +1,9 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StocktakeCycleStartModal } from "./StocktakeCycleStartModal";
 import { StocktakeCountingPanel } from "./StocktakeCountingPanel";
+import { useCycleCountStart } from "./hooks/useCycleCountStart";
+import type { StocktakeAuthFetch } from "./types";
 import type { CycleCountStartController } from "./hooks/useCycleCountStart";
 import type { StocktakeRow } from "../inventoryUtils";
 
@@ -142,5 +144,72 @@ describe("Stocktake V1 #782 operator product count UX", () => {
     expect(mobileInputs[0].getAttribute("aria-label")).toContain("TRUE-LOT-51");
     expect(mobileInputs[1].getAttribute("aria-label")).toContain("TRUE-LOT-52");
     expect(screen.getByRole("button", { name: language === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
+  });
+});
+
+
+describe("Stocktake #782 authorized server cursor and warehouse change", () => {
+  const createHook = (authenticatedFetch: StocktakeAuthFetch, locationId: number) =>
+    useCycleCountStart({
+      durableIdentity: { companyId: 1, backofficeUserId: 17 },
+      locationId, enabled: true, authenticatedFetch,
+      sessionKey: "stocktake:session", phaseKey: "stocktake:phase",
+      setSessionId: vi.fn(), setSessionLocationId: vi.fn(),
+      loadCountSheet: vi.fn(async () => {}),
+      notifyStocktakeChanged: vi.fn(async () => {}),
+    });
+
+  it("uses authorized server-side on-hand BEFORE 50-row cursor, then explicit catalog including zero-stock SKUs", async () => {
+    const urls: string[] = [];
+    const page = (items: unknown[], next_cursor: string | null) => ({
+      items, next_cursor, has_more: next_cursor !== null, total: null,
+    });
+    const inventory: StocktakeAuthFetch = async url => {
+      urls.push(url);
+      const params = new URL(url, "https://fixture.invalid").searchParams;
+      if (params.get("view") === "catalog") return page([{ ...product, id: 120, name: "Missing stock" }], null);
+      if (params.get("cursor") === "next50") return page([{ ...product, id: 180, name: "Quarantined item" }], null);
+      return page(Array.from({ length: 50 }, (_, i) => ({ ...product, id: 1000 + i, name: "Warehoused " + i })), "next50");
+    };
+    const { result } = renderHook(() => createHook(inventory, 11));
+    await waitFor(() => expect(result.current.products).toHaveLength(50));
+    expect(urls[0]).toContain("view=warehouse");
+    expect(urls[0]).toContain("stock_state=on_hand");
+    expect(urls[0]).toContain("location_id=11");
+    act(() => result.current.loadMoreProducts());
+    await waitFor(() => expect(result.current.products).toHaveLength(51));
+    expect(result.current.products.some(p => p.name === "Quarantined item")).toBe(true);
+    expect(urls.some(url => url.includes("cursor=next50"))).toBe(true);
+    act(() => result.current.selectProductSource("catalog"));
+    await waitFor(() => expect(result.current.products.map(p => p.id)).toEqual([120]));
+    expect(urls.some(url => url.includes("view=catalog") && url.includes("stock_state=all"))).toBe(true);
+  });
+
+  it("discards late warehouse A results and clears selected product when switching to B", async () => {
+    let releaseA: ((value: unknown) => void) | undefined;
+    const seen: string[] = [];
+    const inventory: StocktakeAuthFetch = async url => {
+      seen.push(url);
+      const params = new URL(url, "https://fixture.invalid").searchParams;
+      if (params.get("location_id") === "11") {
+        return new Promise(resolve => { releaseA = resolve; });
+      }
+      return { items: [{ ...product, id: 777, name: "Warehouse B only" }], has_more: false, next_cursor: null, total: 1 };
+    };
+    const { result, rerender } = renderHook(({ warehouse }) => createHook(inventory, warehouse), {
+      initialProps: { warehouse: 11 },
+    });
+    await waitFor(() => expect(releaseA).toBeDefined());
+    rerender({ warehouse: 12 });
+    await waitFor(() => expect(result.current.products.map(p => p.id)).toEqual([777]));
+    await act(async () => {
+      releaseA!({ items: [{ ...product, id: 111, name: "Stale warehouse A" }], has_more: false, next_cursor: null, total: 1 });
+    });
+    expect(result.current.products.map(p => p.id)).toEqual([777]);
+    expect(seen.some(url => url.includes("location_id=12") && url.includes("view=warehouse"))).toBe(true);
+    act(() => result.current.chooseProduct(result.current.products[0]));
+    expect(result.current.selectedProduct?.id).toBe(777);
+    rerender({ warehouse: 13 });
+    await waitFor(() => expect(result.current.selectedProduct).toBeNull());
   });
 });
