@@ -184,7 +184,7 @@ describe("Stocktake single count/review workspace V1", () => {
     const cancel = vi.fn();
     const view = render(<StocktakeIndependentWait canCancel={false} onCancel={cancel} />);
     expect(screen.getByRole("list", { name: language === "ar" ? "مراحل الجرد" : "Stocktake stages" })).toBeInTheDocument();
-    expect(view.container.textContent).not.toMatch(/Snapshot|Recount|عد أعمى/i);
+    expect(view.container.textContent).not.toMatch(/Snapshot|عد أعمى|blind count/i);
     const button = screen.getByRole("button", { name: language === "ar" ? "إلغاء جلسة الجرد" : "Cancel stocktake session" });
     expect(button).toBeDisabled();
     fireEvent.click(button);
