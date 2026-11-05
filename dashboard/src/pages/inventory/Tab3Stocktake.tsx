@@ -32,6 +32,7 @@ interface Props {
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
+  locationName?: string | null;
   companyId: string;
   isAuditLocked: boolean;
   authenticatedFetch: StocktakeAuthFetch;
@@ -43,6 +44,7 @@ export function Tab3Stocktake({
   focusSessionId,
   onFocusUnavailable,
   locationId,
+  locationName,
   companyId,
   isAuditLocked,
   authenticatedFetch,
@@ -126,6 +128,7 @@ export function Tab3Stocktake({
   const cycleWorkflow = useCycleCountStart({
     durableIdentity,
     locationId,
+    locationName,
     enabled: active && showCycleModal,
     authenticatedFetch,
     sessionKey: stocktakeState.sessionKey,
@@ -238,7 +241,7 @@ export function Tab3Stocktake({
       {stocktakeState.sessionId !== null &&
         stocktakeState.phase === "COUNTING" && sessionAccess.can("stocktake.count") && (
           <StocktakeCountingPanel
-            warehouseId={stocktakeState.sessionLocationId}
+            warehouseName={locationName}
             scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             rows={stocktakeState.rows}
@@ -256,7 +259,7 @@ export function Tab3Stocktake({
         stocktakeState.phase === "REVIEW" &&
         stocktakeState.review && sessionAccess.can("stocktake.review") && (
           <StocktakeReviewPanel
-            warehouseId={stocktakeState.sessionLocationId}
+            warehouseName={locationName}
             scopeProductName={selectedSession?.scope_product_name ?? null}
             canCancel={sessionAccess.can("stocktake.cancel")}
             canRecount={sessionAccess.can("stocktake.recount")}
