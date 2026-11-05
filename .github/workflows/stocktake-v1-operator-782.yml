@@ -1,0 +1,64 @@
+name: Stocktake V1 #782 operator UX React AR-EN
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/inventory/stocktake/**"
+      - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
+      - "dashboard/e2e/stocktake-v1-ux-776.spec.ts"
+      - ".github/workflows/stocktake-v1-operator-782.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-react-operator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused AR EN operator and inherited review tests
+        working-directory: dashboard
+        run: npm test -- src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx
+      - name: TypeScript and owned frontend ESLint
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx src/pages/inventory/stocktake/StocktakeCountingPanel.tsx src/pages/inventory/stocktake/StocktakeReviewPanel.tsx src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx src/pages/inventory/stocktake/hooks/useCycleCountStart.ts src/pages/inventory/stocktake/uiCopy.ts src/pages/inventory/Tab3Stocktake.tsx e2e/stocktake-v1-ux-776.spec.ts
+      - name: Exact frontend-only scope and immutable full-count door
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff --check "$BASE_SHA" HEAD
+          git diff --exit-code "$BASE_SHA" HEAD -- dashboard/src/pages/inventory/stocktake/StocktakeIdlePanel.tsx dashboard/src/pages/inventory/stocktake/StocktakeCountModals.tsx
+          python - <<'PY'
+          import os
+          import subprocess
+          base = os.environ["BASE_SHA"]
+          changed = set(subprocess.check_output(["git", "diff", "--name-only", base, "HEAD"], text=True).splitlines())
+          expected = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCycleStartModal.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeOperatorUx782.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useCycleCountStart.ts",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          assert changed == expected, {"unexpected": sorted(changed - expected), "missing": sorted(expected - changed)}
+          print("STOCKTAKE_782_FRONTEND_ONLY_AND_FULL_DOOR_IMMUTABLE=PASS")
+          PY
