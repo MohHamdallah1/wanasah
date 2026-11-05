@@ -61,7 +61,10 @@ export function StocktakeSessionCenter({
   const shortTitle = dir === "ltr"
     ? sessionNoun.replace(/^./u, (letter) => letter.toLocaleUpperCase(language))
     : sessionNoun;
-  const triggerLabel = `${shortTitle} (${new Intl.NumberFormat(language).format(count)})`;
+  const countText = new Intl.NumberFormat(language, {
+    numberingSystem: language.toLowerCase().startsWith("ar") ? "arab" : "latn",
+  }).format(count);
+  const triggerLabel = `${shortTitle} (${countText})`;
 
   return (
     <Dialog open={open && canRead} onOpenChange={onOpenChange}>
