@@ -43,7 +43,7 @@ export function StocktakeCycleStartModal({ open, controller, onClose, onStart }:
     >
       <div dir={dir} className="space-y-5">
         <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm font-bold text-blue-800">
-          <div>{text.warehouseContext} <span dir="ltr">#${locationId}</span></div>
+          <div>{text.warehouseContext} <span dir="ltr">#{locationId}</span></div>
           <p className="mt-1 text-xs font-medium">{text.hint}</p>
         </div>
 
