@@ -316,6 +316,14 @@ for (const locale of ["ar", "en"] as const) {
       await expect.poll(() => seen.some(q => q.includes("view=catalog") && q.includes("stock_state=all") && q.includes("location_id=11"))).toBeTruthy();
       await dialog.getByRole("button", { name: "Chickpeas 750 g" }).click();
       await expect(dialog.locator("details")).not.toHaveAttribute("open");
+      // Optional advanced single-batch choice is genuine, and returning to all is explicit.
+      await dialog.locator("details summary").click();
+      const lot = dialog.getByRole("button", { name: /LOT-2026-A/ });
+      await expect(lot).toBeVisible();
+      await lot.click();
+      await expect(dialog.locator("details summary")).toContainText("LOT-2026-A");
+      await dialog.getByRole("button", { name: locale === "ar" ? "كل تشغيلات الصنف" : "All product batches" }).click();
+      await expect(dialog.locator("details summary")).toContainText(locale === "ar" ? "كل تشغيلات الصنف" : "All product batches");
       const startLabel = locale === "ar" ? "بدء العد" : "Start count";
       const startRequest = page.waitForRequest(req => req.url().endsWith("/warehouse/unified/stocktake/start") && req.method() === "POST");
       await dialog.getByRole("button", { name: startLabel }).click();
@@ -323,6 +331,7 @@ for (const locale of ["ar", "en"] as const) {
       const payload = request.postDataJSON() as { stocktake_type: string; product_variant_id: number; batch_id: number | null; location_id: number };
       expect(payload).toMatchObject({ stocktake_type: "CYCLE_COUNT", product_variant_id: 118, batch_id: null, location_id: 11 });
       await expect(stocktake.getByText(locale === "ar" ? "العد جارٍ" : "Count in progress")).toBeVisible();
+      await expect(dialog).toBeHidden(); // Wait for mobile modal/backdrop exit before judging rendered page.
       await expect(stocktake.locator("input[data-stocktake-count-input='true']:visible")).toHaveCount(2);
       await expect(stocktake.getByText("LOT-2026-A", { exact: false }).locator("visible=true")).toBeVisible();
       await expect(stocktake.getByText("LOT-2026-B", { exact: false }).locator("visible=true")).toBeVisible();
@@ -342,6 +351,7 @@ for (const locale of ["ar", "en"] as const) {
       await dialog.getByRole("button", { name: locale === "ar" ? "بحث في جميع أصناف الشركة" : "Search entire company catalog" }).click();
       await dialog.getByRole("button", { name: "Missing stock" }).click();
       await dialog.getByRole("button", { name: locale === "ar" ? "بدء العد" : "Start count" }).click();
+      await expect(dialog).toBeHidden();
       const hint = locale === "ar" ? "لا توجد كميات مسجلة" : "There is no recorded stock";
       await expect(stocktake.getByRole("status").getByText(hint, { exact: false })).toBeVisible();
       await expect(stocktake.getByRole("button", { name: locale === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
