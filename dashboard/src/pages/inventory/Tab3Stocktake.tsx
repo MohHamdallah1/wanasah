@@ -242,16 +242,18 @@ export function Tab3Stocktake({
         </div>
       </div>
 
-      <StocktakeSessionCenter
-        sessions={activeSessions}
-        total={activeSessionsTotal}
-        loading={sessionsLoading}
-        loadingMore={sessionsLoadingMore}
-        nextCursor={activeSessionsNextCursor}
-        currentSessionId={lifecycle.selectedSessionId}
-        onLoadMore={loadMoreSessions}
-        onOpenSession={lifecycle.openServerSession}
-      />
+      {(activeSessions.length > 0 || sessionsLoading || sessionsLoadFailed) && (
+        <StocktakeSessionCenter
+          sessions={activeSessions}
+          total={activeSessionsTotal}
+          loading={sessionsLoading}
+          loadingMore={sessionsLoadingMore}
+          nextCursor={activeSessionsNextCursor}
+          currentSessionId={lifecycle.selectedSessionId}
+          onLoadMore={loadMoreSessions}
+          onOpenSession={lifecycle.openServerSession}
+        />
+      )}
 
       {/* The original door and both count types occupy one workspace; never parallel tables. */}
       <div data-stocktake-workspace={workspacePhase}
