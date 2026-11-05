@@ -7,8 +7,8 @@ import type { StocktakeRow } from "../inventoryUtils";
 import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeCountingPanelProps {
-  warehouseId: number | null;
-  scopeProductName: string | null;
+  warehouseId?: number | null;
+  scopeProductName?: string | null;
   rows: StocktakeRow[];
   progress: {
     total: number;
