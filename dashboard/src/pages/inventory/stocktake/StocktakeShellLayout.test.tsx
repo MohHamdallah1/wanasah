@@ -102,6 +102,10 @@ describe("Stocktake #782 final shell: sessions and single workspace", () => {
 
   it("uses one toolbar and one workspace for idle door, both count types and review", () => {
     expect(tab).toContain('data-stocktake-toolbar="true"');
+    // The shell's session/toolbar strings belong to uiCopy, not generic copy.
+    expect(tab).toContain('const { copy: uiCopy } = useStocktakeUiCopy()');
+    expect(tab).toContain('uiCopy.sessions.refresh');
+    expect(tab).toContain('uiCopy.sessions.cycleAction');
     expect(tab).toContain("warehouseSelector");
     expect(tab).toContain("onClick={refreshSessions}");
     expect(tab).toContain("onClick={() => setShowCycleModal(true)}");
