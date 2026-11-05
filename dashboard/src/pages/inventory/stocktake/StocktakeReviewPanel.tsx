@@ -6,8 +6,8 @@ import { useStocktakeUiCopy } from "./uiCopy";
 import type { StocktakeReview } from "./types";
 
 interface StocktakeReviewPanelProps {
-  warehouseId: number | null;
-  scopeProductName: string | null;
+  warehouseId?: number | null;
+  scopeProductName?: string | null;
   review: StocktakeReview;
   totals: { total: number; matched: number; shortage: number; overage: number; varianceItems: number };
   approvalBlocked: boolean;
