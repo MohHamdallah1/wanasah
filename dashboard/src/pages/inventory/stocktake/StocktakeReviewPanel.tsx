@@ -6,6 +6,8 @@ import { useStocktakeUiCopy } from "./uiCopy";
 import type { StocktakeReview } from "./types";
 
 interface StocktakeReviewPanelProps {
+  warehouseId: number | null;
+  scopeProductName: string | null;
   review: StocktakeReview;
   totals: { total: number; matched: number; shortage: number; overage: number; varianceItems: number };
   approvalBlocked: boolean;
@@ -19,6 +21,7 @@ interface StocktakeReviewPanelProps {
 }
 
 export function StocktakeReviewPanel({
+  warehouseId, scopeProductName,
   review, totals, approvalBlocked, onVariance, canCancel, onCancel,
   canRecount, onRecount, canApprove, onApprove,
 }: StocktakeReviewPanelProps) {
@@ -37,6 +40,12 @@ export function StocktakeReviewPanel({
           <span className="text-xs text-slate-400">{text.by} {review.latest_attempt.counted_by_name}</span>
         </div>
         <div className="text-xs text-slate-300 font-bold"><span dir="ltr">{review.attempt_history.length}</span> {text.history}</div>
+      </div>
+
+      <div className="px-4 py-2 border-b border-slate-100 text-xs font-bold text-slate-600">
+        {copy.counting.warehouseContext}: <span dir="ltr">#{warehouseId ?? "—"}</span>
+        {scopeProductName && <span className="ms-3">{copy.counting.productContext}: {scopeProductName}</span>}
+        <p className="mt-1 font-normal">{text.reviewHelp}</p>
       </div>
 
       <details className="mx-4 mt-3 shrink-0 rounded-lg border border-slate-200 bg-slate-50 text-slate-700">
