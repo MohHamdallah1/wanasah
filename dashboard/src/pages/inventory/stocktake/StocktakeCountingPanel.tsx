@@ -4,11 +4,13 @@ import type { KeyboardEvent } from "react";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { isDiscoveredRow } from "./discoveredContract";
 import type { StocktakeRow } from "../inventoryUtils";
+import type { StocktakeType } from "./types";
 import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeCountingPanelProps {
   warehouseName?: string | null;
   scopeProductName?: string | null;
+  stocktakeType?: StocktakeType | null;
   rows: StocktakeRow[];
   progress: {
     total: number;
@@ -27,6 +29,7 @@ interface StocktakeCountingPanelProps {
 export function StocktakeCountingPanel({
   warehouseName,
   scopeProductName,
+  stocktakeType,
   rows,
   progress,
   onUpdateRow,
@@ -42,7 +45,10 @@ export function StocktakeCountingPanel({
   const text = copy.counting;
   // FULL_COUNT and CYCLE_COUNT share this exact counting surface. The
   // product name comes from the already-authorized session summary.
-  const typeLabel = scopeProductName ? copy.sessions.types.CYCLE_COUNT : copy.sessions.types.FULL_COUNT;
+  const typeLabel = stocktakeType
+    ? copy.sessions.types[stocktakeType]
+    : scopeProductName ? copy.sessions.types.CYCLE_COUNT : copy.sessions.types.FULL_COUNT;
+  const scopeLabel = scopeProductName || (stocktakeType === "CYCLE_COUNT" ? copy.workspace.productUnknown : copy.workspace.allProducts);
   const stages = [copy.workspace.countStep, copy.workspace.reviewStep, copy.workspace.approveStep];
 
 
@@ -113,7 +119,7 @@ export function StocktakeCountingPanel({
         </div>
         <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
           <span><span className="text-slate-400">{text.warehouseContext}: </span><strong>{warehouseName || text.warehouseUnknown}</strong></span>
-          <span className="min-w-0 break-words"><span className="text-slate-400">{copy.workspace.scope}: </span><strong>{scopeProductName || copy.workspace.allProducts}</strong></span>
+          <span className="min-w-0 break-words"><span className="text-slate-400">{copy.workspace.scope}: </span><strong>{scopeLabel}</strong></span>
           <span className="ms-auto whitespace-nowrap font-bold" aria-label={copy.workspace.progress}>
             <span dir="ltr">{progress.counted}/{progress.total}</span> {text.lines}
           </span>
