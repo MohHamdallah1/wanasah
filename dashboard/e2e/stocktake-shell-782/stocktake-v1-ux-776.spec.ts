@@ -129,22 +129,33 @@ for (const locale of ["ar", "en"] as const) {
       await expect(toolbar.getByRole("button", { name: locale === "ar" ? "جرد صنف" : "Count product" })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: locale === "ar" ? "تحديث الجلسات" : "Refresh sessions" })).toBeVisible();
 
-      const sessions = stocktake.locator("[data-stocktake-sessions='compact']");
-      await expect(sessions.getByRole("listitem")).toHaveCount(2);
-      // Keep the locator stable when aria-expanded flips after the first click.
-      const toggle = sessions.locator("button[aria-controls]").first();
-      await expect(toggle).toHaveAttribute("aria-expanded", "true");
-      await toggle.click();
-      await expect(sessions.getByRole("listitem")).toHaveCount(0);
-      await toggle.click();
-      await expect(sessions.getByRole("listitem")).toHaveCount(2);
+      await expect(toolbar.locator(".inventory-location-label")).toHaveText(
+        locale === "ar" ? "المستودع:" : "Warehouse:",
+      );
+      const sessionsTrigger = toolbar.locator('[data-stocktake-sessions-trigger="true"]');
+      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (2)" : "Sessions (2)");
+      await expect(page.getByRole("dialog")).toHaveCount(0);
 
       const door = stocktake.getByRole("button", {
         name: locale === "ar" ? "إغلاق المستودع وبدء الجرد الشامل" : "Lock warehouse and start full stocktake",
       });
       await expect(door).toBeVisible();
       await expect(door.locator(".animate-spin")).toHaveCount(2); // Original intact door.
-      await sessions.getByRole("button", { name: locale === "ar" ? "فتح" : "Open", exact: true }).first().click();
+      await sessionsTrigger.click();
+      const drawer = page.getByRole("dialog", {
+        name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
+      });
+      await expect(drawer).toBeVisible();
+      await expect(drawer.locator("[role='listitem']")).toHaveCount(2);
+      await expect(door).toBeAttached(); // Modal overlays, never replaces the work area.
+      await page.keyboard.press("Escape");
+      await expect(drawer).toHaveCount(0);
+      await expect(sessionsTrigger).toBeFocused();
+      await sessionsTrigger.click();
+      await drawer.locator("[role='listitem']").last().getByRole("button", {
+        name: locale === "ar" ? "فتح" : "Open", exact: true,
+      }).click();
+      await expect(drawer).toHaveCount(0);
       await expect(stocktake.locator("[data-stocktake-workspace='counting']")).toBeVisible();
       await expect(door).toHaveCount(0); // No giant idle door behind active count.
       await expect(stocktake.locator("[data-stocktake-workspace] input[data-stocktake-count-input='true']:visible")).toHaveCount(1);
@@ -161,8 +172,15 @@ for (const locale of ["ar", "en"] as const) {
       await selector.selectOption("12");
       await expect(stocktake.locator("[data-stocktake-toolbar='true'] select.inventory-location-select")).toHaveValue("12");
       await expect(stocktake.locator("[data-stocktake-workspace='idle']")).toBeVisible();
-      await expect(stocktake.locator("[data-stocktake-sessions='compact'] [role='listitem']")).toHaveCount(0);
       await expect(stocktake.locator("[data-stocktake-toolbar='true'] select.inventory-location-select")).toHaveCount(1);
+      await expect(sessionsTrigger).toHaveText(locale === "ar" ? "الجلسات (0)" : "Sessions (0)");
+      await sessionsTrigger.click();
+      const emptyDrawer = page.getByRole("dialog", {
+        name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
+      });
+      await expect(emptyDrawer.locator("[role='listitem']")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(emptyDrawer).toHaveCount(0);
       const geometry = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
       expect(geometry.document).toBeLessThanOrEqual(geometry.viewport + 2);
       await page.screenshot({ path: test.info().outputPath(`stocktake-shell-${locale}-${viewport.name}.png`), fullPage: true });
