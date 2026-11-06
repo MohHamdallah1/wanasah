@@ -1895,6 +1895,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             a=a,
             b=b,
             earlier_discovered_batch_id=found_batch_id,
+            previous_cancel_after_count_id=rollback_session,
+            previous_cancel_before_count_id=cancel_session,
             runtime_session=_runtime_session,
             grant_location=_grant_location,
             operator_password=PASSWORD,
