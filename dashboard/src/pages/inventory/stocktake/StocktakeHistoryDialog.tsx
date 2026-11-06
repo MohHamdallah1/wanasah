@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -79,9 +79,18 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
   const text = words[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
   const [open, setOpen] = useState(false);
+  const formerLocation = useRef(locationId);
   const enabled = active && canRead && open;
   const history = useStocktakeHistory({ enabled, locationId, authenticatedFetch });
-  useEffect(() => { if (!active || !canRead) setOpen(false); }, [active, canRead, locationId]);
+  // A retained Stocktake tab never keeps a history portal visible across a
+  // warehouse switch or a revoked capability, even during in-flight fetches.
+  useEffect(() => {
+    if (!active || !canRead || formerLocation.current !== locationId) setOpen(false);
+    formerLocation.current = locationId;
+  }, [active, canRead, locationId]);
+  useEffect(() => {
+    if (!canReview) history.back();
+  }, [canReview, history.back]);
   const time = (v: string | null | undefined) => {
     if (!v) return "—";
     const date = new Date(v);
