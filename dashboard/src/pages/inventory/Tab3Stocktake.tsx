@@ -12,6 +12,7 @@ import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
 import { useStocktakeCopy } from "./stocktake/copy";
 import { useStocktakeUiCopy } from "./stocktake/uiCopy";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
+import { StocktakeHistoryDialog } from "./stocktake/StocktakeHistoryDialog";
 import { StocktakeDiscoveredModal } from "./stocktake/StocktakeDiscoveredModal";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
 import { StocktakeIdlePanel } from "./stocktake/StocktakeIdlePanel";
@@ -249,6 +250,13 @@ export function Tab3Stocktake({
               await lifecycle.openServerSession(session);
               setShowSessions(false);
             }}
+          />
+          <StocktakeHistoryDialog
+            active={active}
+            locationId={locationId}
+            canRead={canReadStocktake}
+            canReview={warehouseAccess.can("stocktake.review")}
+            authenticatedFetch={authenticatedFetch}
           />
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
             aria-label={uiCopy.sessions.refresh} title={uiCopy.sessions.refresh}
