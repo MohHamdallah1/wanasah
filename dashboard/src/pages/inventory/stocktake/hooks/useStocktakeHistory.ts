@@ -132,7 +132,10 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
     if (!enabled) return;
     const version = ++seq.current.detail;
     ++seq.current.lines;
-    setDetail(null); setLines([]); setAttemptId(null); setError(null); setLoadingMore(false); setLoadingDetail(true);
+    ++seq.current.list; // Abandon obsolete list pagination while reviewing a new session.
+    setDetail(null); setLines([]); setLinesNext(null); setAttemptId(null);
+    setError(null); setLoading(false); setLoadingMore(false);
+    setLoadingLines(false); setLoadingDetail(true);
     try {
       const response = await authenticatedFetch(BASE + "/" + id + "?" + params(locationId, null));
       if (version !== seq.current.detail) return;
@@ -188,14 +191,18 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
   }, [authenticatedFetch, detail, enabled, locationId, loadingMore]);
 
   const back = useCallback(() => {
-    ++seq.current.detail; ++seq.current.lines;
+    // Invalidate all pending detail/line/list-page responses before resetting
+    // every loading flag. An ignored stale finally cannot clear them itself.
+    ++seq.current.list; ++seq.current.detail; ++seq.current.lines;
     setDetail(null); setLines([]); setLinesNext(null); setAttemptId(null);
-    setLoadingDetail(false); setLoadingLines(false); setLoadingMore(false); setError(null);
+    setLoading(false); setLoadingDetail(false); setLoadingLines(false);
+    setLoadingMore(false); setError(null);
   }, []);
   useEffect(() => {
     ++seq.current.list; ++seq.current.detail; ++seq.current.lines;
-    setSessions([]); setNext(null); setDetail(null); setLines([]); setAttemptId(null);
-    setError(null); setLoading(false); setLoadingMore(false);
+    setSessions([]); setNext(null); setDetail(null); setLines([]); setLinesNext(null);
+    setAttemptId(null); setError(null);
+    setLoading(false); setLoadingMore(false); setLoadingDetail(false); setLoadingLines(false);
     if (enabled) void fetchList();
     return () => { ++seq.current.list; ++seq.current.detail; ++seq.current.lines; };
   }, [enabled, locationId, fetchList]);

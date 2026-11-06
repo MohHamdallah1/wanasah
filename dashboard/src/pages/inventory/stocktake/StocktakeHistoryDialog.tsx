@@ -15,6 +15,21 @@ interface Props {
   canReview: boolean;
   authenticatedFetch: StocktakeAuthFetch;
 }
+// Stocktake amounts remain canonical decimal strings. The shared formatter's
+// BigInt integer portion loses a subunit minus (-0.25 -> +0.25), so preserve
+// the sign before formatting its nonnegative magnitude. Never use Number or
+// truncate canonical fractional digits, and do not render signed negative zero.
+export const formatHistoryQuantity = (value: string | number, locale: "ar" | "en"): string => {
+  const raw = String(value).trim();
+  const canonical = /^(-?)(\d+)(?:\.(\d+))?$/.exec(raw);
+  if (!canonical) return raw;
+  const magnitude = canonical[2] + (canonical[3] === undefined ? "" : "." + canonical[3]);
+  const hasShortage = canonical[1] === "-" && /[1-9]/.test(canonical[2] + (canonical[3] ?? ""));
+  const precision = Math.max(6, canonical[3]?.length ?? 0);
+  const formatted = formatLocaleDecimal(magnitude, locale, 0, precision);
+  return hasShortage ? "-" + formatted : formatted;
+};
+
 const words = {
   ar: {
     history: "سجل الجرد", caption: "الجرد المعتمد والملغى في المستودع المحدد فقط",
@@ -79,7 +94,7 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
   const lang = (i18n.resolvedLanguage || i18n.language || "ar").startsWith("ar") ? "ar" : "en";
   const text = words[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
-  const number = (value: string | number) => formatLocaleDecimal(String(value), lang);
+  const number = (value: string | number) => formatHistoryQuantity(value, lang);
   const [open, setOpen] = useState(false);
   const formerLocation = useRef(locationId);
   const enabled = active && canRead && open;
@@ -161,9 +176,9 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                 {current.notes && <p className="mt-1">{text.note}: {current.notes}</p>}
                 {current.status === "CANCELLED" && <p className="mt-1 font-semibold text-slate-600">{text.noMovement}</p>}
               </div>
-              {current.status === "POSTED" && history.detail && (
+              {current.status === "POSTED" && current.adjustment_movement_count > 0 && canReview && history.detail && (
                 <section aria-label={text.movement} className="rounded-lg border border-slate-200 p-3 text-xs">
-                  <h3 className="mb-1 font-black">{text.movement} · <span dir="ltr">{current.adjustment_movement_count}</span></h3>
+                  <h3 className="mb-1 font-black">{text.movement} · <span dir="ltr">{number(current.adjustment_movement_count)}</span></h3>
                   <ul className="space-y-1">
                     {history.detail.movements.items.map(item => (
                       <li key={item.id} className="flex flex-wrap gap-2 text-slate-700">
