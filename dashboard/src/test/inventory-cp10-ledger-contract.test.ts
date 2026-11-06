@@ -110,6 +110,8 @@ describe("CP10 Ledger business contracts", () => {
     const translate = vi.fn((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key));
     expect(ledgerMovementLabel(translate as never, "ar", "AUDIT_ADJUSTMENT")).toBe("تسوية جرد");
     expect(ledgerMovementLabel(translate as never, "en", "AUDIT_ADJUSTMENT")).toBe("Stocktake adjustment");
+    expect(ledgerMovementLabel(translate as never, "ar", "TRANSFER_RECEIPT")).toBe("استلام حوالة");
+    expect(ledgerMovementLabel(translate as never, "en", "VISIT_RETURN_IN")).toBe("Visit return in");
   });
 
   it("queries one exact warehouse + STK reference, never fuzzy search or cancelled type", () => {

@@ -78,6 +78,9 @@ export function useLedgerQuery(
   const requestSeq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const loadedScope = useRef<string | null>(null);
+  // Hide rows synchronously when an exact STK reference or warehouse scope changes.
+  // The effect may not have cleared the previous scope at render time yet.
+  const [visibleScopeKey, setVisibleScopeKey] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -101,6 +104,7 @@ export function useLedgerQuery(
     setLoading(true);
     setError(false);
     if (clearForNewScope) {
+      setVisibleScopeKey(scopeKey);
       setEntries([]);
       setTotal(null);
       setNextCursor(null);
@@ -145,7 +149,7 @@ export function useLedgerQuery(
       if (abortRef.current === controller) abortRef.current = null;
       if (sequence === requestSeq.current) setLoading(false);
     }
-  }, [authFetch, debouncedSearch, exactReference, filterType, locationId]);
+  }, [authFetch, debouncedSearch, exactReference, filterType, locationId, scopeKey]);
 
   const resetAndLoad = useCallback(() => {
     requestSeq.current += 1;
@@ -201,19 +205,20 @@ export function useLedgerQuery(
     void loadPage(cursorHistory[pageIndex] ?? null, pageIndex, entries.length === 0);
   }, [cursorHistory, entries.length, loadPage, pageIndex]);
 
+  const currentScopeVisible = visibleScopeKey === scopeKey;
   return {
-    entries,
+    entries: currentScopeVisible ? entries : [],
     searchInput,
     setSearchInput,
     filterType,
     setFilterType,
-    availableTypes,
-    total,
-    pageIndex,
-    loading,
-    error,
-    hasMore,
-    canGoPrevious: pageIndex > 0,
+    availableTypes: currentScopeVisible ? availableTypes : [],
+    total: currentScopeVisible ? total : null,
+    pageIndex: currentScopeVisible ? pageIndex : 0,
+    loading: loading || !currentScopeVisible,
+    error: currentScopeVisible && error,
+    hasMore: currentScopeVisible && hasMore,
+    canGoPrevious: currentScopeVisible && pageIndex > 0,
     goNext,
     goPrevious,
     refresh,
