@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { formatLocaleDecimal } from "@/lib/localeNumbers";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -78,6 +79,7 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
   const lang = (i18n.resolvedLanguage || i18n.language || "ar").startsWith("ar") ? "ar" : "en";
   const text = words[lang];
   const dir = lang === "ar" ? "rtl" : "ltr";
+  const number = (value: string | number) => formatLocaleDecimal(String(value), lang);
   const [open, setOpen] = useState(false);
   const formerLocation = useRef(locationId);
   const enabled = active && canRead && open;
@@ -150,7 +152,7 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                   {current.started_by_name && <span>{text.startedBy}: {current.started_by_name}</span>}
                   {current.approved_by_name && <span>{text.approvedBy}: {current.approved_by_name}</span>}
                   {current.cancelled_by_name && <span>{text.cancelledBy}: {current.cancelled_by_name}</span>}
-                  <span>{text.movement}: <strong dir="ltr">{current.adjustment_movement_count}</strong></span>
+                  <span>{text.movement}: <strong dir="ltr">{number(current.adjustment_movement_count)}</strong></span>
                   {current.status === "CANCELLED" && <strong className="text-amber-800">
                     {current.cancelled_after_count ? text.afterCount : text.beforeCount}
                   </strong>}
@@ -165,9 +167,9 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                   <ul className="space-y-1">
                     {history.detail.movements.items.map(item => (
                       <li key={item.id} className="flex flex-wrap gap-2 text-slate-700">
-                        <span dir="ltr">#{item.id}</span>
+                        <span dir="ltr">#{number(item.id)}</span>
                         <span dir="ltr">{item.reference_id}</span>
-                        <span dir="ltr">{item.quantity}</span>
+                        <span dir="ltr">{number(item.quantity)}</span>
                       </li>
                     ))}
                   </ul>
@@ -188,7 +190,7 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                       aria-pressed={attempt.id === history.attemptId}
                       className={itemButton + (attempt.id === history.attemptId ? " border-blue-500 bg-blue-50 text-blue-800" : "")}
                       onClick={() => void history.selectAttempt(current.id, attempt.id)}>
-                      {text.attempt} <span dir="ltr">#{attempt.attempt_number}</span> · {attempt.counted_by_name}
+                      {text.attempt} <span dir="ltr">#{number(attempt.attempt_number)}</span> · {attempt.counted_by_name}
                     </button>
                   ))}
                 </div>
@@ -220,9 +222,9 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                           {line.line_origin === "DISCOVERED" && <span className="text-blue-700">{text.discovered}</span>}
                         </div>
                         <div className="mt-2 grid grid-cols-3 gap-2">
-                          <div><span className="block text-[10px] text-slate-500">{text.expected}</span><strong dir="ltr">{line.expected_quantity} {line.base_uom_name}</strong></div>
-                          <div><span className="block text-[10px] text-slate-500">{text.actual}</span><strong dir="ltr">{line.actual_quantity} {line.base_uom_name}</strong></div>
-                          <div><span className="block text-[10px] text-slate-500">{text.variance}</span><strong dir="ltr">{line.variance_quantity} {line.base_uom_name}</strong></div>
+                          <div><span className="block text-[10px] text-slate-500">{text.expected}</span><strong dir="ltr">{number(line.expected_quantity)} {line.base_uom_name}</strong></div>
+                          <div><span className="block text-[10px] text-slate-500">{text.actual}</span><strong dir="ltr">{number(line.actual_quantity)} {line.base_uom_name}</strong></div>
+                          <div><span className="block text-[10px] text-slate-500">{text.variance}</span><strong dir="ltr">{number(line.variance_quantity)} {line.base_uom_name}</strong></div>
                         </div>
                       </article>
                     ))}
@@ -240,7 +242,7 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                       <strong>{text[event.action_type as keyof typeof text] || text.auditPrefix}</strong>
                       <span className="ms-2 text-slate-600">{time(event.timestamp)} · {event.actor_name || "—"}</span>
                       {event.details.reason && <p>{text.reason}: {String(event.details.reason)}</p>}
-                      {event.details.attempt_number && <p>{text.attempt} #{String(event.details.attempt_number)}</p>}
+                      {event.details.attempt_number && <p>{text.attempt} #{number(String(event.details.attempt_number))}</p>}
                     </li>
                   ))}
                 </ol>
