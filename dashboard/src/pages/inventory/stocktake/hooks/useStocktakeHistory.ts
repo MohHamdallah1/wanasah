@@ -4,7 +4,7 @@ import type { StocktakeAuthFetch } from "../types";
 export type HistoryStatus = "POSTED" | "CANCELLED";
 export interface HistoryItem {
   id: number; reference_number: string; stocktake_type: string; status: HistoryStatus;
-  location_id: number; scope_product_name: string | null;
+  location_id: number; scope_product_name: string | null; scope_batch_number: string | null;
   started_by_name: string | null; approved_by_name: string | null;
   cancelled_by_name: string | null; counted_by_name: string | null;
   attempt_number: number | null; cancelled_after_count: boolean;
@@ -26,6 +26,7 @@ export interface HistoryAudit {
 }
 export interface HistoryDetail {
   session_id: number; reference_number: string; status: HistoryStatus;
+  stocktake_type: string; scope_product_name: string | null; scope_batch_number: string | null;
   cancellation_reason: string | null; cancelled_after_count: boolean;
   created_at: string; finished_at: string | null; notes: string | null;
   started_by_name: string | null; approved_by_name: string | null; cancelled_by_name: string | null;
@@ -76,6 +77,7 @@ const parseItem = (row: Record<string, unknown>, locationId: number): HistoryIte
     id: asNumber(row.id), reference_number: asString(row.reference_number),
     stocktake_type: asString(row.stocktake_type), status: row.status,
     location_id: locationId, scope_product_name: asOptional(row.scope_product_name),
+    scope_batch_number: asOptional(row.scope_batch_number),
     started_by_name: asOptional(row.started_by_name), approved_by_name: asOptional(row.approved_by_name),
     cancelled_by_name: asOptional(row.cancelled_by_name), counted_by_name: asOptional(row.counted_by_name),
     attempt_number: typeof row.attempt_number === "number" ? row.attempt_number : null,
@@ -91,6 +93,8 @@ const parseDetail = (raw: unknown, id: number): HistoryDetail => {
   }
   return {
     session_id: id, reference_number: asString(row.reference_number),
+    stocktake_type: asString(row.stocktake_type), scope_product_name: asOptional(row.scope_product_name),
+    scope_batch_number: asOptional(row.scope_batch_number),
     status: row.status, cancellation_reason: asOptional(row.cancellation_reason),
     cancelled_after_count: row.cancelled_after_count === true,
     created_at: asString(row.created_at), finished_at: asOptional(row.finished_at),
