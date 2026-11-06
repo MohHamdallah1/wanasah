@@ -211,11 +211,16 @@ async def list_stocktake_history(
 async def _attempt_page(db, company_id: int, session_id: int,
                         cursor: str | None, limit: int):
     scope = f"{company_id}|{session_id}|attempts"
+    counted = aliased(Driver)
+    authorized = aliased(Driver)
     stmt = select(
-        StocktakeCountAttempt, Driver.full_name,
-    ).join(Driver, and_(
-        Driver.company_id == company_id,
-        Driver.id == StocktakeCountAttempt.counted_by,
+        StocktakeCountAttempt, counted.full_name, authorized.full_name,
+    ).join(counted, and_(
+        counted.company_id == company_id,
+        counted.id == StocktakeCountAttempt.counted_by,
+    )).outerjoin(authorized, and_(
+        authorized.company_id == company_id,
+        authorized.id == StocktakeCountAttempt.authorized_by,
     )).where(
         StocktakeCountAttempt.company_id == company_id,
         StocktakeCountAttempt.stocktake_session_id == session_id,
@@ -228,11 +233,11 @@ async def _attempt_page(db, company_id: int, session_id: int,
         "id": a.id, "attempt_number": a.attempt_number,
         "counted_by": a.counted_by, "counted_by_name": name,
         "submitted_at": _time(a.submitted_at),
-        "authorized_by": a.authorized_by,
+        "authorized_by": a.authorized_by, "authorized_by_name": authorizer_name,
         "recount_of_attempt_id": a.recount_of_attempt_id,
         "recount_reason": a.recount_reason,
         "requires_independent_recount": a.requires_independent_recount,
-    } for a, name in rows[:limit]]
+    } for a, name, authorizer_name in rows[:limit]]
     last = rows[limit - 1][0].id if len(rows) > limit else None
     return {"items": items, "has_more": last is not None,
             "next_cursor": _cursor(last, scope) if last else None}
@@ -330,6 +335,17 @@ async def get_stocktake_history_detail(
             ProductBatch.product_variant_id == session.scope_product_variant_id,
             ProductBatch.id == session.scope_batch_id,
         ))
+    actors = {
+        int(row.id): row.full_name
+        for row in (await db.execute(select(Driver.id, Driver.full_name).where(
+            Driver.company_id == company_id,
+            Driver.id.in_({
+                int(actor_id) for actor_id in (
+                    session.started_by, session.approved_by, session.cancelled_by
+                ) if actor_id is not None
+            }),
+        ))).all()
+    }
     attempts = await _attempt_page(db, company_id, session.id, None, 50)
     audit = await _audit_page(db, company_id, session.id, None, 50)
     movements = await _movement_page(db, company_id, session.id, None, 50) if session.status == "POSTED" else {"items": [], "next_cursor": None, "has_more": False}
@@ -351,8 +367,12 @@ async def get_stocktake_history_detail(
             "created_at": _time(session.created_at),
             "finished_at": _time(session.posted_at or session.cancelled_at),
             "snapshot_cutoff_at": _time(session.snapshot_cutoff_at),
-            "started_by": session.started_by, "approved_by": session.approved_by,
+            "started_by": session.started_by,
+            "started_by_name": actors.get(int(session.started_by)),
+            "approved_by": session.approved_by,
+            "approved_by_name": actors.get(int(session.approved_by)) if session.approved_by else None,
             "cancelled_by": session.cancelled_by,
+            "cancelled_by_name": actors.get(int(session.cancelled_by)) if session.cancelled_by else None,
             "approved_at": _time(session.approved_at), "cancelled_at": _time(session.cancelled_at),
             "cancellation_reason": session.cancellation_reason,
             "notes": session.notes,
