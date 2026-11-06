@@ -1414,6 +1414,34 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 )
             assert denied_detail.value.status_code == 403
             print("CP14C_TERMINAL_HISTORY_POSTED_CANCELLED_AFTER_BEFORE_COUNT_AND_RLS=PASS")
+            # Disposable archive only: 205 terminal metadata rows to prove
+            # bounded cursor pagination beyond 200 without stock movements.
+            now = utc_now()
+            db.add_all([
+                StocktakeSession(
+                    company_id=a.company_id, location_id=a.a2,
+                    reference_number="STK-HIST-" + uuid4().hex[:18].upper(),
+                    stocktake_type="FULL_COUNT", status="CANCELLED",
+                    started_by=a.operator.driver_id,
+                    cancelled_by=a.operator.driver_id,
+                    created_at=now, updated_at=now, cancelled_at=now,
+                    cancellation_reason="CP14-C pagination fixture only",
+                )
+                for _ in range(205)
+            ])
+            await db.commit()
+            seen = set()
+            token = None
+            for expected_count in (100, 100, 7):
+                result = await stocktake_history.list_terminal_stocktakes(
+                    location_id=a.a2, cursor=token, limit=100, db=db,
+                    access=a.operator.access(db),
+                )
+                assert len(result["items"]) == expected_count
+                seen.update(item["id"] for item in result["items"])
+                token = result["next_cursor"]
+            assert len(seen) == 207 and token is None
+            print("CP14C_TERMINAL_HISTORY_CURSOR_207_RLS_BOUNDED=PASS")
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             await apply_inventory_movement(
