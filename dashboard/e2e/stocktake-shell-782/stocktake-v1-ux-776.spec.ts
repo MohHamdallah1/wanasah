@@ -262,8 +262,8 @@ for (const locale of ["ar", "en"] as const) {
       const evidence = dialog.getByRole("table");
       await expect(evidence).toContainText("TRUE-LOT-51");
       await expect(evidence).toContainText(locale === "ar" ? "معزول" : "Quarantined");
-      await expect(evidence).toContainText("50");
-      await expect(evidence).toContainText("47");
+      await expect(evidence).toContainText(locale === "ar" ? "٥٠" : "50");
+      await expect(evidence).toContainText(locale === "ar" ? "٤٧" : "47");
       await expect(evidence).not.toContainText("QUARANTINED");
       await expect(dialog.getByText(locale === "ar" ? "تثبيت العد" : "Count submitted")).toBeVisible();
       await expect(dialog.getByText(locale === "ar" ? "إلغاء الجرد" : "Stocktake cancelled")).toBeVisible();
