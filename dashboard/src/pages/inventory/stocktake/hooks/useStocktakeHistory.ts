@@ -31,6 +31,27 @@ export interface HistoryDetail {
   started_by_name: string | null; approved_by_name: string | null; cancelled_by_name: string | null;
   attempts: HistoryAttempt[]; next_cursor: string | null; audit: HistoryAudit[];
 }
+export interface HistoryFailure {
+  status: number | null; code: string | null; requestId: string | null;
+  reason: string | null;
+}
+const safeFailure = (value: unknown): HistoryFailure => {
+  const error = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const status = typeof error.status === "number" ? error.status
+    : typeof error.statusCode === "number" ? error.statusCode : null;
+  const context = error.context && typeof error.context === "object"
+    ? error.context as Record<string, unknown> : {};
+  const requestId = [error.requestId, error.request_id, context.correlation_id]
+    .find(v => typeof v === "string");
+  const code = typeof error.code === "string" ? error.code : null;
+  const reason = status !== null && status >= 400 && status < 500
+    ? (typeof error.message === "string" ? error.message : null)
+    : null;
+  return {
+    status, code, requestId: typeof requestId === "string" ? requestId : null,
+    reason,
+  };
+};
 const record = (value: unknown): Record<string, unknown> => {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid history response");
   return value as Record<string, unknown>;
@@ -99,13 +120,13 @@ export function useStocktakeHistory({
   const [lines, setLines] = useState<HistoryLine[]>([]);
   const [lineCursor, setLineCursor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<HistoryFailure | null>(null);
   const version = useRef(0);
 
   useEffect(() => {
     const seq = ++version.current;
     setHistory([]); setDetail(null); setSelectedAttemptId(null);
-    setLines([]); setLineCursor(null); setNextCursor(null); setError(false);
+    setLines([]); setLineCursor(null); setNextCursor(null); setError(null);
     if (!enabled || locationId <= 0) { setBusy(false); return; }
     setBusy(true);
     void (async () => {
@@ -116,8 +137,8 @@ export function useStocktakeHistory({
         if (seq !== version.current) return;
         setHistory(items(raw.items).map(v => parseItem(v, locationId)));
         setNextCursor(cursor(raw.next_cursor));
-      } catch {
-        if (seq === version.current) setError(true);
+      } catch (failure: unknown) {
+        if (seq === version.current) setError(safeFailure(failure));
       } finally {
         if (seq === version.current) setBusy(false);
       }
@@ -136,19 +157,19 @@ export function useStocktakeHistory({
       const entries = items(raw.items).map(v => parseItem(v, locationId));
       setHistory(prev => [...prev, ...entries.filter(x => !prev.some(p => p.id === x.id))]);
       setNextCursor(cursor(raw.next_cursor));
-    } catch { if (seq === version.current) setError(true); }
+    } catch (failure: unknown) { if (seq === version.current) setError(safeFailure(failure)); }
     finally { if (seq === version.current) setBusy(false); }
   }, [enabled, busy, nextCursor, locationId, authenticatedFetch]);
 
   const loadDetails = useCallback(async (id: number) => {
     if (!enabled) return;
     const seq = ++version.current;
-    setBusy(true); setError(false); setDetail(null); setSelectedAttemptId(null); setLines([]);
+    setBusy(true); setError(null); setDetail(null); setSelectedAttemptId(null); setLines([]);
     try {
       const next = parseDetail(await authenticatedFetch(`/warehouse/unified/stocktake/${id}/history`), id);
       if (seq !== version.current) return;
       setDetail(next);
-    } catch { if (seq === version.current) setError(true); }
+    } catch (failure: unknown) { if (seq === version.current) setError(safeFailure(failure)); }
     finally { if (seq === version.current) setBusy(false); }
   }, [enabled, authenticatedFetch]);
 
@@ -165,14 +186,14 @@ export function useStocktakeHistory({
         ...prev, next_cursor: raw.next_cursor,
         attempts: [...prev.attempts, ...raw.attempts],
       }));
-    } catch { if (seq === version.current) setError(true); }
+    } catch (failure: unknown) { if (seq === version.current) setError(safeFailure(failure)); }
     finally { if (seq === version.current) setBusy(false); }
   }, [detail, busy, authenticatedFetch]);
 
   const loadLines = useCallback(async (attemptId: number, after?: string) => {
     if (!detail || !enabled) return;
     const seq = ++version.current;
-    setBusy(true); setError(false);
+    setBusy(true); setError(null);
     if (!after) { setSelectedAttemptId(attemptId); setLines([]); setLineCursor(null); }
     try {
       const url = `/warehouse/unified/stocktake/${detail.session_id}/history/attempts/${attemptId}/lines?limit=100` +
@@ -189,13 +210,13 @@ export function useStocktakeHistory({
       }));
       setLines(prev => after ? [...prev, ...mapped] : mapped);
       setLineCursor(cursor(raw.next_cursor));
-    } catch { if (seq === version.current) setError(true); }
+    } catch (failure: unknown) { if (seq === version.current) setError(safeFailure(failure)); }
     finally { if (seq === version.current) setBusy(false); }
   }, [detail, enabled, authenticatedFetch]);
 
   const back = useCallback(() => {
     version.current += 1;
-    setDetail(null); setSelectedAttemptId(null); setLines([]); setLineCursor(null); setBusy(false); setError(false);
+    setDetail(null); setSelectedAttemptId(null); setLines([]); setLineCursor(null); setBusy(false); setError(null);
   }, []);
 
   return {
