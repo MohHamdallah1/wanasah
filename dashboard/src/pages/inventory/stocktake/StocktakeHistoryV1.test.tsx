@@ -146,6 +146,34 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     expect(fetcher.mock.calls.every(call => !call[0].includes("/history/91"))).toBe(true);
     expect(dialog).not.toHaveTextContent("12 Each");
   });
+  it.each(["ar", "en"] as const)("preserves authorized 403 reason and retry after history read failure in %s", async lang => {
+    locale.current = lang;
+    fetcher.mockImplementationOnce(async () => {
+      throw { status: 403, code: "STOCKTAKE_DENIED", serverMessage: "Selected warehouse access denied", requestId: "trace-123" };
+    });
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", {
+      name: lang === "ar" ? "سجل الجرد" : "Stocktake history",
+    }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("Selected warehouse access denied"));
+    expect(dialog).not.toHaveTextContent("trace-123");
+    fireEvent.click(within(dialog).getByRole("button", { name: lang === "ar" ? "إعادة المحاولة" : "Retry" }));
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+  });
+  it("keeps decimal quantity strings canonical in data and locale-formatted only in the review view", async () => {
+    locale.current = "ar";
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "التفاصيل" })[0]);
+    await waitFor(() => expect(dialog).toHaveTextContent("12 Each"));
+    expect(dialog).toHaveTextContent("-4 Each");
+    expect(dialog).toHaveTextContent("الكمية المسجلة");
+  });
+
   it("closes and rejects retained history when the authorized warehouse changes", async () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
