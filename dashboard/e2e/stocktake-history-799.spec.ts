@@ -188,6 +188,8 @@ for (const lang of ["ar", "en"] as const) {
       await expect(dialog.getByText("Posted signed evidence")).toBeVisible();
       await expect(dialog.getByText("-0.25", {exact: true})).toBeVisible();
       await expect(dialog.getByText("0.001", {exact: true})).toBeVisible();
+      await expect(dialog.getByText("#8001", {exact: true})).toHaveCount(0);
+      await expect(dialog.getByText("#8002", {exact: true})).toHaveCount(0);
       await page.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();

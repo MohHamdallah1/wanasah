@@ -126,6 +126,8 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
     expect(dialog).toHaveTextContent("-0.25");
     expect(dialog).toHaveTextContent("0.001");
+    expect(dialog).not.toHaveTextContent("#8001");
+    expect(dialog).not.toHaveTextContent("#8002");
   });
 
   it.each(["ar", "en"] as const)("close while detail pending then reopen discards stale response and clears spinner in %s", async lang => {

@@ -182,7 +182,6 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                   <ul className="space-y-1">
                     {history.detail.movements.items.map(item => (
                       <li key={item.id} className="flex flex-wrap gap-2 text-slate-700">
-                        <span dir="ltr">#{number(item.id)}</span>
                         <span dir="ltr">{item.reference_id}</span>
                         <span dir="ltr">{number(item.quantity)}</span>
                       </li>
