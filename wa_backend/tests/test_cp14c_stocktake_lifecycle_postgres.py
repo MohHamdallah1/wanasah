@@ -31,6 +31,8 @@ from api.warehouse import ledger, locations, stocktake, stocktake_discovery, tra
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
+from domains.stocktake.count_uom_read import read_count_outer_uoms
+from domains.uom_authority import build_variant_uom_authority
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
     StocktakeCancelCommand,
@@ -345,6 +347,94 @@ async def _deactivate(db, tenant, *, expected_version: int):
         tenant.operator.access(db),
         tenant.operator.operational_driver,
     )
+
+
+
+async def test_cp14c_count_outer_uom_exact_graph_fallback_and_bounded_reads():
+    """Bounded read must isolate each ambiguous variant; never use legacy cartons."""
+    class BulkRead:
+        def __init__(self, conversions, units):
+            self.calls = []
+            self.conversions = conversions
+            self.units = units
+
+        async def scalars(self, statement):
+            self.calls.append(str(statement))
+            if len(self.calls) == 1:
+                return NS(all=lambda: self.conversions)
+            if len(self.calls) == 2:
+                return NS(all=lambda: self.units)
+            raise AssertionError("N+1 UOM query")
+
+    def row(variant, source, target, numerator, denominator=1):
+        return NS(
+            product_variant_id=variant, from_uom_id=source, to_uom_id=target,
+            numerator=Decimal(str(numerator)), denominator=Decimal(str(denominator)),
+        )
+
+    conversions = [
+        row(11, 2, 1, 8), row(11, 3, 1, 50),       # unique largest = 50
+        row(12, 4, 1, 25), row(12, 5, 1, 25),       # tie => base-only
+        row(13, 6, 1, 10), row(13, 7, 6, 2),
+        row(13, 7, 1, 30),                          # conflicting path
+        row(14, 8, 1, 3, 2),                       # 1.5 base => not whole
+        row(16, 9, 1, 2),                          # decimal base step 0.25
+        row(17, 10, 1, 10),                        # step 3 not compatible
+    ]
+    units = [
+        NS(id=3, name="Actual Box", code="BOX"),
+        NS(id=9, name="Exact Double", code="DOUBLE"),
+    ]
+    db = BulkRead(conversions, units)
+    variants = {
+        11: (1, 3, Decimal("0.001")),
+        12: (1, 0, Decimal("1")),
+        13: (1, 0, Decimal("1")),
+        14: (1, 1, Decimal("0.1")),
+        15: (1, 0, Decimal("1")),  # no conversion at all
+        16: (1, 2, Decimal("0.25")),
+        17: (1, 0, Decimal("3")),
+    }
+    out = await read_count_outer_uoms(db, company_id=71, variants=variants)
+    assert out == {
+        11: {
+            "count_outer_uom_id": 3,
+            "count_outer_uom_code": "BOX",
+            "count_outer_uom_name": "Actual Box",
+            "count_outer_factor_numerator": 50,
+            "count_outer_factor_denominator": 1,
+        },
+        16: {
+            "count_outer_uom_id": 9,
+            "count_outer_uom_code": "DOUBLE",
+            "count_outer_uom_name": "Exact Double",
+            "count_outer_factor_numerator": 2,
+            "count_outer_factor_denominator": 1,
+        },
+    }
+    assert len(db.calls) == 2  # independent of number of variants and batches
+    assert "product_uom_conversions.company_id" in db.calls[0]
+    assert "product_uom_conversions.product_variant_id" in db.calls[0]
+    # Exact Decimal values, never JS/Python binary float rounding.
+    authority = build_variant_uom_authority(
+        NS(id=11, base_uom_id=1, quantity_scale=3, quantity_step=Decimal("0.001")),
+        conversions[:2],
+    )
+    assert authority.validate_canonical_total(
+        authority.to_base(Decimal("2"), uom_id=3) + Decimal("7")
+    ) == Decimal("107.000")
+    assert authority.validate_canonical_total(
+        authority.to_base(Decimal("2.125"), uom_id=3) + Decimal("0.750")
+    ) == Decimal("107.000")
+    assert (await read_count_outer_uoms(db, company_id=71, variants={})) == {}
+    assert len(db.calls) == 2
+    with pytest.raises(ValueError):
+        await read_count_outer_uoms(
+            db, company_id=71,
+            variants={i: (1, 0, Decimal("1")) for i in range(1, 10002)},
+        )
+    assert len(db.calls) == 2
+    print("CP14C_CANONICAL_COUNT_UOM_EXACT_AMBIGUOUS_MISSING_BOUND=PASS")
 
 
 async def test_cp14c_stocktake_lifecycle_operational_acceptance():
