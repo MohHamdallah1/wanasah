@@ -169,8 +169,8 @@ export function StocktakeReviewPanel({
                       {copy.stockStatuses[line.stock_status]}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-center font-black text-slate-700" dir="ltr">{showQuantity(line.expected_quantity, line.base_uom_name)}</td>
-                  <td className="px-3 py-2 text-center font-black text-blue-700" dir="ltr">{showQuantity(line.actual_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2 text-center font-black text-slate-700">{showQuantity(line.expected_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2 text-center font-black text-blue-700">{showQuantity(line.actual_quantity, line.base_uom_name)}</td>
                   <td className="px-3 py-2 text-center">
                     {variance === 0 ? <span className="text-slate-500 font-bold">{text.match}</span> : (
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${variance > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
