@@ -5,7 +5,7 @@ import {
   parseLedgerPage,
 } from "@/pages/inventory/ledger/contracts";
 import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
-import { buildLedgerCursorUrl } from "@/pages/inventory/ledger/useLedgerQuery";
+import { buildLedgerCursorUrl } from "@/pages/inventory/ledger/buildLedgerCursorUrl";
 import { ledgerBalance, ledgerLocationEvidence, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
 
 const rawEntry = (batchNumber: string | null = null) => ({
