@@ -156,6 +156,26 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                 {current.notes && <p className="mt-1">{text.note}: {current.notes}</p>}
                 {current.status === "CANCELLED" && <p className="mt-1 font-semibold text-slate-600">{text.noMovement}</p>}
               </div>
+              {current.status === "POSTED" && history.detail && (
+                <section aria-label={text.movement} className="rounded-lg border border-slate-200 p-3 text-xs">
+                  <h3 className="mb-1 font-black">{text.movement} · <span dir="ltr">{current.adjustment_movement_count}</span></h3>
+                  <ul className="space-y-1">
+                    {history.detail.movements.items.map(item => (
+                      <li key={item.id} className="flex flex-wrap gap-2 text-slate-700">
+                        <span dir="ltr">#{item.id}</span>
+                        <span dir="ltr">{item.reference_id}</span>
+                        <span dir="ltr">{item.quantity}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {history.detail.movements.next_cursor && (
+                    <button type="button" className={itemButton + " mt-2"}
+                      disabled={history.loadingMore} onClick={() => void history.loadDetailPage("movements")}>
+                      {text.loadMore}
+                    </button>
+                  )}
+                </section>
+              )}
               <section aria-label={text.attempts}>
                 <h3 className="mb-2 text-xs font-black text-slate-900">{text.attempts}</h3>
                 {history.detail?.attempts.items.length === 0 && <p className="text-xs text-slate-500">{text.noAttempts}</p>}
