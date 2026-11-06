@@ -6,6 +6,8 @@ import {
 } from "@/pages/inventory/ledger/contracts";
 import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
 import { buildLedgerCursorUrl } from "@/pages/inventory/ledger/buildLedgerCursorUrl";
+import { createStocktakeLedgerReferenceTarget, parseStocktakeLedgerReferenceQuery } from "@/pages/inventory/ledger/stocktakeLedgerNavigation";
+import { parseInventoryNavigationState } from "@/features/inventory/navigation";
 import { ledgerBalance, ledgerLocationEvidence, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
 
 const rawEntry = (batchNumber: string | null = null) => ({
@@ -112,6 +114,19 @@ describe("CP10 Ledger business contracts", () => {
     expect(ledgerMovementLabel(translate as never, "en", "AUDIT_ADJUSTMENT")).toBe("Stocktake adjustment");
     expect(ledgerMovementLabel(translate as never, "ar", "TRANSFER_RECEIPT")).toBe("استلام حوالة");
     expect(ledgerMovementLabel(translate as never, "en", "VISIT_RETURN_IN")).toBe("Visit return in");
+  });
+
+  it("routes exact stocktake reference using the existing tab/warehouse authority", () => {
+    const target = createStocktakeLedgerReferenceTarget({ locationId: 17, reference: "STK-AB12" });
+    expect(target.pathname).toBe("/inventory");
+    expect(parseStocktakeLedgerReferenceQuery(target.search)).toEqual({ locationId: 17, reference: "STK-AB12" });
+    expect(parseInventoryNavigationState(target.state)).toEqual({
+      version: 1, kind: "tab", tab: "ledger", locationId: 17,
+    });
+    expect(parseStocktakeLedgerReferenceQuery("?ledger_ref=STK-AB12&ledger_ref=STK-BAD&ledger_location=17")).toBeNull();
+    expect(parseStocktakeLedgerReferenceQuery("?ledger_ref=STK-AB12&ledger_location=0")).toBeNull();
+    expect(parseStocktakeLedgerReferenceQuery("?ledger_ref=STOCKTAKE_CANCELLED&ledger_location=17")).toBeNull();
+    expect(() => createStocktakeLedgerReferenceTarget({locationId: -1, reference: "STK-AB12"})).toThrow();
   });
 
   it("queries one exact warehouse + STK reference, never fuzzy search or cancelled type", () => {

@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   createInventoryBatchFocusNavigationState,
-  createInventoryLedgerReferenceNavigationState,
   createInventoryTabNavigationState,
   parseInventoryNavigationState,
 } from "@/features/inventory/navigation";
@@ -75,20 +74,6 @@ describe("Catalog / Inventory frontend boundary", () => {
         },
       }),
     ).toBeNull();
-  });
-
-  it("routes posted stocktake evidence by exact warehouse/reference only", () => {
-    const intent = createInventoryLedgerReferenceNavigationState({locationId: 23, reference: "STK-AB12"});
-    expect(parseInventoryNavigationState(intent)).toEqual({
-      version: 1, kind: "ledger-reference", tab: "ledger", locationId: 23, reference: "STK-AB12",
-    });
-    expect(parseInventoryNavigationState({ inventoryNavigation: {
-      version: 1, kind: "ledger-reference", tab: "ledger", locationId: null, reference: "STK-AB12",
-    }})).toBeNull();
-    expect(parseInventoryNavigationState({ inventoryNavigation: {
-      version: 1, kind: "ledger-reference", tab: "ledger", locationId: 23, reference: "STOCKTAKE_CANCELLED",
-    }})).toBeNull();
-    expect(() => createInventoryLedgerReferenceNavigationState({locationId: 0, reference: "STK-AB12"})).toThrow();
   });
 
   it("keeps Products navigation as a read-only company-wide batch hint resolved by Inventory", () => {

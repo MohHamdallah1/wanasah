@@ -69,10 +69,6 @@ jobs:
           changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["LEDGER_PR_BASE"],"HEAD"], text=True).splitlines())
           allowed_exact={
             "dashboard/src/pages/inventory/Tab4Ledger.tsx",
-            # The Ledger #800 typed cross-tab reference navigation & its focused contract:
-            "dashboard/src/pages/inventory/MainInventory.tsx",
-            "dashboard/src/features/inventory/navigation.ts",
-            "dashboard/src/test/catalog-inventory-boundary.test.ts",
             "dashboard/src/test/inventory-access.test.ts",
             ".github/scripts/live_stock_ci_ownership.py",
             "wa_backend/api/warehouse/ledger.py",

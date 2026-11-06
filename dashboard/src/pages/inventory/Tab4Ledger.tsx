@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { Modal } from "@/components/ui/modal";
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
@@ -16,26 +17,34 @@ import { ledgerText } from "./ledger/ledgerI18n";
 import { useLedgerAdjustment } from "./ledger/useLedgerAdjustment";
 import { useLedgerQuery } from "./ledger/useLedgerQuery";
 import { useLedgerReference } from "./ledger/useLedgerReference";
+import { parseStocktakeLedgerReferenceQuery } from "./ledger/stocktakeLedgerNavigation";
 
 interface Props {
   active?: boolean;
   locationId: number;
-  referenceFocus?: { locationId: number; reference: string } | null;
-  onClearReferenceFocus?: () => void;
   refreshKey: number;
   onInventoryChanged: () => void;
 }
 
-export function Tab4Ledger({
-  active = true, locationId, referenceFocus, onClearReferenceFocus,
-  refreshKey, onInventoryChanged,
-}: Props) {
+export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryChanged }: Props) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const locale = resolveI18nLocale(i18n);
   const access = useInventoryAccess(locationId);
-  const exactReference = referenceFocus?.locationId === locationId
-    ? referenceFocus.reference : null;
+  const routeLocation = useLocation();
+  const navigate = useNavigate();
+  const lookup = parseStocktakeLedgerReferenceQuery(routeLocation.search);
+  // The URL is only a read hint; never use it to override the admitted warehouse.
+  // The server still enforces ledger.read, company isolation and RLS.
+  const exactReference = lookup?.locationId === locationId ? lookup.reference : null;
+  const clearExactReference = () => {
+    const params = new URLSearchParams(routeLocation.search);
+    params.delete("ledger_ref");
+    params.delete("ledger_location");
+    const search = params.toString();
+    navigate({ pathname: routeLocation.pathname, search: search ? `?${search}` : "" },
+      { replace: true, state: null });
+  };
   const query = useLedgerQuery(locationId, refreshKey, active, exactReference);
   const reference = useLedgerReference(locationId, active);
   const adjustment = useLedgerAdjustment(locationId);
@@ -101,7 +110,7 @@ export function Tab4Ledger({
           <div role="status" data-ledger-exact-reference="true"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
             <span>{text("exactReferenceFilter")}: <bdi dir="ltr">{exactReference}</bdi></span>
-            <button type="button" onClick={onClearReferenceFocus}
+            <button type="button" onClick={clearExactReference}
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
               {text("clearReferenceFilter")}
             </button>

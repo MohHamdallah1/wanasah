@@ -426,9 +426,6 @@ export default function MainInventory() {
       ? initialNavigationIntent
       : null,
   );
-  const [ledgerReferenceFocus, setLedgerReferenceFocus] = useState(
-    initialNavigationIntent?.kind === "ledger-reference" ? initialNavigationIntent : null,
-  );
   // Stable consumer prevents a deep-link batch read restarting on unrelated
   // shell renders (including the first retained-panel registration).
   const handleBatchFocusConsumed = useCallback(() => setBatchNavigationFocus(null), []);
@@ -1082,9 +1079,6 @@ export default function MainInventory() {
         return;
       }
 
-      // A manually selected warehouse must never retain the old STK reference.
-      // A fresh explicit navigation intent is applied below after location admission.
-      setLedgerReferenceFocus(null);
       prepareLocationChange(nextId);
       setServerVerifiedLocationId(nextId);
       setSelectorAdmissionEpoch(globalAdmissionEpoch.current);
@@ -1120,10 +1114,6 @@ export default function MainInventory() {
     } else if (intent.kind === "batch-focus") {
       setArchiveOwnerFocus(null);
       setBatchNavigationFocus(intent);
-    } else if (intent.kind === "ledger-reference") {
-      setArchiveOwnerFocus(null);
-      setBatchNavigationFocus(null);
-      setLedgerReferenceFocus(intent);
     } else {
       setArchiveOwnerFocus(null);
       setBatchNavigationFocus(null);
@@ -1916,7 +1906,6 @@ export default function MainInventory() {
             toast.info(t("inventoryShell.createWarehouseFirstNotice"));
             return;
           }
-          if (id !== "ledger") setLedgerReferenceFocus(null);
           setActiveTab(id);
         }}
       />
@@ -2217,8 +2206,6 @@ export default function MainInventory() {
             <Tab4Ledger
               active={activeTab === "ledger"}
               locationId={selectedLocationId!}
-              referenceFocus={ledgerReferenceFocus}
-              onClearReferenceFocus={() => setLedgerReferenceFocus(null)}
               refreshKey={ledgerRefreshKey}
               onInventoryChanged={() => {
                 refreshStock();
