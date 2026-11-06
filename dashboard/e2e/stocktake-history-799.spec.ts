@@ -174,8 +174,8 @@ for (const lang of ["ar", "en"] as const) {
       await expect(dialog.getByText("7 Each")).toBeVisible();
       await expect(dialog.getByText("-0.25 Each")).toBeVisible();
       await expect(dialog.getByText("-0.001 Each")).toBeVisible();
-      await expect(dialog.getByText("0.25 Each")).toHaveCount(0);
-      await expect(dialog.getByText("0.001 Each")).toHaveCount(0);
+      await expect(dialog.getByText("0.25 Each", {exact: true})).toHaveCount(0);
+      await expect(dialog.getByText("0.001 Each", {exact: true})).toHaveCount(0);
       await expect(dialog.getByText("REAL-LOT-9").first()).toBeVisible();
       await expect(dialog.getByText("Discrepancy confirmed").first()).toBeVisible();
       await dialog.screenshot({ path: testInfo.outputPath("history-review.png") });
