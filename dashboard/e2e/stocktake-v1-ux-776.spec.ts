@@ -395,3 +395,112 @@ for (const locale of ["ar", "en"] as const) {
     });
   }
 }
+
+// Owner #782 fast-count acceptance: real Chromium browser, authorized HTTP
+// fixture only. PostgreSQL/financial posting is proven by the separate PG16 gate.
+for (const locale of ["ar", "en"] as const) {
+  for (const size of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone", width: 390, height: 844 }]) {
+    test(`#782 fast count keyboard + exact UOM ${locale} ${size.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: size.width, height: size.height });
+      await setup(page, locale, "counting");
+      // Later route overrides the older fixture with the *optional* exact
+      // Worker 2 metadata contract. Other status/location fields stay real.
+      await page.route("**/api/warehouse/unified/stocktake/77/count-sheet", async route =>
+        respond(route, [
+          { ...countSheet[0],
+            count_outer_uom_id: 13, count_outer_uom_name: "Carton",
+            count_outer_uom_code: "CTN", count_outer_factor_numerator: 50,
+            count_outer_factor_denominator: 1,
+          },
+          countSheet[1],
+        ]),
+      );
+      const captured: Array<Record<string, unknown>> = [];
+      await page.route("**/api/warehouse/unified/stocktake/77/count", async route => {
+        captured.push(JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>);
+        return respond(route, { attempt_id: 93 });
+      });
+      await page.goto("/inventory");
+      const stocktake = page.locator(".inventory-stocktake");
+      await expect(stocktake).toBeVisible();
+      const trigger = stocktake.locator('[data-stocktake-sessions-trigger="true"]');
+      await trigger.click();
+      const sessions = page.getByRole("dialog", {
+        name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
+      });
+      await expect(sessions).toContainText("STK-000077");
+      await sessions.getByRole("button", {
+        name: locale === "ar" ? "فتح" : "Open", exact: true,
+      }).click();
+      await expect(stocktake.locator('[data-stocktake-workspace="counting"]')).toBeVisible();
+      await expect(stocktake.locator("[data-stocktake-scope]")).toHaveCount(0); // No duplicate session header.
+      const inputs = stocktake.locator("input[data-stocktake-count-input='true']:visible");
+      await expect(inputs).toHaveCount(3); // 2 exact UOM fields + 1 single base field.
+      for (let i = 0; i < 3; i++) await expect(inputs.nth(i)).toHaveValue("");
+      const progress = stocktake.getByRole("progressbar");
+      await expect(progress).toHaveAttribute("aria-valuenow", "0");
+      const finish = stocktake.getByRole("button", {
+        name: locale === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt",
+      });
+      await expect(finish).toBeDisabled();
+      await inputs.nth(0).fill("2"); // 2 registered outer units × 50.
+      await inputs.nth(1).fill("7"); // Seven separate exact base units.
+      await inputs.nth(2).fill("3"); // Independent other lot/status.
+      await expect(progress).toHaveAttribute("aria-valuenow", "2");
+      await expect(finish).toBeEnabled();
+      await inputs.nth(0).focus();
+      await page.keyboard.press("ArrowDown");
+      await expect(inputs.nth(1)).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(inputs.nth(2)).toBeFocused();
+      await page.keyboard.press("ArrowUp");
+      await expect(inputs.nth(1)).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(inputs.nth(2)).toBeFocused();
+      await page.keyboard.press("Enter"); // Last row must not auto-submit.
+      expect(captured).toHaveLength(0);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await inputs.nth(2).fill(""); // Empty is not physical zero.
+      await expect(progress).toHaveAttribute("aria-valuenow", "1");
+      await expect(finish).toBeDisabled();
+      await inputs.nth(2).fill("0"); // Typed zero is still NOT confirmed.
+      await expect(progress).toHaveAttribute("aria-valuenow", "1");
+      await stocktake.getByRole("button", {
+        name: new RegExp(locale === "ar" ? "تأكيد صفر لـ Oats" : "Confirm zero for Oats"),
+      }).click();
+      await expect(progress).toHaveAttribute("aria-valuenow", "2");
+      await stocktake.getByRole("button", {
+        name: new RegExp(locale === "ar" ? "إلغاء تأكيد العد — Oats" : "Undo count — Oats"),
+      }).click();
+      await expect(progress).toHaveAttribute("aria-valuenow", "1");
+      await inputs.nth(2).fill("3");
+      await expect(progress).toHaveAttribute("aria-valuenow", "2");
+      expect(captured).toHaveLength(0);
+      await finish.click(); // Only deliberate footer action opens confirmation.
+      const confirm = page.getByRole("dialog", {
+        name: locale === "ar" ? "تثبيت محاولة العد" : "Submit count attempt",
+      });
+      await expect(confirm).toBeVisible();
+      expect(captured).toHaveLength(0);
+      await confirm.getByRole("button", {
+        name: locale === "ar" ? "تثبيت وإنهاء العد" : "Submit and finish counting",
+      }).click();
+      await expect.poll(() => captured.length).toBe(1);
+      expect(captured[0].items).toEqual([
+        { product_variant_id: 118, batch_id: 51, stock_status: "AVAILABLE",
+          actual_quantity: "107", uom_id: 7 },
+        { product_variant_id: 119, batch_id: 52, stock_status: "QUARANTINED",
+          actual_quantity: "3", uom_id: 7 },
+      ]);
+      expect(JSON.stringify(captured[0])).not.toContain("count_outer_quantity");
+      const bounds = await page.evaluate(() => ({
+        content: document.documentElement.scrollWidth, width: window.innerWidth,
+      }));
+      expect(bounds.content).toBeLessThanOrEqual(bounds.width + 2);
+      await page.screenshot({
+        path: test.info().outputPath(`stocktake-fast-entry-${locale}-${size.name}.png`),
+        fullPage: true,
+      });
+    });
+  }
+}
