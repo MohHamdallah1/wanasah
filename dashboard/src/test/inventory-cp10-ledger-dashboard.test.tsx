@@ -110,9 +110,10 @@ function LedgerModeHarness() {
   const navigate = useNavigate();
   const [warehouse, setWarehouse] = useState(11);
   return <>
-    <button type="button" onClick={() => navigate(
-      createStocktakeLedgerReferenceTarget({ locationId: 11, reference: "STK-ABC" })
-    )}>Open exact STK</button>
+    <button type="button" onClick={() => {
+      const target = createStocktakeLedgerReferenceTarget({ locationId: 11, reference: "STK-ABC" });
+      navigate({ pathname: target.pathname, search: target.search }, { state: target.state });
+    }}>Open exact STK</button>
     <button type="button" onClick={() => setWarehouse(12)}>Switch warehouse</button>
     <button type="button" onClick={() => setWarehouse(11)}>Restore warehouse</button>
     <Tab4Ledger locationId={warehouse} refreshKey={0} onInventoryChanged={() => undefined} />
@@ -254,6 +255,9 @@ describe("CP10 Ledger Dashboard", () => {
         target: { value: "STK-ABC" },
       });
       await waitFor(() => expect(calls.some(call => call.includes("search=STK-ABC"))).toBe(true));
+      await waitFor(() => expect(screen.getByRole("option", {
+        name: language === "ar" ? "تسوية جرد" : "Stocktake adjustment",
+      })).toBeInTheDocument());
       fireEvent.change(screen.getByRole("combobox", { name: movementLabel }), {
         target: { value: "AUDIT_ADJUSTMENT" },
       });
