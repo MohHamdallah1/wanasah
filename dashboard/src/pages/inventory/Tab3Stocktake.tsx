@@ -1,5 +1,5 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { RefreshCcw } from "lucide-react";
 import type { StocktakeAuthFetch } from "./stocktake/types";
 import { useStocktakeSessions } from "./stocktake/hooks/useStocktakeSessions";
@@ -64,11 +64,18 @@ export function Tab3Stocktake({
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDiscoveredModal, setShowDiscoveredModal] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
 
   const stocktakeState = useStocktakeState({ companyId, locationId });
   const warehouseAccess = useInventoryAccess(locationId);
   const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
   const canReadStocktake = warehouseAccess.can("stocktake.read");
+
+  // A retained tab must not leave a portal open after access or location changes.
+  // Its count/review drafts remain owned by the location-keyed existing state hook.
+  useEffect(() => {
+    if (!active || !canReadStocktake) setShowSessions(false);
+  }, [active, canReadStocktake, locationId]);
   const durableIdentity = warehouseAccess.data
     ? {
         companyId: warehouseAccess.data.company_id,
@@ -227,6 +234,22 @@ export function Tab3Stocktake({
           {warehouseSelector}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <StocktakeSessionCenter
+            sessions={activeSessions}
+            total={activeSessionsTotal}
+            loading={sessionsLoading}
+            loadingMore={sessionsLoadingMore}
+            nextCursor={activeSessionsNextCursor}
+            currentSessionId={lifecycle.selectedSessionId}
+            canRead={active && canReadStocktake}
+            open={showSessions}
+            onOpenChange={setShowSessions}
+            onLoadMore={loadMoreSessions}
+            onOpenSession={async (session) => {
+              await lifecycle.openServerSession(session);
+              setShowSessions(false);
+            }}
+          />
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
             aria-label={uiCopy.sessions.refresh} title={uiCopy.sessions.refresh}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 hover:bg-slate-50 disabled:opacity-40">
@@ -241,19 +264,6 @@ export function Tab3Stocktake({
           </button>
         </div>
       </div>
-
-      {(activeSessions.length > 0 || sessionsLoading || sessionsLoadFailed) && (
-        <StocktakeSessionCenter
-          sessions={activeSessions}
-          total={activeSessionsTotal}
-          loading={sessionsLoading}
-          loadingMore={sessionsLoadingMore}
-          nextCursor={activeSessionsNextCursor}
-          currentSessionId={lifecycle.selectedSessionId}
-          onLoadMore={loadMoreSessions}
-          onOpenSession={lifecycle.openServerSession}
-        />
-      )}
 
       {/* The original door and both count types occupy one workspace; never parallel tables. */}
       <div data-stocktake-workspace={workspacePhase}

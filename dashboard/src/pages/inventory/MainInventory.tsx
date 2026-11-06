@@ -14,6 +14,7 @@ import { createDispatchReservationFocusState } from "@/features/dispatch/navigat
 import { resolveI18nLocale } from "@/lib/locale";
 import { Tab1LiveStock } from "./Tab1LiveStock";
 import { TabBatches } from "./TabBatches";
+import { batchIndexText } from "./batches/batchIndexI18n";
 import { Tab2Inbound } from "./Tab2Inbound";
 import { Tab3Stocktake } from "./Tab3Stocktake";
 import { Tab4Ledger } from "./Tab4Ledger";
@@ -1792,13 +1793,26 @@ export default function MainInventory() {
   }
 
   // One authorized selector from MainInventory owns every tab's location.
-  // Only its placement changes for an admitted Stocktake workspace.
+  // On Stocktake only, the existing picker and its concise label share one line.
+  const stocktakeShellAdmitted =
+    activeTab === "stocktake" && selectedLocationId !== null &&
+    locationTabScope !== null && tabAllowed("stocktake");
   const warehouseSelector = locations.length > 0 ? (
-    <label className="inventory-location-field">
-      <span className="inventory-location-label">{t("inventoryShell.warehouseSelectLabel")}</span>
+    <label className={stocktakeShellAdmitted
+      ? "inventory-location-field !flex w-full min-w-0 items-center gap-2 sm:!w-auto"
+      : "inventory-location-field"}>
+      <span className={stocktakeShellAdmitted
+        ? "inventory-location-label shrink-0 whitespace-nowrap"
+        : "inventory-location-label"}>
+        {stocktakeShellAdmitted
+          ? `${batchIndexText(t, locale, "warehouseLabel")}:`
+          : t("inventoryShell.warehouseSelectLabel")}
+      </span>
       <select
         aria-label={t("inventoryShell.warehouseSelectLabel")}
-        className="inventory-location-select px-3 py-2 text-sm font-bold"
+        className={stocktakeShellAdmitted
+          ? "inventory-location-select !w-auto min-w-0 flex-1 px-3 py-2 text-sm font-bold"
+          : "inventory-location-select px-3 py-2 text-sm font-bold"}
         value={selectedLocationId ?? ""}
         onChange={(event) => handleLocationChange(event.target.value)}
       >
@@ -1809,11 +1823,7 @@ export default function MainInventory() {
       </select>
     </label>
   ) : null;
-  // If Stocktake is not currently admitted, leave the shared picker visible
-  // so the operator can recover by choosing another authorized warehouse.
-  const stocktakeShellAdmitted =
-    activeTab === "stocktake" && selectedLocationId !== null &&
-    locationTabScope !== null && tabAllowed("stocktake");
+  // Unadmitted Stocktake continues using the detached recovery selector.
   const warehouseDiscoveryNeeded =
     locationsTruncated || warehouseCursorTrail.length > 1 || warehouseSearchInput.length > 0;
   const warehouseDiscoveryControls = (

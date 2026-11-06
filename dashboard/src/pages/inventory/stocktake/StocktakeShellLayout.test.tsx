@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StocktakeSessionCenter } from "./StocktakeSessionCenter";
 import type { StocktakeSessionSummary } from "./types";
@@ -27,8 +28,8 @@ const session = (id: number, stocktake_type: StocktakeSessionSummary["stocktake_
   stocktake_type,
   status: "COUNTING",
   location_id: 11,
-  scope_product_variant_id: stocktake_type === "CYCLE_COUNT" ? 118 : null,
-  scope_product_name: stocktake_type === "CYCLE_COUNT" ? "Chickpeas 750 g" : null,
+  scope_product_variant_id: stocktake_type === "CYCLE_COUNT" ? id + 40 : null,
+  scope_product_name: stocktake_type === "CYCLE_COUNT" ? `Product ${id}` : null,
   scope_batch_id: null,
   scope_batch_number: null,
   related_work_session_id: null,
@@ -44,79 +45,119 @@ const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8"
 const main = read("src/pages/inventory/MainInventory.tsx");
 const tab = read("src/pages/inventory/Tab3Stocktake.tsx");
 
+function SessionsHarness({
+  sessions = [session(77), session(78)],
+  total = 3,
+  currentSessionId = 77,
+  canRead = true,
+  onOpenSession = vi.fn(),
+  onLoadMore = vi.fn(),
+}: {
+  sessions?: StocktakeSessionSummary[];
+  total?: number;
+  currentSessionId?: number | null;
+  canRead?: boolean;
+  onOpenSession?: (session: StocktakeSessionSummary) => void;
+  onLoadMore?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <StocktakeSessionCenter
+      sessions={sessions}
+      total={total}
+      loading={false}
+      loadingMore={false}
+      nextCursor={sessions.length ? "next" : null}
+      currentSessionId={currentSessionId}
+      open={open}
+      onOpenChange={setOpen}
+      canRead={canRead}
+      onOpenSession={(value) => { onOpenSession(value); setOpen(false); }}
+      onLoadMore={onLoadMore}
+    />
+  );
+}
+
 beforeEach(() => { locale.value = "ar"; });
 
-describe("Stocktake #782 final shell: sessions and single workspace", () => {
+describe("Stocktake #782 density shell: sessions dialog and shared workspace", () => {
   it.each([
-    ["ar", "جلسات الجرد النشطة", "فتح", "مفتوحة"],
-    ["en", "Active stocktake sessions", "Open", "Open"],
-  ] as const)("keeps multiple sessions reachable in a compact keyboard-accessible strip in %s", (language, title, open, opened) => {
+    ["ar", "الجلسات (٣)", "جلسات الجرد النشطة", "فتح", "مفتوحة"],
+    ["en", "Sessions (3)", "Active stocktake sessions", "Open", "Open"],
+  ] as const)("opens a focused authorized dialog with switch, page, escape and focus return in %s", async (language, triggerName, title, openLabel, currentLabel) => {
     locale.value = language;
     const onOpenSession = vi.fn();
     const onLoadMore = vi.fn();
-    render(<StocktakeSessionCenter
-      sessions={[session(77, "FULL_COUNT"), session(78)]} total={3}
-      loading={false} loadingMore={false} nextCursor="next"
-      currentSessionId={77} onLoadMore={onLoadMore} onOpenSession={onOpenSession}
-    />);
-    const region = screen.getByRole("region", { name: title });
-    expect(region).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
-    const toggle = within(region).getByRole("button", { name: new RegExp(title) });
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    const list = within(region).getByRole("list");
+    render(<SessionsHarness onOpenSession={onOpenSession} onLoadMore={onLoadMore} />);
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toHaveAttribute("data-stocktake-sessions-trigger", "true");
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog", { name: title });
+    expect(dialog).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
+    const list = within(dialog).getByRole("list");
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    const sessionButtons = within(list).getAllByRole("button");
-    expect(sessionButtons).toHaveLength(2);
-    expect(sessionButtons[0]).toHaveAttribute("aria-current", "true");
-    expect(sessionButtons[0]).toHaveAccessibleName(opened);
-    expect(sessionButtons[0]).toBeDisabled();
-    expect(sessionButtons[1]).toHaveAccessibleName(open);
-    expect(sessionButtons[1]).toBeEnabled();
-    fireEvent.click(sessionButtons[1]);
-    expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ id: 78, location_id: 11 }));
-    const more = within(region).getByRole("button", { name: language === "ar" ? "تحميل المزيد" : "Load more" });
-    fireEvent.click(more);
+    const buttons = within(list).getAllByRole("button");
+    expect(buttons[0]).toHaveAccessibleName(currentLabel);
+    expect(buttons[0]).toHaveAttribute("aria-current", "true");
+    expect(buttons[0]).toBeDisabled();
+    expect(buttons[1]).toHaveAccessibleName(openLabel);
+    expect(buttons[1]).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: language === "ar" ? "تحميل المزيد" : "Load more" }));
     expect(onLoadMore).toHaveBeenCalledOnce();
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(within(region).queryByRole("list")).not.toBeInTheDocument();
-    fireEvent.click(toggle);
-    expect(within(region).getAllByRole("listitem")).toHaveLength(2);
+    fireEvent.keyDown(dialog, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+    fireEvent.click(trigger);
+    const second = screen.getByRole("dialog", { name: title });
+    fireEvent.click(within(within(second).getByRole("list")).getAllByRole("button")[1]);
+    expect(onOpenSession).toHaveBeenCalledWith(expect.objectContaining({ id: 78, location_id: 11 }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it.each(["ar", "en"] as const)("keeps zero sessions compact and does not add a duplicate cycle/refresh button in %s", (language) => {
+  it.each(["ar", "en"] as const)("shows one toolbar trigger with 0 and no page-height-consuming list in %s", (language) => {
     locale.value = language;
-    const { container } = render(<StocktakeSessionCenter sessions={[]} total={0}
-      loading={false} loadingMore={false} nextCursor={null}
-      currentSessionId={null} onLoadMore={vi.fn()} onOpenSession={vi.fn()} />);
-    expect(container.querySelector("[data-stocktake-sessions='compact']")).not.toBeNull();
-    expect(screen.queryByRole("list")).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(1);
-    expect(container.textContent).toContain(language === "ar" ? "لا توجد جلسات جرد نشطة" : "There are no active stocktake sessions");
+    render(<SessionsHarness sessions={[]} total={0} currentSessionId={null} />);
+    const trigger = screen.getByRole("button", { name: language === "ar" ? "الجلسات (٠)" : "Sessions (0)" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("list")).not.toBeInTheDocument();
+    expect(dialog).toHaveTextContent(language === "ar" ? "لا توجد جلسات جرد نشطة" : "There are no active stocktake sessions");
   });
 
-  it("moves the single MainInventory warehouse selector only for the selected Stocktake tab", () => {
+  it("does not open an unauthorized session drawer", () => {
+    render(<SessionsHarness canRead={false} />);
+    const trigger = screen.getByRole("button", { name: "الجلسات (٣)" });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("uses one MainInventory warehouse select with inline label only on admitted Stocktake", () => {
     expect(main).toContain('warehouseSelector={stocktakeShellAdmitted ? stocktakeWarehouseSelector : null}');
     expect(main).toContain('onChange={(event) => handleLocationChange(event.target.value)}');
+    expect(main).toContain('batchIndexText(t, locale, "warehouseLabel")');
     expect(main).toContain('!stocktakeShellAdmitted && (');
     expect(main).toContain('locationTabScope !== null && tabAllowed("stocktake")');
     expect(main).toContain('activeTab !== "stocktake" && (');
-    expect(main.match(/className="inventory-location-select/g)).toHaveLength(2); // One shared, one no-location fallback
+    expect(main.match(/<select/g)?.length).toBeGreaterThanOrEqual(1);
     expect(main).toContain('data-it03-retained-tab="stocktake"');
     expect(main).toContain('key={`stocktake:${locationTabScope}`}');
   });
 
-  it("uses one toolbar and one workspace for idle door, both count types and review", () => {
+  it("places sessions/refresh/product count in one toolbar and never duplicates the counting table or door", () => {
     expect(tab).toContain('data-stocktake-toolbar="true"');
-    // The shell's session/toolbar strings belong to uiCopy, not generic copy.
     expect(tab).toContain('const { copy: uiCopy } = useStocktakeUiCopy()');
     expect(tab).toContain('uiCopy.sessions.refresh');
     expect(tab).toContain('uiCopy.sessions.cycleAction');
-    expect(tab).toContain("warehouseSelector");
-    expect(tab).toContain("onClick={refreshSessions}");
-    expect(tab).toContain("onClick={() => setShowCycleModal(true)}");
+    expect(tab).toContain('canRead={active && canReadStocktake}');
+    expect(tab).toContain('open={showSessions}');
+    expect(tab).toContain('onOpenSession={async (session) => {');
+    expect(tab).toContain('onClick={refreshSessions}');
+    expect(tab).toContain('onClick={() => setShowCycleModal(true)}');
     expect(tab).toContain('data-stocktake-workspace={workspacePhase}');
-    expect(tab).toContain('activeSessions.length > 0 || sessionsLoading || sessionsLoadFailed');
+    expect(tab.match(/<StocktakeSessionCenter/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeCountingPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeReviewPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeIdlePanel/g)).toHaveLength(1);

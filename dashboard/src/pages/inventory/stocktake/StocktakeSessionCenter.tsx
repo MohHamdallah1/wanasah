@@ -1,5 +1,5 @@
-import { Boxes, Car, ChevronDown, ClipboardCheck } from "lucide-react";
-import { useId, useState } from "react";
+import { Boxes, Car, ClipboardCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useTranslation } from "react-i18next";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { useStocktakeUiCopy } from "./uiCopy";
@@ -12,6 +12,9 @@ interface StocktakeSessionCenterProps {
   loadingMore: boolean;
   nextCursor: string | null;
   currentSessionId: number | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  canRead: boolean;
   onLoadMore: () => void;
   onOpenSession: (session: StocktakeSessionSummary) => void | Promise<void>;
 }
@@ -31,14 +34,11 @@ const canOpenSession = (status: StocktakeStatus): boolean =>
 
 export function StocktakeSessionCenter({
   sessions, total, loading, loadingMore, nextCursor, currentSessionId,
-  onLoadMore, onOpenSession,
+  open, onOpenChange, canRead, onLoadMore, onOpenSession,
 }: StocktakeSessionCenterProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const text = copy.sessions;
-  // Expanded by default so no actionable session is silently hidden.
-  const [expanded, setExpanded] = useState(true);
-  const listId = useId();
 
   const sessionScope = (session: StocktakeSessionSummary): string => {
     if (session.stocktake_type === "FULL_COUNT") return text.entireLocation;
@@ -53,34 +53,60 @@ export function StocktakeSessionCenter({
       : product;
   };
 
-  return (
-    <section dir={dir} data-stocktake-sessions="compact" aria-label={text.title}
-      className="shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-white/90">
-      <button type="button" aria-expanded={expanded} aria-controls={listId}
-        onClick={() => setExpanded(value => !value)}
-        className="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-start hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
-        <ClipboardCheck className="h-4 w-4 shrink-0 text-[#1e87bb]" aria-hidden="true" />
-        <span className="text-xs font-black text-slate-800">{text.title}</span>
-        <span className="min-w-0 truncate text-[11px] text-slate-500">
-          {total !== null ? text.total(total) : text.sourceServer}
-        </span>
-        <ChevronDown className={`ms-auto h-4 w-4 shrink-0 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
-      </button>
+  const count = total ?? sessions.length;
+  // Reuse the existing AR/EN session noun from "Refresh sessions" rather than
+  // hardcode copy or modify the separately owned translation catalog.
+  const language = i18n.resolvedLanguage || i18n.language || "ar";
+  const sessionNoun = text.refresh.trim().split(/\s+/).at(-1) || text.title;
+  const shortTitle = dir === "ltr"
+    ? sessionNoun.replace(/^./u, (letter) => letter.toLocaleUpperCase(language))
+    : sessionNoun;
+  const countText = new Intl.NumberFormat(language, {
+    numberingSystem: language.toLowerCase().startsWith("ar") ? "arab" : "latn",
+  }).format(count);
+  const triggerLabel = `${shortTitle} (${countText})`;
 
-      <div id={listId} hidden={!expanded} className="border-t border-slate-100">
-        {loading && sessions.length === 0 ? (
-          <p role="status" className="px-3 py-2 text-xs text-slate-500">{text.loading}</p>
-        ) : sessions.length === 0 ? (
-          <p className="px-3 py-2 text-xs text-slate-500">{text.empty}</p>
-        ) : (
-          <>
-            <div role="list" className="max-h-40 overflow-y-auto divide-y divide-slate-100" data-stocktake-session-list="true">
+  return (
+    <Dialog open={open && canRead} onOpenChange={onOpenChange}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          data-stocktake-sessions-trigger="true"
+          disabled={!canRead}
+          aria-label={triggerLabel}
+          className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <ClipboardCheck className="h-4 w-4" aria-hidden="true" />
+          <span>{triggerLabel}</span>
+        </button>
+      </DialogTrigger>
+      <DialogContent
+        dir={dir}
+        data-stocktake-sessions="dialog"
+        className="flex max-h-[min(88vh,46rem)] w-[calc(100vw-1.5rem)] max-w-3xl flex-col gap-0 overflow-hidden rounded-xl bg-white p-0"
+      >
+        <DialogHeader className="shrink-0 border-b border-slate-200 px-4 py-4 pe-12 text-start">
+          <DialogTitle className="text-base font-black text-slate-900">{text.title}</DialogTitle>
+          <DialogDescription className="text-xs text-slate-500">
+            {total !== null ? text.total(total) : text.sourceServer}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="min-h-0 flex-1 overflow-y-auto" data-stocktake-session-list-container="true">
+          {loading && sessions.length === 0 ? (
+            <p role="status" className="px-4 py-5 text-sm text-slate-500">{text.loading}</p>
+          ) : sessions.length === 0 ? (
+            <p role="status" className="px-4 py-5 text-sm text-slate-500">{text.empty}</p>
+          ) : (
+            <div role="list" className="divide-y divide-slate-100" data-stocktake-session-list="true">
               {sessions.map((session) => {
                 const selected = currentSessionId === session.id;
                 const TypeIcon = session.stocktake_type === "VEHICLE_RECON" ? Car : Boxes;
                 return (
-                  <div role="listitem" key={session.id}
-                    className={`flex min-w-0 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:flex-nowrap ${selected ? "bg-blue-50/60" : "hover:bg-slate-50"}`}>
+                  <div
+                    role="listitem"
+                    key={session.id}
+                    className={`flex min-w-0 flex-wrap items-center justify-between gap-3 px-4 py-3 sm:flex-nowrap ${selected ? "bg-blue-50/60" : "hover:bg-slate-50"}`}
+                  >
                     <div className="flex min-w-0 flex-1 items-center gap-2">
                       <TypeIcon className="h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
                       <div className="min-w-0">
@@ -96,28 +122,30 @@ export function StocktakeSessionCenter({
                         </p>
                       </div>
                     </div>
-                    <button type="button"
+                    <button
+                      type="button"
                       disabled={!canOpenSession(session.status) || selected}
                       aria-current={selected ? "true" : undefined}
                       onClick={() => void onOpenSession(session)}
-                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-black text-slate-700 hover:border-blue-300 hover:text-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
                       {selected ? text.opened : text.open}
                     </button>
                   </div>
                 );
               })}
             </div>
-            {nextCursor && (
-              <div className="border-t border-slate-100 px-3 py-1.5">
-                <button type="button" onClick={onLoadMore} disabled={loadingMore}
-                  className="w-full rounded-lg bg-blue-50 px-2 py-1.5 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
-                  {loadingMore ? text.loadingMore : text.loadMore}
-                </button>
-              </div>
-            )}
-          </>
+          )}
+        </div>
+        {nextCursor && (
+          <div className="shrink-0 border-t border-slate-100 p-3">
+            <button type="button" onClick={onLoadMore} disabled={loadingMore}
+              className="w-full rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+              {loadingMore ? text.loadingMore : text.loadMore}
+            </button>
+          </div>
         )}
-      </div>
-    </section>
+      </DialogContent>
+    </Dialog>
   );
 }
