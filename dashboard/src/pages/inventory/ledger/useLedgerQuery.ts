@@ -56,7 +56,11 @@ export function useLedgerQuery(
   }, [searchInput]);
 
   const scopeKey = useMemo(
-    () => `${locationId}|${exactReference ?? debouncedSearch}|${exactReference ? "AUDIT_ADJUSTMENT" : filterType}|${refreshKey}`,
+    // Mode is part of cursor authorization: fuzzy search=STK-X is NOT the
+    // same scope as exact reference_id=STK-X, even with identical text/type.
+    // Distinct identity hides old rows during render, resets page to cursor
+    // null and invalidates in-flight fuzzy responses before the exact read.
+    () => `${locationId}|${exactReference !== null ? "EXACT_STOCKTAKE_REFERENCE" : "FUZZY_SEARCH"}|${exactReference ?? debouncedSearch}|${exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType}|${refreshKey}`,
     [debouncedSearch, exactReference, filterType, locationId, refreshKey],
   );
 
