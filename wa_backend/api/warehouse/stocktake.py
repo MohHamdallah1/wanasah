@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from datetime import date, datetime, timezone
+from math import isfinite
 from decimal import Decimal
 from typing import Optional
 
@@ -321,7 +322,7 @@ async def _verify_stocktake_admin_credentials(
     return legacy_candidate
 
 
-# تحديد ما إذا كان العجز يتطلب إعادة عد مستقلة؛ الوضع الافتراضي الآمن يعتبر أي عجز مادياً حتى تضبط الشركة حدودها.
+# إعادة العد اختيارية افتراضياً؛ تُفرض الاستقلالية عند بلوغ حدٍّ ضبطته الشركة مسبقاً.
 # ====================================================
 # 11.5 تحديد ما إذا كان العجز يتطلب إعادة عد مستقلة
 # ====================================================
@@ -368,14 +369,17 @@ async def _requires_independent_stocktake_recount(
 
     try:
         if settings.get('stocktake_material_shortage_percent') is not None:
-            percent_threshold = max(
-                0.0,
-                float(settings['stocktake_material_shortage_percent'])
-            )
+            configured_percent = float(settings['stocktake_material_shortage_percent'])
+            if isfinite(configured_percent):
+                percent_threshold = max(0.0, configured_percent)
     except (TypeError, ValueError):
         percent_threshold = None
 
-    # Secure-by-default: إذا لم تضبط الشركة سياسة بعد، أي عجز يتطلب عدّاً مستقلاً.
+    # V1 OWNER policy: no configured threshold => recount is optional.
+    # Do not silently weaken an EXISTING explicit company policy: invalid
+    # configured thresholds fail closed rather than behaving like "no policy".
+    if not settings:
+        return False
     if packs_threshold is None and percent_threshold is None:
         return True
 
