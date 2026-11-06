@@ -124,7 +124,7 @@ jobs:
               ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           ):
               assert verify(paths) == label
-              for invalid in (set(), paths - {next(iter(paths))},
+              for invalid in (set(), paths - {".github/scripts/live_stock_ci_ownership.py" if label == "DENSITY_CI_BROWSER_BRIDGE" else next(iter(paths))},
                               paths | {"wa_backend/api/warehouse/stocktake.py"},
                               paths | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"}):
                   try:
