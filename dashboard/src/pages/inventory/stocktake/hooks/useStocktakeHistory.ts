@@ -25,6 +25,10 @@ export interface HistoryAudit {
   id: number; action_type: string; actor_name: string | null;
   timestamp: string; details: Record<string, string | number | boolean>;
 }
+export interface HistoryMovement {
+  id: number; reference_id: string; quantity: string;
+  product_variant_id: number; batch_id: number;
+}
 export interface HistoryPage<T> {
   items: T[]; next_cursor: string | null; has_more: boolean;
 }
@@ -39,6 +43,7 @@ export interface HistoryDetail {
   };
   attempts: HistoryPage<HistoryAttempt>;
   audit: HistoryPage<HistoryAudit>;
+  movements: HistoryPage<HistoryMovement>;
 }
 const BASE = "/warehouse/unified/stocktakes/history";
 const params = (locationId: number, cursor: string | null, limit = 50): string => {
@@ -139,14 +144,14 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
     } finally { if (version === seq.current.detail) setLoadingDetail(false); }
   }, [authenticatedFetch, enabled, locationId, selectAttempt]);
 
-  const loadDetailPage = useCallback(async (kind: "attempts" | "audit") => {
+  const loadDetailPage = useCallback(async (kind: "attempts" | "audit" | "movements") => {
     if (!detail || !enabled) return;
     const cursor = detail[kind].next_cursor;
     if (!cursor || loadingMore) return;
     const version = seq.current.detail;
     setLoadingMore(true);
     try {
-      const response = pageOf<HistoryAttempt | HistoryAudit>(await authenticatedFetch(
+      const response = pageOf<HistoryAttempt | HistoryAudit | HistoryMovement>(await authenticatedFetch(
         BASE + "/" + detail.session.id + "/" + kind + "?" + params(locationId, cursor)
       ));
       if (version !== seq.current.detail) return;
@@ -159,10 +164,17 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
               ...nextPage.items.filter(item => !previous.attempts.items.some(old => old.id === item.id))]
           } };
         }
-        const nextPage = response as HistoryPage<HistoryAudit>;
-        return { ...previous, audit: {
-          ...nextPage, items: [...previous.audit.items,
-            ...nextPage.items.filter(item => !previous.audit.items.some(old => old.id === item.id))]
+        if (kind === "audit") {
+          const nextPage = response as HistoryPage<HistoryAudit>;
+          return { ...previous, audit: {
+            ...nextPage, items: [...previous.audit.items,
+              ...nextPage.items.filter(item => !previous.audit.items.some(old => old.id === item.id))]
+          } };
+        }
+        const nextPage = response as HistoryPage<HistoryMovement>;
+        return { ...previous, movements: {
+          ...nextPage, items: [...previous.movements.items,
+            ...nextPage.items.filter(item => !previous.movements.items.some(old => old.id === item.id))]
         } };
       });
     } catch (cause: unknown) {
