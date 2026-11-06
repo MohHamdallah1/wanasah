@@ -26,8 +26,10 @@ from models import Driver, ProductBatch, ProductVariant, StocktakeCountAttempt, 
 from quantity import canonical_quantity
 
 from ._shared import _escape_like
+from .stocktake_history import router as stocktake_history_router
 
 router = APIRouter()
+router.include_router(stocktake_history_router)
 _MAX_DISCOVERY_BATCH_IDS = 100
 
 
