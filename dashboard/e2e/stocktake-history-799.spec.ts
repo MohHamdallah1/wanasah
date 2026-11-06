@@ -146,7 +146,7 @@ for (const lang of ["ar", "en"] as const) {
       await dialog.getByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" }).first().click();
       await expect(dialog.getByText("12 Each")).toBeVisible();
       await expect(dialog.getByText("7 Each")).toBeVisible();
-      await expect(dialog.getByText("REAL-LOT-9")).toBeVisible();
+      await expect(dialog.getByText("REAL-LOT-9").first()).toBeVisible();
       await expect(dialog.getByText("Discrepancy confirmed").first()).toBeVisible();
       await dialog.screenshot({ path: testInfo.outputPath("history-review.png") });
       await dialog.getByRole("button", {
