@@ -164,6 +164,12 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                     {event.new_value && <p className="break-words text-slate-500">{event.new_value}</p>}
                   </li>
                 ))}</ol>
+                {detail.audit_next_cursor && (
+                  <button type="button" disabled={history.busy} onClick={() => void history.moreAudit()}
+                    className="mt-2 rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-40">
+                    {t.more}
+                  </button>
+                )}
               </section>
             </div>
           )}
