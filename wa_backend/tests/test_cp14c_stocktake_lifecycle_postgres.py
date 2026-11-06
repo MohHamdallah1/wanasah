@@ -981,7 +981,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             db.add(SystemSetting(
                 company_id=a.company_id,
                 setting_key="stocktake_material_shortage_packs",
-                setting_value="1",
+                setting_value="0",
             ))
             await db.flush()
             attempt1 = await _count(db, a.operator, session_id, Decimal("9.875"))
