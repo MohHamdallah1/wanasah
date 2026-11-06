@@ -108,8 +108,11 @@ export function restoreCountParts(
     typeof saved.count_base_quantity === "string"
   ) {
     const submitted = calculateCount(current, saved.count_outer_quantity, saved.count_base_quantity);
-    if ((saved.counted === true && submitted === actual) ||
-        (saved.counted !== true && !submitted)) {
+    const bounded = saved.count_outer_quantity.length <= 48 && saved.count_base_quantity.length <= 48;
+    // Counted drafts must match one canonical base value. An unfinished, invalid
+    // draft must retain both exact operator inputs without ever becoming counted.
+    if (bounded && ((saved.counted === true && submitted === validBaseCount(current, actual)) ||
+        saved.counted !== true)) {
       return { outer: saved.count_outer_quantity, base: saved.count_base_quantity };
     }
   }
