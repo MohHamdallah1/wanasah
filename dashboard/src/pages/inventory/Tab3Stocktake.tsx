@@ -12,6 +12,7 @@ import { useCycleCountStart } from "./stocktake/hooks/useCycleCountStart";
 import { useStocktakeCopy } from "./stocktake/copy";
 import { useStocktakeUiCopy } from "./stocktake/uiCopy";
 import { StocktakeSessionCenter } from "./stocktake/StocktakeSessionCenter";
+import { StocktakeHistoryDialog } from "./stocktake/StocktakeHistoryDialog";
 import { StocktakeDiscoveredModal } from "./stocktake/StocktakeDiscoveredModal";
 import { StocktakeCycleStartModal } from "./stocktake/StocktakeCycleStartModal";
 import { StocktakeIdlePanel } from "./stocktake/StocktakeIdlePanel";
@@ -65,6 +66,7 @@ export function Tab3Stocktake({
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDiscoveredModal, setShowDiscoveredModal] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const stocktakeState = useStocktakeState({ companyId, locationId });
   const warehouseAccess = useInventoryAccess(locationId);
@@ -74,7 +76,7 @@ export function Tab3Stocktake({
   // A retained tab must not leave a portal open after access or location changes.
   // Its count/review drafts remain owned by the location-keyed existing state hook.
   useEffect(() => {
-    if (!active || !canReadStocktake) setShowSessions(false);
+    if (!active || !canReadStocktake) { setShowSessions(false); setShowHistory(false); }
   }, [active, canReadStocktake, locationId]);
   const durableIdentity = warehouseAccess.data
     ? {
@@ -249,6 +251,13 @@ export function Tab3Stocktake({
               await lifecycle.openServerSession(session);
               setShowSessions(false);
             }}
+          />
+          <StocktakeHistoryDialog
+            open={showHistory}
+            onOpenChange={setShowHistory}
+            locationId={locationId}
+            enabled={active && warehouseAccess.can("stocktake.review")}
+            authenticatedFetch={authenticatedFetch}
           />
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
             aria-label={uiCopy.sessions.refresh} title={uiCopy.sessions.refresh}
