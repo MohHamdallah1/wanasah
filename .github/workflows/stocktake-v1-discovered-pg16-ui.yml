@@ -210,6 +210,21 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/scripts/live_stock_ci_ownership.py",
           }
+          # Exact density fixes and the CI+historical browser compatibility bridge.
+          compact_791 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          dialog_792 = {
+              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+          }
+          bridge_793 = set(final_ci_782) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -221,6 +236,9 @@ jobs:
               frozenset(shell_789): "SINGLE_TOOLBAR_789",
               frozenset(workspace_788): "UNIFIED_WORKSPACE_788",
               frozenset(final_ci_782): "FINAL_CI_782",
+              frozenset(compact_791): "COMPACT_COUNT_791",
+              frozenset(dialog_792): "SESSION_DIALOG_792",
+              frozenset(bridge_793): "DENSITY_CI_BROWSER_BRIDGE",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -246,7 +264,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -262,6 +280,9 @@ jobs:
           assert verify_owner_scope("pull_request", shell_789) == "SINGLE_TOOLBAR_789"
           assert verify_owner_scope("pull_request", workspace_788) == "UNIFIED_WORKSPACE_788"
           assert verify_owner_scope("pull_request", final_ci_782) == "FINAL_CI_782"
+          assert verify_owner_scope("pull_request", compact_791) == "COMPACT_COUNT_791"
+          assert verify_owner_scope("pull_request", dialog_792) == "SESSION_DIALOG_792"
+          assert verify_owner_scope("pull_request", bridge_793) == "DENSITY_CI_BROWSER_BRIDGE"
           for event, sample in (
               ("pull_request", set()),
               ("workflow_dispatch", ci_782),
@@ -276,6 +297,13 @@ jobs:
               ("pull_request", shell_789 | workspace_788),
               ("pull_request", final_ci_782 - {".github/scripts/live_stock_ci_ownership.py"}),
               ("pull_request", final_ci_782 | {foreign_paths[0]}),
+              ("pull_request", compact_791 - {"dashboard/src/pages/inventory/stocktake/uiCopy.ts"}),
+              ("pull_request", compact_791 | {foreign_paths[0]}),
+              ("pull_request", dialog_792 - {"dashboard/src/pages/inventory/MainInventory.tsx"}),
+              ("pull_request", dialog_792 | {foreign_paths[0]}),
+              ("pull_request", bridge_793 - {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}),
+              ("pull_request", bridge_793 | {foreign_paths[0]}),
+              ("pull_request", compact_791 | dialog_792),
           ):
               try:
                   verify_owner_scope(event, sample)
