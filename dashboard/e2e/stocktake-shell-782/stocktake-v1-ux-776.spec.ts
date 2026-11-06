@@ -272,6 +272,17 @@ for (const locale of ["ar", "en"] as const) {
       await page.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
+      // Changed physical warehouse cannot retain/show a prior warehouse's archive.
+      await stocktake.locator("select.inventory-location-select").selectOption("12");
+      await expect(stocktake.locator("select.inventory-location-select")).toHaveValue("12");
+      await trigger.click();
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText(locale === "ar"
+        ? "لا توجد جردات معتمدة أو ملغاة في هذا المستودع."
+        : "No posted or cancelled stocktakes in this warehouse.")).toBeVisible();
+      await expect(dialog.getByText("STK-CANCELLED-901")).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
       const geometry = await page.evaluate(() => ({
         viewport: innerWidth, document: document.documentElement.scrollWidth,
       }));
