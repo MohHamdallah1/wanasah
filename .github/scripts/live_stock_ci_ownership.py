@@ -966,7 +966,13 @@ def selftest() -> None:
                         "wa_backend/api/warehouse/stocktake.py"):
             _expect_fail(mode, set(STOCKTAKE_792_DIALOG_EXACT) | {foreign}, stocktake_sem)
         for missing in STOCKTAKE_793_BRIDGE_EXACT:
-            assert classify(mode, set(STOCKTAKE_793_BRIDGE_EXACT) - {missing}, stocktake_sem)[0] != "policy-maintenance"
+            partial = set(STOCKTAKE_793_BRIDGE_EXACT) - {missing}
+            if partial == STOCKTAKE_FINAL_CI_782_EXACT:
+                # An earlier, independent exact four-file CI maintenance
+                # scope was already approved and must remain valid.
+                assert classify(mode, partial, stocktake_sem) == ("policy-maintenance", [])
+            else:
+                assert classify(mode, partial, stocktake_sem)[0] != "policy-maintenance"
         _expect_fail(mode, set(STOCKTAKE_793_BRIDGE_EXACT) | {
             "dashboard/src/pages/inventory/MainInventory.tsx"
         }, stocktake_sem)
