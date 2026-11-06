@@ -88,7 +88,7 @@ const defaultFetcher = async (url: string) => {
   };
   throw Error("Unexpected request " + path);
 };
-const fetcher = vi.fn(defaultFetcher);
+const fetcher = vi.fn(async (url: string): Promise<unknown> => defaultFetcher(url));
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
@@ -185,7 +185,7 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     }], next_cursor: null, has_more: false});
     await waitFor(() => expect(dialog).not.toHaveTextContent("STALLED-OLD-ATTEMPT"));
     expect(dialog).not.toHaveTextContent("STALLED-OLD-LINES");
-    expect(within(dialog).queryByRole("button", {name: "Load more", hidden: false})).not.toBeDisabled();
+    expect(within(dialog).queryByRole("button", {name: "Load more"})).not.toBeInTheDocument();
   });
 
   it.each(["ar", "en"] as const)("shows terminal-only list and sensitive gated immutable attempts in %s", async lang => {

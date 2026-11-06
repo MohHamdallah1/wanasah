@@ -103,11 +103,37 @@ async function setup(page: Page, locale: "ar" | "en", reviewGranted: boolean) {
       ], next_cursor: null, has_more: false },
     });
     if (path === "/warehouse/unified/stocktakes/history/81/attempts/92/lines") return respond(route, {
-      items: [{ id: 902, product_name: "Chickpeas 750 g",
-        batch_number: "REAL-LOT-9", stock_status: "QUARANTINED",
-        line_origin: "SNAPSHOT", base_uom_name: "Each",
-        expected_quantity: "12", actual_quantity: "7", variance_quantity: "-5" }],
+      items: [
+        { id: 902, product_name: "Chickpeas 750 g",
+          batch_number: "REAL-LOT-9", stock_status: "QUARANTINED",
+          line_origin: "SNAPSHOT", base_uom_name: "Each",
+          expected_quantity: "12", actual_quantity: "7", variance_quantity: "-5" },
+        { id: 903, product_name: "Fractional shortage 25", batch_number: "LOT-FRACTION-25",
+          stock_status: "AVAILABLE", line_origin: "SNAPSHOT", base_uom_name: "Each",
+          expected_quantity: "1", actual_quantity: "0.75", variance_quantity: "-0.25" },
+        { id: 904, product_name: "Fractional shortage 1", batch_number: "LOT-FRACTION-001",
+          stock_status: "AVAILABLE", line_origin: "SNAPSHOT", base_uom_name: "Each",
+          expected_quantity: "1", actual_quantity: "0.999", variance_quantity: "-0.001" },
+      ],
       next_cursor: null, has_more: false,
+    });
+    if (path === "/warehouse/unified/stocktakes/history/82") return respond(route, {
+      session: {
+        id: 82, reference_number: "STK-HISTORY-82", status: "POSTED",
+        stocktake_type: "FULL_COUNT", location_id: 11,
+        created_at: "2026-11-06T05:00:00Z", finished_at: "2026-11-06T06:00:00Z",
+        snapshot_cutoff_at: "2026-11-06T05:00:00Z",
+        scope_product_name: null, scope_batch_number: null,
+        cancellation_reason: null, notes: "Posted signed evidence",
+        started_by_name: "Original operator", approved_by_name: "Supervisor",
+        cancelled_by_name: null, cancelled_after_count: false, adjustment_movement_count: 2,
+      },
+      attempts: {items: [], next_cursor: null, has_more: false},
+      audit: {items: [], next_cursor: null, has_more: false},
+      movements: {items: [
+        {id: 8001, reference_id: "STK-HISTORY-82", quantity: "-0.25", product_variant_id: 100, batch_id: 12},
+        {id: 8002, reference_id: "STK-HISTORY-82", quantity: "0.001", product_variant_id: 100, batch_id: 12},
+      ], next_cursor: null, has_more: false},
     });
     if (path === "/warehouse/unified/stocktakes/history/81/attempts/91/lines") return respond(route, {
       items: [{ id: 901, product_name: "Chickpeas 750 g",
@@ -146,6 +172,10 @@ for (const lang of ["ar", "en"] as const) {
       await dialog.getByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" }).first().click();
       await expect(dialog.getByText("12 Each")).toBeVisible();
       await expect(dialog.getByText("7 Each")).toBeVisible();
+      await expect(dialog.getByText("-0.25 Each")).toBeVisible();
+      await expect(dialog.getByText("-0.001 Each")).toBeVisible();
+      await expect(dialog.getByText("0.25 Each")).toHaveCount(0);
+      await expect(dialog.getByText("0.001 Each")).toHaveCount(0);
       await expect(dialog.getByText("REAL-LOT-9").first()).toBeVisible();
       await expect(dialog.getByText("Discrepancy confirmed").first()).toBeVisible();
       await dialog.screenshot({ path: testInfo.outputPath("history-review.png") });
@@ -153,6 +183,11 @@ for (const lang of ["ar", "en"] as const) {
         name: (lang === "ar" ? "محاولة العد" : "Count attempt") + " #1 · Original operator",
       }).click();
       await expect(dialog.getByText("8 Each")).toBeVisible();
+      await dialog.getByRole("button", {name: lang === "ar" ? "العودة للسجل" : "Back to history"}).click();
+      await dialog.getByRole("button", {name: lang === "ar" ? "التفاصيل" : "Details"}).nth(1).click();
+      await expect(dialog.getByText("Posted signed evidence")).toBeVisible();
+      await expect(dialog.getByText("-0.25", {exact: true})).toBeVisible();
+      await expect(dialog.getByText("0.001", {exact: true})).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(dialog).toHaveCount(0);
       await expect(trigger).toBeFocused();
