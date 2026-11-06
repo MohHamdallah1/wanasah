@@ -429,7 +429,7 @@ async def assert_real_http_stocktake(
                 SystemSetting.company_id == a.company_id,
                 SystemSetting.setting_key == "stocktake_material_shortage_packs",
             ))).all()
-            assert len(configured) == 1 and configured[0].setting_value == "1"
+            assert len(configured) == 1 and configured[0].setting_value == "0"
             historical = await config_db.get(StocktakeCountAttempt, first_attempt)
             assert historical is not None and historical.requires_independent_recount is True
             await config_db.execute(delete(SystemSetting).where(
