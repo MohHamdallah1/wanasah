@@ -72,7 +72,7 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                         <span className={item.status === "POSTED" ? "rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800" : "rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-700"}>
                           {item.status === "POSTED" ? t.posted : t.cancelled}
                         </span>
-                        <span className="text-xs">{item.stocktake_type === "FULL_COUNT" ? t.full : t.product}{item.scope_product_name ? ` · ${item.scope_product_name}` : ""}</span>
+                        <span className="text-xs">{item.stocktake_type === "FULL_COUNT" ? t.full : t.product}{item.scope_product_name ? ` · ${item.scope_product_name}` : ""}{item.scope_batch_number ? ` · ${item.scope_batch_number}` : ""}</span>
                       </div>
                       {item.cancelled_after_count && <p className="text-xs font-black text-amber-800">{t.after}</p>}
                       <p className="text-xs text-slate-600">
@@ -103,6 +103,9 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                 <div className="flex flex-wrap items-center gap-2">
                   <strong dir="ltr">{detail.reference_number}</strong>
                   <span>{detail.status === "POSTED" ? t.posted : t.cancelled}</span>
+                  <span>{detail.stocktake_type === "FULL_COUNT" ? t.full : t.product}</span>
+                  {detail.scope_product_name && <span>{detail.scope_product_name}</span>}
+                  {detail.scope_batch_number && <span>{detail.scope_batch_number}</span>}
                   {detail.cancelled_after_count && <strong className="text-amber-800">{t.after}</strong>}
                 </div>
                 <p className="mt-1 text-xs">{t.created}: {format(detail.created_at)} · {t.finished}: {format(detail.finished_at)}</p>
@@ -159,7 +162,7 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                 <h3 className="mb-2 font-bold">{t.audit}</h3>
                 <ol className="space-y-1">{detail.audit.map(event => (
                   <li key={event.id} className="rounded bg-slate-50 p-2 text-xs">
-                    {format(event.at)} · <strong>{t.auditActions[event.action_type as keyof typeof t.auditActions] || event.action_type}</strong> · {event.actor_name || "—"}
+                    {format(event.at)} · <strong>{t.auditActions[event.action_type as keyof typeof t.auditActions] || t.unknownAudit}</strong> · {event.actor_name || "—"}
                     {event.old_value && <p className="break-words text-slate-500">{event.old_value}</p>}
                     {event.new_value && <p className="break-words text-slate-500">{event.new_value}</p>}
                   </li>
