@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 from typing import Optional
@@ -24,7 +25,8 @@ from quantity import canonical_quantity
 router = APIRouter()
 TERMINAL = ("POSTED", "CANCELLED")
 AUDIT_TYPES = ("STOCKTAKE_COUNT_SUBMITTED", "STOCKTAKE_CANCELLED", "STOCKTAKE_APPROVED_AND_POSTED",
-               "STOCKTAKE_RECOUNT_AUTHORIZED", "STOCKTAKE_CANCEL_REJECTED")
+               "STOCKTAKE_RECOUNT_AUTHORIZED", "STOCKTAKE_CANCEL_REJECTED",
+               "STOCKTAKE_APPROVAL_REJECTED", "STOCKTAKE_RECOUNT_AUTH_REJECTED")
 
 
 def _cursor(value: int, scope: str) -> str:
@@ -37,12 +39,12 @@ def _cursor(value: int, scope: str) -> str:
 def _decode(value: str, scope: str) -> int:
     try:
         data = json.loads(base64.urlsafe_b64decode((value + "=" * (-len(value) % 4)).encode()))
-        if data.get("v") != 1 or data.get("s") != hashlib.sha256(scope.encode()).hexdigest()[:24]:
+        if not isinstance(data, dict) or data.get("v") != 1 or data.get("s") != hashlib.sha256(scope.encode()).hexdigest()[:24]:
             raise ValueError
-        if type(data.get("id")) is not int or data["id"] <= 0:
+        if type(data.get("id")) is not int or not 0 < data["id"] <= 2_147_483_647:
             raise ValueError
         return data["id"]
-    except (ValueError, KeyError, TypeError, UnicodeError):
+    except (ValueError, KeyError, TypeError, UnicodeError, binascii.Error, OverflowError):
         raise HTTPException(400, "مؤشر سجل الجرد غير صالح لهذا النطاق.") from None
 
 
@@ -173,11 +175,16 @@ async def terminal_stocktake_details(
         SystemAuditLog.company_id == access.company_id,
         SystemAuditLog.target_id == f"Stocktake_{session.id}",
         SystemAuditLog.action_type.in_(AUDIT_TYPES),
-    ).order_by(SystemAuditLog.id.desc()).limit(100))).all()
+    ).order_by(SystemAuditLog.id.desc()).limit(101))).all()
+    audit = audit[:100]
     actor_ids.update(int(a.admin_id) for a in audit if a.admin_id is not None)
     names = _names((await db.scalars(select(Driver).where(
         Driver.company_id == access.company_id, Driver.id.in_(actor_ids)
     ))).all()) if actor_ids else {}
+    has_any_attempt = await db.scalar(select(StocktakeCountAttempt.id).where(
+        StocktakeCountAttempt.company_id == access.company_id,
+        StocktakeCountAttempt.stocktake_session_id == session.id,
+    ).limit(1))
     return {
         "session_id": session.id, "location_id": session.location_id,
         "reference_number": session.reference_number, "stocktake_type": session.stocktake_type,
@@ -187,7 +194,7 @@ async def terminal_stocktake_details(
         "cancelled_by_name": names.get(session.cancelled_by),
         "created_at": _iso(session.created_at), "finished_at": _iso(session.posted_at or session.cancelled_at),
         "cancellation_reason": session.cancellation_reason, "notes": session.notes,
-        "cancelled_after_count": session.status == "CANCELLED" and bool(page),
+        "cancelled_after_count": session.status == "CANCELLED" and has_any_attempt is not None,
         "attempts": [{
             "id": a.id, "attempt_number": a.attempt_number,
             "counted_by_name": names.get(a.counted_by), "authorized_by_name": names.get(a.authorized_by),
