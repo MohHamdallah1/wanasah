@@ -225,6 +225,18 @@ def _build_authority(
     )
 
 
+def build_variant_uom_authority(
+    variant: ProductVariant,
+    conversions: list[ProductUomConversion],
+) -> VariantUomAuthority:
+    """Reuse canonical exact graph validation for already-bounded read rows.
+
+    A stocktake read can isolate an ambiguous variant without hiding legitimate
+    units of unrelated variants; write authority remains unchanged.
+    """
+    return _build_authority(variant, conversions)
+
+
 async def load_variant_uom_authorities(
     db: AsyncSession,
     *,

@@ -21,6 +21,7 @@ from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.guards import require_stocktake
 from domains.product_tracking import public_batch_number
+from domains.stocktake.count_uom_read import read_count_outer_uoms
 from models import Driver, ProductBatch, ProductVariant, StocktakeCountAttempt, StocktakeSession, UOM
 from quantity import canonical_quantity
 
@@ -140,12 +141,23 @@ async def stocktake_discovery_options(
         )).all()
         has_more = len(rows) > limit
         page = rows[:limit]
+        outer_by_variant = await read_count_outer_uoms(
+            db, company_id=company_id,
+            variants={
+                int(r.product_variant_id): (
+                    int(r.base_uom_id), int(r.quantity_scale),
+                    r.quantity_step,
+                )
+                for r in page
+            },
+        )
         return {
             "items": [{
                 "id": r.product_variant_id, "name": r.product_name, "sku": r.sku,
                 "base_uom_id": r.base_uom_id, "base_uom_code": r.base_uom_code,
                 "base_uom_name": r.base_uom_name, "quantity_scale": r.quantity_scale,
                 "quantity_step": canonical_quantity(r.quantity_step),
+                **outer_by_variant.get(int(r.product_variant_id), {}),
             } for r in page],
             "next_cursor": _cursor(page[-1].product_variant_id, scope) if has_more and page else None,
             "has_more": has_more, "total": None,
@@ -187,6 +199,16 @@ async def stocktake_discovery_options(
     )).all()
     has_more = ids is None and len(rows) > limit
     page = rows[:limit] if ids is None else rows
+    outer_by_variant = await read_count_outer_uoms(
+        db, company_id=company_id,
+        variants={
+            int(r.product_variant_id): (
+                int(r.base_uom_id), int(r.quantity_scale),
+                r.quantity_step,
+            )
+            for r in page
+        },
+    )
     return {
         "items": [{
             "id": r.id, "product_variant_id": r.product_variant_id,
@@ -197,6 +219,7 @@ async def stocktake_discovery_options(
             "base_uom_id": r.base_uom_id, "base_uom_code": r.base_uom_code,
             "base_uom_name": r.base_uom_name, "quantity_scale": r.quantity_scale,
             "quantity_step": canonical_quantity(r.quantity_step),
+            **outer_by_variant.get(int(r.product_variant_id), {}),
         } for r in page],
         "next_cursor": _cursor(page[-1].id, scope) if has_more and page else None,
         "has_more": has_more, "total": None,

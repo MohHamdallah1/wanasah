@@ -31,6 +31,8 @@ from api.warehouse import ledger, locations, stocktake, stocktake_discovery, tra
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
+from domains.stocktake.count_uom_read import read_count_outer_uoms
+from domains.uom_authority import build_variant_uom_authority
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
     StocktakeCancelCommand,
@@ -53,6 +55,7 @@ from models import (
     Product,
     ProductBatch,
     ProductLocation,
+    ProductUomConversion,
     ProductVariant,
     Role,
     StocktakeSession,
@@ -346,6 +349,94 @@ async def _deactivate(db, tenant, *, expected_version: int):
     )
 
 
+
+async def test_cp14c_count_outer_uom_exact_graph_fallback_and_bounded_reads():
+    """Bounded read must isolate each ambiguous variant; never use legacy cartons."""
+    class BulkRead:
+        def __init__(self, conversions, units):
+            self.calls = []
+            self.conversions = conversions
+            self.units = units
+
+        async def scalars(self, statement):
+            self.calls.append(str(statement))
+            if len(self.calls) == 1:
+                return NS(all=lambda: self.conversions)
+            if len(self.calls) == 2:
+                return NS(all=lambda: self.units)
+            raise AssertionError("N+1 UOM query")
+
+    def row(variant, source, target, numerator, denominator=1):
+        return NS(
+            product_variant_id=variant, from_uom_id=source, to_uom_id=target,
+            numerator=Decimal(str(numerator)), denominator=Decimal(str(denominator)),
+        )
+
+    conversions = [
+        row(11, 2, 1, 8), row(11, 3, 1, 50),       # unique largest = 50
+        row(12, 4, 1, 25), row(12, 5, 1, 25),       # tie => base-only
+        row(13, 6, 1, 10), row(13, 7, 6, 2),
+        row(13, 7, 1, 30),                          # conflicting path
+        row(14, 8, 1, 3, 2),                       # 1.5 base => not whole
+        row(16, 9, 1, 2),                          # decimal base step 0.25
+        row(17, 10, 1, 10),                        # step 3 not compatible
+    ]
+    units = [
+        NS(id=3, name="Actual Box", code="BOX"),
+        NS(id=9, name="Exact Double", code="DOUBLE"),
+    ]
+    db = BulkRead(conversions, units)
+    variants = {
+        11: (1, 3, Decimal("0.001")),
+        12: (1, 0, Decimal("1")),
+        13: (1, 0, Decimal("1")),
+        14: (1, 1, Decimal("0.1")),
+        15: (1, 0, Decimal("1")),  # no conversion at all
+        16: (1, 2, Decimal("0.25")),
+        17: (1, 0, Decimal("3")),
+    }
+    out = await read_count_outer_uoms(db, company_id=71, variants=variants)
+    assert out == {
+        11: {
+            "count_outer_uom_id": 3,
+            "count_outer_uom_code": "BOX",
+            "count_outer_uom_name": "Actual Box",
+            "count_outer_factor_numerator": 50,
+            "count_outer_factor_denominator": 1,
+        },
+        16: {
+            "count_outer_uom_id": 9,
+            "count_outer_uom_code": "DOUBLE",
+            "count_outer_uom_name": "Exact Double",
+            "count_outer_factor_numerator": 2,
+            "count_outer_factor_denominator": 1,
+        },
+    }
+    assert len(db.calls) == 2  # independent of number of variants and batches
+    assert "product_uom_conversions.company_id" in db.calls[0]
+    assert "product_uom_conversions.product_variant_id" in db.calls[0]
+    # Exact Decimal values, never JS/Python binary float rounding.
+    authority = build_variant_uom_authority(
+        NS(id=11, base_uom_id=1, quantity_scale=3, quantity_step=Decimal("0.001")),
+        conversions[:2],
+    )
+    assert authority.validate_canonical_total(
+        authority.to_base(Decimal("2"), uom_id=3) + Decimal("7")
+    ) == Decimal("107.000")
+    assert authority.validate_canonical_total(
+        authority.to_base(Decimal("2.125"), uom_id=3) + Decimal("0.750")
+    ) == Decimal("107.000")
+    assert (await read_count_outer_uoms(db, company_id=71, variants={})) == {}
+    assert len(db.calls) == 2
+    with pytest.raises(ValueError):
+        await read_count_outer_uoms(
+            db, company_id=71,
+            variants={i: (1, 0, Decimal("1")) for i in range(1, 10002)},
+        )
+    assert len(db.calls) == 2
+    print("CP14C_CANONICAL_COUNT_UOM_EXACT_AMBIGUOUS_MISSING_BOUND=PASS")
+
+
 async def test_cp14c_stocktake_lifecycle_operational_acceptance():
     runtime_url, admin_url = _checked_urls()
     runtime_engine = create_async_engine(runtime_url, poolclass=NullPool)
@@ -413,6 +504,18 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 uom = UOM(code="EACH", name="CP14-C Each")
                 seed.add(uom)
                 await seed.flush()
+
+            # Explicit canonical registered UOMs: never infer a carton from
+            # packs_per_carton on ProductVariant.
+            count_pack = await seed.scalar(select(UOM).where(UOM.code == "CP14C_PACK"))
+            if count_pack is None:
+                count_pack = UOM(code="CP14C_PACK", name="CP14C Pack")
+                seed.add(count_pack)
+            count_box = await seed.scalar(select(UOM).where(UOM.code == "CP14C_BOX"))
+            if count_box is None:
+                count_box = UOM(code="CP14C_BOX", name="CP14C Box")
+                seed.add(count_box)
+            await seed.flush()
 
             companies = [
                 Company(
@@ -519,6 +622,22 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 )
                 seed.add(variant)
                 await seed.flush()
+                if index == 0:
+                    seed.add_all([
+                        ProductUomConversion(
+                            company_id=company.id, product_variant_id=variant.id,
+                            from_uom_id=count_pack.id, to_uom_id=uom.id,
+                            numerator=Decimal("8"), denominator=Decimal("1"),
+                            quantity_scale=0,
+                        ),
+                        ProductUomConversion(
+                            company_id=company.id, product_variant_id=variant.id,
+                            from_uom_id=count_box.id, to_uom_id=uom.id,
+                            numerator=Decimal("50"), denominator=Decimal("1"),
+                            quantity_scale=0,
+                        ),
+                    ])
+                    await seed.flush()
                 batch = ProductBatch(
                     company_id=company.id,
                     product_variant_id=variant.id,
@@ -586,6 +705,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         variant=variant.id,
                         batch=batch.id,
                         uom=uom.id,
+                        outer_uom=(count_box.id if index == 0 else None),
                         work_session=work.id,
                         zone=zone.id,
                     )
@@ -757,6 +877,14 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             await db.commit()
             _, b_session = await _start(db, b.operator, b.a1)
             b_session_id = int(b_session["session_id"])
+            b_sheet = await stocktake.get_stocktake_count_sheet(
+                b_session_id, db=db,
+                access=b.operator.access(db),
+                legacy_actor=b.operator.operational_driver,
+            )
+            assert len(b_sheet) == 1
+            assert not any(key.startswith("count_outer_") for key in b_sheet[0])
+            assert "expected_quantity" not in b_sheet[0]
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             assert a.operator.context.is_company_owner is False
@@ -827,6 +955,26 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     legacy_actor=a.operator.operational_driver,
                 )
             assert wrong_replay.value.status_code == 409
+            count_sheet = await stocktake.get_stocktake_count_sheet(
+                session_id, db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert len(count_sheet) == 1
+            assert {
+                k: v for k, v in count_sheet[0].items()
+                if k.startswith("count_outer_")
+            } == {
+                "count_outer_uom_id": a.outer_uom,
+                "count_outer_uom_name": "CP14C Box",
+                "count_outer_uom_code": "CP14C_BOX",
+                "count_outer_factor_numerator": 50,
+                "count_outer_factor_denominator": 1,
+            }
+            assert count_sheet[0]["quantity_scale"] == 3
+            assert count_sheet[0]["quantity_step"] == "0.001"
+            assert "expected_quantity" not in count_sheet[0]
+            assert "packs_per_carton" not in count_sheet[0]
             attempt1 = await _count(db, a.operator, session_id, Decimal("9.875"))
             assert attempt1["requires_independent_recount"] is True
             review1 = await stocktake.get_stocktake_review(
@@ -990,6 +1138,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert [x["id"] for x in options["items"]] == [a.variant]
             assert options["items"][0]["quantity_step"] == "0.001"
+            assert options["items"][0]["count_outer_uom_id"] == a.outer_uom
+            assert options["items"][0]["count_outer_factor_numerator"] == 50
+            assert options["items"][0]["count_outer_factor_denominator"] == 1
             lots = await stocktake_discovery.stocktake_discovery_options(
                 rollback_session,
                 product_variant_id=a.variant, batch_ids=None, search=None,
@@ -998,6 +1149,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert [x["id"] for x in lots["items"]] == [a.batch]
             assert lots["items"][0]["base_uom_id"] == a.uom
+            assert lots["items"][0]["count_outer_uom_id"] == a.outer_uom
+            assert lots["items"][0]["count_outer_factor_numerator"] == 50
             assert lots["items"][0]["disposition"] == "RELEASED"
             assert lots["items"][0]["expiry_date"] is None
             revalidated = await stocktake_discovery.stocktake_discovery_options(
