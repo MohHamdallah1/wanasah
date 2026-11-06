@@ -55,7 +55,12 @@ export const buildLedgerCursorUrl = ({
   return `/warehouse/ledger/cursor?${params.toString()}`;
 };
 
-export function useLedgerQuery(locationId: number, refreshKey: number, active = true): LedgerQueryState {
+export function useLedgerQuery(
+  locationId: number,
+  refreshKey: number,
+  active = true,
+  exactReference: string | null = null,
+): LedgerQueryState {
   const authFetch = useAuthFetch();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -80,8 +85,8 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
   }, [searchInput]);
 
   const scopeKey = useMemo(
-    () => `${locationId}|${debouncedSearch}|${filterType}|${refreshKey}`,
-    [debouncedSearch, filterType, locationId, refreshKey],
+    () => `${locationId}|${exactReference ?? debouncedSearch}|${exactReference ? "AUDIT_ADJUSTMENT" : filterType}|${refreshKey}`,
+    [debouncedSearch, exactReference, filterType, locationId, refreshKey],
   );
 
   const loadPage = useCallback(async (
@@ -107,8 +112,9 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
         buildLedgerCursorUrl({
           locationId,
           cursor,
-          search: debouncedSearch,
-          referenceType: filterType,
+          search: exactReference ? undefined : debouncedSearch,
+          referenceType: exactReference ? "AUDIT_ADJUSTMENT" : filterType,
+          referenceId: exactReference ?? undefined,
         }),
         { signal: controller.signal },
       ));
@@ -139,7 +145,7 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
       if (abortRef.current === controller) abortRef.current = null;
       if (sequence === requestSeq.current) setLoading(false);
     }
-  }, [authFetch, debouncedSearch, filterType, locationId]);
+  }, [authFetch, debouncedSearch, exactReference, filterType, locationId]);
 
   const resetAndLoad = useCallback(() => {
     requestSeq.current += 1;

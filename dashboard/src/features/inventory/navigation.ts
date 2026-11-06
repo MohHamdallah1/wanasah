@@ -36,10 +36,19 @@ export type InventoryOwnerFocusIntent = {
   reference: string;
 };
 
+export type InventoryLedgerReferenceIntent = {
+  version: 1;
+  kind: "ledger-reference";
+  tab: "ledger";
+  locationId: number;
+  reference: string;
+};
+
 export type InventoryNavigationIntent =
   | InventoryTabIntent
   | InventoryBatchFocusIntent
-  | InventoryOwnerFocusIntent;
+  | InventoryOwnerFocusIntent
+  | InventoryLedgerReferenceIntent;
 
 const OWNER_TABS = {
   batch: "batches",
@@ -81,6 +90,25 @@ const validLocationId = (value: unknown): value is number | null =>
   (typeof value === "number" &&
     Number.isSafeInteger(value) &&
     value > 0);
+
+// Navigate by a warehouse-scoped, exact canonical STK reference, not a
+// company-wide fuzzy search. Authorization is rechecked by the Ledger API.
+export function createInventoryLedgerReferenceNavigationState({
+  locationId,
+  reference,
+}: {
+  locationId: number;
+  reference: string;
+}): InventoryNavigationState {
+  if (!Number.isSafeInteger(locationId) || locationId <= 0 ||
+      !/^STK-[A-Za-z0-9_-]+$/.test(reference) || reference.length > 100) {
+    throw new Error("LEDGER_STOCKTAKE_REFERENCE_INVALID");
+  }
+  return { inventoryNavigation: {
+    version: 1, kind: "ledger-reference", tab: "ledger",
+    locationId, reference,
+  } };
+}
 
 export function createInventoryTabNavigationState(
   tab: InventoryTargetTab,
@@ -139,6 +167,21 @@ export function parseInventoryNavigationState(
     !validLocationId(row.locationId)
   ) {
     return null;
+  }
+
+  if (row.kind === "ledger-reference") {
+    if (row.tab !== "ledger" || row.locationId === null ||
+        typeof row.reference !== "string" ||
+        !/^STK-[A-Za-z0-9_-]+$/.test(row.reference) || row.reference.length > 100) {
+      return null;
+    }
+    return {
+      version: 1,
+      kind: "ledger-reference",
+      tab: "ledger",
+      locationId: row.locationId as number,
+      reference: row.reference,
+    };
   }
 
   if (row.kind === "tab") {

@@ -20,6 +20,8 @@ const ar = {
   after: "الرصيد الفعلي بعد",
   evidence: "المصدر / الوجهة",
   reference: "المرجع",
+  exactReferenceFilter: "حركات تسوية الجرد للمرجع",
+  clearReferenceFilter: "عرض جميع الحركات",
   cost: "دليل التكلفة",
   actor: "المنفذ",
   notes: "الملاحظات",
@@ -78,6 +80,7 @@ const ar = {
   movement_TRANSFER: "تحويل",
   movement_STOCKTAKE: "جرد",
   movement_STOCKTAKE_ADJUSTMENT: "تسوية جرد",
+  movement_AUDIT_ADJUSTMENT: "تسوية جرد",
   movement_STATUS_CHANGE: "تغيير حالة",
   movement_FINAL_VENDOR_HANDOVER: "تسليم مورد نهائي",
 } as const;
@@ -102,6 +105,8 @@ const en: Record<keyof typeof ar, string> = {
   after: "Physical balance after",
   evidence: "Source / destination",
   reference: "Reference",
+  exactReferenceFilter: "Stocktake adjustment movements for reference",
+  clearReferenceFilter: "Show all movements",
   cost: "Cost evidence",
   actor: "Actor",
   notes: "Notes",
@@ -160,6 +165,7 @@ const en: Record<keyof typeof ar, string> = {
   movement_TRANSFER: "Transfer",
   movement_STOCKTAKE: "Stocktake",
   movement_STOCKTAKE_ADJUSTMENT: "Stocktake adjustment",
+  movement_AUDIT_ADJUSTMENT: "Stocktake adjustment",
   movement_STATUS_CHANGE: "Status change",
   movement_FINAL_VENDOR_HANDOVER: "Final vendor handover",
 };
@@ -189,7 +195,7 @@ export const ledgerMovementLabel = (
 export const ledgerBadgeClass = (type: string): string => {
   if (type === "INBOUND_SUPPLIER") return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (type === "INBOUND_CORRECTION") return "bg-purple-50 text-purple-700 border-purple-200";
-  if (type.includes("STOCKTAKE")) return "bg-amber-50 text-amber-800 border-amber-200";
+  if (type.includes("STOCKTAKE") || type === "AUDIT_ADJUSTMENT") return "bg-amber-50 text-amber-800 border-amber-200";
   if (type.includes("TRANSFER")) return "bg-blue-50 text-blue-700 border-blue-200";
   if (type === "STATUS_CHANGE") return "bg-slate-100 text-slate-700 border-slate-200";
   return "bg-slate-50 text-slate-700 border-slate-200";

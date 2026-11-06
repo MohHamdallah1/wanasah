@@ -20,16 +20,23 @@ import { useLedgerReference } from "./ledger/useLedgerReference";
 interface Props {
   active?: boolean;
   locationId: number;
+  referenceFocus?: { locationId: number; reference: string } | null;
+  onClearReferenceFocus?: () => void;
   refreshKey: number;
   onInventoryChanged: () => void;
 }
 
-export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryChanged }: Props) {
+export function Tab4Ledger({
+  active = true, locationId, referenceFocus, onClearReferenceFocus,
+  refreshKey, onInventoryChanged,
+}: Props) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const locale = resolveI18nLocale(i18n);
   const access = useInventoryAccess(locationId);
-  const query = useLedgerQuery(locationId, refreshKey, active);
+  const exactReference = referenceFocus?.locationId === locationId
+    ? referenceFocus.reference : null;
+  const query = useLedgerQuery(locationId, refreshKey, active, exactReference);
   const reference = useLedgerReference(locationId, active);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
@@ -90,7 +97,17 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           </div>
         </header>
 
-        {!denied && <LedgerFilters
+        {!denied && exactReference && (
+          <div role="status" data-ledger-exact-reference="true"
+            className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+            <span>{text("exactReferenceFilter")}: <bdi dir="ltr">{exactReference}</bdi></span>
+            <button type="button" onClick={onClearReferenceFocus}
+              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+              {text("clearReferenceFilter")}
+            </button>
+          </div>
+        )}
+        {!denied && !exactReference && <LedgerFilters
           t={t}
           language={language}
           search={query.searchInput}

@@ -5,6 +5,7 @@ import {
   parseLedgerPage,
 } from "@/pages/inventory/ledger/contracts";
 import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
+import { buildLedgerCursorUrl } from "@/pages/inventory/ledger/useLedgerQuery";
 import { ledgerBalance, ledgerLocationEvidence, ledgerQuantityMeaning } from "@/pages/inventory/ledger/ledgerPresentation";
 
 const rawEntry = (batchNumber: string | null = null) => ({
@@ -99,9 +100,26 @@ describe("CP10 Ledger business contracts", () => {
 
   it("identifies practical V1 cross-link movement evidence in both languages", () => {
     const translate = vi.fn((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key));
-    for (const type of ["INBOUND_SUPPLIER", "TRANSFER", "STOCKTAKE", "STOCKTAKE_ADJUSTMENT", "STATUS_CHANGE"]) {
+    for (const type of ["INBOUND_SUPPLIER", "TRANSFER", "STOCKTAKE", "STOCKTAKE_ADJUSTMENT", "AUDIT_ADJUSTMENT", "STATUS_CHANGE"]) {
       expect(ledgerMovementLabel(translate as never, "en", type)).not.toBe(type);
       expect(ledgerMovementLabel(translate as never, "ar", type)).not.toBe(type);
     }
+  });
+
+  it("renders canonical AUDIT_ADJUSTMENT as stocktake adjustment, not raw code", () => {
+    const translate = vi.fn((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key));
+    expect(ledgerMovementLabel(translate as never, "ar", "AUDIT_ADJUSTMENT")).toBe("تسوية جرد");
+    expect(ledgerMovementLabel(translate as never, "en", "AUDIT_ADJUSTMENT")).toBe("Stocktake adjustment");
+  });
+
+  it("queries one exact warehouse + STK reference, never fuzzy search or cancelled type", () => {
+    const url = buildLedgerCursorUrl({ locationId: 17, referenceType: "AUDIT_ADJUSTMENT",
+      referenceId: "STK-AB12", search: "some other product", limit: 20 });
+    const params = new URL(url, "https://ledger.test").searchParams;
+    expect(params.get("location_id")).toBe("17");
+    expect(params.get("reference_type")).toBe("AUDIT_ADJUSTMENT");
+    expect(params.get("reference_id")).toBe("STK-AB12");
+    expect(params.get("search")).toBeNull();
+    expect(params.get("cursor")).toBeNull();
   });
 });
