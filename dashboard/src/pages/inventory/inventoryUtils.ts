@@ -40,8 +40,18 @@ export interface StocktakeRow {
   base_uom_name: string;
   quantity_scale: number;
   quantity_step: string;
+  /** Exactly one canonical base-UOM quantity goes to stocktake/count. */
   actual_quantity: string;
   counted: boolean;
+  /** Optional session-bounded canonical conversion from the count-sheet read. */
+  count_outer_uom_id?: number;
+  count_outer_uom_name?: string;
+  count_outer_uom_code?: string;
+  count_outer_factor_numerator?: number;
+  count_outer_factor_denominator?: number;
+  /** UI-only durable count decomposition; never posted to the backend. */
+  count_outer_quantity?: string;
+  count_base_quantity?: string;
 }
 
 // +++  للكارثة الرياضية (الأرقام السالبة) +++

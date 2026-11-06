@@ -2,6 +2,7 @@ import type { StocktakeRow, StocktakeStockStatus } from "../inventoryUtils";
 import { STOCKTAKE_STOCK_STATUSES } from "../inventoryUtils";
 import { parseQuantity, validateVariantQuantity } from "../quantity";
 import { parseCycleBatchPage, rowKey } from "./parsers";
+import { parseCountOuterUom, restoreCountParts, validBaseCount } from "./countEntry";
 import type { CycleBatchCursorPage } from "./types";
 
 export type DiscoveredRow = StocktakeRow & { line_origin: "DISCOVERED" };
@@ -15,6 +16,11 @@ export type DiscoveredBatch = CycleBatchCursorPage["items"][number] & {
   base_uom_name: string;
   quantity_scale: number;
   quantity_step: string;
+  count_outer_uom_id?: number;
+  count_outer_uom_name?: string;
+  count_outer_uom_code?: string;
+  count_outer_factor_numerator?: number;
+  count_outer_factor_denominator?: number;
 };
 
 export const isDiscoveredRow = (row: StocktakeRow): row is DiscoveredRow =>
@@ -65,6 +71,7 @@ export function parseDiscoveredBatches(raw: unknown, productId?: number): {
       base_uom_name: r.base_uom_name,
       quantity_scale: r.quantity_scale as number,
       quantity_step: parseQuantity(r.quantity_step, "quantity_step"),
+      ...(parseCountOuterUom(r, r.base_uom_id as number) ?? {}),
     };
   });
   return { items, next_cursor: verified?.next_cursor ?? (typeof response.next_cursor === "string" ? response.next_cursor : null) };
@@ -90,6 +97,13 @@ export function buildDiscoveredRow(
     base_uom_name: batch.base_uom_name,
     quantity_scale: batch.quantity_scale,
     quantity_step: batch.quantity_step,
+    ...(batch.count_outer_uom_id ? {
+      count_outer_uom_id: batch.count_outer_uom_id,
+      count_outer_uom_name: batch.count_outer_uom_name,
+      count_outer_uom_code: batch.count_outer_uom_code,
+      count_outer_factor_numerator: batch.count_outer_factor_numerator,
+      count_outer_factor_denominator: batch.count_outer_factor_denominator,
+    } : {}),
     actual_quantity: validateVariantQuantity(actual, batch.quantity_scale, batch.quantity_step),
     counted: true,
   };
@@ -122,16 +136,20 @@ export function restoreDiscoveredRows(
       throw new Error("Duplicate or altered discovered stock draft.");
     }
     reservedKeys.add(key);
-    // An unfinished draft is retained, but cannot be counted until valid.
-    try {
-      restored.push(buildDiscoveredRow(batch, row.stock_status!, String(row.actual_quantity ?? "")));
-    } catch {
-      restored.push({
-        ...buildDiscoveredRow(batch, row.stock_status!, batch.quantity_step),
-        actual_quantity: String(row.actual_quantity ?? ""),
-        counted: false,
-      });
-    }
+    // Reconstruct identity and optional UOM conversion from authorized server
+    // metadata, never from stale/untrusted local draft fields.
+    const fresh = buildDiscoveredRow(batch, row.stock_status!, batch.quantity_step);
+    const actual = typeof row.actual_quantity === "string" ? row.actual_quantity : "";
+    const canonical = validBaseCount(fresh, actual);
+    const counted = row.counted === true && canonical !== null && canonical !== "0";
+    const parts = restoreCountParts(fresh, row);
+    restored.push({
+      ...fresh,
+      actual_quantity: !counted && actual === "0" ? "" : (counted ? canonical! : actual),
+      counted,
+      count_outer_quantity: !counted && actual === "0" ? "" : parts.outer,
+      count_base_quantity: !counted && actual === "0" ? "" : parts.base,
+    });
   }
   return restored;
 }

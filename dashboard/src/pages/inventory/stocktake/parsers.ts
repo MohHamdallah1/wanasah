@@ -19,6 +19,7 @@ import { STOCKTAKE_STOCK_STATUSES, type StocktakeStockStatus } from "../inventor
 import { parsePublicBatchNumber } from "../publicBatchNumber";
 import { parsePublicBatchDate } from "../publicBatchDate";
 import { parseQuantity } from "../quantity";
+import { parseCountOuterUom } from "./countEntry";
 
 const STOCKTAKE_TYPES: readonly StocktakeType[] = [
   "FULL_COUNT",
@@ -381,6 +382,9 @@ export const parseCountSheet = (
       base_uom_name: requiredString(item.base_uom_name, "base_uom_name"),
       quantity_scale: nonNegativeInt(item.quantity_scale, "quantity_scale"),
       quantity_step: parseQuantity(item.quantity_step, "quantity_step"),
+      // Complete optional metadata alone enables dual-UOM entry.
+      // Malformed/ambiguous/missing factors fail closed to the base-only control.
+      ...(parseCountOuterUom(item, positiveInt(item.base_uom_id, "base_uom_id")) ?? {}),
       batch_number: publicBatchNumber(item.batch_number, "batch_number"),
       expiry_date: parsePublicBatchDate(item.expiry_date, () => {
         throw new Error("Invalid expiry_date.");

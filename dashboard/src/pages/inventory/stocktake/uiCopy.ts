@@ -37,7 +37,10 @@ const ar = {
   counting: {
     actualFor: (name: string) => `الكمية الفعلية لـ ${name}`,
     counted: "تم العد",
-    zeroHint: "استخدم هذا الزر فقط إذا تم العد فعلياً وكانت الكمية صفر",
+    undoCount: "إلغاء تأكيد العد",
+    discoveredPositive: "السطر المكتشف يحتاج كمية أكبر من صفر؛ احذف السطر إذا لم تجد بضاعة.",
+    unitFactor: (outer: string, factor: string, base: string) => `١ ${outer} = ${factor} ${base}`,
+    zeroHint: "أكد الصفر فقط بعد التأكد فعلياً أنه لا توجد بضاعة من هذا الصنف والتشغيلة والحالة في موقع الجرد؛ لا تعتمد على رصيد النظام.",
     confirmZeroFor: (name: string) => `تأكيد صفر لـ ${name}`,
     confirmZero: "تأكيد صفر",
     active: "العد جارٍ",
@@ -254,7 +257,10 @@ const en: typeof ar = {
   counting: {
     actualFor: (name: string) => `Actual quantity for ${name}`,
     counted: "Counted",
-    zeroHint: "Use only after a physical count confirms zero quantity",
+    undoCount: "Undo count",
+    discoveredPositive: "Unlisted stock must be greater than zero; remove this row if nothing is present.",
+    unitFactor: (outer: string, factor: string, base: string) => `1 ${outer} = ${factor} ${base}`,
+    zeroHint: "Confirm zero only after physically verifying no stock of this product, lot and status at this location. Do not rely on system stock.",
     confirmZeroFor: (name: string) => `Confirm zero for ${name}`,
     confirmZero: "Confirm zero",
     active: "Count in progress",

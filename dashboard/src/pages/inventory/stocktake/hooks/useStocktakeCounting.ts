@@ -8,6 +8,7 @@ import type { StocktakeRow } from "../../inventoryUtils";
 import type { StocktakeAuthFetch, StocktakePhase, StocktakeReview } from "../types";
 import { getErrorMessage, parseCountSheet, rowKey } from "../parsers";
 import { isDiscoveredRow, parseDiscoveredBatches, restoreDiscoveredRows, type DiscoveredRow } from "../discoveredContract";
+import { calculateCount, countOuterFactor, restoreCountParts, splitCountForDisplay, validBaseCount } from "../countEntry";
 
 interface UseStocktakeCountingArgs {
   durableIdentity: StocktakeDurableIdentity | null;
@@ -25,6 +26,22 @@ interface UseStocktakeCountingArgs {
   setSessionLocationId: Dispatch<SetStateAction<number | null>>;
   setPhase: Dispatch<SetStateAction<StocktakePhase>>;
   onSubmitted: (sessionId: string, sessionLocationId: number) => Promise<void>;
+}
+
+/** Final payload gate; explicit zero is counted only after the operator confirmed it. */
+export function isRowReadyForCountSubmit(row: StocktakeRow): boolean {
+  if (!row.counted || validBaseCount(row, row.actual_quantity) === null) return false;
+  if (isDiscoveredRow(row) && validBaseCount(row, row.actual_quantity) === "0") return false;
+  if (row.actual_quantity === "0") {
+    return (row.count_outer_quantity === undefined || row.count_outer_quantity === "" || row.count_outer_quantity === "0") &&
+      (row.count_base_quantity === undefined || row.count_base_quantity === "" || row.count_base_quantity === "0");
+  }
+  if (countOuterFactor(row) !== null && row.count_outer_quantity !== undefined &&
+      row.count_base_quantity !== undefined) {
+    return calculateCount(row, row.count_outer_quantity, row.count_base_quantity) ===
+      validBaseCount(row, row.actual_quantity);
+  }
+  return true;
 }
 
 export function useStocktakeCounting({
@@ -89,7 +106,14 @@ export function useStocktakeCounting({
       base_uom_name: item.base_uom_name,
       quantity_scale: item.quantity_scale,
       quantity_step: item.quantity_step,
-      actual_quantity: "0",
+      ...(item.count_outer_uom_id ? {
+        count_outer_uom_id: item.count_outer_uom_id,
+        count_outer_uom_name: item.count_outer_uom_name,
+        count_outer_uom_code: item.count_outer_uom_code,
+        count_outer_factor_numerator: item.count_outer_factor_numerator,
+        count_outer_factor_denominator: item.count_outer_factor_denominator,
+      } : {}),
+      actual_quantity: "",
       counted: false,
     }));
 
@@ -112,8 +136,14 @@ export function useStocktakeCounting({
       for (const row of baseRows) {
         const old = savedMap.get(row.row_key);
         if (!old) continue;
-        row.actual_quantity = typeof old.actual_quantity === "string" ? old.actual_quantity : "0";
-        row.counted = old.counted === true;
+        const actual = typeof old.actual_quantity === "string" ? old.actual_quantity : "";
+        const canonical = validBaseCount(row, actual);
+        row.counted = old.counted === true && canonical !== null;
+        // Legacy "0"/counted:false was only a placeholder, never a physical count.
+        row.actual_quantity = !row.counted && actual === "0" ? "" : (row.counted ? canonical! : actual);
+        const parts = restoreCountParts(row, old);
+        row.count_outer_quantity = !row.counted && actual === "0" ? "" : parts.outer;
+        row.count_base_quantity = !row.counted && actual === "0" ? "" : parts.base;
       }
       const discovered = parsed.filter(isDiscoveredRow);
       if (discovered.length > 0) {
@@ -175,16 +205,55 @@ export function useStocktakeCounting({
   }, [draftKey]);
 
   const updateRow = useCallback((key: string, value: string) => {
-    setRows((prev) => prev.map((row) => row.row_key === key
-      ? { ...row, actual_quantity: value.replace(/[^0-9.]/g, ""), counted: true }
-      : row));
+    setRows((prev) => prev.map((row) => {
+      if (row.row_key !== key) return row;
+      const canonical = validBaseCount(row, value);
+      // An implicit typed zero is not confirmation of zero physical stock.
+      const counted = canonical !== null && canonical !== "0";
+      return {
+        ...row,
+        actual_quantity: value, // preserve the exact operator keystrokes while editing
+        count_outer_quantity: "",
+        count_base_quantity: value,
+        counted,
+      };
+    }));
+  }, [setRows]);
+
+  const updateCountPart = useCallback((key: string, part: "outer" | "base", value: string) => {
+    setRows((prev) => prev.map((row) => {
+      if (row.row_key !== key || countOuterFactor(row) === null) return row;
+      const existing = row.count_outer_quantity !== undefined && row.count_base_quantity !== undefined
+        ? { outer: row.count_outer_quantity, base: row.count_base_quantity }
+        : splitCountForDisplay(row, row.actual_quantity);
+      const outer = part === "outer" ? value : existing.outer;
+      const base = part === "base" ? value : existing.base;
+      const canonical = calculateCount(row, outer, base);
+      return {
+        ...row,
+        count_outer_quantity: outer,
+        count_base_quantity: base,
+        actual_quantity: canonical ?? "",
+        counted: canonical !== null,
+      };
+    }));
   }, [setRows]);
 
   const confirmZeroCount = useCallback((key: string) => {
-    setRows((prev) => prev.map((row) => row.row_key === key
-      ? { ...row, actual_quantity: "0", counted: true }
+    setRows((prev) => prev.map((row) => row.row_key === key && !isDiscoveredRow(row)
+      ? {
+          ...row, actual_quantity: "0", counted: true,
+          count_outer_quantity: "", count_base_quantity: "0",
+        }
       : row));
   }, [setRows]);
+
+  const undoRowCount = useCallback((key: string) => {
+    setRows((prev) => prev.map((row) => row.row_key === key
+      ? { ...row, actual_quantity: "", counted: false, count_outer_quantity: "", count_base_quantity: "" }
+      : row));
+  }, [setRows]);
+
 
   const addDiscoveredRow = useCallback((row: DiscoveredRow): boolean => {
     if (rows.length >= 10_000 || rows.some((existing) => existing.row_key === row.row_key) ||
@@ -199,7 +268,7 @@ export function useStocktakeCounting({
   }, [setRows]);
 
   const countProgress = useMemo(() => {
-    const counted = rows.filter((row) => row.counted).length;
+    const counted = rows.filter(isRowReadyForCountSubmit).length;
     return { total: rows.length, counted, remaining: rows.length - counted };
   }, [rows]);
 
@@ -212,9 +281,10 @@ export function useStocktakeCounting({
       toast.error(copy.count.missingLocation);
       return false;
     }
-    const uncounted = rows.filter((row) => !row.counted);
-    if (uncounted.length > 0) {
-      toast.error(copy.count.remaining(uncounted.length));
+    const uncounted = rows.filter((row) => !isRowReadyForCountSubmit(row));
+    // The empty-sheet case must never silently create a count attempt.
+    if (rows.length === 0 || uncounted.length > 0) {
+      toast.error(copy.count.remaining(uncounted.length || 1));
       return false;
     }
     if (!durableIdentity) {
@@ -226,7 +296,8 @@ export function useStocktakeCounting({
       product_variant_id: row.product_variant_id,
       batch_id: row.batch_id,
       stock_status: row.stock_status,
-      actual_quantity: row.actual_quantity,
+      // One normalized exact base quantity; never post outer/display components.
+      actual_quantity: validBaseCount(row, row.actual_quantity)!,
       uom_id: row.base_uom_id,
     }));
 
@@ -266,6 +337,8 @@ export function useStocktakeCounting({
     loadCountSheet,
     updateRow,
     confirmZeroCount,
+    undoRowCount,
+    updateCountPart,
     addDiscoveredRow,
     removeDiscoveredRow,
     countProgress,

@@ -1,6 +1,7 @@
 import { Check, Info, Scan } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { KeyboardEvent } from "react";
+import { useRef, type KeyboardEvent } from "react";
+import { countOuterFactor, splitCountForDisplay } from "./countEntry";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
 import { isDiscoveredRow } from "./discoveredContract";
 import type { StocktakeRow } from "../inventoryUtils";
@@ -19,6 +20,8 @@ interface StocktakeCountingPanelProps {
   };
   onUpdateRow: (key: string, value: string) => void;
   onConfirmZero: (key: string) => void;
+  onUndoCount?: (key: string) => void;
+  onUpdatePart?: (key: string, part: "outer" | "base", value: string) => void;
   onAddDiscovered: () => void;
   onRemoveDiscovered: (key: string) => void;
   canCancel: boolean;
@@ -34,14 +37,17 @@ export function StocktakeCountingPanel({
   progress,
   onUpdateRow,
   onConfirmZero,
+  onUndoCount,
+  onUpdatePart,
   onAddDiscovered,
   onRemoveDiscovered,
   canCancel,
   onCancel,
   onSubmit,
 }: StocktakeCountingPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
+  const panelRef = useRef<HTMLDivElement>(null);
   const text = copy.counting;
   // FULL_COUNT and CYCLE_COUNT share this exact counting surface. The
   // product name comes from the already-authorized session summary.
@@ -52,45 +58,110 @@ export function StocktakeCountingPanel({
   const stages = [copy.workspace.countStep, copy.workspace.reviewStep, copy.workspace.approveStep];
 
 
-  const handleCountEnter = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "Enter" || event.currentTarget.value.trim() === "") return;
-    event.preventDefault();
-    const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']")).filter(
-      (input) => input.getClientRects().length > 0,
-    );
+  const handleCountNavigation = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!["Enter", "ArrowDown", "ArrowUp"].includes(event.key)) return;
+    const inputs = Array.from(
+      panelRef.current?.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']") ?? [],
+    ).filter(input => !input.disabled && input.getClientRects().length > 0);
     const index = inputs.indexOf(event.currentTarget);
-    const next = inputs[index + 1];
-    if (next) {
-      next.focus();
-      next.select();
-      return;
-    }
-    if (progress.remaining === 0) onSubmit();
+    if (index < 0) return;
+    // Enter NEVER submits, even at the last input of a fully counted sheet.
+    if (event.key === "Enter") event.preventDefault();
+    const target = event.key === "ArrowUp" ? inputs[index - 1] : inputs[index + 1];
+    if (!target) return;
+    event.preventDefault();
+    target.focus();
+    target.select();
   };
 
-  const countInput = (row: StocktakeRow, autoFocus = false) => (
-    <input
-      data-stocktake-count-input="true"
-      inputMode="decimal"
-      autoFocus={autoFocus}
-      aria-label={`${text.actualFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]}`}
-      value={row.actual_quantity}
-      onChange={(event) => onUpdateRow(row.row_key, event.target.value)}
-      onKeyDown={handleCountEnter}
-      className="w-28 max-w-full rounded-lg border border-slate-300 p-2 text-center font-bold"
-      dir="ltr"
-    />
-  );
+  const countInput = (row: StocktakeRow, part: "outer" | "base" = "base") => {
+    const dual = countOuterFactor(row) !== null && Boolean(onUpdatePart);
+    const parts = dual
+      ? row.count_outer_quantity !== undefined && row.count_base_quantity !== undefined
+        ? { outer: row.count_outer_quantity, base: row.count_base_quantity }
+        : splitCountForDisplay(row, row.actual_quantity)
+      : { outer: "", base: row.actual_quantity };
+    const value = part === "outer" ? parts.outer : parts.base;
+    const unitName = part === "outer" ? row.count_outer_uom_name : row.base_uom_name;
+    const invalid = value !== "" && (
+      part === "outer" ? !/^\d+$/.test(value) : !/^\d+(?:\.\d{1,6})?$/.test(value)
+    );
+    return (
+      <input
+        data-stocktake-count-input="true"
+        data-stocktake-part={part}
+        data-stocktake-row={row.row_key}
+        inputMode={part === "outer" ? "numeric" : "decimal"}
+        maxLength={48}
+        aria-invalid={invalid}
+        aria-label={`${text.actualFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]} — ${unitName}`}
+        value={value}
+        onChange={(event) => dual
+          ? onUpdatePart?.(row.row_key, part, event.target.value)
+          : onUpdateRow(row.row_key, event.target.value)}
+        onKeyDown={handleCountNavigation}
+        className="w-24 max-w-full rounded-lg border border-slate-300 p-2 text-center font-bold focus-visible:ring-2 focus-visible:ring-blue-500"
+        dir="ltr"
+      />
+    );
+  };
+
+  const countEntry = (row: StocktakeRow) => {
+    const factor = countOuterFactor(row);
+    const dual = factor !== null && Boolean(onUpdatePart);
+    return (
+      <div className="flex min-w-0 flex-wrap items-center gap-2" data-stocktake-count-controls={row.row_key}>
+        {dual && <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+          {row.count_outer_uom_name} {countInput(row, "outer")}
+        </label>}
+        <label className="flex items-center gap-1.5 text-xs font-bold text-slate-600">
+          {row.base_uom_name} {countInput(row)}
+        </label>
+        {dual && factor !== null && <span className="text-[10px] text-slate-500" dir="auto">
+          {text.unitFactor(
+            row.count_outer_uom_name!,
+            new Intl.NumberFormat(i18n.resolvedLanguage || i18n.language || "ar", {
+              numberingSystem: dir === "rtl" ? "arab" : "latn",
+              useGrouping: false,
+            }).format(factor),
+            row.base_uom_name,
+          )}
+        </span>}
+      </div>
+    );
+  };
+
+  const focusCountRow = (key: string) => {
+    const inputs = Array.from(
+      panelRef.current?.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']") ?? [],
+    ).filter(input => input.dataset.stocktakeRow === key && input.getClientRects().length > 0);
+    const target = inputs[0];
+    if (target) { target.focus(); target.select(); }
+  };
 
   const zeroButton = (row: StocktakeRow) => row.counted ? (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg text-xs font-black">
-      <Check className="w-3.5 h-3.5" aria-hidden="true" />
-      {text.counted}
+    <div className="inline-flex flex-wrap items-center justify-center gap-1.5">
+      <span className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">
+        <Check className="h-3.5 w-3.5" aria-hidden="true" />{text.counted}
+      </span>
+      {onUndoCount && <button type="button" onClick={() => { focusCountRow(row.row_key); onUndoCount(row.row_key); }}
+        className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100"
+        aria-label={`${text.undoCount} — ${row.product_name} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))}`}>
+        {text.undoCount}
+      </button>}
+    </div>
+  ) : isDiscoveredRow(row) ? (
+    <span className="max-w-56 text-xs font-semibold text-amber-700" role="note">
+      {text.discoveredPositive}
     </span>
   ) : (
     <button
       type="button"
-      onClick={() => onConfirmZero(row.row_key)}
+      onClick={() => {
+        // Keep keyboard focus on the row's edit field after button replacement.
+        focusCountRow(row.row_key);
+        onConfirmZero(row.row_key);
+      }}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
       title={text.zeroHint}
       aria-label={`${text.confirmZeroFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]}`}
@@ -100,7 +171,7 @@ export function StocktakeCountingPanel({
   );
 
   return (
-    <div dir={dir} className="glass-card inventory-data-panel flex h-full min-w-0 min-h-0 flex-1 flex-col overflow-hidden border border-slate-200 shadow-sm">
+    <div ref={panelRef} dir={dir} className="glass-card inventory-data-panel flex h-full min-w-0 min-h-0 flex-1 flex-col overflow-hidden border border-slate-200 shadow-sm">
       <header className="shrink-0 border-b border-slate-700 bg-slate-900 px-3 py-2 text-white">
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
           <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -149,7 +220,7 @@ export function StocktakeCountingPanel({
       {rows.length > 0 && (
         <>
       <div className="md:hidden min-w-0 flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar bg-slate-50 p-2 space-y-2">
-        {rows.map((row, index) => (
+        {rows.map((row) => (
           <article key={row.row_key} className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
             <div>
               <div className="font-bold text-slate-800 text-sm">{row.product_name}</div>
@@ -163,11 +234,13 @@ export function StocktakeCountingPanel({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                {countInput(row, index === 0)}
-                <span className="text-xs font-bold text-slate-500">{row.base_uom_name}</span>
+                {countEntry(row)}
               </div>
-              {isDiscoveredRow(row) ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
-                className="text-xs text-red-600 underline">{copy.discovered.remove}</button> : zeroButton(row)}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {zeroButton(row)}
+                {isDiscoveredRow(row) && <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                  className="text-xs text-red-600 underline">{copy.discovered.remove}</button>}
+              </div>
             </div>
             <div className="text-[11px] text-slate-400">{text.quantityStep}: <span dir="ltr">{row.quantity_step}</span></div>
           </article>
@@ -186,7 +259,7 @@ export function StocktakeCountingPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 bg-white">
-            {rows.map((row, index) => (
+            {rows.map((row) => (
               <tr key={row.row_key} className="hover:bg-slate-50 transition-colors">
                 <td className="px-3 py-2 font-bold text-slate-800">{row.product_name}
                   {isDiscoveredRow(row) && <span className="ms-2 text-xs text-blue-700">{copy.discovered.discoveredLabel}</span>}
@@ -204,15 +277,17 @@ export function StocktakeCountingPanel({
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex items-center justify-center gap-2">
-                    {countInput(row, index === 0)}
-                    <span className="text-xs font-bold text-slate-500">{row.base_uom_name}</span>
+                    {countEntry(row)}
                     <span className="text-[10px] text-slate-400">{text.step} <span dir="ltr">{row.quantity_step}</span></span>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-center">{isDiscoveredRow(row)
-                  ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
-                    className="text-xs text-red-600 underline">{copy.discovered.remove}</button>
-                  : zeroButton(row)}</td>
+                <td className="px-3 py-2 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    {zeroButton(row)}
+                    {isDiscoveredRow(row) && <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                      className="text-xs text-red-600 underline">{copy.discovered.remove}</button>}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
