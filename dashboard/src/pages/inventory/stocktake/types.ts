@@ -40,6 +40,11 @@ export interface CountSheetItem {
   quantity_step: Quantity;
   batch_number: string | null;
   expiry_date: string | null;
+  count_outer_uom_id?: number;
+  count_outer_uom_name?: string;
+  count_outer_uom_code?: string;
+  count_outer_factor_numerator?: number;
+  count_outer_factor_denominator?: number;
 }
 
 export interface ReviewLine {
