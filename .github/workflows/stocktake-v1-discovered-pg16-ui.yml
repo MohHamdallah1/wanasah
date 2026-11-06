@@ -301,7 +301,7 @@ jobs:
               ("pull_request", compact_791 | {foreign_paths[0]}),
               ("pull_request", dialog_792 - {"dashboard/src/pages/inventory/MainInventory.tsx"}),
               ("pull_request", dialog_792 | {foreign_paths[0]}),
-              ("pull_request", bridge_793 - {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}),
+              ("pull_request", bridge_793 - {".github/scripts/live_stock_ci_ownership.py"}),
               ("pull_request", bridge_793 | {foreign_paths[0]}),
               ("pull_request", compact_791 | dialog_792),
           ):
