@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { StocktakeHistoryDialog } from "./StocktakeHistoryDialog";
+import { StocktakeHistoryDialog, formatHistoryQuantity } from "./StocktakeHistoryDialog";
 import type { StocktakeAuthFetch } from "./types";
 
 const locale = vi.hoisted(() => ({ current: "ar" }));
@@ -60,7 +60,7 @@ const batchLine = (id: number) => ({
   base_uom_name: "Each", expected_quantity: "12",
   actual_quantity: id === 700 ? "8" : "10", variance_quantity: id === 700 ? "-4" : "-2",
 });
-const fetcher = vi.fn(async (url: string) => {
+const defaultFetcher = async (url: string) => {
   const request = new URL(url, "https://example.invalid");
   const path = request.pathname;
   if (request.searchParams.get("location_id") !== "11") throw Error("Foreign warehouse");
@@ -71,15 +71,29 @@ const fetcher = vi.fn(async (url: string) => {
   if (path.endsWith("/history/92")) return {
     ...detail(92), session: { ...detail(92).session, status: "POSTED",
       cancellation_reason: null, cancelled_after_count: false, adjustment_movement_count: 2 },
+    movements: {items: [
+      { id: 8001, reference_id: "STK-92", quantity: "-0.25", product_variant_id: 1, batch_id: 2 },
+      { id: 8002, reference_id: "STK-92", quantity: "0.001", product_variant_id: 1, batch_id: 2 },
+    ], next_cursor: null, has_more: false},
   };
   if (path.endsWith("/attempts/501/lines")) return {
-    items: [batchLine(700)], next_cursor: "more-lines", has_more: true,
+    items: [batchLine(700),
+      { ...batchLine(702), id: 702, variance_quantity: "-0.25", actual_quantity: "11.75" },
+      { ...batchLine(703), id: 703, variance_quantity: "-0.001", actual_quantity: "11.999" },
+      { ...batchLine(704), id: 704, variance_quantity: "0", actual_quantity: "12" },
+    ], next_cursor: "more-lines", has_more: true,
   };
   if (path.endsWith("/attempts/500/lines")) return {
     items: [batchLine(701)], next_cursor: null, has_more: false,
   };
   throw Error("Unexpected request " + path);
-});
+};
+const fetcher = vi.fn(defaultFetcher);
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return {promise, resolve};
+};
 function Harness({ canReview = true }: { canReview?: boolean }) {
   const [locationId, setLocation] = useState(11);
   return <div>
@@ -88,9 +102,92 @@ function Harness({ canReview = true }: { canReview?: boolean }) {
       canRead canReview={canReview} authenticatedFetch={fetcher as StocktakeAuthFetch} />
   </div>;
 }
-beforeEach(() => { locale.current = "ar"; fetcher.mockClear(); });
+beforeEach(() => { locale.current = "ar"; fetcher.mockReset(); fetcher.mockImplementation(defaultFetcher); });
 
 describe("Stocktake #799 terminal history (never a blind counting surface)", () => {
+  it.each(["ar", "en"] as const)("preserves signed canonical fractional shortages and zero in %s", async lang => {
+    locale.current = lang;
+    expect(formatHistoryQuantity("-0.25", lang)).toBe("-" + formatHistoryQuantity("0.25", lang));
+    expect(formatHistoryQuantity("-0.001", lang)).toBe("-" + formatHistoryQuantity("0.001", lang));
+    expect(formatHistoryQuantity("-0.000", lang)).toBe(formatHistoryQuantity("0", lang));
+    expect(formatHistoryQuantity("0", lang)).not.toContain("-");
+    expect(formatHistoryQuantity("-0.0000001", lang)).toBe("-" + formatHistoryQuantity("0.0000001", lang));
+    expect(formatHistoryQuantity("-999999999999999999.000001", lang)).toMatch(/^-.*\.000001$/);
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: lang === "ar" ? "سجل الجرد" : "Stocktake history" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" })[0]);
+    await waitFor(() => expect(dialog).toHaveTextContent("-0.25 Each"));
+    expect(dialog).toHaveTextContent("-0.001 Each");
+    expect(dialog).toHaveTextContent("0 Each");
+    fireEvent.click(within(dialog).getByRole("button", { name: lang === "ar" ? "العودة للسجل" : "Back to history" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" })[1]);
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
+    expect(dialog).toHaveTextContent("-0.25");
+    expect(dialog).toHaveTextContent("0.001");
+  });
+
+  it.each(["ar", "en"] as const)("close while detail pending then reopen discards stale response and clears spinner in %s", async lang => {
+    locale.current = lang;
+    const pending = deferred<ReturnType<typeof detail>>();
+    fetcher.mockImplementation(async (url: string) =>
+      url.includes("/history/91?") ? pending.promise : defaultFetcher(url));
+    render(<Harness />);
+    const trigger = screen.getByRole("button", { name: lang === "ar" ? "سجل الجرد" : "Stocktake history" });
+    fireEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" })[0]);
+    await waitFor(() => expect(dialog).toHaveTextContent(lang === "ar" ? "جاري تحميل سجل الجرد" : "Loading stocktake history"));
+    fireEvent.keyDown(dialog, { key: "Escape", code: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    fireEvent.click(trigger);
+    const reopened = await screen.findByRole("dialog");
+    await waitFor(() => expect(reopened).toHaveTextContent("STK-92"));
+    pending.resolve(detail(91));
+    await waitFor(() => expect(reopened).not.toHaveTextContent("Auditable note"));
+    expect(within(reopened).getAllByRole("button", {name: lang === "ar" ? "التفاصيل" : "Details"})).toHaveLength(2);
+    fireEvent.click(within(reopened).getAllByRole("button", {name: lang === "ar" ? "التفاصيل" : "Details"})[1]);
+    await waitFor(() => expect(reopened).toHaveTextContent("STK-92"));
+  });
+
+  it("back and new session ignore slow attempts pagination and slow lines without stuck spinners", async () => {
+    locale.current = "en";
+    const oldLines = deferred<unknown>();
+    const oldPage = deferred<unknown>();
+    fetcher.mockImplementation(async (url: string) => {
+      if (url.includes("/history/91/attempts/501/lines?")) return oldLines.promise;
+      if (url.includes("/history/91/attempts?") && url.includes("cursor=old-attempt-page")) return oldPage.promise;
+      if (url.includes("/history/91?")) return {
+        ...detail(91), attempts: { ...detail(91).attempts, next_cursor: "old-attempt-page", has_more: true },
+      };
+      return defaultFetcher(url);
+    });
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Stocktake history" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    fireEvent.click(within(dialog).getAllByRole("button", {name: "Details"})[0]);
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-91"));
+    const more = within(dialog).getByRole("button", {name: "Load more"});
+    fireEvent.click(more);
+    await waitFor(() => expect(more).toBeDisabled());
+    fireEvent.click(within(dialog).getByRole("button", {name: "Back to history"}));
+    await waitFor(() => expect(within(dialog).getAllByRole("button", {name: "Details"})).toHaveLength(2));
+    fireEvent.click(within(dialog).getAllByRole("button", {name: "Details"})[1]);
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
+    oldLines.resolve({ items: [{...batchLine(987), product_name: "STALLED-OLD-LINES"}], next_cursor: null, has_more: false});
+    oldPage.resolve({ items: [{
+      id: 999, attempt_number: 99, counted_by_name: "STALLED-OLD-ATTEMPT",
+      submitted_at: "2026-11-06T08:20:00Z", recount_reason: null,
+      authorized_by_name: null, requires_independent_recount: false, recount_of_attempt_id: null,
+    }], next_cursor: null, has_more: false});
+    await waitFor(() => expect(dialog).not.toHaveTextContent("STALLED-OLD-ATTEMPT"));
+    expect(dialog).not.toHaveTextContent("STALLED-OLD-LINES");
+    expect(within(dialog).queryByRole("button", {name: "Load more", hidden: false})).not.toBeDisabled();
+  });
+
   it.each(["ar", "en"] as const)("shows terminal-only list and sensitive gated immutable attempts in %s", async lang => {
     locale.current = lang;
     render(<Harness />);
