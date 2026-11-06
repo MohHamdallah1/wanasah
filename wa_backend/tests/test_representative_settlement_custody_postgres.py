@@ -24,7 +24,7 @@ from models import (
     OperationIdempotency, SessionInventorySnapshot,
     PriceBook, PriceBookAssignment, PriceBookEntry, PricePublication,
     Product, ProductBatch, ProductLocation, ProductVariant, RouteCommercialContext,
-    StocktakeCountAttemptLine, StocktakeSession, SystemAuditLog, UOM, Vehicle,
+    StocktakeCountAttemptLine, StocktakeSession, SystemAuditLog, SystemSetting, UOM, Vehicle,
     WorkSession, Zone, utc_now,
 )
 from schemas import SettleSessionRequest
@@ -111,6 +111,13 @@ async def _seed(admin_engine):
         await db.flush()
         await db.execute(text("SELECT set_config('app.current_tenant', :tenant, true)"),
                          {"tenant": str(company.id)})
+        # The CP15 custody shortage proof deliberately retains the historic
+        # mandatory second-counter rule via an explicit company threshold.
+        db.add(SystemSetting(
+            company_id=company.id,
+            setting_key="stocktake_material_shortage_packs",
+            setting_value="1",
+        ))
         actor = await seed_ordinary_backoffice_fixture(
             db, company.id, password=ACTOR_PASSWORD
         )
