@@ -7,6 +7,7 @@ No inventory/attempt/audit mutation is performed by any GET.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 from datetime import datetime
@@ -69,7 +70,7 @@ def _decode(cursor: str, scope: str, *, with_time: bool = False):
         if "t" in data:
             raise ValueError()
         return data["id"]
-    except (ValueError, TypeError, KeyError, OverflowError, UnicodeDecodeError):
+    except (ValueError, TypeError, KeyError, OverflowError, UnicodeDecodeError, binascii.Error):
         raise HTTPException(status_code=400, detail="Invalid stocktake history cursor.") from None
 
 
