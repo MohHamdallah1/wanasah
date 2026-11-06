@@ -141,7 +141,7 @@ export function restoreDiscoveredRows(
     const fresh = buildDiscoveredRow(batch, row.stock_status!, batch.quantity_step);
     const actual = typeof row.actual_quantity === "string" ? row.actual_quantity : "";
     const canonical = validBaseCount(fresh, actual);
-    const counted = row.counted === true && canonical !== null;
+    const counted = row.counted === true && canonical !== null && canonical !== "0";
     const parts = restoreCountParts(fresh, row);
     restored.push({
       ...fresh,
