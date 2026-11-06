@@ -119,7 +119,16 @@ jobs:
               ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           ):
               assert verify(paths) == label
-              for invalid in (set(), paths - {".github/scripts/live_stock_ci_ownership.py" if label == "DENSITY_CI_BROWSER_BRIDGE" else next(iter(paths))},
+              # Some separately approved exact scopes are subsets of earlier
+              # scopes (e.g. compact_791 ⊂ workspace_788). Select a truly
+              # unapproved subset deterministically, not hash-order first().
+              invalid_subset = next(
+                  (paths - {name} for name in sorted(paths)
+                   if frozenset(paths - {name}) not in allowed),
+                  None,
+              )
+              assert invalid_subset is not None, label
+              for invalid in (set(), invalid_subset,
                               paths | {"wa_backend/api/warehouse/stocktake.py"},
                               paths | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"}):
                   try:
