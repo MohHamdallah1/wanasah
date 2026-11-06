@@ -45,6 +45,7 @@ from models import (
     StocktakeCountAttempt,
     StocktakeSession,
     SystemSetting,
+    SystemAuditLog,
     UOM,
     WorkSession,
     Zone,
@@ -477,6 +478,148 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
                 sid, anchor_location_id=self.b1, db=self.db, access=self.access_b,
             )
         self.assertEqual(foreign_session.exception.status_code, 404)
+
+    async def test_optional_shortage_one_authorized_actor_approves_and_recounts(self):
+        # V1: no company threshold in this fresh PG16 company => the same
+        # authorized account may approve or explicitly request another blind count.
+        self.assertEqual(
+            int(await self.db.scalar(select(func.count()).select_from(SystemSetting).where(
+                SystemSetting.company_id == self.company_a,
+                SystemSetting.setting_key.in_((
+                    "stocktake_material_shortage_packs",
+                    "stocktake_material_shortage_percent",
+                )),
+            )) or 0),
+            0,
+        )
+        first = await self._start(
+            self.a1, self.access_a_all, self.actor_a,
+            stocktake_type="CYCLE_COUNT",
+            product_variant_id=self.variant_a, batch_id=self.shared_batch,
+        )
+        first_sid = int(first["session_id"])
+        counted, _ = await self._count(
+            first_sid, self.access_a_all, self.actor_a, {self.shared_batch: 9},
+        )
+        self.assertFalse(counted["requires_independent_recount"])
+        first_review = await stocktake_api.get_stocktake_review(
+            first_sid, db=self.db, access=self.access_a_all,
+        )
+        self.assertEqual(first_review["latest_attempt"]["requires_independent_recount"], False)
+        self.assertTrue(first_review["independent_recount_satisfied"])
+        self.assertEqual(Decimal(first_review["lines"][0]["variance_quantity"]), Decimal("-1"))
+
+        with self.assertRaises(HTTPException) as unauthorized:
+            await stocktake_api.approve_stocktake_session(
+                first_sid,
+                StocktakeApprovalCommand(request_id=uuid4(), count_attempt_id=int(counted["attempt_id"]), password=PASSWORD),
+                db=self.db, access=self.access_a2_read, legacy_actor=self.actor_a,
+            )
+        self.assertEqual(unauthorized.exception.status_code, 403)
+        with self.assertRaises(HTTPException) as foreign:
+            await stocktake_api.get_stocktake_review(first_sid, db=self.db, access=self.access_b)
+        self.assertEqual(foreign.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as password_denied:
+            await stocktake_api.approve_stocktake_session(
+                first_sid,
+                StocktakeApprovalCommand(request_id=uuid4(), count_attempt_id=int(counted["attempt_id"]), password="wrong"),
+                db=self.db, access=self.access_a_all, legacy_actor=self.actor_a,
+            )
+        self.assertEqual(password_denied.exception.status_code, 403)
+
+        approved, approval_command = await self._approve(
+            first_sid, int(counted["attempt_id"]), self.access_a_all, self.actor_a,
+        )
+        self.assertEqual(approved["status"], "POSTED")
+        self.assertEqual(approved["movement_count"], 1)
+        self.assertEqual(
+            await stocktake_api.approve_stocktake_session(
+                first_sid, approval_command, db=self.db,
+                access=self.access_a_all, legacy_actor=self.actor_a,
+            ), approved,
+        )
+        self.assertEqual(await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(
+            InventoryBalance.company_id == self.company_a,
+            InventoryBalance.location_id == self.a1,
+            InventoryBalance.batch_id == self.shared_batch,
+        )), Decimal("9"))
+
+        second = await self._start(
+            self.a1, self.access_a_all, self.actor_a,
+            stocktake_type="CYCLE_COUNT",
+            product_variant_id=self.variant_a, batch_id=self.shared_batch,
+        )
+        second_sid = int(second["session_id"])
+        original, _ = await self._count(
+            second_sid, self.access_a_all, self.actor_a, {self.shared_batch: 8},
+        )
+        self.assertFalse(original["requires_independent_recount"])
+        recount_command = StocktakeRecountCommand(
+            request_id=uuid4(), count_attempt_id=int(original["attempt_id"]),
+            reason="Optional physical verification by same authorized operator",
+            authorizer_username=self.actor_a.username,
+            authorizer_password=PASSWORD,
+        )
+        with self.assertRaises(HTTPException) as wrong_location:
+            await stocktake_api.recount_stocktake_session(
+                second_sid, recount_command, db=self.db,
+                access=self.access_a2_read, legacy_actor=self.actor_a,
+            )
+        self.assertEqual(wrong_location.exception.status_code, 403)
+
+        with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=None)):
+            with self.assertRaises(HTTPException) as rejected:
+                await stocktake_api.recount_stocktake_session(
+                    second_sid, recount_command, db=self.db,
+                    access=self.access_a_all, legacy_actor=self.actor_a,
+                )
+        self.assertEqual(rejected.exception.status_code, 403)
+        with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=self.actor_a)):
+            authorized = await stocktake_api.recount_stocktake_session(
+                second_sid, recount_command, db=self.db,
+                access=self.access_a_all, legacy_actor=self.actor_a,
+            )
+        self.assertFalse(authorized["requires_independent_counter"])
+        self.assertEqual(authorized["status"], "RECOUNT_REQUIRED")
+        reopened = await stocktake_api.get_stocktake_count_sheet(
+            second_sid, db=self.db, access=self.access_a_all,
+            legacy_actor=self.actor_a,
+        )
+        self.assertEqual(len(reopened), 1)
+        self.assertNotIn("expected_quantity", reopened[0])
+        confirmed, _ = await self._count(
+            second_sid, self.access_a_all, self.actor_a, {self.shared_batch: 8},
+        )
+        self.assertEqual(confirmed["attempt_number"], 2)
+        reviewed = await stocktake_api.get_stocktake_review(
+            second_sid, db=self.db, access=self.access_a_all,
+        )
+        self.assertTrue(reviewed["independent_recount_satisfied"])
+        self.assertEqual(len(reviewed["attempt_history"]), 2)
+        self.assertFalse(reviewed["attempt_history"][0]["requires_independent_recount"])
+        self.assertEqual(reviewed["attempt_history"][1]["recount_of_attempt_id"], original["attempt_id"])
+        attempts = (await self.db.scalars(select(StocktakeCountAttempt).where(
+            StocktakeCountAttempt.company_id == self.company_a,
+            StocktakeCountAttempt.stocktake_session_id == second_sid,
+        ).order_by(StocktakeCountAttempt.attempt_number))).all()
+        self.assertEqual([attempt.counted_by for attempt in attempts], [self.actor_a.id, self.actor_a.id])
+        final, _ = await self._approve(
+            second_sid, int(confirmed["attempt_id"]), self.access_a_all, self.actor_a,
+        )
+        self.assertEqual(final["status"], "POSTED")
+        self.assertEqual(final["movement_count"], 1)
+        self.assertEqual(await self.db.scalar(select(InventoryBalance.on_hand_quantity).where(
+            InventoryBalance.company_id == self.company_a,
+            InventoryBalance.location_id == self.a1,
+            InventoryBalance.batch_id == self.shared_batch,
+        )), Decimal("8"))
+        logs = (await self.db.scalars(select(SystemAuditLog.action_type).where(
+            SystemAuditLog.company_id == self.company_a,
+            SystemAuditLog.target_id == f"Stocktake_{second_sid}",
+        ))).all()
+        self.assertIn("STOCKTAKE_RECOUNT_AUTH_REJECTED", logs)
+        self.assertIn("STOCKTAKE_RECOUNT_AUTHORIZED", logs)
+        self.assertIn("STOCKTAKE_APPROVED_AND_POSTED", logs)
 
     async def test_normal_variance_recount_cancel_idempotency_locks_and_posting(self):
         # Normal no-variance count: same start/count/approve command replays without duplicate side effects.
