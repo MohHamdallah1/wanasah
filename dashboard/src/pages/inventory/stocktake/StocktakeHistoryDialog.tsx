@@ -53,7 +53,11 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
               {isAr ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}{t.back}
             </button>
           )}
-          {history.error && <p role="alert" className="mb-3 rounded bg-red-50 p-3 text-sm text-red-700">{t.error}</p>}
+          {history.error && <p role="alert" className="mb-3 rounded bg-red-50 p-3 text-sm text-red-700">
+            {history.error.reason || t.error}
+            {history.error.code && <span className="ms-2 font-mono" dir="ltr">({history.error.code})</span>}
+            {history.error.requestId && <span className="ms-2 font-mono" dir="ltr">#{history.error.requestId}</span>}
+          </p>}
           {history.busy && <p role="status" className="mb-2 text-xs text-slate-500">{t.loading}</p>}
           {!detail ? (
             <div className="space-y-2">
