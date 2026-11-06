@@ -35,6 +35,19 @@ export function StocktakeReviewPanel({
   // Preserve the timestamp and its original offset; do not infer a local timezone.
   const displayTimestamp = (value: string) => value.replace("T", " ").replace(/Z$/, " UTC");
 
+  // Never let the bidirectional algorithm reverse a mixed Arabic unit and a
+  // decimal/sign. The reading order is quantity then unit in both languages.
+  const showQuantity = (quantity: string, unit: string, sign = "") => {
+    const number = `${sign}${formatQuantity(quantity, "").trim()}`;
+    return (
+      <span dir={dir} className="inline-flex items-baseline justify-center gap-1 whitespace-nowrap"
+        data-stocktake-review-quantity="true" aria-label={`${number} ${unit}`}>
+        <bdi dir="ltr">{number}</bdi>
+        <bdi dir="auto">{unit}</bdi>
+      </span>
+    );
+  };
+
   return (
     <div dir={dir} className="glass-card inventory-data-panel flex h-full min-w-0 min-h-0 flex-1 flex-col overflow-hidden border border-slate-200 shadow-sm">
       <header className="shrink-0 border-b border-slate-700 bg-slate-900 px-3 py-2 text-white">
@@ -119,9 +132,9 @@ export function StocktakeReviewPanel({
                 {text.stockStatus}: {copy.stockStatuses[line.stock_status]}
               </span>
               <dl className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <div><dt className="text-[10px] text-slate-400 font-bold">{text.expected}</dt><dd className="text-sm font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</dd></div>
-                <div><dt className="text-[10px] text-slate-400 font-bold">{text.counted}</dt><dd className="text-sm font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</dd></div>
-                <div><dt className="text-[10px] text-slate-400 font-bold">{text.variance}</dt><dd className="text-sm font-black" dir="ltr">{variance === 0 ? text.match : `${variance > 0 ? "+" : "-"}${formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}`}</dd></div>
+                <div><dt className="text-[10px] text-slate-400 font-bold">{text.expected}</dt><dd className="text-sm font-black text-slate-700">{showQuantity(line.expected_quantity, line.base_uom_name)}</dd></div>
+                <div><dt className="text-[10px] text-slate-400 font-bold">{text.counted}</dt><dd className="text-sm font-black text-blue-700">{showQuantity(line.actual_quantity, line.base_uom_name)}</dd></div>
+                <div><dt className="text-[10px] text-slate-400 font-bold">{text.variance}</dt><dd className="text-sm font-black">{variance === 0 ? text.match : showQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name, variance > 0 ? "+" : "-")}</dd></div>
               </dl>
             </article>
           );
@@ -156,12 +169,12 @@ export function StocktakeReviewPanel({
                       {copy.stockStatuses[line.stock_status]}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-center font-black text-slate-700" dir="ltr">{formatQuantity(line.expected_quantity, line.base_uom_name)}</td>
-                  <td className="px-3 py-2 text-center font-black text-blue-700" dir="ltr">{formatQuantity(line.actual_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2 text-center font-black text-slate-700" dir="ltr">{showQuantity(line.expected_quantity, line.base_uom_name)}</td>
+                  <td className="px-3 py-2 text-center font-black text-blue-700" dir="ltr">{showQuantity(line.actual_quantity, line.base_uom_name)}</td>
                   <td className="px-3 py-2 text-center">
                     {variance === 0 ? <span className="text-slate-500 font-bold">{text.match}</span> : (
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${variance > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`} dir="ltr">
-                        {variance > 0 ? "+ " : "- "}{formatQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name)}
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${variance > 0 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                        {showQuantity(absoluteQuantity(line.variance_quantity), line.base_uom_name, variance > 0 ? "+" : "-")}
                       </span>
                     )}
                   </td>
