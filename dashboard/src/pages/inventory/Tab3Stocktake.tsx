@@ -268,13 +268,6 @@ export function Tab3Stocktake({
       {/* The original door and both count types occupy one workspace; never parallel tables. */}
       <div data-stocktake-workspace={workspacePhase}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        {!isIdle && selectedSession && (
-          <div data-stocktake-scope="true"
-            className="flex shrink-0 flex-wrap items-center gap-2 px-2 pb-2 text-xs font-bold text-slate-600">
-            <span className="text-slate-800">{uiCopy.sessions.types[selectedSession.stocktake_type]}</span>
-            <span dir="auto">{selectedSession.reference_number}</span>
-          </div>
-        )}
         {isIdle ? (
           !isAuditLocked && warehouseAccess.can("stocktake.start") && (
             <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
@@ -298,6 +291,8 @@ export function Tab3Stocktake({
                 progress={countingWorkflow.countProgress}
                 onUpdateRow={countingWorkflow.updateRow}
                 onConfirmZero={countingWorkflow.confirmZeroCount}
+                onUndoCount={countingWorkflow.undoRowCount}
+                onUpdatePart={countingWorkflow.updateCountPart}
                 onAddDiscovered={() => setShowDiscoveredModal(true)}
                 onRemoveDiscovered={countingWorkflow.removeDiscoveredRow}
                 onCancel={() => setShowCancelModal(true)}
