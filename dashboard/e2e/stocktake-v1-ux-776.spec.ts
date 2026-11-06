@@ -215,12 +215,37 @@ for (const locale of ["ar", "en"] as const) {
         await page.goto("/inventory");
         const stocktake = page.locator(".inventory-stocktake");
         await expect(stocktake).toBeVisible();
-        // Session list is intentionally the operator navigation; open the selected fixture explicitly.
-        await stocktake.getByRole("button", { name: locale === "ar" ? "فتح" : "Open", exact: true }).click();
-        const needle = stage === "counting"
-          ? locale === "ar" ? "العد جارٍ" : "Count in progress"
-          : locale === "ar" ? "مراجعة العد" : "Review count";
-        await expect(stocktake.getByText(needle, { exact: false }).first()).toBeVisible({ timeout: 15000 });
+        // The owner-approved compact sessions dialog replaces the old inline card.
+        // During the gated rollout, keep historical Chromium coverage executable
+        // on either side of the shell merge without weakening session assertions.
+        const sessionsTrigger = stocktake.locator('[data-stocktake-sessions-trigger="true"]');
+        if (await sessionsTrigger.count()) {
+          await expect(sessionsTrigger).toBeEnabled();
+          await sessionsTrigger.click();
+          const sessionsDialog = page.getByRole("dialog", {
+            name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
+          });
+          await expect(sessionsDialog).toBeVisible();
+          await sessionsDialog.getByRole("button", {
+            name: locale === "ar" ? "فتح" : "Open", exact: true,
+          }).click();
+          await expect(sessionsDialog).not.toBeVisible();
+        } else {
+          await stocktake.getByRole("button", {
+            name: locale === "ar" ? "فتح" : "Open", exact: true,
+          }).click();
+        }
+        // Count/review headers may be compact; assert the real accessible
+        // phase indicator rather than a decorative heading that was removed.
+        const stageList = stocktake.getByRole("list", {
+          name: locale === "ar" ? "مراحل الجرد" : "Stocktake stages",
+        });
+        await expect(stageList).toBeVisible({ timeout: 15000 });
+        await expect(stageList.locator('[aria-current="step"]')).toContainText(
+          stage === "counting"
+            ? locale === "ar" ? "العد" : "Count"
+            : locale === "ar" ? "المراجعة" : "Review",
+        );
         if (stage === "review") {
           // #779: exact canonical response -> visible reviewer evidence on both breakpoints.
           const historyLabel = locale === "ar" ? "سجل محاولات العد" : "Count attempt history";
