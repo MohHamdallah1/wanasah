@@ -249,6 +249,13 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/workflows/stocktake-v1-session-read-fence.yml",
           }
+          review_bidi_797 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -265,6 +272,7 @@ jobs:
               frozenset(uom_794): "UOM_READ_794",
               frozenset(fast_795): "FAST_COUNT_795",
               frozenset(ci_796): "FAST_CI_796",
+              frozenset(review_bidi_797): "REVIEW_BIDI_797",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -290,7 +298,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -313,6 +321,7 @@ jobs:
           assert verify_owner_scope("pull_request", uom_794) == "UOM_READ_794"
           assert verify_owner_scope("pull_request", fast_795) == "FAST_COUNT_795"
           assert verify_owner_scope("pull_request", ci_796) == "FAST_CI_796"
+          assert verify_owner_scope("pull_request", review_bidi_797) == "REVIEW_BIDI_797"
           for event, sample in (
               ("pull_request", set()),
               ("workflow_dispatch", ci_782),
@@ -341,6 +350,9 @@ jobs:
               ("pull_request", ci_796 - {".github/workflows/stocktake-v1-session-read-fence.yml"}),
               ("pull_request", ci_796 | {foreign_paths[0]}),
               ("pull_request", uom_794 | fast_795),
+              ("pull_request", review_bidi_797 - {"dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx"}),
+              ("pull_request", review_bidi_797 | {foreign_paths[0]}),
+              ("pull_request", review_bidi_797 | fast_795),
           ):
               try:
                   verify_owner_scope(event, sample)
