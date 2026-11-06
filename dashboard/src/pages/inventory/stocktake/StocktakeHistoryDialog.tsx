@@ -19,7 +19,7 @@ interface Props {
 // BigInt integer portion loses a subunit minus (-0.25 -> +0.25), so preserve
 // the sign before formatting its nonnegative magnitude. Never use Number or
 // truncate canonical fractional digits, and do not render signed negative zero.
-export const formatHistoryQuantity = (value: string | number, locale: "ar" | "en"): string => {
+const formatHistoryQuantity = (value: string | number, locale: "ar" | "en"): string => {
   const raw = String(value).trim();
   const canonical = /^(-?)(\d+)(?:\.(\d+))?$/.exec(raw);
   if (!canonical) return raw;

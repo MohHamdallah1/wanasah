@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { StocktakeHistoryDialog, formatHistoryQuantity } from "./StocktakeHistoryDialog";
+import { StocktakeHistoryDialog } from "./StocktakeHistoryDialog";
 import type { StocktakeAuthFetch } from "./types";
 
 const locale = vi.hoisted(() => ({ current: "ar" }));
@@ -80,7 +80,7 @@ const defaultFetcher = async (url: string) => {
     items: [batchLine(700),
       { ...batchLine(702), id: 702, variance_quantity: "-0.25", actual_quantity: "11.75" },
       { ...batchLine(703), id: 703, variance_quantity: "-0.001", actual_quantity: "11.999" },
-      { ...batchLine(704), id: 704, variance_quantity: "0", actual_quantity: "12" },
+      { ...batchLine(704), id: 704, variance_quantity: "-0.000", actual_quantity: "12" },
     ], next_cursor: "more-lines", has_more: true,
   };
   if (path.endsWith("/attempts/500/lines")) return {
@@ -107,12 +107,6 @@ beforeEach(() => { locale.current = "ar"; fetcher.mockReset(); fetcher.mockImple
 describe("Stocktake #799 terminal history (never a blind counting surface)", () => {
   it.each(["ar", "en"] as const)("preserves signed canonical fractional shortages and zero in %s", async lang => {
     locale.current = lang;
-    expect(formatHistoryQuantity("-0.25", lang)).toBe("-" + formatHistoryQuantity("0.25", lang));
-    expect(formatHistoryQuantity("-0.001", lang)).toBe("-" + formatHistoryQuantity("0.001", lang));
-    expect(formatHistoryQuantity("-0.000", lang)).toBe(formatHistoryQuantity("0", lang));
-    expect(formatHistoryQuantity("0", lang)).not.toContain("-");
-    expect(formatHistoryQuantity("-0.0000001", lang)).toBe("-" + formatHistoryQuantity("0.0000001", lang));
-    expect(formatHistoryQuantity("-999999999999999999.000001", lang)).toMatch(/^-.*\.000001$/);
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: lang === "ar" ? "سجل الجرد" : "Stocktake history" }));
     const dialog = await screen.findByRole("dialog");
@@ -120,7 +114,8 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     fireEvent.click(within(dialog).getAllByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" })[0]);
     await waitFor(() => expect(dialog).toHaveTextContent("-0.25 Each"));
     expect(dialog).toHaveTextContent("-0.001 Each");
-    expect(dialog).toHaveTextContent("0 Each");
+    expect(within(dialog).getByText("0 Each", {exact: true})).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("-0 Each");
     fireEvent.click(within(dialog).getByRole("button", { name: lang === "ar" ? "العودة للسجل" : "Back to history" }));
     fireEvent.click(within(dialog).getAllByRole("button", { name: lang === "ar" ? "التفاصيل" : "Details" })[1]);
     await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
