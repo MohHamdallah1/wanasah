@@ -303,10 +303,19 @@ for (const locale of ["ar", "en"] as const) {
           await expect(inputs.nth(1)).toBeFocused();
           await inputs.nth(1).fill("5");
           await inputs.nth(1).press("Enter");
-          // Enter on the last VISIBLE field must open confirmation; it must
-          // never jump into the other breakpoint's hidden field.
-          await expect(page.getByRole("dialog")).toBeVisible();
-          console.log("STOCKTAKE_776_ENTER_VISIBLE_SUBMIT=PASS " + JSON.stringify({ locale, size: size.name }));
+          // #782 owner safety addendum: Enter at last input NEVER submits.
+          // Only the explicit footer action may open the confirmation dialog.
+          await expect(inputs.nth(1)).toBeFocused();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          const submitButton = stocktake.getByRole("button", {
+            name: locale === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt",
+          });
+          await expect(submitButton).toBeEnabled();
+          await submitButton.click();
+          await expect(page.getByRole("dialog", {
+            name: locale === "ar" ? "تثبيت محاولة العد" : "Submit count attempt",
+          })).toBeVisible();
+          console.log("STOCKTAKE_776_ENTER_VISIBLE_NO_AUTOSUBMIT=PASS " + JSON.stringify({ locale, size: size.name }));
         }
       });
     }
