@@ -257,7 +257,11 @@ describe("CP10 Ledger Dashboard", () => {
       throw new Error(`Unexpected request: ${path}`);
     });
     const rendered = renderLedger(11);
-    rendered.rerender(<Tab4Ledger locationId={12} refreshKey={0} onInventoryChanged={() => undefined} />);
+    rendered.rerender(
+      <MemoryRouter initialEntries={["/inventory"]}>
+        <Tab4Ledger locationId={12} refreshKey={0} onInventoryChanged={() => undefined} />
+      </MemoryRouter>,
+    );
     expect(await screen.findAllByText("Warehouse A2 Product")).not.toHaveLength(0);
     resolveOld?.(page([entry(11, { product_name: "Stale A1 Product" })]));
     await new Promise((resolve) => setTimeout(resolve, 0));
