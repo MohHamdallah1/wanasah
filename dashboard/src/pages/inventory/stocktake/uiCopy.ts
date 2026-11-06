@@ -62,7 +62,7 @@ const ar = {
     finish: "إنهاء العد وتثبيت المحاولة",
   },
   discovered: {
-    add: "إضافة بضاعة ظهرت أثناء العد",
+    add: "إضافة بضاعة غير مدرجة",
     title: "تسجيل بضاعة مكتشفة أثناء الجرد",
     hint: "اختر الصنف والتشغيلة المسجلة فعلياً، ثم حالتها والكمية التي عُدّت. لن يتغير الرصيد إلا بعد اعتماد الجرد.",
     productSearch: "بحث عن الصنف أو SKU",
@@ -279,7 +279,7 @@ const en: typeof ar = {
     finish: "Finish count and submit attempt",
   },
   discovered: {
-    add: "Add physically discovered stock",
+    add: "Add unlisted stock",
     title: "Record discovered physical stock",
     hint: "Select the registered product and genuine batch, its stock status and counted quantity. Stock changes only after stocktake approval.",
     productSearch: "Find a product or SKU",

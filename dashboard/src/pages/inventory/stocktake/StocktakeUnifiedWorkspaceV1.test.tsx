@@ -199,3 +199,101 @@ describe("Stocktake single count/review workspace V1", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 });
+
+
+describe("Stocktake compact count viewport — owner #782", () => {
+  it.each(["ar", "en"] as const)("keeps a single compact header, full product scope and one footer progressbar in %s", language => {
+    locale.value = language;
+    const productName = "Long actual warehouse product 750 g — registered lot";
+    const { container } = counting({
+      product: productName,
+      stocktakeType: "CYCLE_COUNT",
+      rows: [countRow(51, "QUARANTINED", true)],
+      progress: { total: 1, counted: 1, remaining: 0 },
+    });
+    const header = container.querySelector("header")!;
+    const footer = container.querySelector("footer")!;
+    expect(header).toBeInTheDocument();
+    expect(footer).toBeInTheDocument();
+    expect(header.querySelector('[role="progressbar"]')).toBeNull();
+    expect(within(footer).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+    expect(within(footer).getByRole("progressbar")).toHaveAttribute("aria-valuemax", "1");
+    expect(header.textContent).not.toContain("1/1");
+    // Warehouse belongs to the single authorized toolbar, but remains accessible here.
+    const hiddenLocation = Array.from(header.querySelectorAll(".sr-only")).find(
+      element => element.textContent?.includes("Main Warehouse"),
+    );
+    expect(hiddenLocation).toHaveTextContent("Main Warehouse");
+    expect(hiddenLocation).toHaveTextContent(language === "ar" ? "موقع الجرد" : "Count location");
+    const hiddenStatus = Array.from(header.querySelectorAll(".sr-only")).find(
+      element => element.textContent?.includes(language === "ar" ? "العد جارٍ" : "Count in progress"),
+    );
+    expect(hiddenStatus).toHaveTextContent(language === "ar" ? "العد جارٍ" : "Count in progress");
+    const scope = header.querySelector('[title="' + productName + '"]');
+    expect(scope).toHaveClass("truncate");
+    expect(scope).toHaveTextContent(productName);
+    expect(header.querySelector('[role="note"]')).toHaveAttribute("title", expect.stringContaining(language === "ar" ? "الرصيد المسجل" : "recorded quantities"));
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: language === "ar" ? "إضافة بضاعة غير مدرجة" : "Add unlisted stock" })).toHaveLength(1);
+    expect(container).toHaveTextContent("REAL-LOT-51");
+    expect(container).toHaveTextContent(language === "ar" ? "معزول" : "Quarantined");
+    expect(container).not.toHaveTextContent(language === "ar" ? "الرصيد المتوقع" : "Expected stock");
+  });
+
+  it.each(["ar", "en"] as const)("keeps empty scope recovery, no fake table and disabled submit in %s", language => {
+    locale.value = language;
+    const { callbacks, container } = counting({
+      product: "Missing local balance",
+      stocktakeType: "CYCLE_COUNT",
+      rows: [],
+      progress: { total: 0, counted: 0, remaining: 0 },
+    });
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("article")).toHaveLength(0);
+    expect(screen.getByRole("status")).toHaveTextContent(language === "ar" ? "لا توجد كميات مسجلة" : "no recorded stock");
+    const add = screen.getByRole("button", { name: language === "ar" ? "إضافة بضاعة غير مدرجة" : "Add unlisted stock" });
+    fireEvent.click(add);
+    expect(callbacks.discovered).toHaveBeenCalledOnce();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "0");
+    expect(screen.getByRole("button", { name: language === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
+  });
+
+  it.each(["ar", "en"] as const)("uses one scrolling count table for many independent genuine batches in %s", language => {
+    locale.value = language;
+    const rows = Array.from({ length: 76 }, (_, i) => countRow(100 + i, i % 2 ? "BLOCKED" : "AVAILABLE", i < 37));
+    const { container, callbacks } = counting({
+      stocktakeType: "FULL_COUNT",
+      rows,
+      progress: { total: 76, counted: 37, remaining: 39 },
+    });
+    const table = screen.getByRole("table");
+    expect(table.querySelectorAll("thead tr")).toHaveLength(1);
+    expect(table.querySelectorAll("tbody tr")).toHaveLength(76);
+    expect(table).toHaveTextContent("REAL-LOT-100");
+    expect(table).toHaveTextContent("REAL-LOT-175");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "37");
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuemax", "76");
+    expect(screen.getByRole("button", { name: language === "ar" ? "إنهاء العد وتثبيت المحاولة" : "Finish count and submit attempt" })).toBeDisabled();
+    const input = table.querySelector<HTMLInputElement>('input[data-stocktake-count-input="true"]')!;
+    fireEvent.change(input, { target: { value: "5" } });
+    expect(callbacks.update).toHaveBeenCalledWith("118:100:AVAILABLE", "5");
+    expect(callbacks.submit).not.toHaveBeenCalled();
+    expect(container.querySelectorAll("article")).toHaveLength(76);
+  });
+
+  it.each(["ar", "en"] as const)("keeps review compact but authoritative, no visible duplicate location in %s", language => {
+    locale.value = language;
+    const { container, callbacks } = review("CYCLE_COUNT", true);
+    const header = container.querySelector("header")!;
+    expect(header.querySelector(".sr-only")).toHaveTextContent("Main Warehouse");
+    expect(header.querySelector('[title="Chickpeas 750 g"]')).toHaveClass("truncate");
+    expect(header.querySelector('[role="note"]')).toHaveAttribute("title", expect.stringContaining(language === "ar" ? "الكميات الفعلية" : "actual quantities"));
+    expect(screen.getByRole("list", { name: language === "ar" ? "مراحل الجرد" : "Stocktake stages" })
+      .querySelector('[aria-current="step"]')).toHaveTextContent(language === "ar" ? "المراجعة" : "Review");
+    expect(screen.getByRole("table")).toHaveTextContent("REAL-LOT-52");
+    const approve = screen.getByRole("button", { name: language === "ar" ? "اعتماد نهائي" : "Final approval" });
+    expect(approve).toBeDisabled();
+    fireEvent.click(approve);
+    expect(callbacks.approve).not.toHaveBeenCalled();
+  });
+});
