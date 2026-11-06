@@ -24,9 +24,7 @@ from quantity import canonical_quantity
 
 router = APIRouter()
 TERMINAL = ("POSTED", "CANCELLED")
-AUDIT_TYPES = ("STOCKTAKE_COUNT_SUBMITTED", "STOCKTAKE_CANCELLED", "STOCKTAKE_APPROVED_AND_POSTED",
-               "STOCKTAKE_RECOUNT_AUTHORIZED", "STOCKTAKE_CANCEL_REJECTED",
-               "STOCKTAKE_APPROVAL_REJECTED", "STOCKTAKE_RECOUNT_AUTH_REJECTED")
+
 
 
 def _cursor(value: int, scope: str) -> str:
@@ -100,9 +98,14 @@ async def list_terminal_stocktakes(
     if exists is None:
         raise HTTPException(404, "المستودع غير موجود.")
     scope = f"{access.company_id}|{location_id}|stocktake-terminal-history"
-    query = select(StocktakeSession, ProductVariant.name.label("scope_name")).outerjoin(
+    query = select(StocktakeSession, ProductVariant.name.label("scope_name"),
+                 ProductBatch.batch_number.label("scope_batch_number")).outerjoin(
         ProductVariant, and_(ProductVariant.company_id == StocktakeSession.company_id,
                              ProductVariant.id == StocktakeSession.scope_product_variant_id)
+    ).outerjoin(
+        ProductBatch, and_(ProductBatch.company_id == StocktakeSession.company_id,
+                           ProductBatch.product_variant_id == StocktakeSession.scope_product_variant_id,
+                           ProductBatch.id == StocktakeSession.scope_batch_id)
     ).where(StocktakeSession.company_id == access.company_id,
             StocktakeSession.location_id == location_id,
             StocktakeSession.status.in_(TERMINAL))
@@ -123,7 +126,7 @@ async def list_terminal_stocktakes(
     ).where(StocktakeCountAttempt.company_id == access.company_id,
             StocktakeCountAttempt.stocktake_session_id.in_(ids)))).all() if ids else []
     latest = {int(x.stocktake_session_id): x for x in attempts if x.rank == 1}
-    actor_ids = {int(v) for row, _ in page
+    actor_ids = {int(v) for row, _, _ in page
                  for v in (row.started_by, row.approved_by, row.cancelled_by) if v is not None}
     actor_ids.update(int(x.counted_by) for x in latest.values())
     names = _names((await db.scalars(select(Driver).where(
@@ -136,6 +139,7 @@ async def list_terminal_stocktakes(
             "location_id": session.location_id, "scope_product_name": name,
             "scope_product_variant_id": session.scope_product_variant_id,
             "scope_batch_id": session.scope_batch_id,
+            "scope_batch_number": public_batch_number(batch_number),
             "started_by_name": names.get(session.started_by),
             "approved_by_name": names.get(session.approved_by),
             "cancelled_by_name": names.get(session.cancelled_by),
@@ -145,7 +149,7 @@ async def list_terminal_stocktakes(
             "cancellation_reason": session.cancellation_reason,
             "created_at": _iso(session.created_at),
             "finished_at": _iso(session.posted_at or session.cancelled_at),
-        } for session, name in page],
+        } for session, name, batch_number in page],
         "has_more": has_more,
         "next_cursor": _cursor(page[-1][0].id, scope) if has_more and page else None,
     }
@@ -176,7 +180,6 @@ async def terminal_stocktake_details(
     audit_query = select(SystemAuditLog).where(
         SystemAuditLog.company_id == access.company_id,
         SystemAuditLog.target_id == f"Stocktake_{session.id}",
-        SystemAuditLog.action_type.in_(AUDIT_TYPES),
     )
     if audit_cursor:
         audit_query = audit_query.where(SystemAuditLog.id < _decode(audit_cursor, audit_scope))
@@ -186,6 +189,21 @@ async def terminal_stocktake_details(
     names = _names((await db.scalars(select(Driver).where(
         Driver.company_id == access.company_id, Driver.id.in_(actor_ids)
     ))).all()) if actor_ids else {}
+    scope_row = None
+    if session.scope_product_variant_id is not None:
+        scope_row = (await db.execute(
+            select(ProductVariant.name, ProductBatch.batch_number)
+            .select_from(ProductVariant)
+            .outerjoin(ProductBatch, and_(
+                ProductBatch.company_id == ProductVariant.company_id,
+                ProductBatch.product_variant_id == ProductVariant.id,
+                ProductBatch.id == session.scope_batch_id,
+            ))
+            .where(
+                ProductVariant.company_id == access.company_id,
+                ProductVariant.id == session.scope_product_variant_id,
+            )
+        )).one_or_none()
     has_any_attempt = await db.scalar(select(StocktakeCountAttempt.id).where(
         StocktakeCountAttempt.company_id == access.company_id,
         StocktakeCountAttempt.stocktake_session_id == session.id,
@@ -193,6 +211,8 @@ async def terminal_stocktake_details(
     return {
         "session_id": session.id, "location_id": session.location_id,
         "reference_number": session.reference_number, "stocktake_type": session.stocktake_type,
+        "scope_product_name": scope_row[0] if scope_row else None,
+        "scope_batch_number": public_batch_number(scope_row[1]) if scope_row else None,
         "status": session.status, "scope_product_variant_id": session.scope_product_variant_id,
         "scope_batch_id": session.scope_batch_id,
         "started_by_name": names.get(session.started_by), "approved_by_name": names.get(session.approved_by),
