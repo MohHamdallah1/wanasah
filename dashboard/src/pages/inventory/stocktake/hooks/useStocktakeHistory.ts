@@ -30,6 +30,7 @@ export interface HistoryDetail {
   created_at: string; finished_at: string | null; notes: string | null;
   started_by_name: string | null; approved_by_name: string | null; cancelled_by_name: string | null;
   attempts: HistoryAttempt[]; next_cursor: string | null; audit: HistoryAudit[];
+  audit_next_cursor: string | null;
 }
 export interface HistoryFailure {
   status: number | null; code: string | null; requestId: string | null;
@@ -102,6 +103,7 @@ const parseDetail = (raw: unknown, id: number): HistoryDetail => {
       requires_independent_recount: a.requires_independent_recount === true,
     })),
     next_cursor: cursor(row.next_cursor),
+    audit_next_cursor: cursor(row.audit_next_cursor),
     audit: items(row.audit).map(a => ({
       id: asNumber(a.id), action_type: asString(a.action_type),
       actor_name: asOptional(a.actor_name), at: asOptional(a.at),
@@ -190,6 +192,26 @@ export function useStocktakeHistory({
     finally { if (seq === version.current) setBusy(false); }
   }, [detail, busy, authenticatedFetch]);
 
+  const moreAudit = useCallback(async () => {
+    if (!detail?.audit_next_cursor || busy) return;
+    const seq = ++version.current;
+    setBusy(true);
+    try {
+      const url = `/warehouse/unified/stocktake/${detail.session_id}/history?audit_cursor=${encodeURIComponent(detail.audit_next_cursor)}`;
+      const raw = parseDetail(await authenticatedFetch(url), detail.session_id);
+      if (seq !== version.current) return;
+      setDetail(prev => prev && ({
+        ...prev,
+        audit_next_cursor: raw.audit_next_cursor,
+        audit: [...prev.audit, ...raw.audit.filter(e => !prev.audit.some(p => p.id === e.id))],
+      }));
+    } catch (failure: unknown) {
+      if (seq === version.current) setError(safeFailure(failure));
+    } finally {
+      if (seq === version.current) setBusy(false);
+    }
+  }, [detail, busy, authenticatedFetch]);
+
   const loadLines = useCallback(async (attemptId: number, after?: string) => {
     if (!detail || !enabled) return;
     const seq = ++version.current;
@@ -221,6 +243,6 @@ export function useStocktakeHistory({
 
   return {
     history, nextCursor, detail, selectedAttemptId, lines, lineCursor,
-    busy, error, moreHistory, loadDetails, moreAttempts, loadLines, back,
+    busy, error, moreHistory, loadDetails, moreAttempts, moreAudit, loadLines, back,
   };
 }
