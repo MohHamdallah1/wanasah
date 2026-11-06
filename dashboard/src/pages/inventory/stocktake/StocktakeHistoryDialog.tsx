@@ -1,53 +1,32 @@
 import { History, ChevronLeft, ChevronRight } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import { useStocktakeUiCopy } from "./uiCopy";
+import { parseQuantity } from "../quantity";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import type { StocktakeAuthFetch } from "./types";
 import { useStocktakeHistory } from "./hooks/useStocktakeHistory";
 
-const labels = {
-  ar: {
-    title: "سجل الجرد", desc: "الجردات المعتمدة والملغاة في المستودع المحدد. سجل للقراءة فقط.",
-    loading: "جارٍ تحميل سجل الجرد…", error: "تعذّر عرض السجل أو ليس لديك صلاحية المراجعة.",
-    empty: "لا توجد جردات معتمدة أو ملغاة في هذا المستودع.",
-    more: "تحميل المزيد", open: "عرض التفاصيل", back: "العودة للسجل",
-    full: "جرد شامل", product: "جرد صنف", posted: "معتمد ومُرحّل", cancelled: "ملغى",
-    after: "أُلغي بعد تثبيت العد", created: "بدأ", finished: "انتهى",
-    startedBy: "بدأ بواسطة", approvedBy: "اعتمد بواسطة", cancelledBy: "أُلغي بواسطة",
-    counter: "العد بواسطة", attempt: "محاولة العد", attempts: "محاولات العد",
-    reason: "سبب الإلغاء", recountReason: "سبب إعادة العد",
-    audit: "السجل الرقابي", at: "التاريخ", action: "الإجراء",
-    showLines: "عرض الكميات", lines: "تفاصيل التشغيلات",
-    productCol: "الصنف", batch: "التشغيلة", status: "حالة البضاعة",
-    expected: "الرصيد المسجل", actual: "الكمية المعدودة", variance: "الفرق",
-    noAttempts: "أُلغي قبل تثبيت أي عد", note: "ملاحظات",
-    readOnly: "سجل ثابت، لا يمكن تعديل الجرد من هنا.",
-  },
-  en: {
-    title: "Stocktake history", desc: "Posted and cancelled counts in the selected warehouse. Read-only.",
-    loading: "Loading stocktake history…", error: "History unavailable or review permission denied.",
-    empty: "No posted or cancelled stocktakes in this warehouse.",
-    more: "Load more", open: "View details", back: "Back to history",
-    full: "Full count", product: "Product count", posted: "Posted", cancelled: "Cancelled",
-    after: "Cancelled after count submission", created: "Started", finished: "Finished",
-    startedBy: "Started by", approvedBy: "Approved by", cancelledBy: "Cancelled by",
-    counter: "Counted by", attempt: "Count attempt", attempts: "Count attempts",
-    reason: "Cancellation reason", recountReason: "Recount reason",
-    audit: "Audit trail", at: "Date", action: "Action",
-    showLines: "View quantities", lines: "Batch evidence",
-    productCol: "Product", batch: "Batch", status: "Stock status",
-    expected: "Recorded quantity", actual: "Physical count", variance: "Variance",
-    noAttempts: "Cancelled before any count submission", note: "Notes",
-    readOnly: "Immutable record. No stocktake changes can be made here.",
-  },
+
+// Locale-aware decimal rendering without converting canonical quantities to floating-point.
+const formatHistoryQuantity = (value: string, arabic: boolean): string => {
+  const parsed = parseQuantity(value, "history.quantity", { allowZero: true, allowNegative: true });
+  const [integer, decimals] = parsed.split(".");
+  const locale = arabic ? "ar-QA" : "en-GB";
+  const whole = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(BigInt(integer));
+  if (!decimals) return whole;
+  const symbols = new Intl.NumberFormat(locale, { minimumFractionDigits: 1 }).formatToParts(1.1);
+  const separator = symbols.find(part => part.type === "decimal")?.value ?? ".";
+  const digits = decimals.replace(/[0-9]/g, digit =>
+    new Intl.NumberFormat(locale, { useGrouping: false }).format(Number(digit)));
+  return `${whole}${separator}${digits}`;
 };
+
 type Props = {
   open: boolean; onOpenChange: (next: boolean) => void; locationId: number;
   enabled: boolean; authenticatedFetch: StocktakeAuthFetch;
 };
 export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled, authenticatedFetch }: Props) {
-  const { i18n } = useTranslation();
-  const isAr = (i18n.resolvedLanguage || i18n.language || "ar").startsWith("ar");
-  const t = labels[isAr ? "ar" : "en"];
+  const { copy, dir, isArabic: isAr } = useStocktakeUiCopy();
+  const t = copy.history;
   const history = useStocktakeHistory({ enabled: enabled && open, locationId, authenticatedFetch });
   const detail = history.detail;
   const format = (value: string | null | undefined) => value
@@ -60,7 +39,7 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
           <History className="h-4 w-4" aria-hidden="true" />{t.title}
         </button>
       </DialogTrigger>
-      <DialogContent dir={isAr ? "rtl" : "ltr"}
+      <DialogContent dir={dir}
         data-stocktake-history="dialog"
         className="flex max-h-[90vh] w-[calc(100vw-1rem)] max-w-5xl flex-col gap-0 overflow-hidden rounded-xl bg-white p-0">
         <DialogHeader className="shrink-0 border-b px-4 py-3 pe-12 text-start">
@@ -160,9 +139,9 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                         <tr key={line.id} className="border-b">
                           <td className="p-2">{line.product_name}</td>
                           <td className="p-2">{line.batch_number || `#${line.batch_id}`}</td>
-                          <td className="p-2">{line.stock_status}</td>
+                          <td className="p-2">{copy.stockStatuses[line.stock_status as keyof typeof copy.stockStatuses] || line.stock_status}</td>
                           {[line.expected_quantity, line.actual_quantity, line.variance_quantity].map((number, idx) => (
-                            <td key={idx} className="p-2"><bdi dir="ltr">{number}</bdi> <bdi dir="auto">{line.base_uom_name}</bdi></td>
+                            <td key={idx} className="p-2"><bdi dir="ltr">{formatHistoryQuantity(number, isAr)}</bdi> <bdi dir="auto">{line.base_uom_name}</bdi></td>
                           ))}
                         </tr>
                       ))}</tbody>
@@ -176,7 +155,7 @@ export function StocktakeHistoryDialog({ open, onOpenChange, locationId, enabled
                 <h3 className="mb-2 font-bold">{t.audit}</h3>
                 <ol className="space-y-1">{detail.audit.map(event => (
                   <li key={event.id} className="rounded bg-slate-50 p-2 text-xs">
-                    {format(event.at)} · <strong>{event.action_type}</strong> · {event.actor_name || "—"}
+                    {format(event.at)} · <strong>{t.auditActions[event.action_type as keyof typeof t.auditActions] || event.action_type}</strong> · {event.actor_name || "—"}
                     {event.old_value && <p className="break-words text-slate-500">{event.old_value}</p>}
                     {event.new_value && <p className="break-words text-slate-500">{event.new_value}</p>}
                   </li>
