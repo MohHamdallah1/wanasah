@@ -212,8 +212,11 @@ export function StocktakeCountingPanel({
               <div className="flex items-center gap-2">
                 {countEntry(row)}
               </div>
-              {isDiscoveredRow(row) ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
-                className="text-xs text-red-600 underline">{copy.discovered.remove}</button> : zeroButton(row)}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {zeroButton(row)}
+                {isDiscoveredRow(row) && <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                  className="text-xs text-red-600 underline">{copy.discovered.remove}</button>}
+              </div>
             </div>
             <div className="text-[11px] text-slate-400">{text.quantityStep}: <span dir="ltr">{row.quantity_step}</span></div>
           </article>
@@ -254,10 +257,13 @@ export function StocktakeCountingPanel({
                     <span className="text-[10px] text-slate-400">{text.step} <span dir="ltr">{row.quantity_step}</span></span>
                   </div>
                 </td>
-                <td className="px-3 py-2 text-center">{isDiscoveredRow(row)
-                  ? <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
-                    className="text-xs text-red-600 underline">{copy.discovered.remove}</button>
-                  : zeroButton(row)}</td>
+                <td className="px-3 py-2 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    {zeroButton(row)}
+                    {isDiscoveredRow(row) && <button type="button" onClick={() => onRemoveDiscovered(row.row_key)}
+                      className="text-xs text-red-600 underline">{copy.discovered.remove}</button>}
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
