@@ -45,7 +45,7 @@ export function StocktakeCountingPanel({
   onCancel,
   onSubmit,
 }: StocktakeCountingPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { copy, dir } = useStocktakeUiCopy();
   const panelRef = useRef<HTMLDivElement>(null);
   const text = copy.counting;
@@ -92,6 +92,7 @@ export function StocktakeCountingPanel({
         data-stocktake-part={part}
         data-stocktake-row={row.row_key}
         inputMode={part === "outer" ? "numeric" : "decimal"}
+        maxLength={48}
         aria-invalid={invalid}
         aria-label={`${text.actualFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]} — ${unitName}`}
         value={value}
@@ -117,7 +118,14 @@ export function StocktakeCountingPanel({
           {row.base_uom_name} {countInput(row)}
         </label>
         {dual && factor !== null && <span className="text-[10px] text-slate-500" dir="auto">
-          {text.unitFactor(row.count_outer_uom_name!, factor.toString(), row.base_uom_name)}
+          {text.unitFactor(
+            row.count_outer_uom_name!,
+            new Intl.NumberFormat(i18n.resolvedLanguage || i18n.language || "ar", {
+              numberingSystem: dir === "rtl" ? "arab" : "latn",
+              useGrouping: false,
+            }).format(factor),
+            row.base_uom_name,
+          )}
         </span>}
       </div>
     );
