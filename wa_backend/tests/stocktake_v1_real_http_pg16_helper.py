@@ -518,19 +518,19 @@ async def assert_real_http_stocktake(
             ))).all()
             assert "STOCKTAKE_APPROVAL_REJECTED" in direct_audits
             assert "STOCKTAKE_APPROVED_AND_POSTED" in direct_audits
-            current_a1 = await db.scalar(select(InventoryBalance.on_hand_quantity).where(
+            current_a2 = await db.scalar(select(InventoryBalance.on_hand_quantity).where(
                 InventoryBalance.company_id == a.company_id,
-                InventoryBalance.location_id == a.a1,
+                InventoryBalance.location_id == a.a2,
                 InventoryBalance.product_variant_id == a.variant,
                 InventoryBalance.batch_id == a.batch,
                 InventoryBalance.stock_status == "AVAILABLE",
             ))
-            assert current_a1 is not None and Decimal(current_a1) > Decimal("0.125")
-            physical_a1 = Decimal(current_a1)
+            assert current_a2 is not None and Decimal(current_a2) > Decimal("0.125")
+            physical_a2 = Decimal(current_a2)
 
         new_optional = _check(await client.post(base + "/start", json={
             "request_id": _body_id(),
-            "location_id": a.a1,
+            "location_id": a.a2,
             "stocktake_type": "CYCLE_COUNT",
             "product_variant_id": a.variant,
             "batch_id": a.batch,
@@ -540,7 +540,7 @@ async def assert_real_http_stocktake(
         blind_sheet = _check(await client.get(f"{base}/{optional_recount_sid}/count-sheet",
                                              headers=auth_header))
         assert len(blind_sheet) == 1 and "expected_quantity" not in blind_sheet[0]
-        next_qty = format(physical_a1 - Decimal("0.125"), "f")
+        next_qty = format(physical_a2 - Decimal("0.125"), "f")
         row = {
             "product_variant_id": blind_sheet[0]["product_variant_id"],
             "batch_id": blind_sheet[0]["batch_id"],
