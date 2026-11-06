@@ -31,6 +31,7 @@ interface UseStocktakeCountingArgs {
 /** Final payload gate; explicit zero is counted only after the operator confirmed it. */
 export function isRowReadyForCountSubmit(row: StocktakeRow): boolean {
   if (!row.counted || validBaseCount(row, row.actual_quantity) === null) return false;
+  if (isDiscoveredRow(row) && validBaseCount(row, row.actual_quantity) === "0") return false;
   if (row.actual_quantity === "0") {
     return (row.count_outer_quantity === undefined || row.count_outer_quantity === "" || row.count_outer_quantity === "0") &&
       (row.count_base_quantity === undefined || row.count_base_quantity === "" || row.count_base_quantity === "0");
@@ -239,7 +240,7 @@ export function useStocktakeCounting({
   }, [setRows]);
 
   const confirmZeroCount = useCallback((key: string) => {
-    setRows((prev) => prev.map((row) => row.row_key === key
+    setRows((prev) => prev.map((row) => row.row_key === key && !isDiscoveredRow(row)
       ? {
           ...row, actual_quantity: "0", counted: true,
           count_outer_quantity: "", count_base_quantity: "0",
