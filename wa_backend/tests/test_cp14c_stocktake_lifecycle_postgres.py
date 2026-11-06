@@ -1897,6 +1897,57 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             recounter_password=RECOUNT_PASSWORD,
         )
 
+        # History cursor regression: synthetic terminal metadata-only fixtures
+        # are permissible here to test >200 keyset rows. They are NOT stock
+        # movements, approved counts or real accounting evidence.
+        async with AsyncSession(admin_engine, expire_on_commit=False) as admin:
+            await admin.execute(
+                text("SELECT set_config('app.current_tenant', :tenant, true)"),
+                {"tenant": str(a.company_id)},
+            )
+            for index in range(205):
+                now = utc_now()
+                admin.add(StocktakeSession(
+                    company_id=a.company_id, location_id=a.a2,
+                    reference_number=f"STK-HISTORY-PAGING-{index}-{uuid4().hex[:6]}",
+                    stocktake_type="CYCLE_COUNT", status="CANCELLED",
+                    scope_product_variant_id=a.variant,
+                    started_by=a.operator.driver_id,
+                    cancelled_by=a.operator.driver_id,
+                    cancellation_reason="Synthetic terminal pagination fixture",
+                    created_at=now, updated_at=now, cancelled_at=now,
+                ))
+            await admin.commit()
+        async with _runtime_session(runtime_engine, a.company_id) as db:
+            found_ids = set()
+            after = None
+            pages = 0
+            while True:
+                result = await stocktake_history.list_stocktake_history(
+                    location_id=a.a2, cursor=after, limit=50,
+                    db=db, access=a.operator.access(db),
+                )
+                pages += 1
+                for item in result["items"]:
+                    assert item["id"] not in found_ids
+                    found_ids.add(item["id"])
+                    assert item["location_id"] == a.a2
+                    assert item["status"] in {"CANCELLED", "POSTED"}
+                if not result["has_more"]:
+                    assert result["next_cursor"] is None
+                    break
+                after = result["next_cursor"]
+                assert after and pages <= 8
+            assert len(found_ids) >= 205 and pages >= 5
+            assert {rollback_session, cancel_session}.issubset(found_ids)
+            with pytest.raises(HTTPException) as invalid_cursor:
+                await stocktake_history.list_stocktake_history(
+                    location_id=a.a2, cursor="tampered-history-cursor", limit=50,
+                    db=db, access=a.operator.access(db),
+                )
+            assert invalid_cursor.value.status_code == 400
+            print("CP14C_TERMINAL_HISTORY_GT200_PAGED_NO_LEAK=PASS")
+
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")
         print("CP14C_VARIANCE_RECOUNT=PASS")
         print("CP14C_CANCEL=PASS")
