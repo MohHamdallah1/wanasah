@@ -139,4 +139,45 @@ describe("Stocktake V1 #779 canonical Review evidence parity", () => {
     expect(screen.queryByText(/Shelf discrepancy confirmed/)).not.toBeInTheDocument();
     expect(container.querySelectorAll("time")).toHaveLength(1);
   });
+
+  it.each([
+    ["ar", "rtl"],
+    ["en", "ltr"],
+  ] as const)("keeps numeric amount/sign before Arabic base unit in %s on mobile and desktop", (locale, direction) => {
+    language.value = locale;
+    const entry = {
+      ...line(104, "SNAPSHOT", null),
+      base_uom_name: "حبة",
+      expected_quantity: "20",
+      actual_quantity: "18",
+      variance_quantity: "-2",
+    };
+    const review = parseStocktakeReview({
+      ...rawReview, lines: [entry],
+    });
+    const { container } = render(<StocktakeReviewPanel
+      review={review}
+      totals={{ total: 1, matched: 0, shortage: 1, overage: 0, varianceItems: 1 }}
+      approvalBlocked={true}
+      canCancel={false} onCancel={vi.fn()}
+      canRecount={true} onRecount={vi.fn()}
+      canApprove={false} onApprove={vi.fn()} onVariance={vi.fn()}
+    />);
+    for (const surface of [
+      container.querySelector(".md\\:hidden"),
+      container.querySelector("table"),
+    ]) {
+      expect(surface).not.toBeNull();
+      const display = Array.from(surface!.querySelectorAll('[data-stocktake-review-quantity="true"]'));
+      expect(display).toHaveLength(3);
+      for (const [index, number] of ["20", "18", "-2"].entries()) {
+        const amount = display[index];
+        expect(amount).toHaveAttribute("dir", direction);
+        expect(amount).toHaveAttribute("aria-label", `${number} حبة`);
+        expect(amount.querySelector('bdi[dir="ltr"]')).toHaveTextContent(number);
+        expect(amount.querySelector('bdi[dir="auto"]')).toHaveTextContent("حبة");
+      }
+    }
+  });
+
 });
