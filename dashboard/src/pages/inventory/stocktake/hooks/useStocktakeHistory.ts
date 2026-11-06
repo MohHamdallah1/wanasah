@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StocktakeAuthFetch } from "../types";
+import { apiErrorMessage } from "@/lib/apiErrors";
+import i18n from "@/i18n";
 
 export interface HistorySession {
   id: number; reference_number: string; status: "POSTED" | "CANCELLED";
@@ -97,7 +99,7 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
     } catch (cause: unknown) {
       if (version === seq.current.list) {
         if (!cursor) { setSessions([]); setNext(null); }
-        setError(cause instanceof Error ? cause.message : String(cause));
+        setError(apiErrorMessage(cause, i18n.t("errors.unexpected")));
       }
     } finally {
       if (version === seq.current.list) { setLoading(false); setLoadingMore(false); }
@@ -122,7 +124,7 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
         : response.items);
       setLinesNext(response.next_cursor);
     } catch (cause: unknown) {
-      if (version === seq.current.lines) setError(cause instanceof Error ? cause.message : String(cause));
+      if (version === seq.current.lines) setError(apiErrorMessage(cause, i18n.t("errors.unexpected")));
     } finally { if (version === seq.current.lines) setLoadingLines(false); }
   }, [authenticatedFetch, enabled, locationId]);
 
@@ -130,7 +132,7 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
     if (!enabled) return;
     const version = ++seq.current.detail;
     ++seq.current.lines;
-    setDetail(null); setLines([]); setAttemptId(null); setError(null); setLoadingDetail(true);
+    setDetail(null); setLines([]); setAttemptId(null); setError(null); setLoadingMore(false); setLoadingDetail(true);
     try {
       const response = await authenticatedFetch(BASE + "/" + id + "?" + params(locationId, null));
       if (version !== seq.current.detail) return;
@@ -143,7 +145,7 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
       setDetail(loaded);
       if (loaded.attempts.items[0]) void selectAttempt(id, loaded.attempts.items[0].id);
     } catch (cause: unknown) {
-      if (version === seq.current.detail) setError(cause instanceof Error ? cause.message : String(cause));
+      if (version === seq.current.detail) setError(apiErrorMessage(cause, i18n.t("errors.unexpected")));
     } finally { if (version === seq.current.detail) setLoadingDetail(false); }
   }, [authenticatedFetch, enabled, locationId, selectAttempt]);
 
@@ -181,14 +183,14 @@ export function useStocktakeHistory({ enabled, locationId, authenticatedFetch }:
         } };
       });
     } catch (cause: unknown) {
-      if (version === seq.current.detail) setError(cause instanceof Error ? cause.message : String(cause));
+      if (version === seq.current.detail) setError(apiErrorMessage(cause, i18n.t("errors.unexpected")));
     } finally { if (version === seq.current.detail) setLoadingMore(false); }
   }, [authenticatedFetch, detail, enabled, locationId, loadingMore]);
 
   const back = useCallback(() => {
     ++seq.current.detail; ++seq.current.lines;
     setDetail(null); setLines([]); setLinesNext(null); setAttemptId(null);
-    setLoadingDetail(false); setLoadingLines(false); setError(null);
+    setLoadingDetail(false); setLoadingLines(false); setLoadingMore(false); setError(null);
   }, []);
   useEffect(() => {
     ++seq.current.list; ++seq.current.detail; ++seq.current.lines;
