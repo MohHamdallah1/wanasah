@@ -315,6 +315,38 @@ async def assert_real_http_stocktake(
         approved = _check(await client.post(f"{base}/{sid}/approve",
                                             json=approval, headers=auth_header))
         assert approved["status"] == "POSTED"
+        # Genuine authorization through real login/Bearer and restricted RLS.
+        archive = _check(await client.get(
+            "/warehouse/unified/stocktakes/history",
+            params={"location_id": a.a2, "limit": 50},
+            headers=auth_header,
+        ))
+        assert any(int(item["id"]) == sid and item["status"] == "POSTED"
+                   for item in archive["items"]), archive
+        assert (await client.get(
+            "/warehouse/unified/stocktakes/history",
+            params={"location_id": a.a2}, headers=denied_header,
+        )).status_code == 403
+        assert (await client.get(
+            "/warehouse/unified/stocktakes/history",
+            params={"location_id": b.a1}, headers=auth_header,
+        )).status_code in (403, 404)
+        history = _check(await client.get(
+            f"{base}/{sid}/history", headers=auth_header,
+        ))
+        assert history["status"] == "POSTED"
+        assert len(history["attempts"]) == 2
+        assert any(event["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED"
+                   for event in history["audit"])
+        for attempt in history["attempts"]:
+            evidence = _check(await client.get(
+                f"{base}/{sid}/history/attempts/{attempt['id']}/lines",
+                params={"limit": 100}, headers=auth_header,
+            ))
+            assert len(evidence["items"]) == len(submission["items"])
+            assert all("expected_quantity" in line and "actual_quantity" in line
+                       and "variance_quantity" in line for line in evidence["items"])
+        print("CP14C_REAL_BEARER_TERMINAL_HISTORY_POSTED_RLS_ATTEMPT_LINES=PASS")
         assert int(approved["movement_count"]) == 2, {"approval": approved, "review_lines": second_review["lines"]}
         assert _check(await client.post(f"{base}/{sid}/approve",
                                         json=approval, headers=auth_header)) == approved
