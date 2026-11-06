@@ -46,6 +46,7 @@ const detail = (id: number) => ({
       submitted_at: "2026-11-06T08:20:00Z", recount_reason: null, requires_independent_recount: true,
       recount_of_attempt_id: null },
   ], next_cursor: null, has_more: false },
+  movements: { items: [], next_cursor: null, has_more: false },
   audit: { items: [
     { id: 999, action_type: "STOCKTAKE_CANCELLED", actor_name: "Owner",
       timestamp: "2026-11-06T09:00:00Z", details: { reason: "Physical recount aborted" } },
