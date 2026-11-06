@@ -72,12 +72,18 @@ export function Tab3Stocktake({
   const warehouseAccess = useInventoryAccess(locationId);
   const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
   const canReadStocktake = warehouseAccess.can("stocktake.read");
+  const canReviewHistory = warehouseAccess.can("stocktake.review");
 
   // A retained tab must not leave a portal open after access or location changes.
   // Its count/review drafts remain owned by the location-keyed existing state hook.
   useEffect(() => {
     if (!active || !canReadStocktake) { setShowSessions(false); setShowHistory(false); }
   }, [active, canReadStocktake, locationId]);
+  // An open archive must not follow a changed company/location or a revoked
+  // reviewer permission; its hook clears all response data on unmount/close.
+  useEffect(() => {
+    setShowHistory(false);
+  }, [active, companyId, locationId, canReviewHistory]);
   const durableIdentity = warehouseAccess.data
     ? {
         companyId: warehouseAccess.data.company_id,
@@ -256,7 +262,7 @@ export function Tab3Stocktake({
             open={showHistory}
             onOpenChange={setShowHistory}
             locationId={locationId}
-            enabled={active && warehouseAccess.can("stocktake.review")}
+            enabled={active && canReviewHistory}
             authenticatedFetch={authenticatedFetch}
           />
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
