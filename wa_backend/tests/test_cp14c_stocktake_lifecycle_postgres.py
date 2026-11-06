@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from api import dispatch
-from api.warehouse import ledger, locations, stocktake, stocktake_discovery, transfer_policy, transfers
+from api.warehouse import ledger, locations, stocktake, stocktake_discovery, stocktake_history, transfer_policy, transfers
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
@@ -1125,6 +1125,51 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert evidence["source_location_id"] == a.a1
             assert evidence["destination_location_id"] is None
 
+            # Terminal POSTED is no longer in active sessions, but auditable
+            # after review authorization, including BOTH immutable attempts.
+            terminal = await stocktake_history.list_stocktake_history(
+                location_id=a.a1, cursor=None, limit=20,
+                db=db, access=a.operator.access(db),
+            )
+            posted = next(row for row in terminal["items"] if row["id"] == session_id)
+            assert posted["status"] == "POSTED"
+            assert posted["attempt_number"] == 2
+            assert posted["counted_by_name"]
+            detail = await stocktake_history.get_stocktake_history_detail(
+                session_id, location_id=a.a1, db=db, access=a.operator.access(db),
+            )
+            assert detail["session"]["adjustment_movement_count"] == 1
+            assert [item["attempt_number"] for item in detail["attempts"]["items"]] == [2, 1]
+            assert any(row["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED"
+                       for row in detail["audit"]["items"])
+            older = detail["attempts"]["items"][-1]
+            old_lines = await stocktake_history.get_stocktake_history_attempt_lines(
+                session_id, older["id"], location_id=a.a1, cursor=None,
+                limit=1, db=db, access=a.operator.access(db),
+            )
+            assert old_lines["items"][0]["expected_quantity"] == "10.125"
+            assert old_lines["items"][0]["actual_quantity"] == "9.875"
+            assert old_lines["items"][0]["variance_quantity"] == "-0.25"
+            assert old_lines["items"][0]["batch_id"] == a.batch
+            assert old_lines["items"][0]["stock_status"] == "AVAILABLE"
+            assert old_lines["items"][0]["base_uom_id"] == a.uom
+            with pytest.raises(HTTPException) as count_only:
+                await stocktake_history.get_stocktake_history_detail(
+                    session_id, location_id=a.a1, db=db, access=a.counter.access(db),
+                )
+            assert count_only.value.status_code == 403
+            with pytest.raises(HTTPException) as wrong_warehouse:
+                await stocktake_history.get_stocktake_history_detail(
+                    session_id, location_id=a.a2, db=db, access=a.operator.access(db),
+                )
+            assert wrong_warehouse.value.status_code == 404
+            with pytest.raises(HTTPException) as foreign_terminal:
+                await stocktake_history.get_stocktake_history_detail(
+                    b_session_id, location_id=b.a1, db=db, access=a.operator.access(db),
+                )
+            assert foreign_terminal.value.status_code == 404
+            print("CP14C_TERMINAL_POSTED_REVIEW_ATTEMPT_LINES_ROLE_TENANT=PASS")
+
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, rollback_started = await _start(db, a.operator, a.a2)
             rollback_session = int(rollback_started["session_id"])
@@ -1278,6 +1323,24 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
+            cancelled_details = await stocktake_history.get_stocktake_history_detail(
+                rollback_session, location_id=a.a2, db=db,
+                access=a.operator.access(db),
+            )
+            assert cancelled_details["session"]["cancelled_after_count"] is True
+            assert cancelled_details["session"]["cancellation_reason"] == "resolve injected failure"
+            assert cancelled_details["session"]["adjustment_movement_count"] == 0
+            assert len(cancelled_details["attempts"]["items"]) == 1
+            cancelled_lines = await stocktake_history.get_stocktake_history_attempt_lines(
+                rollback_session, rollback_attempt["attempt_id"], location_id=a.a2,
+                cursor=None, limit=10, db=db, access=a.operator.access(db),
+            )
+            assert cancelled_lines["items"][0]["expected_quantity"] == "0"
+            assert cancelled_lines["items"][0]["actual_quantity"] == "1"
+            assert cancelled_lines["items"][0]["variance_quantity"] == "1"
+            assert any(ev["action_type"] == "STOCKTAKE_CANCELLED"
+                       for ev in cancelled_details["audit"]["items"])
+            print("CP14C_TERMINAL_CANCEL_AFTER_COUNT_IMMUTABLE_ZERO_LEDGER=PASS")
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             _, cancel_started = await _start(db, a.operator, a.a2)
@@ -1324,6 +1387,22 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
+            no_count = await stocktake_history.get_stocktake_history_detail(
+                cancel_session, location_id=a.a2, db=db, access=a.operator.access(db),
+            )
+            assert no_count["attempts"]["items"] == []
+            assert no_count["session"]["cancelled_after_count"] is False
+            assert no_count["session"]["adjustment_movement_count"] == 0
+            terminal_list = await stocktake_history.list_stocktake_history(
+                location_id=a.a2, cursor=None, limit=10,
+                db=db, access=a.operator.access(db),
+            )
+            assert {cancel_session, rollback_session}.issubset({
+                row["id"] for row in terminal_list["items"]
+            })
+            assert next(row for row in terminal_list["items"]
+                        if row["id"] == rollback_session)["cancelled_after_count"] is True
+            print("CP14C_TERMINAL_CANCEL_BEFORE_COUNT_PRESENT=PASS")
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             await apply_inventory_movement(
