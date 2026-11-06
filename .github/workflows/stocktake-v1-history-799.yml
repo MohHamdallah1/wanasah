@@ -7,6 +7,7 @@ on:
       - "wa_backend/api/warehouse/stocktake_history.py"
       - "wa_backend/api/warehouse/stocktake_discovery.py"
       - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py"
       - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
       - "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx"
       - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts"
@@ -60,6 +61,7 @@ jobs:
               "wa_backend/api/warehouse/stocktake_history.py",
               "wa_backend/api/warehouse/stocktake_discovery.py",
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
               "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx",
               "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts",
