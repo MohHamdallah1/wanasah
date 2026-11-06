@@ -155,6 +155,7 @@ async def list_terminal_stocktakes(
 async def terminal_stocktake_details(
     session_id: int,
     cursor: Optional[str] = Query(default=None, max_length=1024),
+    audit_cursor: Optional[str] = Query(default=None, max_length=1024),
     limit: int = Query(default=30, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
@@ -171,12 +172,16 @@ async def terminal_stocktake_details(
     page = rows[:limit]
     actor_ids = {int(v) for v in (session.started_by, session.approved_by, session.cancelled_by) if v is not None}
     actor_ids.update(int(v) for attempt in page for v in (attempt.counted_by, attempt.authorized_by) if v is not None)
-    audit = (await db.scalars(select(SystemAuditLog).where(
+    audit_scope = f"{access.company_id}|{session.id}|terminal-audit"
+    audit_query = select(SystemAuditLog).where(
         SystemAuditLog.company_id == access.company_id,
         SystemAuditLog.target_id == f"Stocktake_{session.id}",
         SystemAuditLog.action_type.in_(AUDIT_TYPES),
-    ).order_by(SystemAuditLog.id.desc()).limit(101))).all()
-    audit = audit[:100]
+    )
+    if audit_cursor:
+        audit_query = audit_query.where(SystemAuditLog.id < _decode(audit_cursor, audit_scope))
+    audit_rows = (await db.scalars(audit_query.order_by(SystemAuditLog.id.desc()).limit(101))).all()
+    audit = audit_rows[:100]
     actor_ids.update(int(a.admin_id) for a in audit if a.admin_id is not None)
     names = _names((await db.scalars(select(Driver).where(
         Driver.company_id == access.company_id, Driver.id.in_(actor_ids)
@@ -202,6 +207,7 @@ async def terminal_stocktake_details(
             "submitted_at": _iso(a.submitted_at),
         } for a in page],
         "next_cursor": _cursor(page[-1].id, scope) if len(rows) > limit and page else None,
+        "audit_next_cursor": _cursor(audit[-1].id, audit_scope) if len(audit_rows) > 100 and audit else None,
         "audit": [{
             "id": a.id, "action_type": a.action_type, "actor_name": names.get(a.admin_id),
             "at": _iso(a.timestamp), "old_value": a.old_value, "new_value": a.new_value,
