@@ -196,7 +196,7 @@ export function useStocktakeCounting({
       const counted = canonical !== null && canonical !== "0";
       return {
         ...row,
-        actual_quantity: counted ? canonical : value,
+        actual_quantity: value, // preserve the exact operator keystrokes while editing
         count_outer_quantity: "",
         count_base_quantity: value,
         counted,
@@ -240,7 +240,11 @@ export function useStocktakeCounting({
 
   const rowIsCounted = (row: StocktakeRow): boolean => {
     if (!row.counted || validBaseCount(row, row.actual_quantity) === null) return false;
-    if (row.actual_quantity === "0") return true; // Only Confirm Zero can mark this true.
+    if (row.actual_quantity === "0") {
+      // Confirm Zero is an assertion, not a computed sum from malformed parts.
+      return (row.count_outer_quantity === undefined || row.count_outer_quantity === "" || row.count_outer_quantity === "0") &&
+        (row.count_base_quantity === undefined || row.count_base_quantity === "" || row.count_base_quantity === "0");
+    }
     if (countOuterFactor(row) !== null && row.count_outer_quantity !== undefined &&
         row.count_base_quantity !== undefined) {
       return calculateCount(row, row.count_outer_quantity, row.count_base_quantity) === row.actual_quantity;
