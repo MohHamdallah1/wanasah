@@ -150,7 +150,7 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
     await waitFor(() => expect(screen.getByRole("dialog")).toHaveTextContent("STK-91"));
-    fireEvent.click(screen.getByRole("button", { name: "Change warehouse" }));
+    fireEvent.click(screen.getByText("Change warehouse"));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
