@@ -25,7 +25,7 @@ from domains.live_stock_projection.service import rebuild_live_stock_company
 from models import (
     Company, Driver, InventoryBalance, InventoryCostEvent, InventoryCostState,
     InventoryLock, InventoryMovement, ProductBatch, StocktakeSession,
-    StocktakeCountAttempt, SystemAuditLog, SystemSetting,
+    StocktakeCountAttempt, SystemAuditLog, SystemSetting, UserLocationAccess,
 )
 
 
@@ -59,7 +59,7 @@ async def assert_real_http_stocktake(
     async with AsyncSession(admin_engine, expire_on_commit=False) as db:
         await db.execute(text("SELECT set_config('app.current_tenant', :c, true)"),
                          {"c": str(a.company_id)})
-        await grant_location(
+        counter_a2_grants = await grant_location(
             db, company_id=a.company_id, driver_id=a.counter.driver_id,
             location_id=a.a2,
             codes=("stocktake.read", "stocktake.count", "stocktake.recount"),
@@ -435,6 +435,15 @@ async def assert_real_http_stocktake(
             await config_db.execute(delete(SystemSetting).where(
                 SystemSetting.company_id == a.company_id,
                 SystemSetting.setting_key == "stocktake_material_shortage_packs",
+            ))
+            # Remove only this test's temporary A2 recount grant, which was
+            # needed for the earlier mandatory two-actor journey. The counter
+            # remains a real authorized recount actor at A1, not at A2.
+            await config_db.execute(delete(UserLocationAccess).where(
+                UserLocationAccess.company_id == a.company_id,
+                UserLocationAccess.driver_id == a.counter.driver_id,
+                UserLocationAccess.location_id == a.a2,
+                UserLocationAccess.role_id == counter_a2_grants["stocktake.recount"],
             ))
             await config_db.commit()
             historical = await config_db.get(StocktakeCountAttempt, first_attempt)
