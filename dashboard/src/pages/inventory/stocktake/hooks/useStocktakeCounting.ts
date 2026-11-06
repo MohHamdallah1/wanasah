@@ -28,6 +28,21 @@ interface UseStocktakeCountingArgs {
   onSubmitted: (sessionId: string, sessionLocationId: number) => Promise<void>;
 }
 
+/** Final payload gate; explicit zero is counted only after the operator confirmed it. */
+export function isRowReadyForCountSubmit(row: StocktakeRow): boolean {
+  if (!row.counted || validBaseCount(row, row.actual_quantity) === null) return false;
+  if (row.actual_quantity === "0") {
+    return (row.count_outer_quantity === undefined || row.count_outer_quantity === "" || row.count_outer_quantity === "0") &&
+      (row.count_base_quantity === undefined || row.count_base_quantity === "" || row.count_base_quantity === "0");
+  }
+  if (countOuterFactor(row) !== null && row.count_outer_quantity !== undefined &&
+      row.count_base_quantity !== undefined) {
+    return calculateCount(row, row.count_outer_quantity, row.count_base_quantity) ===
+      validBaseCount(row, row.actual_quantity);
+  }
+  return true;
+}
+
 export function useStocktakeCounting({
   durableIdentity,
   companyScope,
@@ -238,19 +253,6 @@ export function useStocktakeCounting({
       : row));
   }, [setRows]);
 
-  const rowIsCounted = (row: StocktakeRow): boolean => {
-    if (!row.counted || validBaseCount(row, row.actual_quantity) === null) return false;
-    if (row.actual_quantity === "0") {
-      // Confirm Zero is an assertion, not a computed sum from malformed parts.
-      return (row.count_outer_quantity === undefined || row.count_outer_quantity === "" || row.count_outer_quantity === "0") &&
-        (row.count_base_quantity === undefined || row.count_base_quantity === "" || row.count_base_quantity === "0");
-    }
-    if (countOuterFactor(row) !== null && row.count_outer_quantity !== undefined &&
-        row.count_base_quantity !== undefined) {
-      return calculateCount(row, row.count_outer_quantity, row.count_base_quantity) === row.actual_quantity;
-    }
-    return true;
-  };
 
   const addDiscoveredRow = useCallback((row: DiscoveredRow): boolean => {
     if (rows.length >= 10_000 || rows.some((existing) => existing.row_key === row.row_key) ||
@@ -265,7 +267,7 @@ export function useStocktakeCounting({
   }, [setRows]);
 
   const countProgress = useMemo(() => {
-    const counted = rows.filter(rowIsCounted).length;
+    const counted = rows.filter(isRowReadyForCountSubmit).length;
     return { total: rows.length, counted, remaining: rows.length - counted };
   }, [rows]);
 
@@ -278,7 +280,7 @@ export function useStocktakeCounting({
       toast.error(copy.count.missingLocation);
       return false;
     }
-    const uncounted = rows.filter((row) => !rowIsCounted(row));
+    const uncounted = rows.filter((row) => !isRowReadyForCountSubmit(row));
     // The empty-sheet case must never silently create a count attempt.
     if (rows.length === 0 || uncounted.length > 0) {
       toast.error(copy.count.remaining(uncounted.length || 1));
