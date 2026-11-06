@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import type { LedgerEntry } from "@/pages/inventory/ledger/contracts";
 
@@ -97,8 +98,10 @@ const page = (items: LedgerEntry[], next: string | null = null) => ({
   available_types: ["TRANSFER", "INBOUND_SUPPLIER"],
 });
 
-const renderLedger = (locationId = 11) => render(
-  <Tab4Ledger locationId={locationId} refreshKey={0} onInventoryChanged={() => undefined} />,
+const renderLedger = (locationId = 11, initialEntry = "/inventory") => render(
+  <MemoryRouter initialEntries={[initialEntry]}>
+    <Tab4Ledger locationId={locationId} refreshKey={0} onInventoryChanged={() => undefined} />
+  </MemoryRouter>,
 );
 
 beforeEach(() => {
@@ -108,6 +111,29 @@ beforeEach(() => {
 });
 
 describe("CP10 Ledger Dashboard", () => {
+  it("filters the exact STK reference and clears it without leaking prior rows", async () => {
+    const lookup: string[] = [];
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      const params = new URLSearchParams(path.split("?")[1]);
+      if (path.startsWith("/warehouse/ledger/cursor?")) {
+        lookup.push(path);
+        if (params.get("reference_id") === "STK-ABC") return page([entry(91, {
+          type: "AUDIT_ADJUSTMENT", reference_type: "AUDIT_ADJUSTMENT",
+          reference: "STK-ABC", quantity: "-2",
+        })]);
+        return page([]);
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    renderLedger(11, "/inventory?ledger_ref=STK-ABC&ledger_location=11");
+    expect(await screen.findAllByText("Stocktake adjustment")).not.toHaveLength(0);
+    expect(lookup.some(path => path.includes("reference_type=AUDIT_ADJUSTMENT") &&
+      path.includes("reference_id=STK-ABC") && path.includes("location_id=11"))).toBe(true);
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Show all movements"}));
+    expect(await screen.findByRole("searchbox")).toBeInTheDocument();
+  });
+
   it("renders LTR desktop/mobile evidence with public nullable lot and native controls", async () => {
     mocks.authFetch.mockImplementation(async (path: string) => {
       if (path.startsWith("/warehouse/ledger/cursor?")) return page([entry(1, { batch_number: null })]);
