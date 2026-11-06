@@ -28,6 +28,7 @@ from sqlalchemy.pool import NullPool
 
 from api import dispatch
 from api.warehouse import ledger, locations, stocktake, stocktake_discovery, transfer_policy, transfers
+from api.warehouse import stocktake_history
 from context import tenant_context
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.authorization.capabilities import PERMISSIONS
@@ -1324,6 +1325,95 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 legacy_actor=a.operator.operational_driver,
             )
             assert cancelled["status"] == "CANCELLED"
+
+            # Terminal archive: posted belongs to A1; two cancellations belong
+            # only to A2, one after a genuine posted count attempt.
+            posted_page = await stocktake_history.list_terminal_stocktakes(
+                location_id=a.a1, cursor=None, limit=50, db=db,
+                access=a.operator.access(db),
+            )
+            assert any(x["id"] == session_id and x["status"] == "POSTED"
+                       for x in posted_page["items"])
+            cancelled_page = await stocktake_history.list_terminal_stocktakes(
+                location_id=a.a2, cursor=None, limit=1, db=db,
+                access=a.operator.access(db),
+            )
+            assert cancelled_page["has_more"] is True
+            assert cancelled_page["next_cursor"]
+            cancelled_page_2 = await stocktake_history.list_terminal_stocktakes(
+                location_id=a.a2, cursor=cancelled_page["next_cursor"], limit=1,
+                db=db, access=a.operator.access(db),
+            )
+            archive = cancelled_page["items"] + cancelled_page_2["items"]
+            assert {x["id"] for x in archive} == {rollback_session, cancel_session}
+            assert next(x for x in archive if x["id"] == rollback_session)["cancelled_after_count"] is True
+            assert next(x for x in archive if x["id"] == cancel_session)["cancelled_after_count"] is False
+            with pytest.raises(HTTPException) as foreign_history:
+                await stocktake_history.list_terminal_stocktakes(
+                    location_id=b.a1, cursor=None, limit=50, db=db,
+                    access=a.operator.access(db),
+                )
+            assert foreign_history.value.status_code in {403, 404}
+            with pytest.raises(HTTPException) as count_only:
+                await stocktake_history.list_terminal_stocktakes(
+                    location_id=a.a2, cursor=None, limit=50, db=db,
+                    access=a.counter.access(db),
+                )
+            assert count_only.value.status_code == 403
+            with pytest.raises(HTTPException) as forged_cursor:
+                await stocktake_history.list_terminal_stocktakes(
+                    location_id=a.a1, cursor=cancelled_page["next_cursor"], limit=50,
+                    db=db, access=a.operator.access(db),
+                )
+            assert forged_cursor.value.status_code == 400
+
+            detail = await stocktake_history.terminal_stocktake_details(
+                rollback_session, cursor=None, limit=30, db=db,
+                access=a.operator.access(db),
+            )
+            assert detail["status"] == "CANCELLED"
+            assert detail["cancelled_after_count"] is True
+            assert detail["cancellation_reason"] == "resolve injected failure"
+            assert len(detail["attempts"]) == 1
+            assert detail["attempts"][0]["id"] == rollback_attempt["attempt_id"]
+            assert any(a["action_type"] == "STOCKTAKE_COUNT_SUBMITTED" for a in detail["audit"])
+            assert any(a["action_type"] == "STOCKTAKE_CANCELLED" for a in detail["audit"])
+            detail_lines = await stocktake_history.terminal_stocktake_attempt_lines(
+                rollback_session, rollback_attempt["attempt_id"], cursor=None,
+                limit=100, db=db, access=a.operator.access(db),
+            )
+            assert len(detail_lines["items"]) == 1
+            count_line = detail_lines["items"][0]
+            assert count_line["line_origin"] == "DISCOVERED"
+            assert count_line["batch_id"] == a.batch
+            assert count_line["actual_quantity"] == "1"
+            assert count_line["expected_quantity"] == "0"
+            assert count_line["variance_quantity"] == "1"
+            assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
+                InventoryMovement.company_id == a.company_id,
+                InventoryMovement.stocktake_session_id == rollback_session,
+            )) == 0
+            before_count_detail = await stocktake_history.terminal_stocktake_details(
+                cancel_session, cursor=None, limit=30, db=db,
+                access=a.operator.access(db),
+            )
+            assert before_count_detail["attempts"] == []
+            assert before_count_detail["cancelled_after_count"] is False
+            assert any(a["action_type"] == "STOCKTAKE_CANCELLED" for a in before_count_detail["audit"])
+            posted_detail = await stocktake_history.terminal_stocktake_details(
+                session_id, cursor=None, limit=30, db=db,
+                access=a.operator.access(db),
+            )
+            assert posted_detail["status"] == "POSTED"
+            assert len(posted_detail["attempts"]) == 2
+            assert any(a["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED" for a in posted_detail["audit"])
+            with pytest.raises(HTTPException) as denied_detail:
+                await stocktake_history.terminal_stocktake_details(
+                    rollback_session, cursor=None, limit=30, db=db,
+                    access=a.counter.access(db),
+                )
+            assert denied_detail.value.status_code == 403
+            print("CP14C_TERMINAL_HISTORY_POSTED_CANCELLED_AFTER_BEFORE_COUNT_AND_RLS=PASS")
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             await apply_inventory_movement(
