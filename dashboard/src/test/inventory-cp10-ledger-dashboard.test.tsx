@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
+import { createStocktakeLedgerReferenceTarget } from "@/pages/inventory/ledger/stocktakeLedgerNavigation";
 
 import type { LedgerEntry } from "@/pages/inventory/ledger/contracts";
 
@@ -104,6 +106,24 @@ const renderLedger = (locationId = 11, initialEntry = "/inventory") => render(
   </MemoryRouter>,
 );
 
+function LedgerModeHarness() {
+  const navigate = useNavigate();
+  const [warehouse, setWarehouse] = useState(11);
+  return <>
+    <button type="button" onClick={() => navigate(
+      createStocktakeLedgerReferenceTarget({ locationId: 11, reference: "STK-ABC" })
+    )}>Open exact STK</button>
+    <button type="button" onClick={() => setWarehouse(12)}>Switch warehouse</button>
+    <button type="button" onClick={() => setWarehouse(11)}>Restore warehouse</button>
+    <Tab4Ledger locationId={warehouse} refreshKey={0} onInventoryChanged={() => undefined} />
+  </>;
+}
+const renderLedgerMode = () => render(
+  <MemoryRouter initialEntries={["/inventory"]}>
+    <LedgerModeHarness />
+  </MemoryRouter>,
+);
+
 beforeEach(() => {
   mocks.authFetch.mockReset();
   mocks.language = "en";
@@ -182,6 +202,128 @@ describe("CP10 Ledger Dashboard", () => {
       expect(matching.length).toBeGreaterThan(0);
       expect(matching.at(-1)).not.toContain("cursor=");
     });
+  });
+
+
+  it.each(["ar", "en"] as const)(
+    "separates paged fuzzy STK search from exact STK reference, then restores fuzzy mode in %s",
+    async language => {
+      mocks.language = language;
+      const calls: string[] = [];
+      const baseAdjustment = {
+        type: "AUDIT_ADJUSTMENT",
+        reference_type: "AUDIT_ADJUSTMENT",
+        reference: "STK-ABC",
+        quantity: "-2",
+        balance_before: "9",
+        balance_after: "7",
+        batch_number: "REAL-LOT-9",
+        source_stock_status: "AVAILABLE",
+        destination_stock_status: "AVAILABLE",
+      };
+      mocks.authFetch.mockImplementation(async (url: string) => {
+        if (!url.startsWith("/warehouse/ledger/cursor?")) {
+          throw Error("Unexpected query: " + url);
+        }
+        calls.push(url);
+        const q = new URL(url, "https://ledger.test").searchParams;
+        if (q.get("location_id") !== "11") throw { status: 403 };
+        if (q.has("reference_id")) {
+          if (q.get("cursor") || q.has("search") || q.get("reference_id") !== "STK-ABC" ||
+              q.get("reference_type") !== "AUDIT_ADJUSTMENT") {
+            throw Error("Exact lookup reused a fuzzy search cursor or filters");
+          }
+          return page([entry(903, { ...baseAdjustment, product_name: "Exact posted adjustment" })]);
+        }
+        if (q.get("search") === "STK-ABC" && q.get("reference_type") === "AUDIT_ADJUSTMENT") {
+          if (q.get("cursor") === "fuzzy-next") {
+            return page([entry(902, { ...baseAdjustment,
+              reference: "STK-ABC-SIMILAR", product_name: "Fuzzy page two" })]);
+          }
+          return page([entry(901, { ...baseAdjustment,
+            reference: "STK-ABC-SIMILAR", product_name: "Fuzzy page one" })], "fuzzy-next");
+        }
+        return page([], null);
+      });
+      const { container } = renderLedgerMode();
+      const searchLabel = language === "ar"
+        ? "ابحث بالمنتج أو المرجع أو المنفذ..."
+        : "Search product, reference, or actor...";
+      const movementLabel = language === "ar" ? "الحركة" : "Movement";
+      fireEvent.change(screen.getByRole("searchbox", { name: searchLabel }), {
+        target: { value: "STK-ABC" },
+      });
+      await waitFor(() => expect(calls.some(call => call.includes("search=STK-ABC"))).toBe(true));
+      fireEvent.change(screen.getByRole("combobox", { name: movementLabel }), {
+        target: { value: "AUDIT_ADJUSTMENT" },
+      });
+      expect(await screen.findAllByText("Fuzzy page one")).not.toHaveLength(0);
+      const nextLabel = language === "ar" ? "الصفحة التالية" : "Next page";
+      fireEvent.click(screen.getByRole("button", { name: nextLabel }));
+      expect(await screen.findAllByText("Fuzzy page two")).not.toHaveLength(0);
+      expect(calls.some(call => call.includes("cursor=fuzzy-next"))).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Open exact STK" }));
+      // The scope identity changes synchronously, before the new HTTP resolves.
+      expect(screen.queryByText("Fuzzy page two")).not.toBeInTheDocument();
+      expect(await screen.findAllByText("Exact posted adjustment")).not.toHaveLength(0);
+      expect(screen.queryByText("Fuzzy page one")).not.toBeInTheDocument();
+      expect(screen.queryByText("Fuzzy page two")).not.toBeInTheDocument();
+      const exactCalls = calls.filter(call => call.includes("reference_id=STK-ABC"));
+      expect(exactCalls.length).toBeGreaterThan(0);
+      expect(exactCalls.every(call => !call.includes("cursor=") && !call.includes("search="))).toBe(true);
+      expect(container.querySelector(".hidden.md\\:block")).not.toBeNull();
+      expect(container.querySelector(".md\\:hidden")).not.toBeNull();
+      fireEvent.click(screen.getByRole("button", {
+        name: language === "ar" ? "عرض جميع الحركات" : "Show all movements",
+      }));
+      expect(await screen.findAllByText("Fuzzy page one")).not.toHaveLength(0);
+      expect(screen.queryByText("Exact posted adjustment")).not.toBeInTheDocument();
+      expect(calls.at(-1)).toContain("search=STK-ABC");
+      expect(calls.at(-1)).not.toContain("reference_id=");
+      expect(calls.at(-1)).not.toContain("cursor=");
+    },
+  );
+
+  it("rejects stale fuzzy responses and foreign warehouse during exact lookup", async () => {
+    let resolveOld: ((data: unknown) => void) | null = null;
+    const delayed = new Promise<unknown>(resolve => { resolveOld = resolve; });
+    const calls: string[] = [];
+    const exact = entry(808, {
+      type: "AUDIT_ADJUSTMENT", reference_type: "AUDIT_ADJUSTMENT",
+      product_name: "Authorized exact batch", reference: "STK-ABC",
+      quantity: "-2", balance_before: "12", balance_after: "10",
+      batch_number: "EXACT-LOT-1", source_stock_status: "QUARANTINED",
+    });
+    mocks.authFetch.mockImplementation(async (url: string) => {
+      if (!url.startsWith("/warehouse/ledger/cursor?")) throw Error("Unexpected query " + url);
+      calls.push(url);
+      const q = new URL(url, "https://ledger.test").searchParams;
+      if (q.get("location_id") === "12") throw { status: 403 };
+      if (q.get("reference_id") === "STK-ABC") return page([exact]);
+      if (q.get("search") === "STK-ABC") return delayed;
+      return page([]);
+    });
+    renderLedgerMode();
+    fireEvent.change(screen.getByRole("searchbox", {
+      name: "Search product, reference, or actor...",
+    }), { target: { value: "STK-ABC" } });
+    await waitFor(() => expect(calls.some(call => call.includes("search=STK-ABC"))).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "Open exact STK" }));
+    expect(await screen.findAllByText("Authorized exact batch")).not.toHaveLength(0);
+    resolveOld?.(page([entry(807, { product_name: "Stale fuzzy result" })]));
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(screen.queryByText("Stale fuzzy result")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch warehouse" }));
+    expect(screen.queryByText("Authorized exact batch")).not.toBeInTheDocument();
+    await waitFor(() => expect(calls.some(call => call.includes("location_id=12"))).toBe(true));
+    expect(screen.queryByText("Authorized exact batch")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /STK-ABC/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Restore warehouse" }));
+    expect(await screen.findAllByText("Authorized exact batch")).not.toHaveLength(0);
+    const scoped = calls.filter(call => call.includes("reference_id=STK-ABC"));
+    expect(scoped.every(call => call.includes("location_id=11"))).toBe(true);
   });
 
   it("reference evidence binds both reference type and id", async () => {
