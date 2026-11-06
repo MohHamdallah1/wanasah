@@ -235,10 +235,17 @@ for (const locale of ["ar", "en"] as const) {
             name: locale === "ar" ? "فتح" : "Open", exact: true,
           }).click();
         }
-        const needle = stage === "counting"
-          ? locale === "ar" ? "العد جارٍ" : "Count in progress"
-          : locale === "ar" ? "مراجعة العد" : "Review count";
-        await expect(stocktake.getByText(needle, { exact: false }).first()).toBeVisible({ timeout: 15000 });
+        // Count/review headers may be compact; assert the real accessible
+        // phase indicator rather than a decorative heading that was removed.
+        const stageList = stocktake.getByRole("list", {
+          name: locale === "ar" ? "مراحل الجرد" : "Stocktake stages",
+        });
+        await expect(stageList).toBeVisible({ timeout: 15000 });
+        await expect(stageList.locator('[aria-current="step"]')).toContainText(
+          stage === "counting"
+            ? locale === "ar" ? "العد" : "Count"
+            : locale === "ar" ? "المراجعة" : "Review",
+        );
         if (stage === "review") {
           // #779: exact canonical response -> visible reviewer evidence on both breakpoints.
           const historyLabel = locale === "ar" ? "سجل محاولات العد" : "Count attempt history";
