@@ -181,6 +181,17 @@ async def assert_real_http_stocktake(
             "expected_quantity" not in row and
             int(row["base_uom_id"]) == a.uom for row in sheet
         ), sheet
+        # Registered exact outer UOM is read-only display metadata. Every
+        # physical batch/status line keeps the same canonical base identity.
+        assert all({
+            key: row[key] for key in row if key.startswith("count_outer_")
+        } == {
+            "count_outer_uom_id": a.outer_uom,
+            "count_outer_uom_name": "CP14C Box",
+            "count_outer_uom_code": "CP14C_BOX",
+            "count_outer_factor_numerator": 50,
+            "count_outer_factor_denominator": 1,
+        } for row in sheet), sheet
         assert {(int(row["batch_id"]), row["stock_status"]) for row in sheet} == set(physical_before)
         assert any(int(row["batch_id"]) == earlier_discovered_batch_id
                    for row in sheet)
@@ -190,6 +201,13 @@ async def assert_real_http_stocktake(
             headers=auth_header,
         ))
         assert any(int(item["id"]) == new_batch_id for item in options["items"])
+        assert all(
+            row["count_outer_uom_id"] == a.outer_uom
+            and row["count_outer_factor_numerator"] == 50
+            and row["count_outer_factor_denominator"] == 1
+            for row in options["items"]
+        )
+        assert all("expected_quantity" not in row for row in options["items"])
         zero_items = []
         for row in sheet:
             # An explicit 0 is a real physical count, not an omitted line.
@@ -256,6 +274,12 @@ async def assert_real_http_stocktake(
                                  headers=auth_header)).status_code == 403
         recount_sheet = _check(await client.get(f"{base}/{sid}/count-sheet",
                                                headers=recount_header))
+        assert all(
+            row["count_outer_factor_numerator"] == 50 and
+            row["base_uom_id"] == a.uom and
+            "expected_quantity" not in row
+            for row in recount_sheet
+        )
         recount_items = []
         for row in recount_sheet:
             batch_id = int(row["batch_id"])
