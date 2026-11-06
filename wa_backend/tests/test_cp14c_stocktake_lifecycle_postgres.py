@@ -1142,7 +1142,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert len(detail["movements"]["items"]) == 1
             assert detail["movements"]["items"][0]["id"] == stocktake_movement_id
             assert detail["movements"]["items"][0]["reference_id"] == stocktake_reference_id
-            assert Decimal(detail["movements"]["items"][0]["quantity"]) == Decimal("0.250")
+            assert Decimal(detail["movements"]["items"][0]["quantity"]) == Decimal("-0.250")
+            # The persisted InventoryMovement magnitude remains positive.
+            assert Decimal(stocktake_movement.quantity) == Decimal("0.250")
             assert [item["attempt_number"] for item in detail["attempts"]["items"]] == [2, 1]
             assert any(row["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED"
                        for row in detail["audit"]["items"])

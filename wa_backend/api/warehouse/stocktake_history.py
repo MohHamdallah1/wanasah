@@ -285,14 +285,15 @@ async def _audit_page(db, company_id: int, session_id: int,
 
 
 
-async def _movement_page(db, company_id: int, session_id: int,
+async def _movement_page(db, company_id: int, session_id: int, location_id: int,
                          cursor: str | None, limit: int):
     """Immutable adjustment references only; a cancellation never creates one."""
     scope = f"{company_id}|{session_id}|movements"
     stmt = select(
         InventoryMovement.id, InventoryMovement.reference_id,
         InventoryMovement.quantity, InventoryMovement.product_variant_id,
-        InventoryMovement.batch_id,
+        InventoryMovement.batch_id, InventoryMovement.source_location_id,
+        InventoryMovement.destination_location_id,
     ).where(
         InventoryMovement.company_id == company_id,
         InventoryMovement.stocktake_session_id == session_id,
@@ -302,11 +303,22 @@ async def _movement_page(db, company_id: int, session_id: int,
         stmt = stmt.where(InventoryMovement.id < _decode(cursor, scope))
     rows = (await db.execute(stmt.order_by(
         InventoryMovement.id.desc()).limit(limit + 1))).all()
-    items = [{
-        "id": row.id, "reference_id": str(row.reference_id),
-        "quantity": canonical_quantity(row.quantity),
-        "product_variant_id": row.product_variant_id, "batch_id": row.batch_id,
-    } for row in rows[:limit]]
+    items = []
+    for row in rows[:limit]:
+        # InventoryMovement persists positive physical magnitudes. The
+        # stocktake warehouse is authoritative: outbound is a shortage and
+        # inbound is a surplus. Never rewrite the immutable ledger quantity.
+        if row.source_location_id == location_id and row.destination_location_id is None:
+            sign = "-"
+        elif row.destination_location_id == location_id and row.source_location_id is None:
+            sign = ""
+        else:
+            raise HTTPException(status_code=409, detail="Invalid posted stocktake adjustment direction.")
+        items.append({
+            "id": row.id, "reference_id": str(row.reference_id),
+            "quantity": sign + canonical_quantity(row.quantity),
+            "product_variant_id": row.product_variant_id, "batch_id": row.batch_id,
+        })
     last = rows[limit - 1].id if len(rows) > limit else None
     return {"items": items, "has_more": last is not None,
             "next_cursor": _cursor(last, scope) if last else None}
@@ -348,7 +360,7 @@ async def get_stocktake_history_detail(
     }
     attempts = await _attempt_page(db, company_id, session.id, None, 50)
     audit = await _audit_page(db, company_id, session.id, None, 50)
-    movements = await _movement_page(db, company_id, session.id, None, 50) if session.status == "POSTED" else {"items": [], "next_cursor": None, "has_more": False}
+    movements = await _movement_page(db, company_id, session.id, session.location_id, None, 50) if session.status == "POSTED" else {"items": [], "next_cursor": None, "has_more": False}
     # This is a read of canonical, already-posted physical ledger evidence,
     # never an inference from cancellation or from a projected balance.
     adjustment_count = await db.scalar(select(func.count()).select_from(
@@ -422,7 +434,7 @@ async def get_stocktake_history_movements(
     session = await _session(db, access, session_id, location_id)
     if session.status != "POSTED":
         return {"items": [], "next_cursor": None, "has_more": False}
-    return await _movement_page(db, access.company_id, session_id, cursor, limit)
+    return await _movement_page(db, access.company_id, session_id, session.location_id, cursor, limit)
 
 
 @router.get("/warehouse/unified/stocktakes/history/{session_id}/attempts/{attempt_id}/lines")

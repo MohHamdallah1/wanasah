@@ -451,6 +451,23 @@ async def assert_real_http_stocktake(
         assert {row["reference_id"] for row in posted_history["movements"]["items"]} == {
             str(m.reference_id) for m in moves
         }
+        # Read model signs follow physical movement direction; canonical
+        # underlying InventoryMovement amounts remain positive.
+        expected_signed = {
+            m.id: (-Decimal(m.quantity) if m.source_location_id == a.a2
+                   else Decimal(m.quantity))
+            for m in moves
+        }
+        assert {int(row["id"]): Decimal(row["quantity"]) for row in
+                posted_history["movements"]["items"]} == expected_signed
+        assert any(v < 0 for v in expected_signed.values())
+        assert any(v > 0 for v in expected_signed.values())
+        later = _check(await client.get(
+            f"{history_url}/{sid}/movements",
+            params={"location_id": a.a2, "limit": 50}, headers=auth_header,
+        ))
+        assert {int(row["id"]): Decimal(row["quantity"]) for row in
+                later["items"]} == expected_signed
         latest_attempt_id = posted_history["attempts"]["items"][0]["id"]
         rows = _check(await client.get(
             f"{history_url}/{sid}/attempts/{latest_attempt_id}/lines",
