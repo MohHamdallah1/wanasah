@@ -147,6 +147,9 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                 <div className="mt-2 grid gap-1 sm:grid-cols-2">
                   <span>{text.start}: {time(current.created_at)}</span>
                   <span>{text.end}: {time(current.finished_at)}</span>
+                  {current.started_by_name && <span>{text.startedBy}: {current.started_by_name}</span>}
+                  {current.approved_by_name && <span>{text.approvedBy}: {current.approved_by_name}</span>}
+                  {current.cancelled_by_name && <span>{text.cancelledBy}: {current.cancelled_by_name}</span>}
                   <span>{text.movement}: <strong dir="ltr">{current.adjustment_movement_count}</strong></span>
                   {current.status === "CANCELLED" && <strong className="text-amber-800">
                     {current.cancelled_after_count ? text.afterCount : text.beforeCount}
@@ -198,6 +201,9 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
                 <section aria-label={text.actual} className="space-y-2">
                   <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                     {text.submitted}: {time(selectedAttempt.submitted_at)}
+                    {selectedAttempt.authorized_by_name && <span className="ms-2">
+                      {text.approvedBy}: {selectedAttempt.authorized_by_name}
+                    </span>}
                     {selectedAttempt.recount_reason && <span className="ms-2">
                       {text.recountReason}: {selectedAttempt.recount_reason}
                     </span>}
