@@ -773,11 +773,23 @@ STOCKTAKE_FINAL_CI_782_EXACT = frozenset({
 })
 
 
+# Final owner-approved screenshot density PR #792 changes shared MainInventory.
+# Only the exact five-file set is admitted to Live Stock UX/operational checks.
+STOCKTAKE_792_DIALOG_EXACT = STOCKTAKE_789_SHELL_EXACT
+# Separate history-preserving CI and Chromium test compatibility bridge.
+STOCKTAKE_793_BRIDGE_EXACT = frozenset(
+    set(STOCKTAKE_FINAL_CI_782_EXACT) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
+)
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
     if changed == STOCKTAKE_FINAL_CI_782_EXACT:
         return "policy-maintenance", []
+    if changed == STOCKTAKE_793_BRIDGE_EXACT:
+        return "policy-maintenance", []
+
     if mode in {"ux", "operational"} and changed == STOCKTAKE_789_SHELL_EXACT:
         return "stocktake-789-shell-exact", []
     if mode in {"ux", "operational"} and changed == STOCKTAKE_784_EXACT:
@@ -928,6 +940,41 @@ def selftest() -> None:
         )
     assert classify("r3", set(STOCKTAKE_784_EXACT), stocktake_sem) == (
         "not-applicable", []
+    )
+    assert len(STOCKTAKE_792_DIALOG_EXACT) == 5
+    assert len(STOCKTAKE_793_BRIDGE_EXACT) == 5
+    for mode in ("ux", "operational"):
+        assert STOCKTAKE_792_DIALOG_EXACT == STOCKTAKE_789_SHELL_EXACT
+        assert classify(mode, set(STOCKTAKE_792_DIALOG_EXACT), stocktake_sem) == (
+            "stocktake-789-shell-exact", []
+        )
+        assert classify(mode, set(STOCKTAKE_793_BRIDGE_EXACT), stocktake_sem) == (
+            "policy-maintenance", []
+        )
+        for missing in STOCKTAKE_792_DIALOG_EXACT:
+            partial = set(STOCKTAKE_792_DIALOG_EXACT) - {missing}
+            assert classify(mode, partial, stocktake_sem)[0] != "stocktake-789-shell-exact"
+            if "dashboard/src/pages/inventory/MainInventory.tsx" in partial:
+                _expect_fail(mode, partial, stocktake_sem)
+        for foreign in (HELPER, "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+                        "wa_backend/api/warehouse/stocktake.py"):
+            _expect_fail(mode, set(STOCKTAKE_792_DIALOG_EXACT) | {foreign}, stocktake_sem)
+        for missing in STOCKTAKE_793_BRIDGE_EXACT:
+            partial = set(STOCKTAKE_793_BRIDGE_EXACT) - {missing}
+            if partial == STOCKTAKE_FINAL_CI_782_EXACT:
+                # An earlier, independent exact four-file CI maintenance
+                # scope was already approved and must remain valid.
+                assert classify(mode, partial, stocktake_sem) == ("policy-maintenance", [])
+            else:
+                assert classify(mode, partial, stocktake_sem)[0] != "policy-maintenance"
+        _expect_fail(mode, set(STOCKTAKE_793_BRIDGE_EXACT) | {
+            "dashboard/src/pages/inventory/MainInventory.tsx"
+        }, stocktake_sem)
+    assert classify("r3", set(STOCKTAKE_792_DIALOG_EXACT), stocktake_sem) == (
+        "not-applicable", []
+    )
+    assert classify("r3", set(STOCKTAKE_793_BRIDGE_EXACT), stocktake_sem) == (
+        "policy-maintenance", []
     )
     assert len(STOCKTAKE_789_SHELL_EXACT) == 5
     assert len(STOCKTAKE_FINAL_CI_782_EXACT) == 4

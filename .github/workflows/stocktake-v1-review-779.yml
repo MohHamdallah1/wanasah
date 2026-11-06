@@ -97,6 +97,16 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/scripts/live_stock_ci_ownership.py",
           }
+          # Exact approved density PRs and CI/browser bridge, no wildcard scope.
+          compact_791 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          # #792 has the identical exact file set already approved for #789.
+          dialog_792 = set(shell_789)
+          bridge_793 = set(final_ci_782) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
           valid_scopes = {
               frozenset(expected): "REVIEW_EVIDENCE_779",
               frozenset(operator_784): "OPERATOR_UX_784",
@@ -104,6 +114,8 @@ jobs:
               frozenset(shell_789): "SINGLE_TOOLBAR_789",
               frozenset(workspace_788): "UNIFIED_WORKSPACE_788",
               frozenset(final_ci_782): "FINAL_CI_782",
+              frozenset(compact_791): "COMPACT_COUNT_791",
+              frozenset(bridge_793): "DENSITY_CI_BROWSER_BRIDGE",
           }
           foreign = "wa_backend/api/warehouse/stocktake.py"
 
@@ -111,7 +123,7 @@ jobs:
               matched = valid_scopes.get(frozenset(changed))
               assert matched is not None, {
                   "error": "STOCKTAKE_REVIEW_OWNER_SCOPE_FAIL",
-                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782),
+                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793),
                   "changed": sorted(changed),
               }
               return matched
@@ -123,6 +135,10 @@ jobs:
           assert verify_scope(shell_789) == "SINGLE_TOOLBAR_789"
           assert verify_scope(workspace_788) == "UNIFIED_WORKSPACE_788"
           assert verify_scope(final_ci_782) == "FINAL_CI_782"
+          assert verify_scope(compact_791) == "COMPACT_COUNT_791"
+          assert verify_scope(dialog_792) == "SINGLE_TOOLBAR_789"
+          assert dialog_792 == shell_789
+          assert verify_scope(bridge_793) == "DENSITY_CI_BROWSER_BRIDGE"
           for invalid in (
               set(),
               operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
@@ -136,6 +152,13 @@ jobs:
               final_ci_782 | {foreign},
               final_ci_782 - {".github/scripts/live_stock_ci_ownership.py"},
               shell_789 | workspace_788,
+              compact_791 - {"dashboard/src/pages/inventory/stocktake/uiCopy.ts"},
+              compact_791 | {foreign},
+              dialog_792 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
+              dialog_792 | {foreign},
+              bridge_793 - {".github/scripts/live_stock_ci_ownership.py"},
+              bridge_793 | {foreign},
+              compact_791 | dialog_792,
           ):
               try:
                   verify_scope(invalid)

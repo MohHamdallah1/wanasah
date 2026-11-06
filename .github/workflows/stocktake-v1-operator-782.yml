@@ -85,13 +85,27 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/scripts/live_stock_ci_ownership.py",
           }
+          # Owner-approved isolated screenshot density refinements; no prefixes.
+          compact_791 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          # #792 reuses exactly the previously accepted #789 five-file scope.
+          dialog_792 = set(shell_789)
+          bridge_793 = set(ci_782) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
           allowed = {frozenset(x): label for label, x in (
               ("OPERATOR_UX_784", expected),
               ("SINGLE_TOOLBAR_789", shell_789),
               ("UNIFIED_WORKSPACE_788", workspace_788),
               ("FINAL_CI_782", ci_782),
+              ("COMPACT_COUNT_791", compact_791),
+              ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           )}
-          assert len(allowed) == 4
+          assert len(allowed) == 6
+          assert dialog_792 == shell_789
+          assert allowed[frozenset(dialog_792)] == "SINGLE_TOOLBAR_789"
           def verify(paths):
               label = allowed.get(frozenset(paths))
               assert label is not None, {"error": "STOCKTAKE_782_SCOPE_FAIL", "changed": sorted(paths)}
@@ -101,9 +115,20 @@ jobs:
               ("SINGLE_TOOLBAR_789", shell_789),
               ("UNIFIED_WORKSPACE_788", workspace_788),
               ("FINAL_CI_782", ci_782),
+              ("COMPACT_COUNT_791", compact_791),
+              ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           ):
               assert verify(paths) == label
-              for invalid in (set(), paths - {next(iter(paths))},
+              # Some separately approved exact scopes are subsets of earlier
+              # scopes (e.g. compact_791 ⊂ workspace_788). Select a truly
+              # unapproved subset deterministically, not hash-order first().
+              invalid_subset = next(
+                  (paths - {name} for name in sorted(paths)
+                   if frozenset(paths - {name}) not in allowed),
+                  None,
+              )
+              assert invalid_subset is not None, label
+              for invalid in (set(), invalid_subset,
                               paths | {"wa_backend/api/warehouse/stocktake.py"},
                               paths | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"}):
                   try:
