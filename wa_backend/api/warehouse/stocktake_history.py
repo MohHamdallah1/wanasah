@@ -278,6 +278,35 @@ async def _audit_page(db, company_id: int, session_id: int,
             "next_cursor": _cursor(last, scope) if last else None}
 
 
+
+async def _movement_page(db, company_id: int, session_id: int,
+                         cursor: str | None, limit: int):
+    """Immutable adjustment references only; a cancellation never creates one."""
+    scope = f"{company_id}|{session_id}|movements"
+    stmt = select(
+        InventoryMovement.id, InventoryMovement.reference_id,
+        InventoryMovement.quantity, InventoryMovement.product_variant_id,
+        InventoryMovement.batch_id,
+    ).where(
+        InventoryMovement.company_id == company_id,
+        InventoryMovement.stocktake_session_id == session_id,
+        InventoryMovement.reference_type == "AUDIT_ADJUSTMENT",
+    )
+    if cursor:
+        stmt = stmt.where(InventoryMovement.id < _decode(cursor, scope))
+    rows = (await db.execute(stmt.order_by(
+        InventoryMovement.id.desc()).limit(limit + 1))).all()
+    items = [{
+        "id": row.id, "reference_id": str(row.reference_id),
+        "quantity": canonical_quantity(row.quantity),
+        "product_variant_id": row.product_variant_id, "batch_id": row.batch_id,
+    } for row in rows[:limit]]
+    last = rows[limit - 1].id if len(rows) > limit else None
+    return {"items": items, "has_more": last is not None,
+            "next_cursor": _cursor(last, scope) if last else None}
+
+
+
 @router.get("/warehouse/unified/stocktakes/history/{session_id}")
 async def get_stocktake_history_detail(
     session_id: int,
@@ -302,6 +331,7 @@ async def get_stocktake_history_detail(
         ))
     attempts = await _attempt_page(db, company_id, session.id, None, 50)
     audit = await _audit_page(db, company_id, session.id, None, 50)
+    movements = await _movement_page(db, company_id, session.id, None, 50) if session.status == "POSTED" else {"items": [], "next_cursor": None, "has_more": False}
     # This is a read of canonical, already-posted physical ledger evidence,
     # never an inference from cancellation or from a projected balance.
     adjustment_count = await db.scalar(select(func.count()).select_from(
@@ -328,7 +358,7 @@ async def get_stocktake_history_detail(
             "cancelled_after_count": session.status == "CANCELLED" and bool(attempts["items"]),
             "adjustment_movement_count": adjustment_count or 0,
         },
-        "attempts": attempts, "audit": audit,
+        "attempts": attempts, "audit": audit, "movements": movements,
     }
 
 
@@ -356,6 +386,22 @@ async def get_stocktake_history_audit(
 ):
     await _session(db, access, session_id, location_id)
     return await _audit_page(db, access.company_id, session_id, cursor, limit)
+
+
+
+@router.get("/warehouse/unified/stocktakes/history/{session_id}/movements")
+async def get_stocktake_history_movements(
+    session_id: int,
+    location_id: int = Query(..., ge=1),
+    cursor: Optional[str] = Query(default=None, max_length=1024),
+    limit: int = Query(default=50, ge=1, le=_MAX_PAGE),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(get_current_backoffice_capability_access),
+):
+    session = await _session(db, access, session_id, location_id)
+    if session.status != "POSTED":
+        return {"items": [], "next_cursor": None, "has_more": False}
+    return await _movement_page(db, access.company_id, session_id, cursor, limit)
 
 
 @router.get("/warehouse/unified/stocktakes/history/{session_id}/attempts/{attempt_id}/lines")
