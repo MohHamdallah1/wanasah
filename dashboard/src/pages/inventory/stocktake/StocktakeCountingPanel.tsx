@@ -131,21 +131,37 @@ export function StocktakeCountingPanel({
     );
   };
 
+  const focusCountRow = (key: string) => {
+    const inputs = Array.from(
+      panelRef.current?.querySelectorAll<HTMLInputElement>("[data-stocktake-count-input='true']") ?? [],
+    ).filter(input => input.dataset.stocktakeRow === key && input.getClientRects().length > 0);
+    const target = inputs[0];
+    if (target) { target.focus(); target.select(); }
+  };
+
   const zeroButton = (row: StocktakeRow) => row.counted ? (
     <div className="inline-flex flex-wrap items-center justify-center gap-1.5">
       <span className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-black">
         <Check className="h-3.5 w-3.5" aria-hidden="true" />{text.counted}
       </span>
-      {onUndoCount && <button type="button" onClick={() => onUndoCount(row.row_key)}
+      {onUndoCount && <button type="button" onClick={() => { focusCountRow(row.row_key); onUndoCount(row.row_key); }}
         className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-100"
         aria-label={`${text.undoCount} — ${row.product_name} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))}`}>
         {text.undoCount}
       </button>}
     </div>
+  ) : isDiscoveredRow(row) ? (
+    <span className="max-w-56 text-xs font-semibold text-amber-700" role="note">
+      {text.discoveredPositive}
+    </span>
   ) : (
     <button
       type="button"
-      onClick={() => onConfirmZero(row.row_key)}
+      onClick={() => {
+        // Keep keyboard focus on the row's edit field after button replacement.
+        focusCountRow(row.row_key);
+        onConfirmZero(row.row_key);
+      }}
       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-amber-50 text-slate-500 hover:text-amber-700 border border-slate-200 hover:border-amber-200 rounded-lg text-xs font-black transition-colors"
       title={text.zeroHint}
       aria-label={`${text.confirmZeroFor(row.product_name)} — ${formatPublicBatchNumber(row.batch_number, t("inventoryLive.noLotSupplied"))} — ${copy.stockStatuses[row.stock_status]}`}
