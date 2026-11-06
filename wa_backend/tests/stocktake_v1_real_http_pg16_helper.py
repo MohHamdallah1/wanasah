@@ -452,6 +452,11 @@ async def assert_real_http_stocktake(
             "notes": "Single operator optional policy direct approval",
         }, headers=auth_header), 201)
         optional_sid = int(first_optional["session_id"])
+        # The protected review must never disclose expected stock before
+        # a genuine count attempt has been submitted and committed.
+        blind_review = await client.get(
+            f"{base}/{optional_sid}/review", headers=auth_header)
+        assert blind_review.status_code == 409
         optional_sheet = _check(await client.get(f"{base}/{optional_sid}/count-sheet",
                                                headers=auth_header))
         assert len(optional_sheet) == 1
@@ -537,6 +542,9 @@ async def assert_real_http_stocktake(
             "notes": "Single account optional recount of other physical lot",
         }, headers=auth_header), 201)
         optional_recount_sid = int(new_optional["session_id"])
+        forbidden_precount_review = await client.get(
+            f"{base}/{optional_recount_sid}/review", headers=auth_header)
+        assert forbidden_precount_review.status_code == 409
         blind_sheet = _check(await client.get(f"{base}/{optional_recount_sid}/count-sheet",
                                              headers=auth_header))
         assert len(blind_sheet) == 1 and "expected_quantity" not in blind_sheet[0]
