@@ -166,7 +166,7 @@ async def list_stocktake_history(
         .outerjoin(cancelled, and_(cancelled.company_id == company_id,
                                    cancelled.id == StocktakeSession.cancelled_by))
         .outerjoin(recent, and_(recent.company_id == company_id,
-                                recent.id == _latest_attempt_id()))
+                                recent.id == _latest_attempt_id(company_id)))
         .outerjoin(counter, and_(counter.company_id == company_id,
                                   counter.id == recent.counted_by))
         .where(
