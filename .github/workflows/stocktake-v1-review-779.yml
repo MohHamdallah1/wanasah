@@ -104,13 +104,8 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
               "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
           }
-          dialog_792 = {
-              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
-              "dashboard/src/pages/inventory/MainInventory.tsx",
-              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
-              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
-              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
-          }
+          # #792 has the identical exact file set already approved for #789.
+          dialog_792 = set(shell_789)
           bridge_793 = set(final_ci_782) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
           valid_scopes = {
               frozenset(expected): "REVIEW_EVIDENCE_779",
@@ -120,7 +115,6 @@ jobs:
               frozenset(workspace_788): "UNIFIED_WORKSPACE_788",
               frozenset(final_ci_782): "FINAL_CI_782",
               frozenset(compact_791): "COMPACT_COUNT_791",
-              frozenset(dialog_792): "SESSION_DIALOG_792",
               frozenset(bridge_793): "DENSITY_CI_BROWSER_BRIDGE",
           }
           foreign = "wa_backend/api/warehouse/stocktake.py"
@@ -142,7 +136,8 @@ jobs:
           assert verify_scope(workspace_788) == "UNIFIED_WORKSPACE_788"
           assert verify_scope(final_ci_782) == "FINAL_CI_782"
           assert verify_scope(compact_791) == "COMPACT_COUNT_791"
-          assert verify_scope(dialog_792) == "SESSION_DIALOG_792"
+          assert verify_scope(dialog_792) == "SINGLE_TOOLBAR_789"
+          assert dialog_792 == shell_789
           assert verify_scope(bridge_793) == "DENSITY_CI_BROWSER_BRIDGE"
           for invalid in (
               set(),
