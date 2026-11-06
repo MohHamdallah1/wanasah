@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 from api.warehouse import stocktake
@@ -114,6 +116,55 @@ class CP9StocktakeClosureContractTests(unittest.TestCase):
         self.assertIn("StocktakeSession.status.in_", source)
         self.assertNotIn("StocktakeSession.status == 'POSTED'", source)
         self.assertNotIn("StocktakeSession.status == 'CANCELLED'", source)
+
+
+class StocktakeV1OptionalRecountPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def _policy(self, settings, lines):
+        rows = list(settings.items())
+        db = SimpleNamespace(execute=AsyncMock(
+            return_value=SimpleNamespace(all=lambda: rows)
+        ))
+        outcome = await stocktake._requires_independent_stocktake_recount(
+            db, company_id=27, line_values=lines,
+        )
+        if any(variance < 0 for _expected, variance in lines):
+            db.execute.assert_awaited_once()
+        else:
+            db.execute.assert_not_awaited()
+        return outcome
+
+    async def test_unconfigured_company_shortage_optional_but_variance_unchanged(self):
+        self.assertFalse(await self._policy({}, [(100, -20)]))
+        self.assertFalse(await self._policy({}, [(0, -1)]))
+        self.assertFalse(await self._policy({}, [(100, 0), (100, 5)]))
+        self.assertFalse(await self._policy({}, [(100, -1), (10, 2)]))
+
+    async def test_explicit_legacy_pack_and_percent_thresholds_remain_authoritative(self):
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_packs": "1"}, [(100, -1)]))
+        self.assertFalse(await self._policy(
+            {"stocktake_material_shortage_packs": "6"}, [(100, -5)]))
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_percent": "5"}, [(100, -5)]))
+        self.assertFalse(await self._policy(
+            {"stocktake_material_shortage_percent": "6"}, [(100, -5)]))
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_packs": "99",
+             "stocktake_material_shortage_percent": "5"}, [(100, -5)]))
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_packs": "0"}, [(100, -1)]))
+
+    async def test_explicit_malformed_settings_never_silently_disable_independence(self):
+        for value in ("bad", "", "NaN", "Infinity"):
+            key = ("stocktake_material_shortage_percent"
+                   if value != "bad" else "stocktake_material_shortage_packs")
+            self.assertTrue(await self._policy({key: value}, [(100, -1)]))
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_packs": "invalid",
+             "stocktake_material_shortage_percent": "99"}, [(100, -1)]))
+        self.assertTrue(await self._policy(
+            {"stocktake_material_shortage_packs": "99",
+             "stocktake_material_shortage_percent": "NaN"}, [(100, -1)]))
 
 
 if __name__ == "__main__":
