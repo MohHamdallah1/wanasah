@@ -185,7 +185,9 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     }], next_cursor: null, has_more: false});
     await waitFor(() => expect(dialog).not.toHaveTextContent("STALLED-OLD-ATTEMPT"));
     expect(dialog).not.toHaveTextContent("STALLED-OLD-LINES");
-    expect(within(dialog).queryByRole("button", {name: "Load more"})).not.toBeInTheDocument();
+    // The new session legitimately has another line page. Its button must be
+    // enabled, not disabled by stale pagination from the previous session.
+    await waitFor(() => expect(within(dialog).getByRole("button", {name: "Load more"})).toBeEnabled());
   });
 
   it.each(["ar", "en"] as const)("shows terminal-only list and sensitive gated immutable attempts in %s", async lang => {
