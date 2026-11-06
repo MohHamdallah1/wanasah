@@ -69,6 +69,21 @@ describe("Stocktake exact optional server UOM read and base count arithmetic", (
     expect(validBaseCount(precise, "0.25")).toBe("0.25");
   });
 
+  it("keeps unfinished two-field drafts verbatim when count is unconfirmed", () => {
+    const base = row();
+    const saved = {
+      ...base, counted: false, actual_quantity: "",
+      count_outer_quantity: "2", count_base_quantity: "7.",
+    };
+    expect(calculateCount(base, "2", "7.")).toBeNull();
+    expect(restoreCountParts(base, saved)).toEqual({ outer: "2", base: "7." });
+    expect(restoreCountParts(base, {
+      ...saved, count_base_quantity: "7.125",
+    })).toEqual({ outer: "2", base: "7.125" });
+    expect(restoreCountParts(row({ ...outer, count_outer_factor_numerator: 40 }), saved))
+      .toEqual({ outer: "", base: "" }); // changed server conversion is not trusted.
+  });
+
   it("falls back to exactly one base input if metadata is absent or untrusted", () => {
     const base = row({});
     expect(countOuterFactor(base)).toBeNull();
