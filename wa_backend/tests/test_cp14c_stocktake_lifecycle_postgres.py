@@ -53,6 +53,7 @@ from models import (
     Product,
     ProductBatch,
     ProductLocation,
+    ProductUomConversion,
     ProductVariant,
     Role,
     StocktakeSession,
@@ -414,6 +415,18 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 seed.add(uom)
                 await seed.flush()
 
+            # Explicit canonical registered UOMs: never infer a carton from
+            # packs_per_carton on ProductVariant.
+            count_pack = await seed.scalar(select(UOM).where(UOM.code == "CP14C_PACK"))
+            if count_pack is None:
+                count_pack = UOM(code="CP14C_PACK", name="CP14C Pack")
+                seed.add(count_pack)
+            count_box = await seed.scalar(select(UOM).where(UOM.code == "CP14C_BOX"))
+            if count_box is None:
+                count_box = UOM(code="CP14C_BOX", name="CP14C Box")
+                seed.add(count_box)
+            await seed.flush()
+
             companies = [
                 Company(
                     name="CP14-C Shared Company",
@@ -519,6 +532,22 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 )
                 seed.add(variant)
                 await seed.flush()
+                if index == 0:
+                    seed.add_all([
+                        ProductUomConversion(
+                            company_id=company.id, product_variant_id=variant.id,
+                            from_uom_id=count_pack.id, to_uom_id=uom.id,
+                            numerator=Decimal("8"), denominator=Decimal("1"),
+                            quantity_scale=0,
+                        ),
+                        ProductUomConversion(
+                            company_id=company.id, product_variant_id=variant.id,
+                            from_uom_id=count_box.id, to_uom_id=uom.id,
+                            numerator=Decimal("50"), denominator=Decimal("1"),
+                            quantity_scale=0,
+                        ),
+                    ])
+                    await seed.flush()
                 batch = ProductBatch(
                     company_id=company.id,
                     product_variant_id=variant.id,
@@ -586,6 +615,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         variant=variant.id,
                         batch=batch.id,
                         uom=uom.id,
+                        outer_uom=(count_box.id if index == 0 else None),
                         work_session=work.id,
                         zone=zone.id,
                     )
@@ -757,6 +787,14 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             await db.commit()
             _, b_session = await _start(db, b.operator, b.a1)
             b_session_id = int(b_session["session_id"])
+            b_sheet = await stocktake.get_stocktake_count_sheet(
+                b_session_id, db=db,
+                access=b.operator.access(db),
+                legacy_actor=b.operator.operational_driver,
+            )
+            assert len(b_sheet) == 1
+            assert not any(key.startswith("count_outer_") for key in b_sheet[0])
+            assert "expected_quantity" not in b_sheet[0]
 
         async with _runtime_session(runtime_engine, a.company_id) as db:
             assert a.operator.context.is_company_owner is False
@@ -827,6 +865,26 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     legacy_actor=a.operator.operational_driver,
                 )
             assert wrong_replay.value.status_code == 409
+            count_sheet = await stocktake.get_stocktake_count_sheet(
+                session_id, db=db,
+                access=a.operator.access(db),
+                legacy_actor=a.operator.operational_driver,
+            )
+            assert len(count_sheet) == 1
+            assert {
+                k: v for k, v in count_sheet[0].items()
+                if k.startswith("count_outer_")
+            } == {
+                "count_outer_uom_id": a.outer_uom,
+                "count_outer_uom_name": "CP14C Box",
+                "count_outer_uom_code": "CP14C_BOX",
+                "count_outer_factor_numerator": 50,
+                "count_outer_factor_denominator": 1,
+            }
+            assert count_sheet[0]["quantity_scale"] == 3
+            assert count_sheet[0]["quantity_step"] == "0.001"
+            assert "expected_quantity" not in count_sheet[0]
+            assert "packs_per_carton" not in count_sheet[0]
             attempt1 = await _count(db, a.operator, session_id, Decimal("9.875"))
             assert attempt1["requires_independent_recount"] is True
             review1 = await stocktake.get_stocktake_review(
@@ -990,6 +1048,9 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert [x["id"] for x in options["items"]] == [a.variant]
             assert options["items"][0]["quantity_step"] == "0.001"
+            assert options["items"][0]["count_outer_uom_id"] == a.outer_uom
+            assert options["items"][0]["count_outer_factor_numerator"] == 50
+            assert options["items"][0]["count_outer_factor_denominator"] == 1
             lots = await stocktake_discovery.stocktake_discovery_options(
                 rollback_session,
                 product_variant_id=a.variant, batch_ids=None, search=None,
@@ -998,6 +1059,8 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             )
             assert [x["id"] for x in lots["items"]] == [a.batch]
             assert lots["items"][0]["base_uom_id"] == a.uom
+            assert lots["items"][0]["count_outer_uom_id"] == a.outer_uom
+            assert lots["items"][0]["count_outer_factor_numerator"] == 50
             assert lots["items"][0]["disposition"] == "RELEASED"
             assert lots["items"][0]["expiry_date"] is None
             revalidated = await stocktake_discovery.stocktake_discovery_options(
