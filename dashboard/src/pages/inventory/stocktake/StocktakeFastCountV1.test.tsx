@@ -222,6 +222,30 @@ describe("Stocktake V1 AR/EN responsive visible-input keyboard safety", () => {
     expect(undo).toHaveBeenCalledWith("118:51:AVAILABLE");
   });
 
+  it.each(["ar", "en"] as const)("never offers Confirm Zero for discovered stock that must be positive in %s", lang => {
+    locale.value = lang;
+    const row = {
+      ...uiRow(53), line_origin: "DISCOVERED" as const, actual_quantity: "", counted: false,
+    };
+    const zero = vi.fn(), remove = vi.fn();
+    const { container } = render(<StocktakeCountingPanel rows={[row]}
+      progress={{ total: 1, counted: 0, remaining: 1 }}
+      onUpdateRow={vi.fn()} onConfirmZero={zero} onUndoCount={vi.fn()}
+      onAddDiscovered={vi.fn()} onRemoveDiscovered={remove}
+      canCancel onCancel={vi.fn()} onSubmit={vi.fn()} />);
+    expect(container).toHaveTextContent(lang === "ar"
+      ? "السطر المكتشف يحتاج كمية أكبر من صفر" : "Unlisted stock must be greater than zero");
+    expect(screen.queryByRole("button", {
+      name: /Confirm zero for|تأكيد صفر لـ/,
+    })).not.toBeInTheDocument();
+    expect(isRowReadyForCountSubmit({ ...row, actual_quantity: "0", counted: true })).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", {
+      name: lang === "ar" ? "حذف السطر المكتشف" : "Remove discovered row",
+    })[0]);
+    expect(remove).toHaveBeenCalledWith(row.row_key);
+    expect(zero).not.toHaveBeenCalled();
+  });
+
   it.each(["ar", "en"] as const)("shows two count fields only with authorized conversion in %s, independently per batch", lang => {
     locale.value = lang;
     const updatePart = vi.fn(), submit = vi.fn();
