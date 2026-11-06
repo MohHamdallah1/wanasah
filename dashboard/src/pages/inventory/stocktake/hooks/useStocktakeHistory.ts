@@ -13,6 +13,7 @@ export interface HistorySession {
 export interface HistoryAttempt {
   id: number; attempt_number: number; counted_by_name: string;
   submitted_at: string; recount_reason: string | null;
+  authorized_by_name: string | null;
   requires_independent_recount: boolean; recount_of_attempt_id: number | null;
 }
 export interface HistoryLine {
@@ -39,6 +40,8 @@ export interface HistoryDetail {
     created_at: string; finished_at: string; snapshot_cutoff_at: string | null;
     scope_product_name: string | null; scope_batch_number: string | null;
     cancellation_reason: string | null; notes: string | null;
+    started_by_name: string | null; approved_by_name: string | null;
+    cancelled_by_name: string | null;
     cancelled_after_count: boolean; adjustment_movement_count: number;
   };
   attempts: HistoryPage<HistoryAttempt>;
