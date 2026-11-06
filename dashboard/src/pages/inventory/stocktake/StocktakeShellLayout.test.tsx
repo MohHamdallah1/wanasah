@@ -4,6 +4,8 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { StocktakeSessionCenter } from "./StocktakeSessionCenter";
+import { StocktakeHistoryDialog } from "./StocktakeHistoryDialog";
+import type { StocktakeAuthFetch } from "./types";
 import type { StocktakeSessionSummary } from "./types";
 
 const locale = vi.hoisted(() => ({ value: "ar" }));
@@ -165,5 +167,108 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
     expect(tab).toContain('sessionAccess.can("stocktake.count")');
     expect(tab).toContain('sessionAccess.can("stocktake.review")');
     expect(tab).toContain('sessionLocationId === locationId ? locationName : null');
+  });
+});
+
+
+describe("Stocktake #799 immutable terminal history acceptance", () => {
+  const posted = {
+    id: 902, reference_number: "STK-POSTED-902", stocktake_type: "FULL_COUNT",
+    status: "POSTED", location_id: 11, scope_product_name: null,
+    started_by_name: "First Operator", approved_by_name: "Reviewer",
+    cancelled_by_name: null, counted_by_name: "Counter", attempt_number: 1,
+    cancelled_after_count: false, cancellation_reason: null,
+    created_at: "2026-11-06T08:00:00Z", finished_at: "2026-11-06T09:00:00Z",
+  };
+  const cancelled = {
+    ...posted, id: 901, reference_number: "STK-CANCEL-901", status: "CANCELLED",
+    scope_product_name: "Chickpeas", cancelled_by_name: "Reviewer",
+    approved_by_name: null, attempt_number: 1, cancelled_after_count: true,
+    cancellation_reason: "Count investigated",
+  };
+  const detail = {
+    session_id: 901, reference_number: cancelled.reference_number, status: "CANCELLED",
+    cancellation_reason: cancelled.cancellation_reason, cancelled_after_count: true,
+    created_at: cancelled.created_at, finished_at: cancelled.finished_at, notes: null,
+    started_by_name: "First Operator", approved_by_name: null, cancelled_by_name: "Reviewer",
+    attempts: [{ id: 701, attempt_number: 1, counted_by_name: "Counter",
+      authorized_by_name: null, recount_reason: null, submitted_at: "2026-11-06T08:30:00Z",
+      requires_independent_recount: false }],
+    next_cursor: null, audit_next_cursor: null,
+    audit: [{ id: 1, action_type: "STOCKTAKE_CANCELLED",
+      actor_name: "Reviewer", at: "2026-11-06T09:00:00Z", old_value: null, new_value: null }],
+  };
+
+  function HistoryHarness({ fetcher, locationId = 11, enabled = true }: {
+    fetcher: StocktakeAuthFetch; locationId?: number; enabled?: boolean;
+  }) {
+    const [open, setOpen] = useState(false);
+    return <StocktakeHistoryDialog open={open} onOpenChange={setOpen} locationId={locationId}
+      enabled={enabled} authenticatedFetch={fetcher} />;
+  }
+
+  it.each(["ar", "en"] as const)("lists terminal sessions and immutable count/audit by permitted location in %s", async language => {
+    locale.value = language;
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes("/history/attempts/701/lines")) return {
+        items: [{ id: 9011, product_name: "Chickpeas", batch_id: 51,
+          batch_number: "LOT-51", stock_status: "BLOCKED", line_origin: "SNAPSHOT",
+          base_uom_name: "Each", base_uom_code: "EACH",
+          expected_quantity: "50", actual_quantity: "47", variance_quantity: "-3" }],
+        next_cursor: null,
+      };
+      if (url.includes("/901/history")) return detail;
+      return { items: [posted, cancelled], next_cursor: null, has_more: false };
+    });
+    render(<HistoryHarness fetcher={fetcher} />);
+    const title = language === "ar" ? "سجل الجرد" : "Stocktake history";
+    fireEvent.click(screen.getByRole("button", { name: title }));
+    const dialog = await screen.findByRole("dialog", { name: title });
+    await waitFor(() => expect(within(dialog).getByText("STK-CANCEL-901")).toBeInTheDocument());
+    expect(within(dialog).getByText("STK-POSTED-902")).toBeInTheDocument();
+    expect(dialog).toHaveAttribute("dir", language === "ar" ? "rtl" : "ltr");
+    expect(dialog).toHaveTextContent(language === "ar" ? "أُلغي بعد تثبيت العد" : "Cancelled after count submission");
+    const cancelledCard = within(dialog).getByText("STK-CANCEL-901").closest("article")!;
+    fireEvent.click(within(cancelledCard).getByRole("button", {
+      name: language === "ar" ? "عرض التفاصيل" : "View details",
+    }));
+    await waitFor(() => expect(dialog).toHaveTextContent("Count investigated"));
+    fireEvent.click(within(dialog).getByRole("button", {
+      name: language === "ar" ? "عرض الكميات" : "View quantities",
+    }));
+    await waitFor(() => expect(within(dialog).getByRole("table")).toHaveTextContent("LOT-51"));
+    expect(within(dialog).getByRole("table")).toHaveTextContent(language === "ar" ? "محظور" : "Blocked");
+    expect(within(dialog).getByRole("table")).not.toHaveTextContent("BLOCKED");
+    expect(dialog).toHaveTextContent(language === "ar" ? "إلغاء الجرد" : "Stocktake cancelled");
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/stocktakes/history?location_id=11"));
+    expect(fetcher).not.toHaveBeenCalledWith(expect.stringMatching(/\/approve|\/cancel|\/count\b/));
+  });
+
+  it.each(["ar", "en"] as const)("fails closed and surfaces 403 request correlation in %s", async language => {
+    locale.value = language;
+    const fetcher = vi.fn(async () => {
+      throw Object.assign(new Error("Authorization denied."), {
+        status: 403, code: "PERMISSION_DENIED", requestId: "history-request-799",
+      });
+    });
+    render(<HistoryHarness fetcher={fetcher} />);
+    fireEvent.click(screen.getByRole("button", {
+      name: language === "ar" ? "سجل الجرد" : "Stocktake history",
+    }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("PERMISSION_DENIED");
+    expect(alert).toHaveTextContent("history-request-799");
+    expect(screen.queryByText("STK-CANCEL-901")).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open history without reviewer permission", () => {
+    const fetcher = vi.fn();
+    render(<HistoryHarness enabled={false} fetcher={fetcher} />);
+    const trigger = screen.getByRole("button", { name: "سجل الجرد" });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
