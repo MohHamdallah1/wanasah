@@ -47,6 +47,8 @@ async def assert_real_http_stocktake(
     a,
     b,
     earlier_discovered_batch_id: int,
+    previous_cancel_after_count_id: int,
+    previous_cancel_before_count_id: int,
     runtime_session,
     grant_location,
     operator_password: str,
@@ -172,6 +174,11 @@ async def assert_real_http_stocktake(
         sid = int(started["session_id"])
         assert _check(await client.post(base + "/start",
                                         json=starting, headers=auth_header), 201) == started
+        # The new history endpoint cannot be used to reveal a live blind count.
+        assert (await client.get(
+            f"/warehouse/unified/stocktakes/history/{sid}",
+            params={"location_id": a.a2}, headers=auth_header,
+        )).status_code == 404
         wrong_start = {**starting, "notes": "mutated replay is forbidden"}
         _check(await client.post(base + "/start", json=wrong_start,
                                  headers=auth_header), 409)
@@ -412,5 +419,75 @@ async def assert_real_http_stocktake(
                 InventoryLock.stocktake_session_id == cancel_id,
                 InventoryLock.released_at.is_(None),
             ))) == 0
+
+
+        history_url = "/warehouse/unified/stocktakes/history"
+        assert (await client.get(history_url, params={"location_id": a.a2})).status_code == 401
+        assert (await client.get(history_url, params={"location_id": a.a2},
+                                 headers=denied_header)).status_code == 403
+        foreign_history = await client.get(history_url, params={"location_id": b.a1},
+                                           headers=auth_header)
+        assert foreign_history.status_code in {403, 404}
+        listing = _check(await client.get(history_url,
+                                          params={"location_id": a.a2, "limit": 50},
+                                          headers=auth_header))
+        assert {sid, cancel_id, previous_cancel_after_count_id,
+                previous_cancel_before_count_id}.issubset({
+                    row["id"] for row in listing["items"]
+                })
+        assert (await client.get(history_url, params={
+            "location_id": a.a2, "cursor": "invalid-tenant-cursor",
+        }, headers=auth_header)).status_code == 400
+        posted_history = _check(await client.get(
+            f"{history_url}/{sid}", params={"location_id": a.a2},
+            headers=auth_header,
+        ))
+        assert posted_history["session"]["status"] == "POSTED"
+        assert len(posted_history["attempts"]["items"]) == 2
+        assert posted_history["session"]["adjustment_movement_count"] == 2
+        assert {row["id"] for row in posted_history["movements"]["items"]} == {
+            m.id for m in moves
+        }
+        assert {row["reference_id"] for row in posted_history["movements"]["items"]} == {
+            str(m.reference_id) for m in moves
+        }
+        latest_attempt_id = posted_history["attempts"]["items"][0]["id"]
+        rows = _check(await client.get(
+            f"{history_url}/{sid}/attempts/{latest_attempt_id}/lines",
+            params={"location_id": a.a2, "limit": 100}, headers=auth_header,
+        ))
+        assert len(rows["items"]) == len(recount_items)
+        assert {(row["batch_id"], row["stock_status"]) for row in rows["items"]} == {
+            (row["batch_id"], row["stock_status"]) for row in recount_items
+        }
+        assert any(row["expected_quantity"] != row["actual_quantity"]
+                   for row in rows["items"])
+        assert (await client.get(
+            f"{history_url}/{sid}", params={"location_id": a.a2},
+            headers=recount_header,
+        )).status_code == 403
+        assert (await client.get(
+            f"{history_url}/{sid}", params={"location_id": b.a1},
+            headers=auth_header,
+        )).status_code == 404
+        after = _check(await client.get(
+            f"{history_url}/{previous_cancel_after_count_id}",
+            params={"location_id": a.a2}, headers=auth_header,
+        ))
+        assert after["session"]["status"] == "CANCELLED"
+        assert after["session"]["cancelled_after_count"] is True
+        assert len(after["attempts"]["items"]) >= 1
+        assert after["session"]["adjustment_movement_count"] == 0
+        assert after["movements"]["items"] == []
+        assert any(row["action_type"] == "STOCKTAKE_CANCELLED"
+                   for row in after["audit"]["items"])
+        before = _check(await client.get(
+            f"{history_url}/{previous_cancel_before_count_id}",
+            params={"location_id": a.a2}, headers=auth_header,
+        ))
+        assert before["session"]["status"] == "CANCELLED"
+        assert before["attempts"]["items"] == []
+        assert before["movements"]["items"] == []
+        print("CP14C_REAL_BEARER_TERMINAL_HISTORY_POST_CANCEL_ROLE_RLS=PASS")
 
     print("CP14C_REAL_ASGI_BEARER_HTTP_START_ZERO_DISCOVERED_RECOUNT_APPROVE_LEDGER=PASS")
