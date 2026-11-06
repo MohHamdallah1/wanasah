@@ -79,6 +79,47 @@ async function setup(page: Page, locale: "ar" | "en") {
       status: "ACTIVE", stocktake_session_id: null,
       stocktake_reference: null, stocktake_status: null,
     });
+    if (path === "/warehouse/unified/stocktakes/history") {
+      if (location !== 11) return json(route, { items: [], next_cursor: null, has_more: false });
+      const old = [
+        { id: 902, reference_number: "STK-POSTED-902", stocktake_type: "FULL_COUNT",
+          status: "POSTED", location_id: 11, scope_product_name: null,
+          started_by_name: "Started Operator", approved_by_name: "Authorized Reviewer",
+          cancelled_by_name: null, counted_by_name: "Count Operator", attempt_number: 2,
+          cancelled_after_count: false, cancellation_reason: null,
+          created_at: "2026-11-01T08:00:00Z", finished_at: "2026-11-01T09:00:00Z" },
+        { id: 901, reference_number: "STK-CANCELLED-901", stocktake_type: "CYCLE_COUNT",
+          status: "CANCELLED", location_id: 11, scope_product_name: "Chickpeas 750 g",
+          started_by_name: "Started Operator", approved_by_name: null,
+          cancelled_by_name: "Authorized Reviewer", counted_by_name: "Count Operator",
+          attempt_number: 1, cancelled_after_count: true,
+          cancellation_reason: "Physical recount investigation",
+          created_at: "2026-11-01T10:00:00Z", finished_at: "2026-11-01T12:00:00Z" },
+      ];
+      return json(route, { items: old, next_cursor: null, has_more: false });
+    }
+    if (path === "/warehouse/unified/stocktake/901/history") return json(route, {
+      session_id: 901, reference_number: "STK-CANCELLED-901", status: "CANCELLED",
+      cancelled_after_count: true, cancellation_reason: "Physical recount investigation",
+      created_at: "2026-11-01T10:00:00Z", finished_at: "2026-11-01T12:00:00Z", notes: null,
+      started_by_name: "Started Operator", approved_by_name: null,
+      cancelled_by_name: "Authorized Reviewer",
+      attempts: [{ id: 701, attempt_number: 1, counted_by_name: "Count Operator",
+        authorized_by_name: null, recount_reason: null, submitted_at: "2026-11-01T11:00:00Z",
+        requires_independent_recount: false }],
+      next_cursor: null, audit_next_cursor: null,
+      audit: [{ id: 1001, action_type: "STOCKTAKE_COUNT_SUBMITTED", actor_name: "Count Operator",
+        at: "2026-11-01T11:00:00Z", old_value: null, new_value: null },
+        { id: 1002, action_type: "STOCKTAKE_CANCELLED", actor_name: "Authorized Reviewer",
+          at: "2026-11-01T12:00:00Z", old_value: "PENDING_REVIEW", new_value: null }],
+    });
+    if (path === "/warehouse/unified/stocktake/901/history/attempts/701/lines") return json(route, {
+      items: [{ id: 801, product_name: "Chickpeas 750 g", batch_id: 51,
+        batch_number: "TRUE-LOT-51", stock_status: "QUARANTINED", line_origin: "SNAPSHOT",
+        base_uom_name: "Each", base_uom_code: "EACH",
+        expected_quantity: "50", actual_quantity: "47", variance_quantity: "-3" }],
+      next_cursor: null,
+    });
     if (path === "/warehouse/unified/stocktakes/active") {
       const items = location === 11 ? [session(77, "CYCLE_COUNT"), session(78, "CYCLE_COUNT")] : [];
       return json(route, { items, total: items.length, next_cursor: null, has_more: false });
@@ -186,6 +227,56 @@ for (const locale of ["ar", "en"] as const) {
       const geometry = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth }));
       expect(geometry.document).toBeLessThanOrEqual(geometry.viewport + 2);
       await page.screenshot({ path: test.info().outputPath(`stocktake-shell-${locale}-${viewport.name}.png`), fullPage: true });
+    });
+  }
+}
+
+for (const locale of ["ar", "en"] as const) {
+  for (const viewport of [
+    { name: "desktop", width: 1440, height: 900 },
+    { name: "phone", width: 390, height: 844 },
+  ]) {
+    test(`#799 terminal history ${locale} ${viewport.name}: immutable cancelled-after-count evidence`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await setup(page, locale);
+      await page.goto("/inventory");
+      const stocktake = page.locator(".inventory-stocktake");
+      const trigger = stocktake.locator('[data-stocktake-history-trigger="true"]');
+      await expect(trigger).toBeVisible();
+      await expect(trigger).toHaveText(locale === "ar" ? "سجل الجرد" : "Stocktake history");
+      await trigger.click();
+      const dialog = page.getByRole("dialog", {
+        name: locale === "ar" ? "سجل الجرد" : "Stocktake history",
+      });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+      await expect(dialog.getByText("STK-POSTED-902")).toBeVisible();
+      await expect(dialog.getByText("STK-CANCELLED-901")).toBeVisible();
+      await expect(dialog.getByText(locale === "ar" ? "أُلغي بعد تثبيت العد" : "Cancelled after count submission")).toBeVisible();
+      const cancelledCard = dialog.locator("article").filter({ hasText: "STK-CANCELLED-901" });
+      await cancelledCard.getByRole("button", {
+        name: locale === "ar" ? "عرض التفاصيل" : "View details",
+      }).click();
+      await expect(dialog.getByText("Physical recount investigation")).toBeVisible();
+      await dialog.getByRole("button", { name: locale === "ar" ? "عرض الكميات" : "View quantities" }).click();
+      const evidence = dialog.getByRole("table");
+      await expect(evidence).toContainText("TRUE-LOT-51");
+      await expect(evidence).toContainText(locale === "ar" ? "معزول" : "Quarantined");
+      await expect(evidence).toContainText("50");
+      await expect(evidence).toContainText("47");
+      await expect(evidence).not.toContainText("QUARANTINED");
+      await expect(dialog.getByText(locale === "ar" ? "تثبيت العد" : "Count submitted")).toBeVisible();
+      await expect(dialog.getByText(locale === "ar" ? "إلغاء الجرد" : "Stocktake cancelled")).toBeVisible();
+      // The archive offers no cancel, approve, submit or movement commands.
+      await expect(dialog.getByRole("button", { name: locale === "ar" ? "اعتماد نهائي" : "Final approval" })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+      const geometry = await page.evaluate(() => ({
+        viewport: innerWidth, document: document.documentElement.scrollWidth,
+      }));
+      expect(geometry.document).toBeLessThanOrEqual(geometry.viewport + 2);
+      await page.screenshot({ path: test.info().outputPath(`stocktake-history-799-${locale}-${viewport.name}.png`), fullPage: true });
     });
   }
 }
