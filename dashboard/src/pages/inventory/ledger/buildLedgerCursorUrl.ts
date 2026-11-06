@@ -1,5 +1,6 @@
 // Pure request contract shared by the ledger list, reference modal and tests.
 // No React/Auth/env import: this must be testable with no Dashboard bootstrap.
+const PAGE_SIZE = 20;
 export const buildLedgerCursorUrl = ({
   locationId,
   cursor,

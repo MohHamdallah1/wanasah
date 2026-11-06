@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseLedgerPage, type LedgerEntry } from "./contracts";
 
-const PAGE_SIZE = 20;
-
 export interface LedgerQueryState {
   entries: LedgerEntry[];
   searchInput: string;
