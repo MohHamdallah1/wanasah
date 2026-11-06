@@ -570,8 +570,9 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=None)):
             with self.assertRaises(HTTPException) as rejected:
                 await stocktake_api.recount_stocktake_session(
-                    second_sid, recount_command, db=self.db,
-                    access=self.access_a_all, legacy_actor=self.actor_a,
+                    second_sid,
+                    recount_command.model_copy(update={"request_id": uuid4()}),
+                    db=self.db, access=self.access_a_all, legacy_actor=self.actor_a,
                 )
         self.assertEqual(rejected.exception.status_code, 403)
         with patch.object(stocktake_api, "_verify_stocktake_admin_credentials", AsyncMock(return_value=self.actor_a)):
