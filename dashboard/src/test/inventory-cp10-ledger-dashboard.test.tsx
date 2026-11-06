@@ -97,7 +97,7 @@ const page = (items: LedgerEntry[], next: string | null = null) => ({
   next_cursor: next,
   has_more: next !== null,
   total: items.length,
-  available_types: ["TRANSFER", "INBOUND_SUPPLIER"],
+  available_types: ["TRANSFER", "INBOUND_SUPPLIER", "AUDIT_ADJUSTMENT"],
 });
 
 const renderLedger = (locationId = 11, initialEntry = "/inventory") => render(
