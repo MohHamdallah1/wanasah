@@ -161,7 +161,7 @@ jobs:
               compact_791 | {foreign},
               dialog_792 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
               dialog_792 | {foreign},
-              bridge_793 - {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"},
+              bridge_793 - {".github/scripts/live_stock_ci_ownership.py"},
               bridge_793 | {foreign},
               compact_791 | dialog_792,
           ):
