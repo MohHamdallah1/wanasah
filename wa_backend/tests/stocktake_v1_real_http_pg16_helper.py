@@ -569,6 +569,13 @@ async def assert_real_http_stocktake(
             f"{base}/{optional_recount_sid}/recount",
             json=recount_body, headers=denied_header)
         assert forbidden_recount.status_code == 403
+        # This other actor has stocktake.recount only at A1, not A2.
+        # A valid role at the wrong location is still forbidden.
+        wrong_location_recount = await client.post(
+            f"{base}/{optional_recount_sid}/recount",
+            json={**recount_body, "request_id": _body_id()},
+            headers=recount_header)
+        assert wrong_location_recount.status_code == 403
         wrong_recount = await client.post(
             f"{base}/{optional_recount_sid}/recount",
             json={**recount_body, "request_id": _body_id(),
