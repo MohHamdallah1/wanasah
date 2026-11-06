@@ -46,6 +46,7 @@ from services import (
 )
 from quantity import QuantityError, canonical_quantity, validate_variant_quantity
 from domains.product_tracking import public_batch_number
+from domains.stocktake.count_uom_read import read_count_outer_uoms
 from domains.stocktake.contracts import (
     StocktakeApprovalCommand,
     StocktakeCancelCommand,
@@ -1889,6 +1890,22 @@ async def get_stocktake_count_sheet(
         )
     ).all()
 
+    # Read only variants already exposed by this authorized, bounded sheet.
+    # The optional outer UOM is never used in count posting or valuation.
+    outer_by_variant = await read_count_outer_uoms(
+        db,
+        company_id=company_id,
+        variants={
+            int(line.product_variant_id): (
+                int(base_uom_id), int(quantity_scale), Decimal(quantity_step),
+            )
+            for (
+                line, _product_name, base_uom_id, quantity_scale, quantity_step,
+                _base_uom_code, _base_uom_name, _batch_number, _expiry_date,
+            ) in rows
+        },
+    )
+
     return [{
         "stocktake_line_id": line.id,
         "product_variant_id": line.product_variant_id,
@@ -1903,6 +1920,7 @@ async def get_stocktake_count_sheet(
         "quantity_step": canonical_quantity(quantity_step),
         "batch_number": public_batch_number(batch_number),
         "expiry_date": _iso_date_or_none(expiry_date),
+        **outer_by_variant.get(int(line.product_variant_id), {}),
     } for (
         line, product_name, base_uom_id, quantity_scale, quantity_step,
         base_uom_code, base_uom_name, batch_number, expiry_date,

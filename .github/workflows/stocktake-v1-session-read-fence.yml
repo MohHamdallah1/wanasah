@@ -72,18 +72,58 @@ jobs:
               "wa_backend/api/warehouse/stocktake_discovery.py",
               "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
           }
+          fast_795 = {
+              "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/inventoryUtils.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountEntryArithmetic.test.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeFastCountV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/countEntry.ts",
+              "dashboard/src/pages/inventory/stocktake/discoveredContract.ts",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeCounting.ts",
+              "dashboard/src/pages/inventory/stocktake/parsers.ts",
+              "dashboard/src/pages/inventory/stocktake/types.ts",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          ci_796 = {
+              ".github/workflows/stocktake-v1-operator-782.yml",
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-review-779.yml",
+              ".github/workflows/stocktake-v1-session-read-fence.yml",
+          }
           if changed == allowed:
               mode = "REENTRY"
           elif changed == discovered_allowed:
               mode = "DISCOVERED"
+          elif changed == fast_795:
+              mode = "FAST_COUNT_795"
+          elif changed == ci_796:
+              mode = "FAST_CI_796"
           else:
               raise AssertionError({
-                  "unexpected": sorted(changed - (allowed | discovered_allowed)),
+                  "unexpected": sorted(changed - (allowed | discovered_allowed | fast_795 | ci_796)),
                   "missing_reentry": sorted(allowed - changed),
                   "missing_discovered": sorted(discovered_allowed - changed),
               })
           for foreign in ("wa_backend/services.py", "dashboard/src/pages/inventory/Tab4Ledger.tsx",
                           "flutter/lib/main.dart", "wa_backend/alembic/versions/foreign.py"):
               assert foreign not in allowed and foreign not in discovered_allowed
+          exact_scopes = {frozenset(parts): name for name, parts in (
+              ("REENTRY", allowed), ("DISCOVERED", discovered_allowed),
+              ("FAST_COUNT_795", fast_795), ("FAST_CI_796", ci_796),
+          )}
+          assert len(exact_scopes) == 4
+          assert exact_scopes[frozenset(changed)] == mode
+          for name, parts in (
+              ("FAST_COUNT_795", fast_795), ("FAST_CI_796", ci_796),
+          ):
+              assert exact_scopes[frozenset(parts)] == name
+              for candidate in (
+                  parts - {sorted(parts)[0]},
+                  parts | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"},
+                  parts | {"wa_backend/api/warehouse/stocktake.py"},
+              ):
+                  assert frozenset(candidate) not in exact_scopes
           print(f"STOCKTAKE_V1_REENTRY_SCOPE=PASS mode={mode}")
           PY

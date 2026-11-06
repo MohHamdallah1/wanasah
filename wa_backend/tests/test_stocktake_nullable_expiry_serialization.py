@@ -135,7 +135,13 @@ class StocktakeNullableExpirySerializationTests(unittest.IsolatedAsyncioTestCase
             stocktake,
             "_load_stocktake_session",
             new=AsyncMock(return_value=_count_session()),
+        ), patch.object(
+            stocktake,
+            "read_count_outer_uoms",
+            new=AsyncMock(return_value={}),
         ):
+            # This test owns nullable-expiry/public-batch serialization only.
+            # The separate restricted PG16 + real HTTP gate checks real UOM reads.
             return await stocktake.get_stocktake_count_sheet(
                 12,
                 db=db,
