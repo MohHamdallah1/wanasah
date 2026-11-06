@@ -164,7 +164,7 @@ jobs:
               )
               assert invalid_subset is not None, label
               for invalid in (set(), invalid_subset,
-                              paths | {"wa_backend/api/warehouse/stocktake.py"},
+                              paths | {"wa_backend/services.py"},
                               paths | {"dashboard/src/pages/inventory/Tab4Ledger.tsx"}):
                   try:
                       verify(invalid)
