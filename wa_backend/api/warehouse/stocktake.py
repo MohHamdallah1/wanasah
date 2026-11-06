@@ -357,6 +357,7 @@ async def _requires_independent_stocktake_recount(
 
     packs_threshold = None
     percent_threshold = None
+    invalid_configured_threshold = False
 
     try:
         if settings.get('stocktake_material_shortage_packs') is not None:
@@ -365,22 +366,23 @@ async def _requires_independent_stocktake_recount(
                 int(settings['stocktake_material_shortage_packs'])
             )
     except (TypeError, ValueError):
-        packs_threshold = None
+        invalid_configured_threshold = True
 
     try:
         if settings.get('stocktake_material_shortage_percent') is not None:
             configured_percent = float(settings['stocktake_material_shortage_percent'])
-            if isfinite(configured_percent):
-                percent_threshold = max(0.0, configured_percent)
+            if not isfinite(configured_percent):
+                raise ValueError("invalid configured stocktake percentage threshold")
+            percent_threshold = max(0.0, configured_percent)
     except (TypeError, ValueError):
-        percent_threshold = None
+        invalid_configured_threshold = True
 
     # V1 OWNER policy: no configured threshold => recount is optional.
     # Do not silently weaken an EXISTING explicit company policy: invalid
     # configured thresholds fail closed rather than behaving like "no policy".
     if not settings:
         return False
-    if packs_threshold is None and percent_threshold is None:
+    if invalid_configured_threshold or (packs_threshold is None and percent_threshold is None):
         return True
 
     for expected_qty, shortage_qty in shortages:
