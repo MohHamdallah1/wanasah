@@ -1368,7 +1368,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert forged_cursor.value.status_code == 400
 
             detail = await stocktake_history.terminal_stocktake_details(
-                rollback_session, cursor=None, limit=30, db=db,
+                rollback_session, cursor=None, audit_cursor=None, limit=30, db=db,
                 access=a.operator.access(db),
             )
             assert detail["status"] == "CANCELLED"
@@ -1394,14 +1394,14 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                 InventoryMovement.stocktake_session_id == rollback_session,
             )) == 0
             before_count_detail = await stocktake_history.terminal_stocktake_details(
-                cancel_session, cursor=None, limit=30, db=db,
+                cancel_session, cursor=None, audit_cursor=None, limit=30, db=db,
                 access=a.operator.access(db),
             )
             assert before_count_detail["attempts"] == []
             assert before_count_detail["cancelled_after_count"] is False
             assert any(a["action_type"] == "STOCKTAKE_CANCELLED" for a in before_count_detail["audit"])
             posted_detail = await stocktake_history.terminal_stocktake_details(
-                session_id, cursor=None, limit=30, db=db,
+                session_id, cursor=None, audit_cursor=None, limit=30, db=db,
                 access=a.operator.access(db),
             )
             assert posted_detail["status"] == "POSTED"
@@ -1409,7 +1409,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert any(a["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED" for a in posted_detail["audit"])
             with pytest.raises(HTTPException) as denied_detail:
                 await stocktake_history.terminal_stocktake_details(
-                    rollback_session, cursor=None, limit=30, db=db,
+                    rollback_session, cursor=None, audit_cursor=None, limit=30, db=db,
                     access=a.counter.access(db),
                 )
             assert denied_detail.value.status_code == 403
