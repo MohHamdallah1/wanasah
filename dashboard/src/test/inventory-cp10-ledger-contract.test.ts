@@ -114,6 +114,10 @@ describe("CP10 Ledger business contracts", () => {
     expect(ledgerMovementLabel(translate as never, "en", "AUDIT_ADJUSTMENT")).toBe("Stocktake adjustment");
     expect(ledgerMovementLabel(translate as never, "ar", "TRANSFER_RECEIPT")).toBe("استلام حوالة");
     expect(ledgerMovementLabel(translate as never, "en", "VISIT_RETURN_IN")).toBe("Visit return in");
+    // Same event type is emitted on accepted handover and supervisor cancel;
+    // its meaning is reservation release, NOT proof of representative rejection.
+    expect(ledgerMovementLabel(translate as never, "ar", "HANDSHAKE_RELEASE")).toBe("تحرير حجز التسليم");
+    expect(ledgerMovementLabel(translate as never, "en", "HANDSHAKE_RELEASE")).toBe("Handover reservation release");
   });
 
   it("routes exact stocktake reference using the existing tab/warehouse authority", () => {
