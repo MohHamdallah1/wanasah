@@ -85,13 +85,31 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/scripts/live_stock_ci_ownership.py",
           }
+          # Owner-approved isolated screenshot density refinements; no prefixes.
+          compact_791 = {
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountingPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeUnifiedWorkspaceV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/uiCopy.ts",
+          }
+          dialog_792 = {
+              "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
+              "dashboard/src/pages/inventory/MainInventory.tsx",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeSessionCenter.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeShellLayout.test.tsx",
+          }
+          bridge_793 = set(ci_782) | {"dashboard/e2e/stocktake-v1-ux-776.spec.ts"}
           allowed = {frozenset(x): label for label, x in (
               ("OPERATOR_UX_784", expected),
               ("SINGLE_TOOLBAR_789", shell_789),
               ("UNIFIED_WORKSPACE_788", workspace_788),
               ("FINAL_CI_782", ci_782),
+              ("COMPACT_COUNT_791", compact_791),
+              ("SESSION_DIALOG_792", dialog_792),
+              ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           )}
-          assert len(allowed) == 4
+          assert len(allowed) == 7
           def verify(paths):
               label = allowed.get(frozenset(paths))
               assert label is not None, {"error": "STOCKTAKE_782_SCOPE_FAIL", "changed": sorted(paths)}
@@ -101,6 +119,9 @@ jobs:
               ("SINGLE_TOOLBAR_789", shell_789),
               ("UNIFIED_WORKSPACE_788", workspace_788),
               ("FINAL_CI_782", ci_782),
+              ("COMPACT_COUNT_791", compact_791),
+              ("SESSION_DIALOG_792", dialog_792),
+              ("DENSITY_CI_BROWSER_BRIDGE", bridge_793),
           ):
               assert verify(paths) == label
               for invalid in (set(), paths - {next(iter(paths))},
