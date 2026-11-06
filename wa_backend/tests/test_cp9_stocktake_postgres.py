@@ -44,6 +44,7 @@ from models import (
     SessionInventorySnapshot,
     StocktakeCountAttempt,
     StocktakeSession,
+    SystemSetting,
     UOM,
     WorkSession,
     Zone,
@@ -525,7 +526,14 @@ class CP9StocktakePostgresAcceptance(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await stocktake_api.approve_stocktake_session(positive_sid, pos_cmd, db=self.db, access=self.access_a_all, legacy_actor=self.actor_a), pos_approved)
         self.assertEqual(int(await self.db.scalar(select(func.count()).select_from(InventoryMovement).where(InventoryMovement.stocktake_session_id == positive_sid)) or 0), movement_count)
 
-        # Negative variance must not post before an independent recount.
+        # This test deliberately opts into the historical mandatory threshold.
+        self.db.add(SystemSetting(
+            company_id=self.company_a,
+            setting_key='stocktake_material_shortage_packs',
+            setting_value='1',
+        ))
+        await self.db.commit()
+        # Under an EXPLICIT existing threshold, negative variance still blocks approval.
         negative = await self._start(self.a2, self.access_a_all, self.actor_a)
         negative_sid = int(negative["session_id"])
         negative_count, _ = await self._count(
