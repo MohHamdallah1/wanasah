@@ -79,6 +79,7 @@ jobs:
             "dashboard/e2e/ledger-762.spec.ts",
             "dashboard/e2e/ledger-762.config.ts",
           }
+          # Ledger visual polish reuses the existing same exact seven-file scope.
           ledger_toolbar_exact={
             "dashboard/src/pages/inventory/MainInventory.tsx",
             "dashboard/src/pages/inventory/Tab4Ledger.tsx",
