@@ -459,7 +459,9 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
             )
             duration_ms = round((perf_counter() - began) * 1000)
             # Bounded DB statements regardless of the 20,000+ source records.
-            assert len(traces) <= 7, f"Unbounded operation reads: {len(traces)}"
+            # A 1000-line leading group crosses four indexed 256-row windows;
+            # each window uses one raw SELECT and one batched group aggregate.
+            assert len(traces) <= 15, f"Unbounded operation reads: {len(traces)}"
             assert len(first["items"]) == 20 and first["has_more"]
             assert first["next_cursor"]
             assert all(g["group_kind"] == "TRANSFER" for g in first["items"])
