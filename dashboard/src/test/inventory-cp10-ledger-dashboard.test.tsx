@@ -44,6 +44,8 @@ vi.mock("react-i18next", async (importOriginal) => {
 });
 
 import { Tab4Ledger } from "@/pages/inventory/Tab4Ledger";
+import { LedgerTable } from "@/pages/inventory/ledger/LedgerTable";
+import { LedgerMobileCards } from "@/pages/inventory/ledger/LedgerMobileCards";
 
 const entry = (id: number, overrides: Partial<LedgerEntry> = {}): LedgerEntry => ({
   id,
@@ -521,5 +523,33 @@ describe("CP10 Ledger Dashboard", () => {
     resolveOld?.(page([entry(11, { product_name: "Stale A1 Product" })]));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText("Stale A1 Product")).not.toBeInTheDocument();
+  });
+});
+
+describe("Ledger #818 bounded large-list rendering", () => {
+  it("keeps desktop and mobile mounted DOM bounded at 10,001 authorized movements", () => {
+    const entries = Array.from({ length: 10001 }, (_, index) => entry(index + 1));
+    const props = {
+      t: ((key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? key)) as never,
+      language: "en",
+      locale: "en-US",
+      entries,
+      canAdjust: false,
+      onOpenReference: vi.fn(),
+      onOpenNotes: vi.fn(),
+      onOpenAdjustment: vi.fn(),
+      hasMore: false,
+    };
+    const { container } = render(
+      <>
+        <LedgerTable {...props} />
+        <LedgerMobileCards {...props} />
+      </>,
+    );
+    expect(entries).toHaveLength(10001);
+    expect(container.querySelectorAll('[data-cp13-ledger-row="compact"]').length).toBeLessThan(100);
+    expect(container.querySelectorAll('[data-cp13-ledger-card="compact"]').length).toBeLessThan(100);
+    expect(Number(container.querySelector('[data-cp13-ledger-list="chronological"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
+    expect(Number(container.querySelector('[data-cp13-phone-list="true"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
   });
 });
