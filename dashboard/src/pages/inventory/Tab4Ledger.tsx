@@ -63,6 +63,9 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
   }, [denied, adjustment.close]);
   const visibleEntries = denied ? [] : query.entries;
   const canAdjust = !denied && access.can("ledger.adjust");
+  useEffect(() => {
+    if (!canAdjust && adjustment.entry !== null) adjustment.close();
+  }, [canAdjust, adjustment.entry, adjustment.close]);
   const total = denied || query.total === null
     ? null
     : new Intl.NumberFormat(locale, {
@@ -196,6 +199,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
         t={t}
         language={language}
         controller={adjustment}
+        canAdjust={canAdjust}
         onChanged={() => {
           query.refresh();
           onInventoryChanged();
