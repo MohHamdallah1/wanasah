@@ -54,6 +54,7 @@ export function useLedgerQuery(
   const scopeRef = useRef<string | null>(null);
   const sessionRef = useRef<DashboardSession | null>(null);
   const cursorRef = useRef<string | null>(null);
+  const wasActive = useRef(false);
   const cursorsSeen = useRef(new Set<string>());
   const idsSeen = useRef(new Set<number>());
 
@@ -160,13 +161,56 @@ export function useLedgerQuery(
     }
   }, [active, authFetch, debouncedSearch, exactReference, filterType, locationId, scopeKey, serverScope]);
 
+  const revalidate = useCallback(async () => {
+    // Re-entering the same tab must re-check the current warehouse grant,
+    // without dropping already-rendered rows, cursor or scroll position.
+    const session = sessionRef.current;
+    if (!session || pending.current || !isDashboardSessionCurrent(session)) return;
+    const requestId = ++seq.current;
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    pending.current = true;
+    try {
+      const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
+        locationId, search: exactReference === null ? debouncedSearch : undefined,
+        referenceType: exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType,
+        referenceId: exactReference ?? undefined,
+      }), { signal: controller.signal }));
+      if (requestId !== seq.current || scopeRef.current !== serverScope ||
+        !isDashboardSessionCurrent(session)) return;
+      // Existing cursor remains bound to its original keyset scope/snapshot.
+      // A revalidation cannot overwrite an appended list with page one.
+      setAvailableTypes(page.available_types);
+      if (page.total !== null) setTotal(page.total);
+    } catch (failure) {
+      if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
+      const status = Number((failure as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        setDenied(true);
+        setEntries([]);
+        idsSeen.current.clear();
+        cursorsSeen.current.clear();
+        cursorRef.current = null;
+        setTotal(null);
+        setHasMore(false);
+        setNextCursor(null);
+      } else if (!(failure instanceof Error && failure.name === "AbortError")) setError(true);
+    } finally {
+      if (requestId === seq.current) pending.current = false;
+    }
+  }, [authFetch, debouncedSearch, exactReference, filterType, locationId, serverScope]);
+
   useEffect(() => {
     if (!active) {
+      wasActive.current = false;
       seq.current++;
       abortRef.current?.abort();
       pending.current = false;
       return;
     }
+    const returning = !wasActive.current;
+    wasActive.current = true;
     if (scopeRef.current !== serverScope) {
       seq.current++;
       abortRef.current?.abort();
@@ -183,9 +227,11 @@ export function useLedgerQuery(
       setVisibleScope(null);
       setDenied(false);
       void load(null, true);
+    } else if (returning) {
+      void revalidate();
     }
     return () => { seq.current++; abortRef.current?.abort(); pending.current = false; };
-  }, [active, serverScope, load]);
+  }, [active, serverScope, load, revalidate]);
 
   const loadMore = useCallback(() => {
     if (!pending.current && hasMore && nextCursor && !denied && visibleScope === scopeKey) {
