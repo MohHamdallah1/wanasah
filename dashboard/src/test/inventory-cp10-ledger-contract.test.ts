@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   adjustmentDelta,
+  buildLedgerAdjustmentPayload,
   parseLedgerPage,
 } from "@/pages/inventory/ledger/contracts";
 import { ledgerMovementLabel, ledgerStatusLabel } from "@/pages/inventory/ledger/ledgerI18n";
@@ -65,6 +66,44 @@ const page = (batchNumber: string | null) => ({
 });
 
 describe("CP10 Ledger business contracts", () => {
+  it("preserves genuine zero-valued cost events even without input price", () => {
+    const actual = parseLedgerPage({ ...page("LOT-X"), items: [{
+      ...rawEntry("LOT-X"), type: "VISIT_SAMPLE_OUT", reference_type: "VISIT_SAMPLE_OUT",
+      cost_method: "FIFO", input_unit_cost: null, total_cost: "0.000000",
+      average_cost_after: "1.250000", average_cost_uom_code: "PACK",
+      average_cost_uom_name: "Pack",
+    }] }).items[0];
+    expect(actual.input_unit_cost).toBeNull();
+    expect(actual.total_cost).toBe("0.000000");
+    expect(actual.average_cost_after).toBe("1.250000");
+    expect(actual.average_cost_uom_code).toBe("PACK");
+    expect(actual.cost_method).toBe("FIFO");
+  });
+
+  it("sends only an explicitly entered bounded append-only correction note", () => {
+    const product = parseLedgerPage(page(null)).items[0];
+    expect(buildLedgerAdjustmentPayload("2", product, "test-secret")).not.toHaveProperty("notes");
+    expect(buildLedgerAdjustmentPayload("2", product, "test-secret", "  counted damaged receipt  ").notes)
+      .toBe("counted damaged receipt");
+    expect(() => buildLedgerAdjustmentPayload("2", product, "test-secret", "x".repeat(2001)))
+      .toThrow("LEDGER_ADJUSTMENT_NOTE_TOO_LONG");
+  });
+
+  it("localizes genuine posted movement references without treating release as rejection", () => {
+    const t = vi.fn((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key));
+    for (const type of [
+      "STATUS_RECLASSIFICATION", "FINAL_DISPOSAL", "SPECIAL_TRANSFER_DISPATCH",
+      "SPECIAL_TRANSFER_TERMINAL_STATUS", "QUALITY_HANDLING_STAGE", "HANDSHAKE_POST",
+      "HANDSHAKE_TERMINAL_STATUS", "REPRESENTATIVE_CUSTODY_RECEIPT",
+      "VEHICLE_LOAD_DIRECT", "VEHICLE_UNLOAD_DIRECT", "VEHICLE_UNLOAD_SAFE_STATUS",
+      "VISIT_SAMPLE_OUT", "VISIT_REWARD_OUT",
+    ]) {
+      expect(ledgerMovementLabel(t as never, "ar", type)).not.toBe(type);
+      expect(ledgerMovementLabel(t as never, "en", type)).not.toBe(type);
+    }
+    expect(ledgerMovementLabel(t as never, "ar", "HANDSHAKE_RELEASE")).toBe("تحرير حجز التسليم");
+  });
+
   it("accepts public anonymous lot but rejects every internal no-lot identity", () => {
     expect(parseLedgerPage(page(null)).items[0].batch_number).toBeNull();
     expect(() => parseLedgerPage(page("__WANASAH_NOLOT__:SECRET"))).toThrow("LEDGER_INTERNAL_NO_LOT_LEAK");
