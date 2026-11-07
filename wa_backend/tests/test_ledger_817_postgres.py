@@ -1038,3 +1038,66 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
                   plan[:1400])
     finally:
         event.remove(pg.runtime_engine.sync_engine, "before_cursor_execute", capture)
+
+    # Codex P2 regression: one huge document crosses 32 raw keyset windows.
+    # Stats must aggregate the authoritative document just ONCE per page.
+    # All 9,000 new rows are synthetic read-only fixtures in disposable PG16.
+    async with pg.session(pg.a) as db:
+        await db.execute(text("""
+            INSERT INTO inventory_movements (
+                company_id, performed_by, destination_location_id,
+                destination_stock_status, product_variant_id, batch_id,
+                quantity, movement_kind, reference_type, reference_id,
+                idempotency_key, transfer_header_id, created_at
+            )
+            SELECT :c, :actor, :a, 'AVAILABLE', :variant, :batch,
+                   1, 'PHYSICAL', 'TRANSFER_DISPATCH', :ref,
+                   'PERF817-EXTRA-' || :tag || '-' || gs::text, :header,
+                   timezone('UTC', now())
+            FROM generate_series(1,9000) AS gs
+        """), {
+            "c": company_id, "actor": pg.a.owner.driver_id, "a": a,
+            "variant": pg.a.variant_id, "batch": pg.a.batch_id,
+            "ref": "LARGE817-" + seed_id, "tag": seed_id,
+            "header": large_id,
+        })
+        await db.commit()
+
+    huge_trace = []
+    def capture_huge(_conn, _cursor, statement, params, _context, _executemany):
+        if statement.lstrip().upper().startswith("SELECT") and "inventory_movements" in statement:
+            huge_trace.append(statement)
+    event.listen(pg.runtime_engine.sync_engine, "before_cursor_execute", capture_huge)
+    try:
+        async with pg.session(pg.a) as db:
+            start = perf_counter()
+            huge = await read_operation_groups(
+                db, access=pg.a.owner.access(db), company_id=company_id,
+                location_id=a, cursor=None, limit=1, search=None,
+                movement_type=None, reference_id="LARGE817-" + seed_id,
+            )
+            elapsed_ms = round((perf_counter() - start) * 1000)
+            assert len(huge["items"]) == 1
+            assert huge["items"][0]["group_kind"] == "TRANSFER"
+            assert huge["items"][0]["movement_count"] == 10_000
+            assert huge["has_more"] and huge["next_cursor"]
+            document_aggs = [sql for sql in huge_trace if "array_agg" in sql]
+            assert len(document_aggs) == 1, (
+                f"Repeated full-document count {len(document_aggs)}"
+            )
+            assert len(huge_trace) <= 40, len(huge_trace)
+            assert elapsed_ms < 15_000, elapsed_ms
+            children = await read_operation_movements(
+                db, access=pg.a.owner.access(db), company_id=company_id,
+                location_id=a, group_token=huge["items"][0]["group_key"],
+                cursor=None, limit=20, search=None,
+                movement_type=None, reference_id="LARGE817-" + seed_id,
+            )
+            assert len(children["items"]) == 20 and children["has_more"]
+            print(
+                f"LEDGER_817_10000_LINE_DOCUMENT_ONCE_PER_PAGE_AGG_PASS "
+                f"SQL={len(huge_trace)} AGG={len(document_aggs)} "
+                f"FIRST_PAGE_MS={elapsed_ms}"
+            )
+    finally:
+        event.remove(pg.runtime_engine.sync_engine, "before_cursor_execute", capture_huge)
