@@ -6,7 +6,7 @@ import {
   type DashboardSession,
 } from "@/lib/authStorage";
 import { parseLedgerPage, type LedgerEntry } from "./contracts";
-import { buildLedgerCursorUrl } from "./useLedgerQuery";
+import { buildLedgerCursorUrl } from "./buildLedgerCursorUrl";
 
 const REFERENCE_PAGE_SIZE = 100;
 const MAX_REFERENCE_PAGES = 50;

@@ -1,9 +1,8 @@
+import { buildLedgerCursorUrl } from "./buildLedgerCursorUrl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { parseLedgerPage, type LedgerEntry } from "./contracts";
-
-const PAGE_SIZE = 20;
 
 export interface LedgerQueryState {
   entries: LedgerEntry[];
@@ -24,38 +23,12 @@ export interface LedgerQueryState {
   retry: () => void;
 }
 
-export const buildLedgerCursorUrl = ({
-  locationId,
-  cursor,
-  search,
-  referenceType,
-  referenceId,
-  limit = PAGE_SIZE,
-}: {
-  locationId: number;
-  cursor?: string | null;
-  search?: string;
-  referenceType?: string;
-  referenceId?: string;
-  limit?: number;
-}): string => {
-  const params = new URLSearchParams({
-    location_id: String(locationId),
-    limit: String(limit),
-  });
-  if (cursor) params.set("cursor", cursor);
-  if (referenceId) {
-    params.set("reference_id", referenceId);
-    if (referenceType) params.set("reference_type", referenceType);
-  } else {
-    const cleanSearch = (search ?? "").trim();
-    if (cleanSearch.length >= 2) params.set("search", cleanSearch);
-    if (referenceType && referenceType !== "ALL") params.set("reference_type", referenceType);
-  }
-  return `/warehouse/ledger/cursor?${params.toString()}`;
-};
-
-export function useLedgerQuery(locationId: number, refreshKey: number, active = true): LedgerQueryState {
+export function useLedgerQuery(
+  locationId: number,
+  refreshKey: number,
+  active = true,
+  exactReference: string | null = null,
+): LedgerQueryState {
   const authFetch = useAuthFetch();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -73,6 +46,9 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
   const requestSeq = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const loadedScope = useRef<string | null>(null);
+  // Hide rows synchronously when an exact STK reference or warehouse scope changes.
+  // The effect may not have cleared the previous scope at render time yet.
+  const [visibleScopeKey, setVisibleScopeKey] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -80,8 +56,12 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
   }, [searchInput]);
 
   const scopeKey = useMemo(
-    () => `${locationId}|${debouncedSearch}|${filterType}|${refreshKey}`,
-    [debouncedSearch, filterType, locationId, refreshKey],
+    // Mode is part of cursor authorization: fuzzy search=STK-X is NOT the
+    // same scope as exact reference_id=STK-X, even with identical text/type.
+    // Distinct identity hides old rows during render, resets page to cursor
+    // null and invalidates in-flight fuzzy responses before the exact read.
+    () => `${locationId}|${exactReference !== null ? "EXACT_STOCKTAKE_REFERENCE" : "FUZZY_SEARCH"}|${exactReference ?? debouncedSearch}|${exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType}|${refreshKey}`,
+    [debouncedSearch, exactReference, filterType, locationId, refreshKey],
   );
 
   const loadPage = useCallback(async (
@@ -96,6 +76,7 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
     setLoading(true);
     setError(false);
     if (clearForNewScope) {
+      setVisibleScopeKey(scopeKey);
       setEntries([]);
       setTotal(null);
       setNextCursor(null);
@@ -107,8 +88,9 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
         buildLedgerCursorUrl({
           locationId,
           cursor,
-          search: debouncedSearch,
-          referenceType: filterType,
+          search: exactReference ? undefined : debouncedSearch,
+          referenceType: exactReference ? "AUDIT_ADJUSTMENT" : filterType,
+          referenceId: exactReference ?? undefined,
         }),
         { signal: controller.signal },
       ));
@@ -139,7 +121,7 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
       if (abortRef.current === controller) abortRef.current = null;
       if (sequence === requestSeq.current) setLoading(false);
     }
-  }, [authFetch, debouncedSearch, filterType, locationId]);
+  }, [authFetch, debouncedSearch, exactReference, filterType, locationId, scopeKey]);
 
   const resetAndLoad = useCallback(() => {
     requestSeq.current += 1;
@@ -195,19 +177,20 @@ export function useLedgerQuery(locationId: number, refreshKey: number, active = 
     void loadPage(cursorHistory[pageIndex] ?? null, pageIndex, entries.length === 0);
   }, [cursorHistory, entries.length, loadPage, pageIndex]);
 
+  const currentScopeVisible = visibleScopeKey === scopeKey;
   return {
-    entries,
+    entries: currentScopeVisible ? entries : [],
     searchInput,
     setSearchInput,
     filterType,
     setFilterType,
-    availableTypes,
-    total,
-    pageIndex,
-    loading,
-    error,
-    hasMore,
-    canGoPrevious: pageIndex > 0,
+    availableTypes: currentScopeVisible ? availableTypes : [],
+    total: currentScopeVisible ? total : null,
+    pageIndex: currentScopeVisible ? pageIndex : 0,
+    loading: loading || !currentScopeVisible,
+    error: currentScopeVisible && error,
+    hasMore: currentScopeVisible && hasMore,
+    canGoPrevious: currentScopeVisible && pageIndex > 0,
     goNext,
     goPrevious,
     refresh,
