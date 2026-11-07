@@ -1,4 +1,4 @@
-name: Ledger V1 #812 correction-cycle PostgreSQL16 real Bearer
+name: "Ledger V1 #812 correction-cycle PostgreSQL16 real Bearer"
 
 on:
   pull_request:

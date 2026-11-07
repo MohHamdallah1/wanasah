@@ -53,7 +53,7 @@ class InboundAdjustmentState:
     base_uom_code: str
     # Internal revision of this supplier-reference correction chain, not a
     # public API field. Every committed correction advances the revision.
-    latest_correction_movement_id: int | None
+    latest_correction_movement_id: int | None = None
 
     def response(self) -> dict[str, Any]:
         return {
