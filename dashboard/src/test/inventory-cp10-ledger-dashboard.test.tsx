@@ -414,6 +414,7 @@ describe("CP10 Ledger Dashboard", () => {
     fireEvent.change(quantity, { target: { value: "8.000001" } });
     expect(await screen.findByText("-2.25 EACH")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Confirmation password"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Correction reason (optional, up to 2000 characters)"), { target: { value: "Verified receipt correction" } });
     fireEvent.submit(quantity.closest("form")!);
     await waitFor(() => {
       const post = mocks.authFetch.mock.calls.find(([path, init]) => path === "/warehouse/ledger/4/adjust" && init?.method === "POST");
@@ -422,8 +423,32 @@ describe("CP10 Ledger Dashboard", () => {
         new_total_quantity: "8.000001",
         uom_id: 1,
         password: "secret",
+        notes: "Verified receipt correction",
       });
     });
+  });
+
+  it("closes an already-open adjustment after known permission revocation", async () => {
+    const inbound = entry(61, { type: "INBOUND_SUPPLIER", reference_type: "INBOUND_SUPPLIER" });
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith("/warehouse/ledger/cursor?")) return page([inbound]);
+      if (path === "/warehouse/ledger/61/adjustment-state") return {
+        entry_id: 61, reference: "REF-SHARED", product_variant_id: 100, batch_id: 22,
+        warehouse_location_id: 11, current_total_quantity: "10", base_uom_id: 1,
+        base_uom_code: "EACH",
+      };
+      throw new Error(path);
+    });
+    const view = renderLedger();
+    await screen.findAllByText("Shared Product");
+    fireEvent.click(screen.getAllByRole("button", { name: "Record inbound correction" })[0]);
+    expect(await screen.findByRole("textbox", { name: "Requested correct total" })).toBeInTheDocument();
+    mocks.permissions = new Set(["ledger.read"]);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}>
+      <Tab4Ledger locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+    </MemoryRouter>);
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Requested correct total" })).not.toBeInTheDocument());
+    expect(mocks.authFetch.mock.calls.some(([path, init]) => String(path).endsWith("/adjust") && init?.method === "POST")).toBe(false);
   });
 
   it("stale Warehouse response cannot overwrite a newer Warehouse scope", async () => {
