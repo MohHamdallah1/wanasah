@@ -818,6 +818,7 @@ LEDGER_811_EXACT = frozenset({
 })
 
 
+# Reused for Ledger V1 visual-only white selectors / movement count polish.
 # Exact Ledger owner visual toolbar polish: move the existing authorized
 # warehouse selector into LedgerFilters and label the real movement count.
 # Do not admit partial or mixed scopes or change Live Stock ownership.

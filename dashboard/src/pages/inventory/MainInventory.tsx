@@ -1818,9 +1818,9 @@ export default function MainInventory() {
       <select
         aria-label={t("inventoryShell.warehouseSelectLabel")}
         className={ledgerShellAdmitted
-          ? "inventory-location-select !h-9 !min-w-[10.5rem] w-44 max-w-48 px-2 text-xs font-bold"
+          ? "inventory-location-select !h-9 !min-w-[10.5rem] w-44 max-w-48 !border-slate-200 !bg-white !text-slate-800 px-2 text-xs font-bold"
           : stocktakeShellAdmitted
-            ? "inventory-location-select !w-auto min-w-0 flex-1 px-3 py-2 text-sm font-bold"
+            ? "inventory-location-select !w-auto min-w-0 flex-1 !border-slate-200 !bg-white !text-slate-800 px-3 py-2 text-sm font-bold"
             : "inventory-location-select px-3 py-2 text-sm font-bold"}
         value={selectedLocationId ?? ""}
         onChange={(event) => handleLocationChange(event.target.value)}

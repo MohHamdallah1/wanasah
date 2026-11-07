@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -98,23 +97,12 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
       data-cp13-surface="ledger"
     >
       <section className="inventory-surface inventory-data-panel flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <header className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2.5 sm:px-4">
-          <div className="min-w-0">
-            <h2 className="flex items-center gap-2 text-sm font-black text-slate-900">
-              <History aria-hidden="true" className="h-4 w-4 text-blue-700" />
-              {text("title")}
-            </h2>
-            {total !== null ? (
-              <p className="mt-0.5 text-[10px] font-bold tabular-nums text-slate-400">{text("movementCount", { count: total })}</p>
-            ) : null}
-          </div>
-        </header>
-
         {!denied && exactReference && (
           <div role="status" data-ledger-exact-reference="true"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
             {warehouseSelector && <div className="flex min-w-0 items-center" data-ledger-warehouse-picker="true">{warehouseSelector}</div>}
             <span>{text("exactReferenceFilter")}: <bdi dir="ltr">{exactReference}</bdi></span>
+            {total !== null && <span className="text-[10px] font-medium text-amber-800" title={text("movementCountHelp")}>{text("movementCount", { count: total })}</span>}
             <button type="button" onClick={clearExactReference}
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
               {text("clearReferenceFilter")}
@@ -128,6 +116,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           search={query.searchInput}
           onSearchChange={query.setSearchInput}
           filterType={query.filterType}
+          totalCount={total}
           onFilterTypeChange={query.setFilterType}
           availableTypes={query.availableTypes}
           loading={query.loading}
