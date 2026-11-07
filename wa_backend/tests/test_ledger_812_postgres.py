@@ -211,6 +211,27 @@ async def test_812_real_bearer_repeated_correction_cycle_and_authority(pg):
             assert audit_count == 3
         print("LEDGER_812_REAL_BEARER_RLS_APPEND_ONLY_EXACT_READBACK=PASS")
 
+        # A second legitimate 10->12 cycle with a DIFFERENT authorized actor
+        # and different note must never compare against the old owner/notes
+        # idempotency key; both identities are admitted at this warehouse.
+        back_to_ten = await correct(10)
+        assert back_to_ten.status_code == 200
+        p4, ids4 = await counts()
+        assert (p4, await read(), len(ids4)) == (Decimal("10"), Decimal("10"), 4)
+        new_actor_correction = await client.post(
+            source + "/adjust", headers=ordinary, json={
+                "password": "SyntheticFixture123",
+                "new_total_quantity": "12",
+                "uom_id": pg.a.uom_id,
+                "notes": "different authorized actor and note on second cycle",
+            },
+        )
+        assert new_actor_correction.status_code == 200, new_actor_correction.text
+        p5, ids5 = await counts()
+        assert (p5, await read(), len(ids5)) == (Decimal("12"), Decimal("12"), 5)
+        assert len(set(ids5)) == 5
+        print("LEDGER_812_SECOND_CYCLE_CHANGED_AUTHORIZED_ACTOR_AND_NOTES=PASS")
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("method", ("FIFO", "MOVING_AVERAGE"))
