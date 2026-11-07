@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -22,11 +22,12 @@ import { parseStocktakeLedgerReferenceQuery } from "./ledger/stocktakeLedgerNavi
 interface Props {
   active?: boolean;
   locationId: number;
+  warehouseSelector?: ReactNode;
   refreshKey: number;
   onInventoryChanged: () => void;
 }
 
-export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryChanged }: Props) {
+export function Tab4Ledger({ active = true, locationId, warehouseSelector, refreshKey, onInventoryChanged }: Props) {
   const { t, i18n } = useTranslation();
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const locale = resolveI18nLocale(i18n);
@@ -104,7 +105,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
               {text("title")}
             </h2>
             {total !== null ? (
-              <p className="mt-0.5 text-[10px] font-bold tabular-nums text-slate-400">{total}</p>
+              <p className="mt-0.5 text-[10px] font-bold tabular-nums text-slate-400">{text("movementCount", { count: total })}</p>
             ) : null}
           </div>
         </header>
@@ -112,6 +113,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
         {!denied && exactReference && (
           <div role="status" data-ledger-exact-reference="true"
             className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">
+            {warehouseSelector && <div className="flex min-w-0 items-center" data-ledger-warehouse-picker="true">{warehouseSelector}</div>}
             <span>{text("exactReferenceFilter")}: <bdi dir="ltr">{exactReference}</bdi></span>
             <button type="button" onClick={clearExactReference}
               className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
@@ -120,6 +122,7 @@ export function Tab4Ledger({ active = true, locationId, refreshKey, onInventoryC
           </div>
         )}
         {!denied && !exactReference && <LedgerFilters
+          warehouseSelector={warehouseSelector}
           t={t}
           language={language}
           search={query.searchInput}
