@@ -5,6 +5,7 @@ migrations, two companies and NOBYPASSRLS runtime role.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 from time import perf_counter
 from uuid import uuid4
@@ -706,6 +707,169 @@ async def test_817_full_stocktake_50_counted_7_posted_variances_grouped(pg):
         assert all(row["batch_number"] and row["movement_kind"] == "PHYSICAL"
                    and row["matches_filter"] for row in children.json()["items"])
     print("LEDGER_817_POSTED_STOCKTAKE_50_COUNTED_7_TRUE_VARIANCE_ROWS_PASS")
+
+
+@pytest.mark.asyncio
+async def test_817_delayed_commit_before_hwm_is_excluded_from_original_bearer_snapshot(pg):
+    """Regression for Codex P1: IDs are allocated before a transaction commits.
+
+    One old member of a transfer is already committed. Transaction A inserts
+    another member (ID N) but does not commit. Transaction B later inserts and
+    commits an unrelated movement (ID N+1). First-page snapshot must permanently
+    exclude A, even after A commits before the second page is read. Otherwise
+    a later child retroactively changes the latest group representative and
+    the old group silently disappears from the ordered traversal.
+    """
+    ref = "MVCC817-" + uuid4().hex[:18]
+    company_id, warehouse = pg.a.company_id, pg.a.locations[0]
+    stamp = utc_now()
+
+    def raw_movement(*, transfer_id=None, created_at, suffix):
+        return InventoryMovement(
+            company_id=company_id,
+            performed_by=pg.a.owner.driver_id,
+            source_location_id=None,
+            destination_location_id=warehouse,
+            source_stock_status=None,
+            destination_stock_status="AVAILABLE",
+            product_variant_id=pg.a.variant_id,
+            batch_id=pg.a.batch_id,
+            movement_kind="PHYSICAL",
+            quantity=Decimal("1"),
+            reference_type="TRANSFER_DISPATCH" if transfer_id is not None
+                           else "UNKNOWN_DOCUMENT",
+            reference_id=ref,
+            idempotency_key="MVCC817-" + uuid4().hex + suffix,
+            transfer_header_id=transfer_id,
+            created_at=created_at,
+        )
+
+    async with pg.session(pg.a) as db:
+        header = InventoryTransferHeader(
+            company_id=company_id,
+            reference_number=ref,
+            source_location_id=warehouse,
+            destination_location_id=pg.a.locations[1],
+            workflow_type="DIRECT", status="DRAFT",
+            transfer_purpose="WAREHOUSE_BALANCING",
+            commercial_context={"read_only_mvcc_regression": True},
+            dispatched_by=pg.a.owner.driver_id,
+        )
+        db.add(header)
+        await db.flush()
+        header_id = int(header.id)
+        original = raw_movement(
+            transfer_id=header_id, created_at=stamp, suffix="original",
+        )
+        db.add(original)
+        await db.flush()
+        original_id = int(original.id)
+        await db.commit()
+
+    async with pg.session(pg.a) as db:
+        company_code = (await db.get(Company, company_id)).company_code
+        username = await db.scalar(select(CompanyPrincipal.username).where(
+            CompanyPrincipal.company_id == company_id,
+            CompanyPrincipal.id == pg.a.owner.context.principal_id,
+        ))
+
+    app = FastAPI()
+    app.include_router(auth.router)
+    app.include_router(ledger.router)
+    async with pg.session(pg.a) as pending:
+        delayed = raw_movement(
+            transfer_id=header_id, created_at=stamp + timedelta(seconds=10),
+            suffix="delayed",
+        )
+        pending.add(delayed)
+        await pending.flush()
+        delayed_id = int(delayed.id)
+        # Keep transaction A open while transaction B commits its higher ID.
+        async with pg.session(pg.a) as later:
+            newer_single = raw_movement(
+                created_at=stamp + timedelta(seconds=20), suffix="committed",
+            )
+            later.add(newer_single)
+            await later.flush()
+            single_id = int(newer_single.id)
+            assert original_id < delayed_id < single_id
+            await later.commit()
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://ledger817-mvcc.test", timeout=30,
+        ) as client:
+            auth_response = await client.post("/login", json={
+                "company_code": company_code, "username": username,
+                "password": "CP10FixturePassword123",
+            })
+            assert auth_response.status_code == 200, auth_response.text
+            headers = {"Authorization": "Bearer " + auth_response.json()["token"]}
+            params = {"location_id": warehouse, "reference_id": ref, "limit": 1}
+            first = await client.get(
+                "/warehouse/ledger/operations/cursor",
+                headers=headers, params=params,
+            )
+            assert first.status_code == 200, first.text
+            first_page = first.json()
+            assert first_page["has_more"] and first_page["next_cursor"]
+            assert len(first_page["items"]) == 1
+            assert first_page["items"][0]["latest_movement_id"] == single_id
+            assert first_page["items"][0]["group_kind"] == "MOVEMENT"
+            assert first_page["snapshot_max_movement_id"] == single_id
+
+            # The initially invisible older transaction commits BETWEEN HTTP
+            # pages. Its ID is below the signed high-watermark but its xmin
+            # was active at snapshot capture; it must stay excluded.
+            await pending.commit()
+            second = await client.get(
+                "/warehouse/ledger/operations/cursor",
+                headers=headers,
+                params={**params, "cursor": first_page["next_cursor"]},
+            )
+            assert second.status_code == 200, second.text
+            second_page = second.json()
+            assert len(second_page["items"]) == 1, second_page
+            transfer = second_page["items"][0]
+            assert transfer["group_kind"] == "TRANSFER"
+            assert transfer["latest_movement_id"] == original_id
+            assert transfer["movement_count"] == 1
+            assert transfer["reference"] == ref
+
+            detail = await client.get(
+                "/warehouse/ledger/operations/" +
+                transfer["group_key"] + "/movements/cursor",
+                headers=headers,
+                params={"location_id": warehouse, "reference_id": ref},
+            )
+            assert detail.status_code == 200, detail.text
+            assert [row["id"] for row in detail.json()["items"]] == [original_id]
+
+            # A NEW first page captures a new snapshot: the committed delayed
+            # member is then genuinely included with its same parent header.
+            refreshed = await client.get(
+                "/warehouse/ledger/operations/cursor",
+                headers=headers,
+                params={"location_id": warehouse, "reference_id": ref, "limit": 10},
+            )
+            assert refreshed.status_code == 200, refreshed.text
+            refreshed_transfer = next(
+                row for row in refreshed.json()["items"]
+                if row["group_kind"] == "TRANSFER"
+            )
+            assert refreshed_transfer["latest_movement_id"] == delayed_id
+            assert refreshed_transfer["movement_count"] == 2
+            fresh_detail = await client.get(
+                "/warehouse/ledger/operations/" +
+                refreshed_transfer["group_key"] + "/movements/cursor",
+                headers=headers,
+                params={"location_id": warehouse, "reference_id": ref},
+            )
+            assert fresh_detail.status_code == 200, fresh_detail.text
+            assert {row["id"] for row in fresh_detail.json()["items"]} == {
+                original_id, delayed_id,
+            }
+    print("LEDGER_817_PG16_COMMIT_OUT_OF_ID_ORDER_MVCC_FENCE_BEARER_PASS")
 
 
 @pytest.mark.asyncio
