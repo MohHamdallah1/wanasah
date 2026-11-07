@@ -131,6 +131,24 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
           }
+          # Strict #799 history and two-workflow policy-only repair.
+          history_799 = {
+              ".github/workflows/stocktake-v1-history-799.yml",
+              "dashboard/e2e/stocktake-history-799.config.ts",
+              "dashboard/e2e/stocktake-history-799.spec.ts",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/api/warehouse/stocktake_history.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+          }
+          ci_compat_798_799 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-operator-782.yml",
+          }
           allowed = {frozenset(x): label for label, x in (
               ("OPERATOR_UX_784", expected),
               ("SINGLE_TOOLBAR_789", shell_789),
@@ -142,8 +160,10 @@ jobs:
               ("FAST_795", fast_795),
               ("CI_796", ci_796),
               ("REVIEW_BIDI_797", review_bidi_797),
+              ("TERMINAL_HISTORY_799", history_799),
+              ("STOCKTAKE_CI_EXACT_COMPAT_798_799", ci_compat_798_799),
           )}
-          assert len(allowed) == 10
+          assert len(allowed) == 12
           assert dialog_792 == shell_789
           assert allowed[frozenset(dialog_792)] == "SINGLE_TOOLBAR_789"
           def verify(paths):
@@ -161,6 +181,8 @@ jobs:
               ("FAST_795", fast_795),
               ("CI_796", ci_796),
               ("REVIEW_BIDI_797", review_bidi_797),
+              ("TERMINAL_HISTORY_799", history_799),
+              ("STOCKTAKE_CI_EXACT_COMPAT_798_799", ci_compat_798_799),
           ):
               assert verify(paths) == label
               # Some separately approved exact scopes are subsets of earlier
@@ -181,5 +203,8 @@ jobs:
                       pass
                   else:
                       raise AssertionError("An incomplete or foreign Stocktake scope was accepted")
+          for mixed in (history_799 | ci_compat_798_799,
+                        history_799 | expected, ci_compat_798_799 | expected):
+              assert frozenset(mixed) not in allowed
           print(f"STOCKTAKE_782_FRONTEND_ONLY_AND_FULL_DOOR_IMMUTABLE={verify(changed)}_PASS")
           PY

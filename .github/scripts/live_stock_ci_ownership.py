@@ -782,6 +782,22 @@ STOCKTAKE_793_BRIDGE_EXACT = frozenset(
 )
 
 
+# #804: Ledger reference navigation, reviewed as one nine-file bounded PR.
+# It touches the shared Ledger tab but is NOT the historical #762 full scope.
+# No subset, extra file, or mixed ownership scope inherits this exception.
+LEDGER_804_EXACT = frozenset({
+    ".github/workflows/inventory-ledger-762-acceptance.yml",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/buildLedgerCursorUrl.ts",
+    "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
+    "dashboard/src/pages/inventory/ledger/stocktakeLedgerNavigation.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerReference.ts",
+    "dashboard/src/test/inventory-cp10-ledger-contract.test.ts",
+    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+})
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
@@ -789,6 +805,9 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
     if changed == STOCKTAKE_793_BRIDGE_EXACT:
         return "policy-maintenance", []
+
+    if mode in {"ux", "operational"} and changed == LEDGER_804_EXACT:
+        return "ledger-804-exact", []
 
     if mode in {"ux", "operational"} and changed == STOCKTAKE_789_SHELL_EXACT:
         return "stocktake-789-shell-exact", []
@@ -907,6 +926,35 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    # Verify exact #804 file set in both shared Live Stock browser guards.
+    ledger_804_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    assert len(LEDGER_804_EXACT) == 9
+    assert "dashboard/src/pages/inventory/Tab4Ledger.tsx" in LEDGER_804_EXACT
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(LEDGER_804_EXACT), ledger_804_sem) == (
+            "ledger-804-exact", []
+        )
+        for missing in LEDGER_804_EXACT:
+            partial = set(LEDGER_804_EXACT) - {missing}
+            assert classify(mode, partial, ledger_804_sem)[0] != "ledger-804-exact"
+            if "dashboard/src/pages/inventory/Tab4Ledger.tsx" in partial:
+                _expect_fail(mode, partial, ledger_804_sem)
+        for foreign in (
+            HELPER,
+            "dashboard/src/pages/inventory/MainInventory.tsx",
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "dashboard/src/pages/inventory/ledger/LedgerTable.tsx",
+            "wa_backend/api/warehouse/stocktake.py",
+            "wa_backend/domains/ledger/read.py",
+            "flutter_app/lib/main.dart",
+            "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+        ):
+            _expect_fail(mode, set(LEDGER_804_EXACT) | {foreign}, ledger_804_sem)
+        _expect_fail(mode, set(LEDGER_804_EXACT) | STOCKTAKE_784_EXACT, ledger_804_sem)
+    assert classify("r3", set(LEDGER_804_EXACT), ledger_804_sem) == (
+        "not-applicable", []
+    )
+
     # The two Live Stock gates must accept the complete approved #784 diff,
     # yet reject partial Stocktake scope, foreign files, and combinations with
     # other otherwise approved Live Stock or backend scopes.
