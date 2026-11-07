@@ -3,9 +3,10 @@ import { ArrowDownRight, ArrowUpRight, Eye, FileText, TriangleAlert } from "luci
 
 import { compareQuantity } from "@/lib/quantity";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
+import { LedgerCostEvidence } from "./LedgerCostEvidence";
 import { formatLedgerDate, type LedgerEntry } from "./contracts";
 import { ledgerBadgeClass, ledgerMovementLabel, ledgerText } from "./ledgerI18n";
-import { ledgerBalance, ledgerLocationEvidence, ledgerMoney, ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
+import { ledgerBalance, ledgerLocationEvidence, ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
 
 interface Props {
   t: TFunction;
@@ -63,11 +64,11 @@ export function LedgerMobileCards({
             <div className="mt-1 text-[10px] leading-4 text-slate-500" data-ledger-quantity-kind={entry.movement_kind ?? "PHYSICAL"}>{ledgerQuantityMeaning(t, language, entry)}</div>
             <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-slate-100 pt-2 text-[10px]">
               <div className="min-w-0">
-                <dt className="font-bold text-slate-400">{text("before")}</dt>
+                <dt className="font-bold text-slate-400" title={text("balanceScopeHelp")}>{text("before")}</dt>
                 <dd className="mt-0.5 font-black text-slate-700" dir="auto">{ledgerBalance(entry, entry.balance_before, unit)}</dd>
               </div>
               <div className="min-w-0">
-                <dt className="font-bold text-slate-400">{text("after")}</dt>
+                <dt className="font-bold text-slate-400" title={text("balanceScopeHelp")}>{text("after")}</dt>
                 <dd className="mt-0.5 font-black text-slate-700" dir="auto">{ledgerBalance(entry, entry.balance_after, unit)}</dd>
               </div>
               <div className="min-w-0">
@@ -87,15 +88,10 @@ export function LedgerMobileCards({
                 <dd className="mt-0.5 truncate font-black text-slate-700">{locations.destination}</dd>
               </div>
             </dl>
+            {entry.balance_scope === "PRODUCT_LOCATION" && <p className="mt-1 text-[10px] text-slate-500">{text("balanceScopeHelp")}</p>}
 
-            {entry.input_unit_cost ? (
-              <div className="mt-2 border-t border-slate-100 pt-2 text-[10px] leading-5 text-slate-600">
-                <span className="font-bold">{text("cost")}:</span> {ledgerMoney(entry.input_unit_cost, entry.currency_code)} / {unit(entry.input_uom_code ?? entry.base_uom_code)}
-                {entry.total_cost ? <div>{text("totalCost")}: {ledgerMoney(entry.total_cost, entry.currency_code)}</div> : null}
-                {entry.average_cost_after ? <div>{text("averageAfter")}: {ledgerMoney(entry.average_cost_after, entry.currency_code)}</div> : null}
-                <div>{text("costMeaning")}</div>
-              </div>
-            ) : null}
+            <div className="mt-2 border-t border-slate-100 pt-2"><LedgerCostEvidence t={t} language={language} entry={entry} /></div>
+            {entry.supplier_name && <p className="mt-2 text-[10px] font-semibold text-slate-600">{text("supplier")}: {entry.supplier_name}{entry.supplier_code ? ` · ${entry.supplier_code}` : ""}</p>}
             <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-100 pt-2">
               {entry.reference ? (
                 <button
