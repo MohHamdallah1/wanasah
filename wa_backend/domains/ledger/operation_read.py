@@ -16,6 +16,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import String, and_, case, cast, distinct, func, literal, or_, select, false
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -223,6 +224,96 @@ def _clean(search: str | None, movement_type: str | None, reference_id: str | No
     return clean_search, (movement_type or "").strip(), (reference_id or "").strip()
 
 
+def _operation_key(movement, request_uuid):
+    if movement.transfer_header_id is not None:
+        return "TRANSFER", str(movement.transfer_header_id)
+    if movement.stocktake_session_id is not None:
+        return "STOCKTAKE", str(movement.stocktake_session_id)
+    if movement.reference_type == "INBOUND_SUPPLIER" and request_uuid is not None:
+        return "RECEIPT", str(request_uuid)
+    return "MOVEMENT", str(movement.id)
+
+
+async def _stats_for_candidates(
+    db: AsyncSession, *, access: BackofficeCapabilityAccess,
+    company_id: int, location_id: int, watermark: int,
+    candidates: list, search: str, movement_type: str, reference_id: str,
+) -> dict[tuple[str, str], Any]:
+    """One bounded batch aggregate for candidate document identities.
+
+    The candidate filter is indexable by existing transfer/session/reference/PK
+    indexes. Neither SELECT is expanded one statement per product or group.
+    """
+    distinct_keys = {
+        _operation_key(movement, request_uuid)
+        for movement, request_uuid in candidates
+    }
+    transfers = [int(value) for kind, value in distinct_keys if kind == "TRANSFER"]
+    stocktakes = [int(value) for kind, value in distinct_keys if kind == "STOCKTAKE"]
+    receipts = [UUID(value) for kind, value in distinct_keys if kind == "RECEIPT"]
+    receipt_refs = sorted({
+        row.reference_id for row, evidence in candidates
+        if _operation_key(row, evidence)[0] == "RECEIPT"
+    })
+    singles = [int(value) for kind, value in distinct_keys if kind == "MOVEMENT"]
+    m, e = InventoryMovement, aliased(InventorySupplierEvidence)
+    predicates = []
+    if transfers:
+        predicates.append(m.transfer_header_id.in_(transfers))
+    if stocktakes:
+        predicates.append(and_(
+            m.transfer_header_id.is_(None),
+            m.stocktake_session_id.in_(stocktakes),
+        ))
+    if receipts:
+        predicates.append(and_(
+            m.transfer_header_id.is_(None),
+            m.stocktake_session_id.is_(None),
+            m.reference_type == "INBOUND_SUPPLIER",
+            m.reference_id.in_(receipt_refs),
+            e.request_id.in_(receipts),
+        ))
+    if singles:
+        predicates.append(m.id.in_(singles))
+    kind, doc = _identity(m, e)
+    agg = select(
+        kind.label("kind"), doc.label("document_id"),
+        func.count(m.id).label("movement_count"),
+        func.count(distinct(m.product_variant_id)).label("variant_count"),
+        func.count(distinct(m.batch_id)).label("batch_count"),
+        func.array_agg(distinct(m.reference_type)).label("stages"),
+        func.array_agg(distinct(m.movement_kind)).label("movement_kinds"),
+        func.array_agg(
+            aggregate_order_by(m.id, m.created_at.desc(), m.id.desc())
+        )[1].label("latest_movement_id"),
+    ).select_from(m).outerjoin(
+        e, _evidence_join(m, e)
+    ).where(
+        _visible(m, access=access, company_id=company_id,
+                 location_id=location_id, watermark=watermark),
+        or_(*predicates),
+    )
+    if search or movement_type or reference_id:
+        variant, actor = aliased(ProductVariant), aliased(Driver)
+        agg = agg.join(
+            variant, and_(variant.company_id == m.company_id,
+                          variant.id == m.product_variant_id)
+        ).outerjoin(
+            actor, and_(actor.company_id == m.company_id,
+                        actor.id == m.performed_by)
+        ).add_columns(
+            func.bool_or(_matching(
+                m, variant, actor, search=search,
+                movement_type=movement_type, reference_id=reference_id,
+            )).label("matched")
+        )
+    agg = agg.group_by(kind, doc)
+    return {
+        (row.kind, row.document_id): row
+        for row in (await db.execute(agg)).all()
+    }
+
+
 async def read_operation_groups(
     db: AsyncSession, *, access: BackofficeCapabilityAccess, company_id: int,
     location_id: int, cursor: str | None, limit: int,
@@ -239,7 +330,8 @@ async def read_operation_groups(
     if cursor:
         data = _verify(cursor, kind="op-page", scope=page_scope)
         if set(data) != {"v", "k", "s", "h", "t", "i"}:
-            raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID", "Invalid group cursor fields.")
+            raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID",
+                                  "Invalid group cursor fields.")
         watermark = _int_from_token(data["h"])
         position = _position(data)
     else:
@@ -247,164 +339,91 @@ async def read_operation_groups(
             _visible(InventoryMovement, access=access, company_id=company_id,
                      location_id=location_id)))
         if watermark is None:
-            return {"items": [], "next_cursor": None, "has_more": False,
-                    "snapshot_max_movement_id": None, "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED"}
+            return {
+                "items": [], "next_cursor": None, "has_more": False,
+                "snapshot_max_movement_id": None,
+                "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED",
+            }
         watermark = int(watermark)
 
-    m, e = InventoryMovement, aliased(InventorySupplierEvidence)
-    newer = aliased(InventoryMovement)
-    newer_e = aliased(InventorySupplierEvidence)
-    # A single OR over heterogeneous document identities prevents the planner
-    # from using transfer_header_id / stocktake_session_id indexes. Dispatch to
-    # one indexable lookup per persisted authority, keeping the HWM invariant.
-    newer_common = (
-        _visible(newer, access=access, company_id=company_id,
-                 location_id=location_id, watermark=watermark),
-        _later(m, newer),
-    )
-    newer_transfer = select(literal(1)).select_from(newer).where(
-        *newer_common, newer.transfer_header_id == m.transfer_header_id,
-    ).correlate(m).exists()
-    newer_stocktake = select(literal(1)).select_from(newer).where(
-        *newer_common, newer.transfer_header_id.is_(None),
-        newer.stocktake_session_id == m.stocktake_session_id,
-    ).correlate(m).exists()
-    newer_receipt = select(literal(1)).select_from(newer).join(
-        newer_e, _evidence_join(newer, newer_e)
-    ).where(
-        *newer_common, newer.transfer_header_id.is_(None),
-        newer.stocktake_session_id.is_(None),
-        newer.reference_type == "INBOUND_SUPPLIER",
-        newer.reference_id == m.reference_id,
-        newer_e.request_id == e.request_id,
-    ).correlate(m, e).exists()
-    newer_exists = case(
-        (m.transfer_header_id.is_not(None), newer_transfer),
-        (m.stocktake_session_id.is_not(None), newer_stocktake),
-        (and_(m.reference_type == "INBOUND_SUPPLIER",
-              e.request_id.is_not(None)), newer_receipt),
-        else_=false(),
-    )
-
-    stmt = select(m, e.request_id).select_from(m).outerjoin(
-        e, _evidence_join(m, e)
-    ).where(
-        _visible(m, access=access, company_id=company_id,
-                 location_id=location_id, watermark=watermark),
-        ~newer_exists,
-    )
-    if search or movement_type or reference_id:
-        child, child_e = aliased(InventoryMovement), aliased(InventorySupplierEvidence)
-        variant, actor = aliased(ProductVariant), aliased(Driver)
-        match_stmt = select(literal(1)).select_from(child).join(
-            variant, and_(variant.company_id == child.company_id,
-                          variant.id == child.product_variant_id)
-        ).outerjoin(
-            actor, and_(actor.company_id == child.company_id,
-                        actor.id == child.performed_by)
+    # Never run a whole-history GROUP BY or a correlated cross-type NOT EXISTS
+    # for every raw movement. The indexed chronological keyset supplies a small
+    # candidate window; one SQL aggregate per window checks authoritative
+    # newest member and authorized child matches/counts for those documents.
+    # Previous-page parents cannot repeat: only the globally newest authorized
+    # movement in the snapshot can represent a document.
+    BATCH = 256
+    MAX_MOVEMENTS_PER_PAGE = 8192
+    accepted = []
+    scanned = 0
+    exhausted = False
+    last_scanned = position
+    while len(accepted) <= limit and scanned < MAX_MOVEMENTS_PER_PAGE:
+        m, evidence = InventoryMovement, aliased(InventorySupplierEvidence)
+        size = min(BATCH, MAX_MOVEMENTS_PER_PAGE - scanned)
+        stmt = select(m, evidence.request_id).select_from(m).outerjoin(
+            evidence, _evidence_join(m, evidence)
         ).where(
-            _visible(child, access=access, company_id=company_id,
+            _visible(m, access=access, company_id=company_id,
                      location_id=location_id, watermark=watermark),
-            _matching(child, variant, actor, search=search,
-                      movement_type=movement_type, reference_id=reference_id),
         )
-        match_transfer = match_stmt.where(
-            child.transfer_header_id == m.transfer_header_id,
-        ).correlate(m).exists()
-        match_stocktake = match_stmt.where(
-            child.transfer_header_id.is_(None),
-            child.stocktake_session_id == m.stocktake_session_id,
-        ).correlate(m).exists()
-        match_receipt = match_stmt.join(
-            child_e, _evidence_join(child, child_e)
-        ).where(
-            child.transfer_header_id.is_(None),
-            child.stocktake_session_id.is_(None),
-            child.reference_type == "INBOUND_SUPPLIER",
-            child.reference_id == m.reference_id,
-            child_e.request_id == e.request_id,
-        ).correlate(m, e).exists()
-        match_single = match_stmt.where(child.id == m.id).correlate(m).exists()
-        match_exists = case(
-            (m.transfer_header_id.is_not(None), match_transfer),
-            (m.stocktake_session_id.is_not(None), match_stocktake),
-            (and_(m.reference_type == "INBOUND_SUPPLIER",
-                  e.request_id.is_not(None)), match_receipt),
-            else_=match_single,
+        if last_scanned is not None:
+            stmt = stmt.where(_earlier(m, *last_scanned))
+        chunk = (await db.execute(
+            stmt.order_by(m.created_at.desc(), m.id.desc()).limit(size)
+        )).all()
+        if not chunk:
+            exhausted = True
+            break
+        scanned += len(chunk)
+        stats = await _stats_for_candidates(
+            db, access=access, company_id=company_id,
+            location_id=location_id, watermark=watermark,
+            candidates=chunk, search=search, movement_type=movement_type,
+            reference_id=reference_id,
         )
+        for movement, request_uuid in chunk:
+            group_key = _operation_key(movement, request_uuid)
+            stat = stats.get(group_key)
+            if stat is None or int(stat.latest_movement_id) != movement.id:
+                continue
+            if (search or movement_type or reference_id) and not stat.matched:
+                continue
+            accepted.append((group_key[0], group_key[1], movement, stat))
+            if len(accepted) > limit:
+                break
+        last = chunk[-1][0]
+        last_scanned = (last.created_at, int(last.id))
+        if len(chunk) < size:
+            exhausted = True
+        if exhausted or len(accepted) > limit:
+            break
 
-        stmt = stmt.where(match_exists)
-    if position is not None:
-        stmt = stmt.where(_earlier(m, *position))
-    rows = (await db.execute(
-        stmt.order_by(m.created_at.desc(), m.id.desc()).limit(limit + 1)
-    )).all()
-    has_more = len(rows) > limit
-    rows = rows[:limit]
+    has_more = len(accepted) > limit or not exhausted
+    rows = accepted[:limit]
     if not rows:
-        return {"items": [], "next_cursor": None, "has_more": False,
-                "snapshot_max_movement_id": watermark,
-                "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED"}
+        next_cursor = (
+            _sign({"v": 1, "k": "op-page", "s": page_scope,
+                   "h": watermark, "t": _utc_stamp(last_scanned[0]),
+                   "i": last_scanned[1]})
+            if has_more and last_scanned is not None else None
+        )
+        return {
+            "items": [], "next_cursor": next_cursor, "has_more": has_more,
+            "snapshot_max_movement_id": watermark,
+            "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED",
+        }
 
-    # All counts are computed in ONE bounded group aggregation, never one SQL
-    # query per group. Receipt references are indexed accelerators only.
-    keys = []
-    for movement, request_uuid in rows:
-        if movement.transfer_header_id is not None:
-            kind, doc_id = "TRANSFER", str(movement.transfer_header_id)
-        elif movement.stocktake_session_id is not None:
-            kind, doc_id = "STOCKTAKE", str(movement.stocktake_session_id)
-        elif movement.reference_type == "INBOUND_SUPPLIER" and request_uuid is not None:
-            kind, doc_id = "RECEIPT", str(request_uuid)
-        else:
-            kind, doc_id = "MOVEMENT", str(movement.id)
-        keys.append((kind, doc_id, movement))
-
-    transfer_ids = [int(k[1]) for k in keys if k[0] == "TRANSFER"]
-    stocktake_ids = [int(k[1]) for k in keys if k[0] == "STOCKTAKE"]
-    receipt_ids = [UUID(k[1]) for k in keys if k[0] == "RECEIPT"]
-    receipt_refs = [k[2].reference_id for k in keys if k[0] == "RECEIPT"]
-    fallback_ids = [int(k[1]) for k in keys if k[0] == "MOVEMENT"]
-    conditions = []
-    if transfer_ids:
-        conditions.append(m.transfer_header_id.in_(transfer_ids))
-    if stocktake_ids:
-        conditions.append(and_(m.transfer_header_id.is_(None),
-                               m.stocktake_session_id.in_(stocktake_ids)))
-    if receipt_ids:
-        conditions.append(and_(m.transfer_header_id.is_(None),
-                               m.stocktake_session_id.is_(None),
-                               m.reference_type == "INBOUND_SUPPLIER",
-                               m.reference_id.in_(receipt_refs),
-                               e.request_id.in_(receipt_ids)))
-    if fallback_ids:
-        conditions.append(m.id.in_(fallback_ids))
-    group_kind, group_doc = _identity(m, e)
-    stat = select(
-        group_kind.label("kind"), group_doc.label("document_id"),
-        func.count(m.id).label("movement_count"),
-        func.count(distinct(m.product_variant_id)).label("variant_count"),
-        func.count(distinct(m.batch_id)).label("batch_count"),
-        func.array_agg(distinct(m.reference_type)).label("stages"),
-        func.array_agg(distinct(m.movement_kind)).label("movement_kinds"),
-    ).select_from(m).outerjoin(
-        e, _evidence_join(m, e)
-    ).where(
-        _visible(m, access=access, company_id=company_id,
-                 location_id=location_id, watermark=watermark),
-        or_(*conditions),
-    ).group_by(group_kind, group_doc)
-    stats = {(r.kind, r.document_id): r for r in (await db.execute(stat)).all()}
-
-    actors = [int(row[2].performed_by) for row in keys]
+    actors = list({int(row[2].performed_by) for row in rows})
     actor_names = dict((await db.execute(
         select(Driver.id, Driver.full_name).where(
             Driver.company_id == company_id, Driver.id.in_(actors))
     )).all())
-    locations = sorted({int(v) for _, _, row in keys
-                        for v in (row.source_location_id, row.destination_location_id)
-                        if v is not None})
-    # The source/target location name is shown only with ledger.read permission.
+    locations = sorted({
+        int(v) for _, _, movement, _ in rows
+        for v in (movement.source_location_id, movement.destination_location_id)
+        if v is not None
+    })
     permitted_locations = dict((await db.execute(select(
         InventoryLocation.id, InventoryLocation.name
     ).where(
@@ -414,12 +433,11 @@ async def read_operation_groups(
     ))).all()) if locations else {}
 
     result = []
-    for kind, doc_id, movement in keys:
-        stat_row = stats.get((kind, doc_id))
-        if stat_row is None:
-            raise RuntimeError("Ledger operation lost an authorized summary.")
-        token_data = {"v": 1, "k": "op-key", "s": token_scope, "g": kind,
-                      "d": doc_id, "h": watermark}
+    for kind, document_id, movement, stat in rows:
+        token_data = {
+            "v": 1, "k": "op-key", "s": token_scope,
+            "g": kind, "d": document_id, "h": watermark,
+        }
         if kind == "RECEIPT":
             token_data["r"] = movement.reference_id
         token = _sign(token_data)
@@ -427,40 +445,50 @@ async def read_operation_groups(
             raise RuntimeError("Operation token exceeded bounded contract.")
         result.append({
             "group_key": token, "group_kind": kind,
-            "operation_type": ("INBOUND_SUPPLIER" if kind == "RECEIPT"
-                               else "AUDIT_ADJUSTMENT" if kind == "STOCKTAKE"
-                               else "WAREHOUSE_TRANSFER" if kind == "TRANSFER"
-                               else movement.reference_type),
-            # Latest authorized stage/reference, NOT an asserted completion.
+            "operation_type": (
+                "INBOUND_SUPPLIER" if kind == "RECEIPT"
+                else "AUDIT_ADJUSTMENT" if kind == "STOCKTAKE"
+                else "WAREHOUSE_TRANSFER" if kind == "TRANSFER"
+                else movement.reference_type
+            ),
             "reference": movement.reference_id,
             "latest_at": _utc_stamp(movement.created_at),
             "latest_movement_id": int(movement.id),
             "source_location_name": permitted_locations.get(movement.source_location_id),
             "destination_location_name": permitted_locations.get(movement.destination_location_id),
             "latest_actor_name": actor_names.get(movement.performed_by),
-            "stage_types": sorted(stat_row.stages),
-            "movement_kinds": sorted(stat_row.movement_kinds),
-            "movement_count": int(stat_row.movement_count),
-            "product_variant_count": int(stat_row.variant_count),
-            "batch_count": int(stat_row.batch_count),
+            "stage_types": sorted(stat.stages),
+            "movement_kinds": sorted(stat.movement_kinds),
+            "movement_count": int(stat.movement_count),
+            "product_variant_count": int(stat.variant_count),
+            "batch_count": int(stat.batch_count),
             "expandable": True,
-            "count_meaning": "POSTED_VARIANCE_MOVEMENTS" if kind == "STOCKTAKE"
-                             else "AUTHORIZED_IMMUTABLE_MOVEMENTS",
+            "count_meaning": (
+                "POSTED_VARIANCE_MOVEMENTS" if kind == "STOCKTAKE"
+                else "AUTHORIZED_IMMUTABLE_MOVEMENTS"
+            ),
             "stocktake_history": (
-                {"session_id": int(doc_id), "warehouse_location_id": location_id,
+                {"session_id": int(document_id), "warehouse_location_id": location_id,
                  "reference": movement.reference_id}
                 if kind == "STOCKTAKE" else None
             ),
         })
-    next_cursor = None
-    if has_more:
-        last = rows[-1][0]
-        next_cursor = _sign({"v": 1, "k": "op-page", "s": page_scope,
-                             "h": watermark, "t": _utc_stamp(last.created_at),
-                             "i": int(last.id)})
-    return {"items": result, "next_cursor": next_cursor, "has_more": has_more,
-            "snapshot_max_movement_id": watermark,
-            "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED"}
+
+    cursor_position = (
+        (rows[-1][2].created_at, int(rows[-1][2].id))
+        if len(rows) == limit else last_scanned
+    )
+    next_cursor = (
+        _sign({"v": 1, "k": "op-page", "s": page_scope,
+               "h": watermark, "t": _utc_stamp(cursor_position[0]),
+               "i": cursor_position[1]})
+        if has_more else None
+    )
+    return {
+        "items": result, "next_cursor": next_cursor, "has_more": has_more,
+        "snapshot_max_movement_id": watermark,
+        "type_filter_semantics": "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED",
+    }
 
 
 async def read_operation_movements(
