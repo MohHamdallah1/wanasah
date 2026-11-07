@@ -57,6 +57,7 @@ export function useLedgerQuery(
   const wasActive = useRef(false);
   const cursorsSeen = useRef(new Set<string>());
   const idsSeen = useRef(new Set<number>());
+  const pagesFetched = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -127,6 +128,7 @@ export function useLedgerQuery(
         return true;
       });
       setEntries(previous => reset ? fresh : [...previous, ...fresh]);
+      pagesFetched.current = reset ? 1 : pagesFetched.current + 1;
       cursorRef.current = page.next_cursor;
       setNextCursor(page.next_cursor);
       setHasMore(page.has_more);
@@ -180,8 +182,21 @@ export function useLedgerQuery(
       }), { signal: controller.signal }));
       if (requestId !== seq.current || scopeRef.current !== serverScope ||
         !isDashboardSessionCurrent(session)) return;
-      // Existing cursor remains bound to its original keyset scope/snapshot.
-      // A revalidation cannot overwrite an appended list with page one.
+      // Keep all authorized rows until the recheck completes. If the list
+      // never advanced beyond page one, replace its historical snapshot;
+      // otherwise refresh the head while retaining the appended tail.
+      if (pagesFetched.current <= 1) {
+        idsSeen.current = new Set(page.items.map(item => item.id));
+        setEntries(page.items);
+        cursorRef.current = page.next_cursor;
+        setNextCursor(page.next_cursor);
+        setHasMore(page.has_more);
+        cursorsSeen.current = new Set(page.next_cursor ? [page.next_cursor] : []);
+      } else {
+        const firstIds = new Set(page.items.map(item => item.id));
+        setEntries(previous => [...page.items, ...previous.filter(item => !firstIds.has(item.id))]);
+        for (const item of page.items) idsSeen.current.add(item.id);
+      }
       setAvailableTypes(page.available_types);
       if (page.total !== null) setTotal(page.total);
     } catch (failure) {
@@ -222,6 +237,7 @@ export function useLedgerQuery(
       scopeRef.current = serverScope;
       sessionRef.current = captureDashboardSession();
       idsSeen.current = new Set();
+      pagesFetched.current = 0;
       cursorsSeen.current = new Set();
       cursorRef.current = null;
       setEntries([]);
@@ -248,6 +264,7 @@ export function useLedgerQuery(
     abortRef.current?.abort();
     pending.current = false;
     idsSeen.current.clear();
+    pagesFetched.current = 0;
     cursorsSeen.current.clear();
     cursorRef.current = null;
     setEntries([]);
