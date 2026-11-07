@@ -207,7 +207,8 @@ async def test_817_supplier_51_lines_one_document_real_bearer_cursor_security(pg
             return await client.get(
                 f"/warehouse/ledger/operations/{key}/movements/cursor",
                 headers=headers,
-                params={"location_id": warehouse or pg.a.locations[0], **(params or {})},
+                params={"location_id": warehouse or pg.a.locations[0],
+                        "reference_id": ref, **(params or {})},
             )
 
         assert (await detail(group["group_key"], headers=foreign)).status_code in (400, 403, 404)
@@ -242,7 +243,7 @@ async def test_817_supplier_51_lines_one_document_real_bearer_cursor_security(pg
 
         matched_detail = await detail(
             matched_parent[0]["group_key"],
-            params={"search": "Searchable group child 23", "limit": 70},
+            params={"reference_id": "", "search": "Searchable group child 23", "limit": 70},
         )
         assert matched_detail.status_code == 200, matched_detail.text
         matched_items = matched_detail.json()["items"]
