@@ -153,7 +153,10 @@ def _scope(*, company_id: int, location_id: int, search: str,
 
 
 def _sign(data: dict[str, Any]) -> str:
-    payload = json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+    # UTF-8 avoids 6-byte escaped sequences per Arabic character in a valid
+    # 100-character receipt reference; group tokens remain signed and bounded.
+    payload = json.dumps(data, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
     body = base64.urlsafe_b64encode(payload).decode().rstrip("=")
     mac = hmac.new(Config.SECRET_KEY.encode(), payload, hashlib.sha256).digest()
     signature = base64.urlsafe_b64encode(mac).decode().rstrip("=")
