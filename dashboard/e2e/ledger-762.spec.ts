@@ -66,6 +66,7 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
     await seedUx(page, locale, "light", "ledger");
     await page.goto("/inventory");
     const panel = page.locator(".inventory-ledger");
+    await panel.getByRole("button", { name: locale === "ar" ? "الحركات التفصيلية" : "Detailed movements" }).click();
     const reservation = panel.locator('[data-ledger-quantity-kind="RESERVATION"]:visible').first();
     const statusChange = panel.locator('[data-ledger-quantity-kind="STATUS_CHANGE"]:visible').first();
     await expect(reservation).toBeVisible();
