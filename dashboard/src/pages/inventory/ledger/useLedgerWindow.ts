@@ -22,16 +22,16 @@ export function useLedgerWindow(
   useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
-    const resize = new ResizeObserver(() => onScroll());
-    resize.observe(root);
+    const resize = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => onScroll()) : null;
+    resize?.observe(root);
     onScroll();
-    return () => resize.disconnect();
+    return () => resize?.disconnect();
   }, [onScroll]);
 
   useEffect(() => {
     const root = rootRef.current;
     const marker = markerRef.current;
-    if (!root || !marker || blocked || !hasMore) return;
+    if (!root || !marker || blocked || !hasMore || typeof IntersectionObserver === "undefined") return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(item => item.isIntersecting)) onNearBottom();
     }, { root, rootMargin: "250px 0px" });
