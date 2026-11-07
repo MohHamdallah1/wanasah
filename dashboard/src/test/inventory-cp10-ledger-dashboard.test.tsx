@@ -132,6 +132,38 @@ beforeEach(() => {
 });
 
 describe("CP10 Ledger Dashboard", () => {
+  it("renders outbound cost without purchase price, real average denominator, supplier and warehouse balance scope", async () => {
+    mocks.authFetch.mockResolvedValue(page([entry(44, {
+      type: "VISIT_SAMPLE_OUT", reference_type: "VISIT_SAMPLE_OUT",
+      input_unit_cost: null, total_cost: "0.000000", average_cost_after: "3.250000",
+      average_cost_uom_code: "PACK", average_cost_uom_name: "Pack", cost_method: "FIFO",
+      supplier_name: "Named supplier", supplier_code: "S-17",
+    })]));
+    const { container } = renderLedger();
+    expect(await screen.findAllByText(/Inventory value movement: 0.000000 JOD/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/Historical inventory average after movement: 3.250000 JOD \/ PACK/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/First in, first out/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Named supplier/).length).toBeGreaterThan(0);
+    expect(container.querySelector('[title*="all lots and stock statuses"]')).not.toBeNull();
+    expect(screen.getAllByText("Visit sample out").length).toBeGreaterThan(0);
+  });
+
+  it("opens reference evidence with two distinct lots for same product and movement identity", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (!path.startsWith("/warehouse/ledger/cursor?")) throw new Error(path);
+      return path.includes("reference_id=")
+        ? page([entry(51, { batch_number: "LOT-51" }), entry(52, { batch_number: "LOT-52" })])
+        : page([entry(51, { batch_number: "LOT-51" })]);
+    });
+    renderLedger();
+    await screen.findAllByText("Shared Product");
+    fireEvent.click(screen.getAllByRole("button", { name: "Open evidence for reference REF-SHARED" })[0]);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getAllByText("LOT-51").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("LOT-52").length).toBeGreaterThan(0);
+    expect(screen.getByText(/#52/)).toBeInTheDocument();
+  });
+
   it("filters the exact STK reference and clears it without leaking prior rows", async () => {
     const lookup: string[] = [];
     mocks.authFetch.mockImplementation(async (path: string) => {
