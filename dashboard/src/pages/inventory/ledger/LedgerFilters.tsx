@@ -11,6 +11,7 @@ interface Props {
   search: string;
   onSearchChange: (value: string) => void;
   filterType: string;
+  totalCount: string | null;
   onFilterTypeChange: (value: string) => void;
   availableTypes: string[];
   loading: boolean;
@@ -24,12 +25,14 @@ export function LedgerFilters({
   search,
   onSearchChange,
   filterType,
+  totalCount,
   onFilterTypeChange,
   availableTypes,
   loading,
   onRefresh,
 }: Props) {
   const text = (key: Parameters<typeof ledgerText>[2]) => ledgerText(t, language, key);
+  const countSuffix = totalCount === null ? "" : ` (${totalCount})`;
   return (
     <div
       className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 p-2 md:flex-row md:items-center md:px-3"
@@ -56,11 +59,12 @@ export function LedgerFilters({
         value={filterType}
         onChange={(event) => onFilterTypeChange(event.target.value)}
         aria-label={text("movement")}
+        title={text("movementCountHelp")}
         className="h-9 min-w-44 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
       >
-        <option value="ALL">{text("allTypes")}</option>
+        <option value="ALL">{text("allTypes")}{filterType === "ALL" ? countSuffix : ""}</option>
         {availableTypes.map((type) => (
-          <option key={type} value={type}>{ledgerMovementLabel(t, language, type)}</option>
+          <option key={type} value={type}>{ledgerMovementLabel(t, language, type)}{filterType === type ? countSuffix : ""}</option>
         ))}
       </select>
       <button

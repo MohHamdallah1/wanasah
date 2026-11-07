@@ -153,12 +153,14 @@ describe("CP10 Ledger Dashboard", () => {
         />
       </MemoryRouter>,
     );
-    expect(await screen.findByText("Total movements: 1")).toBeInTheDocument();
+    expect(await screen.findByRole("option", { name: "All movements (1)" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Movement ledger" })).not.toBeInTheDocument();
     const controls = container.querySelector('[data-cp13-controls="ledger-list"]');
     expect(controls).not.toBeNull();
     const search = screen.getByRole("searchbox");
     const warehouse = screen.getByRole("combobox", { name: "Choose warehouse" });
     const type = screen.getByRole("combobox", { name: "Movement" });
+    expect(type).toHaveAttribute("title", expect.stringContaining("detailed inventory movements"));
     const refresh = screen.getByRole("button", { name: "Refresh movement ledger" });
     expect(Array.from(controls!.querySelectorAll("input, select, button"))).toEqual([
       search, warehouse, type, refresh,
