@@ -85,6 +85,8 @@ function Host() {
     setNewTotal: vi.fn(),
     password: "secret",
     setPassword: vi.fn(),
+    notes: "",
+    setNotes: vi.fn(),
     delta: "0",
     loading: false,
     submitting: false,
