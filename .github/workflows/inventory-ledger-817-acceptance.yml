@@ -9,6 +9,9 @@ on:
       - "wa_backend/domains/ledger/operation_read.py"
       - "wa_backend/tests/test_ledger_817_postgres.py"
       - ".github/workflows/inventory-ledger-817-acceptance.yml"
+      - ".github/workflows/inventory-ledger-762-acceptance.yml"
+      - ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
+      - "wa_backend/scripts/warehouse_route_manifest_extensions.json"
 
 permissions:
   contents: read
@@ -77,14 +80,19 @@ jobs:
           BASE="$BASE" python - <<'PY'
           import os,subprocess
           changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["BASE"],"HEAD"],text=True).splitlines())
+          # Immutable route manifest and legacy CI guards are required
+          # for precisely these new read-only endpoints, no other additions.
           allowed={
             "wa_backend/api/warehouse/ledger.py",
             "wa_backend/domains/ledger/read.py",
             "wa_backend/domains/ledger/operation_read.py",
             "wa_backend/tests/test_ledger_817_postgres.py",
+            "wa_backend/scripts/warehouse_route_manifest_extensions.json",
             ".github/workflows/inventory-ledger-817-acceptance.yml",
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+            ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
           }
-          assert changed <= allowed and {"wa_backend/domains/ledger/operation_read.py"} <= changed,sorted(changed)
+          assert changed == allowed, sorted(changed)
           print("LEDGER_817_BACKEND_ONLY_SCOPE_PASS",len(changed))
           PY
           python -m py_compile wa_backend/api/warehouse/ledger.py wa_backend/domains/ledger/read.py wa_backend/domains/ledger/operation_read.py wa_backend/tests/test_ledger_817_postgres.py
