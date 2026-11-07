@@ -436,6 +436,49 @@ async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
             params={"location_id": pg.a.locations[1], "limit": 1,
                     "cursor": first["next_cursor"]},
         )).status_code == 400
+        # A user limited to Warehouse A may view its transfer movement but
+        # must not receive Warehouse B's ID/name/status in the new group
+        # projection or child detail. The original Ledger API remains intact.
+        async with pg.session(pg.a) as db:
+            ordinary_name = await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == pg.a.company_id,
+                CompanyPrincipal.id == pg.a.ordinary.context.principal_id,
+            ))
+        ordinary_login = await client.post("/login", json={
+            "company_code": company_code, "username": ordinary_name,
+            "password": "SyntheticFixture123",
+        })
+        assert ordinary_login.status_code == 200, ordinary_login.text
+        ordinary_header = {
+            "Authorization": "Bearer " + ordinary_login.json()["token"]
+        }
+        limited_parent = await client.get(
+            "/warehouse/ledger/operations/cursor",
+            headers=ordinary_header, params={
+                "location_id": pg.a.locations[0], "reference_id": ref,
+            },
+        )
+        assert limited_parent.status_code == 200, limited_parent.text
+        limited_group = limited_parent.json()["items"][0]
+        assert limited_group["source_location_name"] is not None
+        assert limited_group["destination_location_name"] is None
+        limited_detail = await client.get(
+            "/warehouse/ledger/operations/" +
+            limited_group["group_key"] + "/movements/cursor",
+            headers=ordinary_header, params={
+                "location_id": pg.a.locations[0], "reference_id": ref,
+            },
+        )
+        assert limited_detail.status_code == 200, limited_detail.text
+        assert len(limited_detail.json()["items"]) == 2
+        for row in limited_detail.json()["items"]:
+            assert row["source_location_id"] == pg.a.locations[0]
+            assert row["destination_location_id"] is None
+            assert row["destination_location_name"] is None
+            assert row["destination_location_type"] is None
+            assert row["destination_stock_status"] is None
+        print("LEDGER_817_UNAUTHORIZED_COUNTERPART_LOCATION_REDACTED=PASS")
+
         print("LEDGER_817_TRANSFER_SAME_DURABLE_HEADER_AND_HWM_KEYSET=PASS")
 
         # A subsequent canonical status stage on the SAME durable transfer
@@ -488,6 +531,25 @@ async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
             set(ids) | {int(status_movement.id)}
         )
         print("LEDGER_817_TRANSFER_TRUE_MULTI_STAGE_NO_FALSE_RECEIPT=PASS")
+        # A type filter matches ANY child stage but returns the WHOLE
+        # authorized parent and all child evidence; only the stage matching
+        # the filter gets the matches_filter=true flag.
+        filtered = await groups({"reference_type": "STATUS_RECLASSIFICATION"})
+        assert len(filtered["items"]) == 1
+        assert filtered["items"][0]["movement_count"] == 3
+        filtered_details = await client.get(
+            "/warehouse/ledger/operations/" +
+            filtered["items"][0]["group_key"] + "/movements/cursor",
+            headers=header, params={
+                "location_id": pg.a.locations[0],
+                "reference_type": "STATUS_RECLASSIFICATION",
+            },
+        )
+        assert filtered_details.status_code == 200, filtered_details.text
+        assert len(filtered_details.json()["items"]) == 3
+        assert sum(1 for row in filtered_details.json()["items"]
+                   if row["matches_filter"]) == 1
+        print("LEDGER_817_TYPE_FILTER_MATCH_ANY_STAGE_SHOW_ALL_CHILDREN=PASS")
 
 
 @pytest.mark.asyncio
@@ -727,6 +789,12 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
                "ref": "LARGE817-" + seed_id})
         await db.commit()
 
+    # PostgreSQL production planners depend on statistics; update only the
+    # disposable fixture after the 21k synthetic inserts.
+    async with AsyncSession(pg.admin_engine, expire_on_commit=False) as planner:
+        await planner.execute(text("ANALYZE inventory_movements"))
+        await planner.commit()
+
     traces = []
     def capture(_conn, _cursor, stmt, params, _context, _executemany):
         if stmt.lstrip().upper().startswith("SELECT") and "inventory_movements" in stmt:
@@ -794,7 +862,6 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
                 SELECT id FROM inventory_movements
                 WHERE company_id=:company
                   AND transfer_header_id=:header_id
-                  AND destination_location_id=:warehouse
                 LIMIT 20
             """), {
                 "company": company_id,

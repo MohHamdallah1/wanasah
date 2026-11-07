@@ -574,7 +574,31 @@ async def read_operation_movements(
         db, access=access, company_id=company_id, location_id=location_id,
         rows=[tuple(row)[:6] for row in rows],
     ) if rows else []
+    # The canonical movement Ledger already has a fixed response contract.
+    # This NEW operation-detail contract must not expose the ID/name/type or
+    # bucket state of a counterpart location without its own ledger.read grant.
+    # One set-based authorization query for the bounded detail page; no N+1.
+    location_ids = sorted({
+        int(location)
+        for raw in rows
+        for location in (raw[0].source_location_id, raw[0].destination_location_id)
+        if location is not None
+    })
+    permitted = set((await db.scalars(
+        select(InventoryLocation.id).where(
+            InventoryLocation.company_id == company_id,
+            InventoryLocation.id.in_(location_ids),
+            access.allows("ledger.read", InventoryLocation.id),
+        )
+    )).all()) if location_ids else set()
     for entry, raw in zip(entries, rows):
+        for side in ("source", "destination"):
+            field = side + "_location_id"
+            if entry[field] is not None and entry[field] not in permitted:
+                entry[field] = None
+                entry[side + "_location_name"] = None
+                entry[side + "_location_type"] = None
+                entry[side + "_stock_status"] = None
         entry["matches_filter"] = bool(raw[6])
     next_cursor = None
     if has_more:
