@@ -36,9 +36,9 @@ jobs:
       - name: Focused Ledger contract security UI keyboard and static checks
         working-directory: dashboard
         run: |
-          npx vitest run src/test/inventory-cp10-ledger-contract.test.ts src/test/inventory-cp10-ledger-dashboard.test.tsx src/test/inventory-cp10-ledger-keyboard.test.tsx src/test/inventory-cp10-ledger-revocation.test.tsx
+          npx vitest run src/test/inventory-cp10-ledger-contract.test.ts src/test/inventory-cp10-ledger-dashboard.test.tsx src/test/inventory-cp10-ledger-keyboard.test.tsx src/test/inventory-cp10-ledger-revocation.test.tsx src/test/inventory-cp10-ledger-operations.test.tsx
           npx tsc --noEmit
-          npx eslint src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/ledger/ src/test/inventory-cp10-ledger-revocation.test.tsx
+          npx eslint src/pages/inventory/Tab4Ledger.tsx src/pages/inventory/ledger/ src/test/inventory-cp10-ledger-revocation.test.tsx src/test/inventory-cp10-ledger-operations.test.tsx
           VITE_API_URL=http://127.0.0.1:4174/api npm run build
       - name: Disposable Chromium
         working-directory: dashboard
