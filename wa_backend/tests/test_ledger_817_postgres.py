@@ -6,17 +6,19 @@ migrations, two companies and NOBYPASSRLS runtime role.
 from __future__ import annotations
 
 from decimal import Decimal
+from time import perf_counter
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api import auth
 from api.warehouse import ledger
 from domains.inventory_supplier_evidence import InventorySupplierEvidence, record_supplier_evidence
+from domains.ledger.operation_read import read_operation_groups, read_operation_movements
 from domains.suppliers.contracts import SupplierSnapshot
 from domains.suppliers.models import Supplier
 from models import (
@@ -358,3 +360,143 @@ async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
                     "cursor": first["next_cursor"]},
         )).status_code == 400
         print("LEDGER_817_TRANSFER_SAME_DURABLE_HEADER_AND_HWM_KEYSET=PASS")
+
+
+@pytest.mark.asyncio
+async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
+    """Synthetic READ-PLAN scale, not business posting evidence.
+
+    1200 persisted transfer documents + 20,000 immutable synthetic movements
+    plus one 1000-line document, inserted ONLY in this disposable test DB.
+    Functional stock/cost authority is proved by the real canonical tests above.
+    """
+    seed_id = uuid4().hex[:14]
+    company_id = pg.a.company_id
+    a, b = pg.a.locations
+    async with pg.session(pg.a) as db:
+        hdrs = (await db.execute(text("""
+            INSERT INTO inventory_transfer_headers (
+                company_id, reference_number, source_location_id,
+                destination_location_id, workflow_type, status,
+                transfer_purpose, commercial_context, dispatched_by
+            )
+            SELECT :c, 'PERF817-' || :tag || '-' || gs::text,
+                   :a, :b, 'DIRECT', 'DRAFT',
+                   'WAREHOUSE_BALANCING', '{}'::jsonb, :actor
+            FROM generate_series(1,1200) AS gs
+            RETURNING id
+        """), {"c": company_id, "tag": seed_id, "a": a, "b": b,
+               "actor": pg.a.owner.driver_id})).scalars().all()
+        assert len(hdrs) == 1200
+        await db.execute(text("""
+            WITH headers AS (
+                SELECT id, reference_number,
+                       row_number() OVER (ORDER BY id) AS rn
+                FROM inventory_transfer_headers
+                WHERE company_id=:c
+                  AND reference_number LIKE :prefix
+            )
+            INSERT INTO inventory_movements (
+                company_id, performed_by, destination_location_id,
+                destination_stock_status, product_variant_id,
+                batch_id, quantity, movement_kind, reference_type,
+                reference_id, idempotency_key, transfer_header_id
+            )
+            SELECT :c, :actor, :a, 'AVAILABLE', :variant, :batch,
+                   1, 'PHYSICAL', 'TRANSFER_DISPATCH',
+                   headers.reference_number,
+                   'PERF817-' || :tag || '-' || gs::text,
+                   headers.id
+            FROM generate_series(1,20000) AS gs
+            JOIN headers ON headers.rn = (gs - 1) % 1200 + 1
+        """), {"c": company_id, "actor": pg.a.owner.driver_id, "a": a,
+               "variant": pg.a.variant_id, "batch": pg.a.batch_id,
+               "tag": seed_id, "prefix": f"PERF817-{seed_id}-%"})
+        large_header = InventoryTransferHeader(
+            company_id=company_id, reference_number="LARGE817-" + seed_id,
+            source_location_id=a, destination_location_id=b,
+            workflow_type="DIRECT", status="DRAFT",
+            transfer_purpose="WAREHOUSE_BALANCING",
+            commercial_context={"ledger817_synthetic_scale": True},
+            dispatched_by=pg.a.owner.driver_id,
+        )
+        db.add(large_header)
+        await db.flush()
+        large_id = int(large_header.id)
+        await db.execute(text("""
+            INSERT INTO inventory_movements (
+                company_id, performed_by, destination_location_id,
+                destination_stock_status, product_variant_id,
+                batch_id, quantity, movement_kind, reference_type,
+                reference_id, idempotency_key, transfer_header_id
+            )
+            SELECT :c, :actor, :a, 'AVAILABLE', :variant, :batch,
+                   1, 'PHYSICAL', 'TRANSFER_DISPATCH', :ref,
+                   'PERF817-LARGE-' || :tag || '-' || gs::text, :h
+            FROM generate_series(1,1000) AS gs
+        """), {"c": company_id, "actor": pg.a.owner.driver_id, "a": a,
+               "variant": pg.a.variant_id, "batch": pg.a.batch_id,
+               "tag": seed_id, "h": large_id,
+               "ref": "LARGE817-" + seed_id})
+        await db.commit()
+
+    traces = []
+    def capture(_conn, _cursor, stmt, params, _context, _executemany):
+        if stmt.lstrip().upper().startswith("SELECT") and "inventory_movements" in stmt:
+            traces.append((stmt, params))
+    event.listen(pg.runtime_engine.sync_engine, "before_cursor_execute", capture)
+    try:
+        async with pg.session(pg.a) as db:
+            access = pg.a.owner.access(db)
+            began = perf_counter()
+            first = await read_operation_groups(
+                db, access=access, company_id=company_id, location_id=a,
+                cursor=None, limit=20, search=None, movement_type=None,
+                reference_id=None,
+            )
+            duration_ms = round((perf_counter() - began) * 1000)
+            # Bounded DB statements regardless of the 20,000+ source records.
+            assert len(traces) <= 7, f"Unbounded operation reads: {len(traces)}"
+            assert len(first["items"]) == 20 and first["has_more"]
+            assert first["next_cursor"]
+            assert all(g["group_kind"] == "TRANSFER" for g in first["items"])
+            assert all(g["movement_count"] > 0 for g in first["items"])
+            assert duration_ms < 15_000, f"Full-history operation read too slow: {duration_ms} ms"
+            print(f"LEDGER_817_LARGE_HISTORY_DOCS=1201 MOVEMENTS=21000 "
+                  f"SQL={len(traces)} FIRST_PAGE_MS={duration_ms} PASS")
+            traces.clear()
+            began = perf_counter()
+            second = await read_operation_groups(
+                db, access=access, company_id=company_id, location_id=a,
+                cursor=first["next_cursor"], limit=20,
+                search=None, movement_type=None, reference_id=None,
+            )
+            duration_ms_2 = round((perf_counter() - began) * 1000)
+            assert len(traces) <= 6, f"Unbounded continuation: {len(traces)}"
+            assert len(second["items"]) == 20
+            assert not ({item["group_key"] for item in first["items"]} &
+                        {item["group_key"] for item in second["items"]})
+            assert duration_ms_2 < 15_000
+            print(f"LEDGER_817_LARGE_KEYSET_NO_DUP_SQL={len(traces)} "
+                  f"CONTINUATION_MS={duration_ms_2} PASS")
+            traces.clear()
+            grouped = await read_operation_groups(
+                db, access=access, company_id=company_id, location_id=a,
+                cursor=None, limit=20, search=None,
+                movement_type=None, reference_id="LARGE817-" + seed_id,
+            )
+            assert len(grouped["items"]) == 1
+            group = grouped["items"][0]
+            assert group["movement_count"] == 1000
+            detail = await read_operation_movements(
+                db, access=access, company_id=company_id, location_id=a,
+                group_token=group["group_key"], cursor=None,
+                limit=20, search=None, movement_type=None,
+                reference_id="LARGE817-" + seed_id,
+            )
+            assert len(detail["items"]) == 20 and detail["has_more"]
+            assert detail["next_cursor"]
+            assert all(i["matches_filter"] for i in detail["items"])
+            print("LEDGER_817_LARGE_DOCUMENT_1000_LINES_BOUNDED_20_DETAIL=PASS")
+    finally:
+        event.remove(pg.runtime_engine.sync_engine, "before_cursor_execute", capture)
