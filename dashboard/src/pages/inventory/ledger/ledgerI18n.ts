@@ -20,6 +20,8 @@ const ar = {
   after: "الرصيد الفعلي بعد",
   evidence: "المصدر / الوجهة",
   reference: "المرجع",
+  exactReferenceFilter: "حركات تسوية الجرد للمرجع",
+  clearReferenceFilter: "عرض جميع الحركات",
   cost: "دليل التكلفة",
   actor: "المنفذ",
   notes: "الملاحظات",
@@ -78,6 +80,23 @@ const ar = {
   movement_TRANSFER: "تحويل",
   movement_STOCKTAKE: "جرد",
   movement_STOCKTAKE_ADJUSTMENT: "تسوية جرد",
+  movement_AUDIT_ADJUSTMENT: "تسوية جرد",
+  movement_DISPATCH_LOAD: "تحميل مركبة",
+  movement_DISPATCH_UNLOAD: "تفريغ مركبة",
+  movement_HANDSHAKE_RESERVE: "حجز للتسليم",
+  movement_HANDSHAKE_RELEASE: "تحرير حجز التسليم",
+  movement_HANDSHAKE_COMMIT: "استلام المندوب",
+  movement_HANDSHAKE_COMMIT_PULL: "استرجاع من مندوب",
+  movement_DRIVER_SHORTAGE: "عجز عهدة مندوب",
+  movement_DRIVER_SURPLUS: "زيادة عهدة مندوب",
+  movement_VISIT_ITEM_OUT: "صرف بيع من زيارة",
+  movement_VISIT_EXCHANGE_OUT: "صرف استبدال من زيارة",
+  movement_VISIT_RETURN_IN: "مرتجع زيارة",
+  movement_VISIT_REVERSAL: "عكس حركة زيارة",
+  movement_TRANSFER_DISPATCH: "إرسال حوالة",
+  movement_TRANSFER_RECEIPT: "استلام حوالة",
+  movement_TRANSFER_CANCELLED: "إلغاء حوالة",
+  movement_TRANSFER_REJECTED: "رفض حوالة",
   movement_STATUS_CHANGE: "تغيير حالة",
   movement_FINAL_VENDOR_HANDOVER: "تسليم مورد نهائي",
 } as const;
@@ -102,6 +121,8 @@ const en: Record<keyof typeof ar, string> = {
   after: "Physical balance after",
   evidence: "Source / destination",
   reference: "Reference",
+  exactReferenceFilter: "Stocktake adjustment movements for reference",
+  clearReferenceFilter: "Show all movements",
   cost: "Cost evidence",
   actor: "Actor",
   notes: "Notes",
@@ -160,6 +181,23 @@ const en: Record<keyof typeof ar, string> = {
   movement_TRANSFER: "Transfer",
   movement_STOCKTAKE: "Stocktake",
   movement_STOCKTAKE_ADJUSTMENT: "Stocktake adjustment",
+  movement_AUDIT_ADJUSTMENT: "Stocktake adjustment",
+  movement_DISPATCH_LOAD: "Vehicle loading",
+  movement_DISPATCH_UNLOAD: "Vehicle unloading",
+  movement_HANDSHAKE_RESERVE: "Handover reservation",
+  movement_HANDSHAKE_RELEASE: "Handover reservation release",
+  movement_HANDSHAKE_COMMIT: "Representative handover receipt",
+  movement_HANDSHAKE_COMMIT_PULL: "Return from representative",
+  movement_DRIVER_SHORTAGE: "Representative custody shortage",
+  movement_DRIVER_SURPLUS: "Representative custody surplus",
+  movement_VISIT_ITEM_OUT: "Visit sale out",
+  movement_VISIT_EXCHANGE_OUT: "Visit exchange out",
+  movement_VISIT_RETURN_IN: "Visit return in",
+  movement_VISIT_REVERSAL: "Visit movement reversal",
+  movement_TRANSFER_DISPATCH: "Transfer dispatch",
+  movement_TRANSFER_RECEIPT: "Transfer receipt",
+  movement_TRANSFER_CANCELLED: "Transfer cancellation",
+  movement_TRANSFER_REJECTED: "Transfer rejection",
   movement_STATUS_CHANGE: "Status change",
   movement_FINAL_VENDOR_HANDOVER: "Final vendor handover",
 };
@@ -189,7 +227,7 @@ export const ledgerMovementLabel = (
 export const ledgerBadgeClass = (type: string): string => {
   if (type === "INBOUND_SUPPLIER") return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (type === "INBOUND_CORRECTION") return "bg-purple-50 text-purple-700 border-purple-200";
-  if (type.includes("STOCKTAKE")) return "bg-amber-50 text-amber-800 border-amber-200";
+  if (type.includes("STOCKTAKE") || type === "AUDIT_ADJUSTMENT") return "bg-amber-50 text-amber-800 border-amber-200";
   if (type.includes("TRANSFER")) return "bg-blue-50 text-blue-700 border-blue-200";
   if (type === "STATUS_CHANGE") return "bg-slate-100 text-slate-700 border-slate-200";
   return "bg-slate-50 text-slate-700 border-slate-200";

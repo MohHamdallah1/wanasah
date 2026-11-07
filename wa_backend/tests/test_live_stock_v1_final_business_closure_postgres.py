@@ -26,6 +26,7 @@ from models import (
     InventoryMovement,
     InventoryTransferHeader,
     StocktakeLine,
+    SystemSetting,
     Visit,
 )
 from domains.stocktake.contracts import (
@@ -479,6 +480,15 @@ async def test_connected_route_custody_warehouse_transfer_rejection_and_stocktak
         outbound_costs=[D("160")],
     )
 
+    # This historical test explicitly opts into mandatory independence.
+    # No-settings companies now default to an optional recount (#798).
+    async with pg.session() as db:
+        db.add(SystemSetting(
+            company_id=tenant.company_id,
+            setting_key="stocktake_material_shortage_packs",
+            setting_value="1",
+        ))
+        await db.commit()
     # Count B from 120 to 104 through the existing independent-recount workflow.
     start = StocktakeStartCommand(
         request_id=uuid4(),

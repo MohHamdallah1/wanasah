@@ -18,6 +18,7 @@ from models import (
     InventoryBalance, InventoryCostEvent, InventoryCostState, InventoryMovement,
     InventoryTransferHeader, InventoryTransferLine, OperationIdempotency,
     ProductBatch, ProductLocation, StocktakeCountAttempt, StocktakeSession,
+    SystemSetting,
 )
 from schemas import UnifiedDispatchRequest, UnifiedReceiveRequest, UnifiedTransferDecisionRequest
 from services import apply_inventory_movement
@@ -225,6 +226,16 @@ async def test_canonical_transfer_and_stocktake_one_coherent_journey(pg):
         release_key = "E2E-RELEASE-" + uuid4().hex
         assert await reserve(case, "RELEASE", release_key) == await reserve(case, "RELEASE", release_key)
         await checkpoint(case, expected[step], report)
+
+        # Opt in explicitly: this transfer/stocktake acceptance proves the
+        # configured independent recount, not the optional V1 default.
+        async with pg.session() as db:
+            db.add(SystemSetting(
+                company_id=t.company_id,
+                setting_key="stocktake_material_shortage_packs",
+                setting_value="1",
+            ))
+            await db.commit()
 
         step = "count_started"
         start = StocktakeStartCommand(request_id=uuid4(), location_id=t.other_location_id, stocktake_type="FULL_COUNT")

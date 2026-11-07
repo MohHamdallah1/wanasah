@@ -59,10 +59,14 @@ jobs:
       - name: Exact base and bounded diff guard
         run: |
           git cat-file -e a740c69135f418bbf60b989ae55b11f72bdbc471^{commit}
-          git diff --check a740c69135f418bbf60b989ae55b11f72bdbc471 HEAD
-          python - <<'PY'
-          import subprocess
-          changed=set(subprocess.check_output(["git","diff","--name-only","a740c69135f418bbf60b989ae55b11f72bdbc471","HEAD"], text=True).splitlines())
+          # Old accepted main contains unrelated merged Stocktake/Inventory work.
+          # Restrict ownership to this PR's diff, not changes since the historic
+          # Ledger-762 starting commit.
+          LEDGER_PR_BASE="$(git merge-base origin/main HEAD)"
+          git diff --check "$LEDGER_PR_BASE" HEAD
+          LEDGER_PR_BASE="$LEDGER_PR_BASE" python - <<'PY'
+          import os, subprocess
+          changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["LEDGER_PR_BASE"],"HEAD"], text=True).splitlines())
           allowed_exact={
             "dashboard/src/pages/inventory/Tab4Ledger.tsx",
             "dashboard/src/test/inventory-access.test.ts",

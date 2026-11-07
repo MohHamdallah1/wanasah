@@ -256,6 +256,36 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
           }
+          # V1 exact reviewed independent policy and terminal history sets.
+          # No subsets, merged scopes, wildcards or foreign files.
+          recount_798 = {
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "wa_backend/tests/test_cp9_stocktake_closure_contract.py",
+              "wa_backend/tests/test_cp9_stocktake_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_final_business_closure_postgres.py",
+              "wa_backend/tests/test_live_stock_v1_two_purchase_stocktake_continuous_postgres.py",
+              "wa_backend/tests/test_representative_settlement_custody_postgres.py",
+              "wa_backend/tests/test_v1_warehouse_transfer_stocktake_postgres.py",
+          }
+          history_799 = {
+              ".github/workflows/stocktake-v1-history-799.yml",
+              "dashboard/e2e/stocktake-history-799.config.ts",
+              "dashboard/e2e/stocktake-history-799.spec.ts",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/api/warehouse/stocktake_history.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+          }
+          ci_compat_798_799 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-operator-782.yml",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -273,6 +303,9 @@ jobs:
               frozenset(fast_795): "FAST_COUNT_795",
               frozenset(ci_796): "FAST_CI_796",
               frozenset(review_bidi_797): "REVIEW_BIDI_797",
+              frozenset(recount_798): "OPTIONAL_RECOUNT_798",
+              frozenset(history_799): "TERMINAL_HISTORY_799",
+              frozenset(ci_compat_798_799): "STOCKTAKE_CI_EXACT_COMPAT_798_799",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -298,7 +331,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -322,6 +355,30 @@ jobs:
           assert verify_owner_scope("pull_request", fast_795) == "FAST_COUNT_795"
           assert verify_owner_scope("pull_request", ci_796) == "FAST_CI_796"
           assert verify_owner_scope("pull_request", review_bidi_797) == "REVIEW_BIDI_797"
+          for allowed_set, label in ((recount_798, "OPTIONAL_RECOUNT_798"),
+                                     (history_799, "TERMINAL_HISTORY_799"),
+                                     (ci_compat_798_799, "STOCKTAKE_CI_EXACT_COMPAT_798_799")):
+              assert verify_owner_scope("pull_request", allowed_set) == label
+              for missing in sorted(allowed_set):
+                  incomplete = allowed_set - {missing}
+                  assert valid_scopes.get(frozenset(incomplete)) != label
+                  if frozenset(incomplete) not in valid_scopes:
+                      try:
+                          verify_owner_scope("pull_request", incomplete)
+                      except AssertionError:
+                          pass
+                      else:
+                          raise AssertionError(f"Incomplete {label} accepted: {missing}")
+              for foreign in foreign_paths:
+                  try:
+                      verify_owner_scope("pull_request", allowed_set | {foreign})
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Foreign path accepted by {label}: {foreign}")
+          for mixed in (history_799 | recount_798, history_799 | ci_compat_798_799,
+                        recount_798 | ci_compat_798_799):
+              assert frozenset(mixed) not in valid_scopes
           for event, sample in (
               ("pull_request", set()),
               ("workflow_dispatch", ci_782),

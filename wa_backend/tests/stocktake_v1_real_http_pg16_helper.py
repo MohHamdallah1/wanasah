@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api import auth
@@ -25,6 +25,7 @@ from domains.live_stock_projection.service import rebuild_live_stock_company
 from models import (
     Company, Driver, InventoryBalance, InventoryCostEvent, InventoryCostState,
     InventoryLock, InventoryMovement, ProductBatch, StocktakeSession,
+    StocktakeCountAttempt, SystemAuditLog, SystemSetting, UserLocationAccess,
 )
 
 
@@ -60,7 +61,7 @@ async def assert_real_http_stocktake(
     async with AsyncSession(admin_engine, expire_on_commit=False) as db:
         await db.execute(text("SELECT set_config('app.current_tenant', :c, true)"),
                          {"c": str(a.company_id)})
-        await grant_location(
+        counter_a2_grants = await grant_location(
             db, company_id=a.company_id, driver_id=a.counter.driver_id,
             location_id=a.a2,
             codes=("stocktake.read", "stocktake.count", "stocktake.recount"),
@@ -88,7 +89,11 @@ async def assert_real_http_stocktake(
             Driver.company_id == a.company_id,
             Driver.id == a.counter.driver_id,
         ))
-        assert operator_name and recounter_name and authorizer_legacy_username
+        operator_legacy_username = await db.scalar(select(Driver.username).where(
+            Driver.company_id == a.company_id,
+            Driver.id == a.operator.driver_id,
+        ))
+        assert operator_name and recounter_name and authorizer_legacy_username and operator_legacy_username
         await db.commit()
 
     # Rebuild only this disposable company through the real canonical
@@ -549,5 +554,241 @@ async def assert_real_http_stocktake(
         assert before["attempts"]["items"] == []
         assert before["movements"]["items"] == []
         print("CP14C_REAL_BEARER_TERMINAL_HISTORY_POST_CANCEL_ROLE_RLS=PASS")
+
+        # #798: The previously submitted mandatory attempt is immutable even
+        # when the company's explicit policy is later removed. Test-only
+        # configuration changes use the ADMIN role, never a runtime stock write.
+        async with AsyncSession(admin_engine, expire_on_commit=False) as config_db:
+            await config_db.execute(text(
+                "SELECT set_config('app.current_tenant', :company, true)"
+            ), {"company": str(a.company_id)})
+            configured = (await config_db.scalars(select(SystemSetting).where(
+                SystemSetting.company_id == a.company_id,
+                SystemSetting.setting_key == "stocktake_material_shortage_packs",
+            ))).all()
+            assert len(configured) == 1 and configured[0].setting_value == "0"
+            historical = await config_db.get(StocktakeCountAttempt, first_attempt)
+            assert historical is not None and historical.requires_independent_recount is True
+            await config_db.execute(delete(SystemSetting).where(
+                SystemSetting.company_id == a.company_id,
+                SystemSetting.setting_key == "stocktake_material_shortage_packs",
+            ))
+            # Remove only this test's temporary A2 recount grant, which was
+            # needed for the earlier mandatory two-actor journey. The counter
+            # remains a real authorized recount actor at A1, not at A2.
+            await config_db.execute(delete(UserLocationAccess).where(
+                UserLocationAccess.company_id == a.company_id,
+                UserLocationAccess.driver_id == a.counter.driver_id,
+                UserLocationAccess.location_id == a.a2,
+                UserLocationAccess.role_id == counter_a2_grants["stocktake.recount"],
+            ))
+            await config_db.commit()
+            historical = await config_db.get(StocktakeCountAttempt, first_attempt)
+            assert historical is not None and historical.requires_independent_recount is True
+
+        # One single *operating* account performs start, blind count, review,
+        # approval and optional recount. Other preseeded actors are not used.
+        # No policy settings remain for company A.
+        first_optional = _check(await client.post(base + "/start", json={
+            "request_id": _body_id(),
+            "location_id": a.a2,
+            "stocktake_type": "CYCLE_COUNT",
+            "product_variant_id": a.variant,
+            "batch_id": new_batch_id,
+            "notes": "Single operator optional policy direct approval",
+        }, headers=auth_header), 201)
+        optional_sid = int(first_optional["session_id"])
+        # The protected review must never disclose expected stock before
+        # a genuine count attempt has been submitted and committed.
+        blind_review = await client.get(
+            f"{base}/{optional_sid}/review", headers=auth_header)
+        assert blind_review.status_code == 409
+        optional_sheet = _check(await client.get(f"{base}/{optional_sid}/count-sheet",
+                                               headers=auth_header))
+        assert len(optional_sheet) == 1
+        assert optional_sheet[0]["stock_status"] == "QUARANTINED"
+        assert "expected_quantity" not in optional_sheet[0]
+        optional_zero = _check(await client.post(f"{base}/{optional_sid}/count", json={
+            "request_id": _body_id(),
+            "items": [{
+                "product_variant_id": optional_sheet[0]["product_variant_id"],
+                "batch_id": optional_sheet[0]["batch_id"],
+                "stock_status": optional_sheet[0]["stock_status"],
+                "uom_id": optional_sheet[0]["base_uom_id"],
+                "actual_quantity": "0.000",
+            }],
+        }, headers=auth_header))
+        assert optional_zero["requires_independent_recount"] is False
+        optional_review = _check(await client.get(f"{base}/{optional_sid}/review",
+                                               headers=auth_header))
+        assert optional_review["latest_attempt"]["requires_independent_recount"] is False
+        assert optional_review["independent_recount_satisfied"] is True
+        assert Decimal(optional_review["lines"][0]["variance_quantity"]) == Decimal("-1.000")
+
+        forbidden_approval = await client.post(f"{base}/{optional_sid}/approve", json={
+            "request_id": _body_id(),
+            "count_attempt_id": optional_zero["attempt_id"],
+            "password": operator_password,
+        }, headers=denied_header)
+        assert forbidden_approval.status_code == 403
+        wrong_password = await client.post(f"{base}/{optional_sid}/approve", json={
+            "request_id": _body_id(),
+            "count_attempt_id": optional_zero["attempt_id"],
+            "password": "NotTheActualOperatorPassword",
+        }, headers=auth_header)
+        assert wrong_password.status_code == 403
+        foreign_review = await client.get(f"{base}/{optional_sid}/review",
+                                          headers=denied_header)
+        assert foreign_review.status_code == 403
+        wrong_company = await client.get("/warehouse/unified/stocktakes/active",
+                                         params={"location_id": b.a1},
+                                         headers=auth_header)
+        assert wrong_company.status_code in {403, 404}
+
+        approval_once = {
+            "request_id": _body_id(),
+            "count_attempt_id": optional_zero["attempt_id"],
+            "password": operator_password,
+            "notes": "Single authorized account confirms physically absent batch",
+        }
+        direct = _check(await client.post(f"{base}/{optional_sid}/approve",
+                                          json=approval_once, headers=auth_header))
+        assert direct["status"] == "POSTED" and direct["movement_count"] == 1
+        assert _check(await client.post(f"{base}/{optional_sid}/approve",
+                                        json=approval_once, headers=auth_header)) == direct
+        async with runtime_session(runtime_engine, a.company_id) as db:
+            direct_moves = (await db.scalars(select(InventoryMovement).where(
+                InventoryMovement.company_id == a.company_id,
+                InventoryMovement.stocktake_session_id == optional_sid,
+            ))).all()
+            assert len(direct_moves) == 1
+            assert Decimal(direct_moves[0].quantity) == Decimal("1.000")
+            direct_audits = (await db.scalars(select(SystemAuditLog.action_type).where(
+                SystemAuditLog.company_id == a.company_id,
+                SystemAuditLog.target_id == f"Stocktake_{optional_sid}",
+            ))).all()
+            assert "STOCKTAKE_APPROVAL_REJECTED" in direct_audits
+            assert "STOCKTAKE_APPROVED_AND_POSTED" in direct_audits
+            current_a2 = await db.scalar(select(InventoryBalance.on_hand_quantity).where(
+                InventoryBalance.company_id == a.company_id,
+                InventoryBalance.location_id == a.a2,
+                InventoryBalance.product_variant_id == a.variant,
+                InventoryBalance.batch_id == a.batch,
+                InventoryBalance.stock_status == "AVAILABLE",
+            ))
+            assert current_a2 is not None and Decimal(current_a2) > Decimal("0.125")
+            physical_a2 = Decimal(current_a2)
+
+        new_optional = _check(await client.post(base + "/start", json={
+            "request_id": _body_id(),
+            "location_id": a.a2,
+            "stocktake_type": "CYCLE_COUNT",
+            "product_variant_id": a.variant,
+            "batch_id": a.batch,
+            "notes": "Single account optional recount of other physical lot",
+        }, headers=auth_header), 201)
+        optional_recount_sid = int(new_optional["session_id"])
+        forbidden_precount_review = await client.get(
+            f"{base}/{optional_recount_sid}/review", headers=auth_header)
+        assert forbidden_precount_review.status_code == 409
+        blind_sheet = _check(await client.get(f"{base}/{optional_recount_sid}/count-sheet",
+                                             headers=auth_header))
+        assert len(blind_sheet) == 1 and "expected_quantity" not in blind_sheet[0]
+        next_qty = format(physical_a2 - Decimal("0.125"), "f")
+        row = {
+            "product_variant_id": blind_sheet[0]["product_variant_id"],
+            "batch_id": blind_sheet[0]["batch_id"],
+            "stock_status": blind_sheet[0]["stock_status"],
+            "uom_id": blind_sheet[0]["base_uom_id"],
+            "actual_quantity": next_qty,
+        }
+        first_recount_attempt = _check(await client.post(
+            f"{base}/{optional_recount_sid}/count", json={
+                "request_id": _body_id(), "items": [row],
+            }, headers=auth_header))
+        assert first_recount_attempt["requires_independent_recount"] is False
+        before_recount = _check(await client.get(
+            f"{base}/{optional_recount_sid}/review", headers=auth_header))
+        assert before_recount["latest_attempt"]["requires_independent_recount"] is False
+        assert Decimal(before_recount["lines"][0]["variance_quantity"]) == Decimal("-0.125")
+
+        recount_body = {
+            "request_id": _body_id(),
+            "count_attempt_id": first_recount_attempt["attempt_id"],
+            "reason": "Same authorized account physically verifies discrepancy",
+            "authorizer_username": operator_legacy_username,
+            "authorizer_password": operator_password,
+        }
+        forbidden_recount = await client.post(
+            f"{base}/{optional_recount_sid}/recount",
+            json=recount_body, headers=denied_header)
+        assert forbidden_recount.status_code == 403
+        # This other actor has stocktake.recount only at A1, not A2.
+        # A valid role at the wrong location is still forbidden.
+        wrong_location_recount = await client.post(
+            f"{base}/{optional_recount_sid}/recount",
+            json={**recount_body, "request_id": _body_id()},
+            headers=recount_header)
+        assert wrong_location_recount.status_code == 403
+        wrong_recount = await client.post(
+            f"{base}/{optional_recount_sid}/recount",
+            json={**recount_body, "request_id": _body_id(),
+                  "authorizer_password": "WrongPassword"},
+            headers=auth_header)
+        assert wrong_recount.status_code == 403
+        permitted = _check(await client.post(
+            f"{base}/{optional_recount_sid}/recount", json=recount_body,
+            headers=auth_header))
+        assert permitted["status"] == "RECOUNT_REQUIRED"
+        assert permitted["requires_independent_counter"] is False
+        assert _check(await client.post(
+            f"{base}/{optional_recount_sid}/recount", json=recount_body,
+            headers=auth_header)) == permitted
+        same_actor_sheet = _check(await client.get(
+            f"{base}/{optional_recount_sid}/count-sheet", headers=auth_header))
+        assert len(same_actor_sheet) == 1 and "expected_quantity" not in same_actor_sheet[0]
+        second_attempt = _check(await client.post(
+            f"{base}/{optional_recount_sid}/count",
+            json={"request_id": _body_id(), "items": [row]},
+            headers=auth_header))
+        assert second_attempt["attempt_number"] == 2
+        reviewed_again = _check(await client.get(
+            f"{base}/{optional_recount_sid}/review", headers=auth_header))
+        assert reviewed_again["independent_recount_satisfied"] is True
+        assert len(reviewed_again["attempt_history"]) == 2
+        assert reviewed_again["attempt_history"][0]["counted_by"] == reviewed_again["attempt_history"][1]["counted_by"]
+        assert reviewed_again["attempt_history"][1]["recount_of_attempt_id"] == first_recount_attempt["attempt_id"]
+        assert reviewed_again["attempt_history"][1]["recount_reason"] == recount_body["reason"]
+        approved_recount = _check(await client.post(
+            f"{base}/{optional_recount_sid}/approve", json={
+                "request_id": _body_id(),
+                "count_attempt_id": second_attempt["attempt_id"],
+                "password": operator_password,
+            }, headers=auth_header))
+        assert approved_recount["status"] == "POSTED"
+        assert approved_recount["movement_count"] == 1
+
+        async with runtime_session(runtime_engine, a.company_id) as db:
+            moves = (await db.scalars(select(InventoryMovement).where(
+                InventoryMovement.company_id == a.company_id,
+                InventoryMovement.stocktake_session_id == optional_recount_sid,
+            ))).all()
+            assert len(moves) == 1
+            assert Decimal(moves[0].quantity) == Decimal("0.125")
+            attempts = (await db.scalars(select(StocktakeCountAttempt).where(
+                StocktakeCountAttempt.company_id == a.company_id,
+                StocktakeCountAttempt.stocktake_session_id == optional_recount_sid,
+            ).order_by(StocktakeCountAttempt.attempt_number))).all()
+            assert len(attempts) == 2
+            assert attempts[0].counted_by == attempts[1].counted_by == a.operator.driver_id
+            assert attempts[0].requires_independent_recount is False
+            audit_actions = (await db.scalars(select(SystemAuditLog.action_type).where(
+                SystemAuditLog.company_id == a.company_id,
+                SystemAuditLog.target_id == f"Stocktake_{optional_recount_sid}",
+            ))).all()
+            assert "STOCKTAKE_RECOUNT_AUTH_REJECTED" in audit_actions
+            assert "STOCKTAKE_RECOUNT_AUTHORIZED" in audit_actions
+            assert "STOCKTAKE_APPROVED_AND_POSTED" in audit_actions
+        print("STOCKTAKE_798_OPTIONAL_SAME_AUTHORIZED_ACCOUNT_HTTP_PG16=PASS")
 
     print("CP14C_REAL_ASGI_BEARER_HTTP_START_ZERO_DISCOVERED_RECOUNT_APPROVE_LEDGER=PASS")
