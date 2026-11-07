@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { StocktakeHistoryDialog } from "./StocktakeHistoryDialog";
 import type { StocktakeAuthFetch } from "./types";
 
@@ -96,13 +97,20 @@ const deferred = <T,>() => {
   const promise = new Promise<T>(done => { resolve = done; });
   return {promise, resolve};
 };
-function Harness({ canReview = true }: { canReview?: boolean }) {
+function Harness({ canReview = true, canLedgerRead = false }: { canReview?: boolean; canLedgerRead?: boolean }) {
   const [locationId, setLocation] = useState(11);
   return <div>
     <button onClick={() => setLocation(12)}>Change warehouse</button>
     <StocktakeHistoryDialog active locationId={locationId}
-      canRead canReview={canReview} authenticatedFetch={fetcher as StocktakeAuthFetch} />
+      canRead canReview={canReview} canLedgerRead={canLedgerRead}
+      authenticatedFetch={fetcher as StocktakeAuthFetch} />
   </div>;
+}
+function LedgerLocationSpy() {
+  const location = useLocation();
+  return <output data-testid="ledger-navigation-state">
+    {location.pathname}{location.search} {JSON.stringify(location.state)}
+  </output>;
 }
 beforeEach(() => { locale.current = "ar"; fetcher.mockReset(); fetcher.mockImplementation(defaultFetcher); });
 
@@ -274,6 +282,61 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     await waitFor(() => expect(dialog).toHaveTextContent("12 Each"));
     expect(dialog).toHaveTextContent("-4 Each");
     expect(dialog).toHaveTextContent("الكمية المسجلة");
+  });
+
+  it.each(["ar", "en"] as const)("navigates only real posted adjustments with ledger.read in %s", async lang => {
+    locale.current = lang;
+    render(<MemoryRouter initialEntries={["/inventory"]}>
+      <Harness canLedgerRead />
+      <LedgerLocationSpy />
+    </MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: lang === "ar" ? "سجل الجرد" : "Stocktake history" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
+    const label = lang === "ar" ? "عرض حركات تسوية الجرد" : "View stocktake adjustments";
+    const details = lang === "ar" ? "التفاصيل" : "Details";
+    const back = lang === "ar" ? "العودة للسجل" : "Back to history";
+    fireEvent.click(within(dialog).getAllByRole("button", { name: details })[0]);
+    await waitFor(() => expect(dialog).toHaveTextContent("Physical recount aborted"));
+    expect(within(dialog).queryByRole("link", { name: label })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: back }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: details })[1]);
+    const link = await within(dialog).findByRole("link", { name: label });
+    expect(link).toHaveAttribute("href", "/inventory?ledger_ref=STK-92&ledger_location=11");
+    fireEvent.click(link);
+    await waitFor(() => expect(screen.getByTestId("ledger-navigation-state"))
+      .toHaveTextContent("/inventory?ledger_ref=STK-92&ledger_location=11"));
+    expect(screen.getByTestId("ledger-navigation-state")).toHaveTextContent("ledger");
+  });
+
+  it("never offers a phantom movement link for zero adjustments or missing ledger.read", async () => {
+    render(<MemoryRouter initialEntries={["/inventory"]}><Harness /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
+    let dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "التفاصيل" })[1]);
+    await waitFor(() => expect(dialog).toHaveTextContent("قيود تسوية مخزنية معتمدة"));
+    expect(within(dialog).queryByRole("link", { name: "عرض حركات تسوية الجرد" })).not.toBeInTheDocument();
+  });
+
+  it("hides Ledger navigation for posted stocktakes without physical movements", async () => {
+    fetcher.mockImplementation(async url => {
+      if (new URL(url, "https://example.invalid").pathname.endsWith("/history/92")) {
+        return {
+          ...detail(92), session: { ...detail(92).session, status: "POSTED",
+            cancellation_reason: null, cancelled_after_count: false, adjustment_movement_count: 0 },
+          movements: { items: [], next_cursor: null, has_more: false },
+        };
+      }
+      return defaultFetcher(url);
+    });
+    render(<MemoryRouter initialEntries={["/inventory"]}><Harness canLedgerRead /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "التفاصيل" })[1]);
+    await waitFor(() => expect(dialog).toHaveTextContent("معتمد ومُرحّل"));
+    expect(within(dialog).queryByRole("link", { name: "عرض حركات تسوية الجرد" })).not.toBeInTheDocument();
   });
 
   it("closes and rejects retained history when the authorized warehouse changes", async () => {
