@@ -32,10 +32,10 @@ export function LedgerFilters({
   const text = (key: Parameters<typeof ledgerText>[2]) => ledgerText(t, language, key);
   return (
     <div
-      className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:flex-row sm:items-center sm:px-3"
+      className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 p-2 md:flex-row md:items-center md:px-3"
       data-cp13-controls="ledger-list"
     >
-      <div className="relative min-w-0 flex-1 sm:min-w-[9rem]">
+      <div className="relative min-w-0 flex-1 md:min-w-[9rem]">
         <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
         <input
           type="search"
