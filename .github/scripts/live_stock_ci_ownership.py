@@ -798,6 +798,26 @@ LEDGER_804_EXACT = frozenset({
 })
 
 
+# #811: exact owner-approved Ledger V1 functional-parity and test fixture diff.
+# This is only the complete thirteen-file set; mixed scopes, partial diffs,
+# unrelated Backend/Flutter files and the policy helper cannot hitchhike.
+LEDGER_811_EXACT = frozenset({
+    "dashboard/e2e/ledger-762.spec.ts",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerAdjustmentModal.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerCostEvidence.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerMobileCards.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerReferenceModal.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerTable.tsx",
+    "dashboard/src/pages/inventory/ledger/contracts.ts",
+    "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerAdjustment.ts",
+    "dashboard/src/test/inventory-cp10-ledger-contract.test.ts",
+    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+    "dashboard/src/test/inventory-cp10-ledger-keyboard.test.tsx",
+})
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
@@ -805,6 +825,9 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
     if changed == STOCKTAKE_793_BRIDGE_EXACT:
         return "policy-maintenance", []
+
+    if mode in {"ux", "operational"} and changed == LEDGER_811_EXACT:
+        return "ledger-811-exact", []
 
     if mode in {"ux", "operational"} and changed == LEDGER_804_EXACT:
         return "ledger-804-exact", []
@@ -926,6 +949,34 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    ledger_811_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    assert len(LEDGER_811_EXACT) == 13
+    assert "dashboard/src/pages/inventory/Tab4Ledger.tsx" in LEDGER_811_EXACT
+    assert "dashboard/src/test/inventory-cp10-ledger-keyboard.test.tsx" in LEDGER_811_EXACT
+    for ledger_mode in ("ux", "operational"):
+        assert classify(ledger_mode, set(LEDGER_811_EXACT), ledger_811_sem) == (
+            "ledger-811-exact", []
+        )
+        for missing in LEDGER_811_EXACT:
+            partial = set(LEDGER_811_EXACT) - {missing}
+            assert classify(ledger_mode, partial, ledger_811_sem)[0] != "ledger-811-exact"
+            if "dashboard/src/pages/inventory/Tab4Ledger.tsx" in partial:
+                _expect_fail(ledger_mode, partial, ledger_811_sem)
+        for foreign in (
+            HELPER,
+            "dashboard/src/pages/inventory/MainInventory.tsx",
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "dashboard/src/pages/inventory/ledger/useLedgerReference.ts",
+            "wa_backend/domains/ledger/read.py",
+            "wa_backend/api/warehouse/stocktake.py",
+            "flutter_app/lib/main.dart",
+            "LIVE_STOCK_V1_CLOSURE_PLAN.md",
+        ):
+            _expect_fail(ledger_mode, set(LEDGER_811_EXACT) | {foreign}, ledger_811_sem)
+        _expect_fail(ledger_mode, set(LEDGER_811_EXACT) | LEDGER_804_EXACT, ledger_811_sem)
+        _expect_fail(ledger_mode, set(LEDGER_811_EXACT) | STOCKTAKE_784_EXACT, ledger_811_sem)
+    assert classify("r3", set(LEDGER_811_EXACT), ledger_811_sem) == ("not-applicable", [])
+
     # Verify exact #804 file set in both shared Live Stock browser guards.
     ledger_804_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_804_EXACT) == 9
