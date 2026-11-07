@@ -27,6 +27,7 @@ from domains.stocktake.contracts import (
 from models import (
     Driver,
     Permission,
+    SystemSetting,
     Role,
     UserLocationAccess,
     role_permissions,
@@ -496,6 +497,14 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
             [tuple(row.values()) for row in purchase_history_before],
         )
 
+        # Explicit historical threshold: this continuous-history test must
+        # continue proving independent reconciliation, not default policy.
+        self.db.add(SystemSetting(
+            company_id=self.tenant,
+            setting_key="stocktake_material_shortage_packs",
+            setting_value="1",
+        ))
+        await self.db.flush()
         # Independent count/recount/Owner approval on the SAME original batch.
         counter, recounter, recounter_username, counter_password = (
             await self._seed_stocktake_actors()

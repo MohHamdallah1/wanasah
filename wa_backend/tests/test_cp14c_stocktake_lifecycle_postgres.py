@@ -60,6 +60,7 @@ from models import (
     Role,
     StocktakeSession,
     StocktakeLine,
+    SystemSetting,
     TenantOperationalPolicy,
     UOM,
     UserLocationAccess,
@@ -975,6 +976,14 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert count_sheet[0]["quantity_step"] == "0.001"
             assert "expected_quantity" not in count_sheet[0]
             assert "packs_per_carton" not in count_sheet[0]
+            # CP14-C independent-actor proof deliberately opts into the
+            # old company threshold; the unconfigured V1 default is optional.
+            db.add(SystemSetting(
+                company_id=a.company_id,
+                setting_key="stocktake_material_shortage_packs",
+                setting_value="0",
+            ))
+            await db.flush()
             attempt1 = await _count(db, a.operator, session_id, Decimal("9.875"))
             assert attempt1["requires_independent_recount"] is True
             review1 = await stocktake.get_stocktake_review(
