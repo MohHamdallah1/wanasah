@@ -72,12 +72,12 @@ export function LedgerTable({
             </tr>
           )}
           {window.before > 0 && <tr aria-hidden="true"><td colSpan={12} style={{height:window.before,padding:0,border:0}} /></tr>}
-          {visibleEntries.map((entry) => {
+          {visibleEntries.map((entry, index) => {
             const locations = ledgerLocationEvidence(t, language, entry);
             const outgoing = compareQuantity(entry.quantity, "0") < 0;
             const DirectionIcon = outgoing ? ArrowDownRight : ArrowUpRight;
             return (
-              <tr key={entry.id} className="align-middle hover:bg-slate-50/70" data-cp13-ledger-row="compact">
+              <tr key={entry.id} data-ledger-virtual-index={window.first + index} className="align-middle hover:bg-slate-50/70" data-cp13-ledger-row="compact">
                 <td className="px-3 py-2">
                   <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-black ${ledgerBadgeClass(entry.type)}`}>
                     <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
