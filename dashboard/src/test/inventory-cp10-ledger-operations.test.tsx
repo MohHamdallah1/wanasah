@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildLedgerOperationUrl, parseLedgerOperationPage } from "@/pages/inventory/ledger/operationContracts";
 import { Tab4Ledger } from "@/pages/inventory/Tab4Ledger";
+import { LedgerOperationRows } from "@/pages/inventory/ledger/LedgerOperationRows";
+import type { LedgerOperation } from "@/pages/inventory/ledger/operationContracts";
 
 const mocks = vi.hoisted(() => ({
   authFetch: vi.fn(),
@@ -174,4 +176,19 @@ describe("Ledger #818 authoritative operations", () => {
     expect(screen.queryByText("QUALITY_HANDLING_STAGE")).not.toBeInTheDocument();
     expect(container.querySelector('[dir="rtl"]') !== null).toBe(language === "ar");
   });
+  it("mounts fewer than 100 operation rows even with 10,001 server groups", () => {
+    const operations = Array.from({ length: 10001 }, (_, i) =>
+      operation(i + 1) as unknown as LedgerOperation);
+    const { container } = render(
+      <LedgerOperationRows
+        t={((_key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? _key)) as never}
+        language="en" locale="en-US" items={operations} onDetails={vi.fn()}
+        onNearBottom={vi.fn()} hasMore={false} loadingMore={false}
+      />,
+    );
+    expect(operations).toHaveLength(10001);
+    expect(container.querySelectorAll('[data-ledger-operation-row="true"]').length).toBeLessThan(100);
+    expect(Number(container.querySelector('[data-ledger-operation-root="true"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
+  });
+
 });
