@@ -45,7 +45,7 @@ export function LedgerMobileCards({
 
   return (
     <div ref={window.rootRef} onScroll={window.onScroll} className="min-h-0 h-full overflow-y-auto p-2 md:hidden" data-cp13-phone-list="true" data-ledger-mounted={window.mounted}>
-      <div className="space-y-1.5"> 
+      <div className="space-y-1.5">
       {window.before > 0 && <div aria-hidden="true" style={{ height: window.before }} />}
       {visibleEntries.map((entry) => {
         const locations = ledgerLocationEvidence(t, language, entry);
