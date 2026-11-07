@@ -272,7 +272,7 @@ describe("CP10 Ledger Dashboard", () => {
     });
     renderLedger();
     expect(await screen.findAllByText("Shared Product")).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    fireEvent.scroll(document.querySelector('[data-cp13-ledger-list="chronological"]')!);
     await waitFor(() => expect(mocks.authFetch.mock.calls.some(([path]) => String(path).includes("cursor=next-1"))).toBe(true));
 
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "alpha" } });
@@ -347,8 +347,7 @@ describe("CP10 Ledger Dashboard", () => {
         target: { value: "AUDIT_ADJUSTMENT" },
       });
       expect(await screen.findAllByText("Fuzzy page one")).not.toHaveLength(0);
-      const nextLabel = language === "ar" ? "الصفحة التالية" : "Next page";
-      fireEvent.click(screen.getByRole("button", { name: nextLabel }));
+      fireEvent.scroll(document.querySelector('[data-cp13-ledger-list="chronological"]')!);
       expect(await screen.findAllByText("Fuzzy page two")).not.toHaveLength(0);
       expect(calls.some(call => call.includes("cursor=fuzzy-next"))).toBe(true);
 
