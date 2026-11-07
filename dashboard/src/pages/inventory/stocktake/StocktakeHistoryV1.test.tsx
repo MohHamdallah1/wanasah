@@ -312,7 +312,7 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
   it("never offers a phantom movement link for zero adjustments or missing ledger.read", async () => {
     render(<MemoryRouter initialEntries={["/inventory"]}><Harness /></MemoryRouter>);
     fireEvent.click(screen.getByRole("button", { name: "سجل الجرد" }));
-    let dialog = await screen.findByRole("dialog");
+    const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(dialog).toHaveTextContent("STK-92"));
     fireEvent.click(within(dialog).getAllByRole("button", { name: "التفاصيل" })[1]);
     await waitFor(() => expect(dialog).toHaveTextContent("قيود تسوية مخزنية معتمدة"));
