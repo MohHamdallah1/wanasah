@@ -1,0 +1,98 @@
+name: "Ledger V1 #817 read-only operation grouping"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/ledger.py"
+      - "wa_backend/domains/ledger/read.py"
+      - "wa_backend/domains/ledger/operation_read.py"
+      - "wa_backend/tests/test_ledger_817_postgres.py"
+      - ".github/workflows/inventory-ledger-817-acceptance.yml"
+      - ".github/workflows/inventory-ledger-762-acceptance.yml"
+      - ".github/workflows/inventory-cp2-batch-index-acceptance.yml"
+      - "wa_backend/scripts/warehouse_route_manifest_extensions.json"
+
+permissions:
+  contents: read
+
+jobs:
+  restricted-pg16-bearer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Ledger817SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_GATE: "1"
+      WANASAH_CP10_PG_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_ADMIN_URL: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL16
+        run: |
+          docker run --detach --name ledger-817-pg16 --env POSTGRES_USER=cp10_admin --env POSTGRES_DB=wanasah_cp10_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55450:55450 postgres:16 -p 55450
+          for attempt in $(seq 1 30); do
+            if docker exec ledger-817-pg16 pg_isready -U cp10_admin -d wanasah_cp10_test -p 55450; then exit 0; fi
+            sleep 1
+          done
+          docker logs ledger-817-pg16
+          exit 1
+      - name: Restricted runtime NOBYPASSRLS
+        run: |
+          python - <<'PY'
+          import os,psycopg
+          from sqlalchemy.engine import make_url
+          dsn=make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn,autocommit=True) as conn:
+              conn.execute("CREATE ROLE cp10_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: New #817 real login Bearer and restricted PG16
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q -s tests/test_ledger_817_postgres.py
+      - name: Canonical Ledger unchanged regression
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q tests/test_cp10_ledger_postgres.py tests/test_cp10_ledger_postgres_multibatch.py tests/test_cp10_ledger_backend.py
+  exact-backend-scope:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Exact Backend-only ownership / syntax
+        run: |
+          git fetch origin main --no-tags
+          BASE="$(git merge-base origin/main HEAD)"
+          git diff --check "$BASE" HEAD
+          BASE="$BASE" python - <<'PY'
+          import os,subprocess
+          changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["BASE"],"HEAD"],text=True).splitlines())
+          # Immutable route manifest and legacy CI guards are required
+          # for precisely these new read-only endpoints, no other additions.
+          allowed={
+            "wa_backend/api/warehouse/ledger.py",
+            "wa_backend/domains/ledger/read.py",
+            "wa_backend/domains/ledger/operation_read.py",
+            "wa_backend/tests/test_ledger_817_postgres.py",
+            "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+            ".github/workflows/inventory-ledger-817-acceptance.yml",
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+            ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+          }
+          assert changed == allowed, sorted(changed)
+          print("LEDGER_817_BACKEND_ONLY_SCOPE_PASS",len(changed))
+          PY
+          python -m py_compile wa_backend/api/warehouse/ledger.py wa_backend/domains/ledger/read.py wa_backend/domains/ledger/operation_read.py wa_backend/tests/test_ledger_817_postgres.py

@@ -328,7 +328,22 @@ jobs:
                   ) from exc
               return cp2_schema_contract_from_source(source)
 
+          # Exactly two accepted #817 Ledger routes, registered in the
+          # manifest. No general Ledger exemption from CP2 ownership.
+          ledger_817_route_extension_exact = {
+              ".github/workflows/inventory-ledger-817-acceptance.yml",
+              ".github/workflows/inventory-ledger-762-acceptance.yml",
+              ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+              "wa_backend/api/warehouse/ledger.py",
+              "wa_backend/domains/ledger/read.py",
+              "wa_backend/domains/ledger/operation_read.py",
+              "wa_backend/tests/test_ledger_817_postgres.py",
+              "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+          }
+
           def classify(changed, *, is_pr, cp2_schema_changed=False):
+              if is_pr and changed == ledger_817_route_extension_exact:
+                  return "ledger-817-route-extension"
               if is_pr and product_gate_read_required <= changed:
                   extra = changed - product_gate_read_allowed
                   if extra:
@@ -381,6 +396,25 @@ jobs:
                       f"extra={sorted(invalid)}"
                   )
               return "maintenance"
+
+          assert classify(
+              ledger_817_route_extension_exact,
+              is_pr=True, cp2_schema_changed=False,
+          ) == "ledger-817-route-extension"
+          for foreign in (
+              "flutter_app/lib/main.dart",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wa_backend/services.py",
+          ):
+              try:
+                  classify(
+                      ledger_817_route_extension_exact | {foreign},
+                      is_pr=True, cp2_schema_changed=False,
+                  )
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError("CP2 accepted foreign #817 change: " + foreign)
 
           # Focused classifier selftests: shared schemas.py changes are ignored
           # only when CP2's own AST contract is unchanged. Genuine CP2 edits

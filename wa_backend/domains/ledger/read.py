@@ -477,6 +477,41 @@ async def read_warehouse_ledger_page(
             "available_types": available_types,
         }
 
+    result = await _render_ledger_entries(
+        db, access=access, company_id=company_id, location_id=location_id, rows=rows
+    )
+
+    next_cursor = None
+    if has_more:
+        last = rows[-1][0]
+        if last.created_at is None:
+            raise RuntimeError("Ledger movement is missing created_at.")
+        next_cursor = encode_ledger_cursor(last.created_at, int(last.id), scope=scope)
+
+    return {
+        "items": result,
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+        "total": total,
+        "available_types": available_types,
+    }
+
+
+async def _render_ledger_entries(
+    db: AsyncSession,
+    *,
+    access: BackofficeCapabilityAccess,
+    company_id: int,
+    location_id: int,
+    rows: list,
+) -> list[dict[str, Any]]:
+    """Shared, immutable Ledger financial/Lot projection for both read modes.
+
+    No new balance or costing authority: identical enrichment used by the
+    accepted movement-cursor contract. Invoked only on already-authorized rows.
+    """
+    if not rows:
+        return []
     movement_ids = [int(row[0].id) for row in rows]
     variant_ids = {int(row[0].product_variant_id) for row in rows}
 
@@ -722,17 +757,4 @@ async def read_warehouse_ledger_page(
             }
         )
 
-    next_cursor = None
-    if has_more:
-        last = rows[-1][0]
-        if last.created_at is None:
-            raise RuntimeError("Ledger movement is missing created_at.")
-        next_cursor = encode_ledger_cursor(last.created_at, int(last.id), scope=scope)
-
-    return {
-        "items": result,
-        "next_cursor": next_cursor,
-        "has_more": has_more,
-        "total": total,
-        "available_types": available_types,
-    }
+    return result
