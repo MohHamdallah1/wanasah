@@ -1797,22 +1797,31 @@ export default function MainInventory() {
   const stocktakeShellAdmitted =
     activeTab === "stocktake" && selectedLocationId !== null &&
     locationTabScope !== null && tabAllowed("stocktake");
+  const ledgerShellAdmitted =
+    activeTab === "ledger" && selectedLocationId !== null &&
+    locationTabScope !== null && tabAllowed("ledger");
   const warehouseSelector = locations.length > 0 ? (
-    <label className={stocktakeShellAdmitted
-      ? "inventory-location-field !flex w-full min-w-0 items-center gap-2 sm:!w-auto"
-      : "inventory-location-field"}>
-      <span className={stocktakeShellAdmitted
-        ? "inventory-location-label shrink-0 whitespace-nowrap"
-        : "inventory-location-label"}>
+    <label className={ledgerShellAdmitted
+      ? "inventory-location-field !flex min-w-0 shrink-0 items-center gap-2"
+      : stocktakeShellAdmitted
+        ? "inventory-location-field !flex w-full min-w-0 items-center gap-2 sm:!w-auto"
+        : "inventory-location-field"}>
+      <span className={ledgerShellAdmitted
+        ? "inventory-location-label shrink-0 whitespace-nowrap text-slate-700"
+        : stocktakeShellAdmitted
+          ? "inventory-location-label shrink-0 whitespace-nowrap"
+          : "inventory-location-label"}>
         {stocktakeShellAdmitted
           ? `${batchIndexText(t, locale, "warehouseLabel")}:`
           : t("inventoryShell.warehouseSelectLabel")}
       </span>
       <select
         aria-label={t("inventoryShell.warehouseSelectLabel")}
-        className={stocktakeShellAdmitted
-          ? "inventory-location-select !w-auto min-w-0 flex-1 px-3 py-2 text-sm font-bold"
-          : "inventory-location-select px-3 py-2 text-sm font-bold"}
+        className={ledgerShellAdmitted
+          ? "inventory-location-select !h-9 !min-w-[10.5rem] w-44 max-w-48 px-2 text-xs font-bold"
+          : stocktakeShellAdmitted
+            ? "inventory-location-select !w-auto min-w-0 flex-1 px-3 py-2 text-sm font-bold"
+            : "inventory-location-select px-3 py-2 text-sm font-bold"}
         value={selectedLocationId ?? ""}
         onChange={(event) => handleLocationChange(event.target.value)}
       >
@@ -1910,7 +1919,7 @@ export default function MainInventory() {
         }}
       />
 
-      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && !stocktakeShellAdmitted && (
+      {activeTab !== "live" && activeTab !== "batches" && activeTab !== "warehouses" && activeTab !== "inbound" && activeTab !== "transfers" && !stocktakeShellAdmitted && !ledgerShellAdmitted && (
         <div className="inventory-shared-context-row">
           <div className="inventory-context-bar flex flex-wrap items-center gap-3 px-3 py-2">
             {warehouseSelector}
@@ -2206,6 +2215,7 @@ export default function MainInventory() {
             <Tab4Ledger
               active={activeTab === "ledger"}
               locationId={selectedLocationId!}
+              warehouseSelector={ledgerShellAdmitted ? warehouseSelector : null}
               refreshKey={ledgerRefreshKey}
               onInventoryChanged={() => {
                 refreshStock();
