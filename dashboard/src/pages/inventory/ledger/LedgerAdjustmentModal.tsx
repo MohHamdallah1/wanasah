@@ -4,7 +4,7 @@ import { TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Modal } from "@/components/ui/modal";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorMessage } from "@/lib/apiErrors";
 import type { LedgerAdjustmentController } from "./useLedgerAdjustment";
 import { ledgerText } from "./ledgerI18n";
 
@@ -13,20 +13,29 @@ interface Props {
   language: string;
   controller: LedgerAdjustmentController;
   onChanged: () => void | Promise<void>;
+  canAdjust?: boolean;
 }
 
-export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Props) {
+export function LedgerAdjustmentModal({ t, language, controller, onChanged, canAdjust = true }: Props) {
   const quantityRef = useRef<HTMLInputElement>(null);
   const text = (key: Parameters<typeof ledgerText>[2]) => ledgerText(t, language, key);
 
+  const errorText = (error: unknown, fallback: string) => {
+    const code = apiErrorCode(error);
+    if (code === "LEDGER_ADJUSTMENT_MULTIPLE_BATCHES") return text("adjustmentMultipleBatches");
+    if (code === "LEDGER_ADJUSTMENT_DESTINATION_AMBIGUOUS") return text("adjustmentAmbiguousDestination");
+    return apiErrorMessage(error, fallback);
+  };
+
   const submit = async () => {
+    if (!canAdjust) return;
     try {
       const result = await controller.submit();
       toast.success(result.recovered ? text("adjustmentRecovered") : text("confirm"));
       controller.close();
       await onChanged();
     } catch (failure) {
-      toast.error(apiErrorMessage(failure, text("adjustmentFailed")));
+      toast.error(errorText(failure, text("adjustmentFailed")));
     }
   };
 
@@ -45,7 +54,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
           <button
             type="submit"
             form="ledger-adjustment-form"
-            disabled={controller.loading || controller.submitting || !controller.password || controller.delta === null}
+            disabled={!canAdjust || controller.loading || controller.submitting || !controller.password || controller.delta === null || (controller.notes?.length ?? 0) > 2000}
             className="rounded-xl bg-purple-700 px-4 py-2 text-xs font-black text-white outline-none disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-purple-300"
             data-cp13-action-priority="exceptional"
           >
@@ -58,7 +67,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
         <p role="status" className="py-8 text-center text-sm font-bold text-slate-400">{text("adjustmentLoading")}</p>
       ) : controller.error && controller.state === null ? (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-bold text-red-800">
-          <p>{text("adjustmentStateFailed")}</p>
+          <p>{errorText(controller.error, text("adjustmentStateFailed"))}</p>
           <button type="button" onClick={controller.retryState} className="mt-2 rounded-lg border border-red-200 bg-white px-3 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-red-300">{text("retry")}</button>
         </div>
       ) : controller.entry && controller.state ? (
@@ -68,7 +77,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
           data-cp13-ledger-correction="append-only"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!controller.submitting && controller.password && controller.delta !== null) void submit();
+            if (canAdjust && !controller.submitting && controller.password && controller.delta !== null && (controller.notes?.length ?? 0) <= 2000) void submit();
           }}
         >
           <div className="rounded-xl border border-purple-100 bg-purple-50 p-3 text-xs leading-6 text-purple-950">
@@ -109,6 +118,18 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged }: Pr
               aria-label={text("password")}
               autoComplete="current-password"
               className="mt-1 h-11 w-full rounded-xl border-2 border-slate-200 px-3 outline-none focus:border-purple-400 focus:ring-2 focus:ring-purple-100"
+            />
+          </label>
+
+          <label className="block text-xs font-black text-slate-700">
+            {text("correctionNote")}
+            <textarea
+              value={controller.notes ?? ""}
+              onChange={(event) => controller.setNotes(event.target.value)}
+              maxLength={2000}
+              rows={2}
+              aria-label={text("correctionNote")}
+              className="mt-1 w-full rounded-xl border-2 border-slate-200 px-3 py-2 text-sm outline-none focus:border-purple-400"
             />
           </label>
 

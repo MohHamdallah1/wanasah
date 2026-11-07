@@ -235,12 +235,15 @@ export function buildLedgerAdjustmentPayload(
   quantity: string,
   entry: LedgerEntry,
   password: string,
-): { password: string; new_total_quantity: Quantity; uom_id: number } {
+  notes = "",
+): { password: string; new_total_quantity: Quantity; uom_id: number; notes?: string } {
   if (!password || new TextEncoder().encode(password).length > 72) {
     throw new Error("LEDGER_ADJUSTMENT_PASSWORD_INVALID");
   }
+  if (notes.length > 2000) throw new Error("LEDGER_ADJUSTMENT_NOTE_TOO_LONG");
   return {
     password,
+    ...(notes.trim() ? { notes: notes.trim() } : {}),
     new_total_quantity: validateVariantQuantity(
       quantity,
       entry.quantity_scale,

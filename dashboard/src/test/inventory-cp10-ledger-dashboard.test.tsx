@@ -132,6 +132,38 @@ beforeEach(() => {
 });
 
 describe("CP10 Ledger Dashboard", () => {
+  it("renders outbound cost without purchase price, real average denominator, supplier and warehouse balance scope", async () => {
+    mocks.authFetch.mockResolvedValue(page([entry(44, {
+      type: "VISIT_SAMPLE_OUT", reference_type: "VISIT_SAMPLE_OUT",
+      input_unit_cost: null, total_cost: "0.000000", average_cost_after: "3.250000",
+      average_cost_uom_code: "PACK", average_cost_uom_name: "Pack", cost_method: "FIFO",
+      supplier_name: "Named supplier", supplier_code: "S-17",
+    })]));
+    const { container } = renderLedger();
+    expect(await screen.findAllByText(/Inventory value movement: 0.000000 JOD/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/Historical inventory average after movement: 3.250000 JOD \/ PACK/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/First in, first out/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Named supplier/).length).toBeGreaterThan(0);
+    expect(container.querySelector('[title*="all lots and stock statuses"]')).not.toBeNull();
+    expect(screen.getAllByText("Visit sample out").length).toBeGreaterThan(0);
+  });
+
+  it("opens reference evidence with two distinct lots for same product and movement identity", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (!path.startsWith("/warehouse/ledger/cursor?")) throw new Error(path);
+      return path.includes("reference_id=")
+        ? page([entry(51, { batch_number: "LOT-51" }), entry(52, { batch_number: "LOT-52" })])
+        : page([entry(51, { batch_number: "LOT-51" })]);
+    });
+    renderLedger();
+    await screen.findAllByText("Shared Product");
+    fireEvent.click(screen.getAllByRole("button", { name: "Open evidence for reference REF-SHARED" })[0]);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getAllByText("LOT-51").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("LOT-52").length).toBeGreaterThan(0);
+    expect(screen.getByText(/#52/)).toBeInTheDocument();
+  });
+
   it("filters the exact STK reference and clears it without leaking prior rows", async () => {
     const lookup: string[] = [];
     mocks.authFetch.mockImplementation(async (path: string) => {
@@ -382,6 +414,7 @@ describe("CP10 Ledger Dashboard", () => {
     fireEvent.change(quantity, { target: { value: "8.000001" } });
     expect(await screen.findByText("-2.25 EACH")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Confirmation password"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Correction reason (optional, up to 2000 characters)"), { target: { value: "Verified receipt correction" } });
     fireEvent.submit(quantity.closest("form")!);
     await waitFor(() => {
       const post = mocks.authFetch.mock.calls.find(([path, init]) => path === "/warehouse/ledger/4/adjust" && init?.method === "POST");
@@ -390,8 +423,32 @@ describe("CP10 Ledger Dashboard", () => {
         new_total_quantity: "8.000001",
         uom_id: 1,
         password: "secret",
+        notes: "Verified receipt correction",
       });
     });
+  });
+
+  it("closes an already-open adjustment after known permission revocation", async () => {
+    const inbound = entry(61, { type: "INBOUND_SUPPLIER", reference_type: "INBOUND_SUPPLIER" });
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.startsWith("/warehouse/ledger/cursor?")) return page([inbound]);
+      if (path === "/warehouse/ledger/61/adjustment-state") return {
+        entry_id: 61, reference: "REF-SHARED", product_variant_id: 100, batch_id: 22,
+        warehouse_location_id: 11, current_total_quantity: "10", base_uom_id: 1,
+        base_uom_code: "EACH",
+      };
+      throw new Error(path);
+    });
+    const view = renderLedger();
+    await screen.findAllByText("Shared Product");
+    fireEvent.click(screen.getAllByRole("button", { name: "Record inbound correction" })[0]);
+    expect(await screen.findByRole("textbox", { name: "Requested correct total" })).toBeInTheDocument();
+    mocks.permissions = new Set(["ledger.read"]);
+    view.rerender(<MemoryRouter initialEntries={["/inventory"]}>
+      <Tab4Ledger locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+    </MemoryRouter>);
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Requested correct total" })).not.toBeInTheDocument());
+    expect(mocks.authFetch.mock.calls.some(([path, init]) => String(path).endsWith("/adjust") && init?.method === "POST")).toBe(false);
   });
 
   it("stale Warehouse response cannot overwrite a newer Warehouse scope", async () => {

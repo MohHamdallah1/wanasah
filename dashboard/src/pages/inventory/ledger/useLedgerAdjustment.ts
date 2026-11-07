@@ -22,6 +22,8 @@ export interface LedgerAdjustmentController {
   newTotal: string;
   setNewTotal: (value: string) => void;
   password: string;
+  notes: string;
+  setNotes: (value: string) => void;
   setPassword: (value: string) => void;
   delta: Quantity | null;
   loading: boolean;
@@ -41,6 +43,7 @@ export function useLedgerAdjustment(
   const [state, setState] = useState<LedgerAdjustmentState | null>(null);
   const [newTotal, setNewTotal] = useState("");
   const [password, setPassword] = useState("");
+  const [notes, setNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown | null>(null);
@@ -85,6 +88,7 @@ export function useLedgerAdjustment(
   const open = useCallback((target: LedgerEntry) => {
     setEntry(target);
     setPassword("");
+    setNotes("");
     setNewTotal("");
     void loadState(target);
   }, [loadState]);
@@ -115,7 +119,7 @@ export function useLedgerAdjustment(
 
   const submit = useCallback(async (): Promise<LedgerAdjustmentSubmitResult> => {
     if (!entry || !state) throw new Error("LEDGER_ADJUSTMENT_STATE_REQUIRED");
-    const payload = buildLedgerAdjustmentPayload(newTotal, entry, password);
+    const payload = buildLedgerAdjustmentPayload(newTotal, entry, password, notes);
     setSubmitting(true);
     setError(null);
     try {
@@ -151,7 +155,7 @@ export function useLedgerAdjustment(
     } finally {
       setSubmitting(false);
     }
-  }, [authFetch, entry, locationId, newTotal, password, state]);
+  }, [authFetch, entry, locationId, newTotal, password, notes, state]);
 
   const close = useCallback(() => {
     stateSeq.current += 1;
@@ -161,6 +165,7 @@ export function useLedgerAdjustment(
     setState(null);
     setNewTotal("");
     setPassword("");
+    setNotes("");
     setLoading(false);
     setSubmitting(false);
     setError(null);
@@ -172,6 +177,8 @@ export function useLedgerAdjustment(
     newTotal,
     setNewTotal,
     password,
+    notes,
+    setNotes,
     setPassword,
     delta,
     loading,
