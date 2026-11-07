@@ -54,7 +54,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged, canA
           <button
             type="submit"
             form="ledger-adjustment-form"
-            disabled={!canAdjust || controller.loading || controller.submitting || !controller.password || controller.delta === null || controller.notes.length > 2000}
+            disabled={!canAdjust || controller.loading || controller.submitting || !controller.password || controller.delta === null || (controller.notes?.length ?? 0) > 2000}
             className="rounded-xl bg-purple-700 px-4 py-2 text-xs font-black text-white outline-none disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-purple-300"
             data-cp13-action-priority="exceptional"
           >
@@ -77,7 +77,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged, canA
           data-cp13-ledger-correction="append-only"
           onSubmit={(event) => {
             event.preventDefault();
-            if (canAdjust && !controller.submitting && controller.password && controller.delta !== null && controller.notes.length <= 2000) void submit();
+            if (canAdjust && !controller.submitting && controller.password && controller.delta !== null && (controller.notes?.length ?? 0) <= 2000) void submit();
           }}
         >
           <div className="rounded-xl border border-purple-100 bg-purple-50 p-3 text-xs leading-6 text-purple-950">
@@ -124,7 +124,7 @@ export function LedgerAdjustmentModal({ t, language, controller, onChanged, canA
           <label className="block text-xs font-black text-slate-700">
             {text("correctionNote")}
             <textarea
-              value={controller.notes}
+              value={controller.notes ?? ""}
               onChange={(event) => controller.setNotes(event.target.value)}
               maxLength={2000}
               rows={2}
