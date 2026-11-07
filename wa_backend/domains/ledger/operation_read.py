@@ -252,18 +252,39 @@ async def read_operation_groups(
         watermark = int(watermark)
 
     m, e = InventoryMovement, aliased(InventorySupplierEvidence)
-    newer, newer_e = aliased(InventoryMovement), aliased(InventorySupplierEvidence)
-    # Indexed high-watermarked anti-existence checks: only the newest authorized
-    # movement for an operation qualifies as a parent row. A group spanning
-    # previous raw pages therefore cannot reappear as a second parent.
-    newer_exists = select(literal(1)).select_from(newer).outerjoin(
-        newer_e, _evidence_join(newer, newer_e)
-    ).where(
+    newer = aliased(InventoryMovement)
+    newer_e = aliased(InventorySupplierEvidence)
+    # A single OR over heterogeneous document identities prevents the planner
+    # from using transfer_header_id / stocktake_session_id indexes. Dispatch to
+    # one indexable lookup per persisted authority, keeping the HWM invariant.
+    newer_common = (
         _visible(newer, access=access, company_id=company_id,
                  location_id=location_id, watermark=watermark),
-        _same_document(m, e, newer, newer_e),
         _later(m, newer),
+    )
+    newer_transfer = select(literal(1)).select_from(newer).where(
+        *newer_common, newer.transfer_header_id == m.transfer_header_id,
+    ).correlate(m).exists()
+    newer_stocktake = select(literal(1)).select_from(newer).where(
+        *newer_common, newer.transfer_header_id.is_(None),
+        newer.stocktake_session_id == m.stocktake_session_id,
+    ).correlate(m).exists()
+    newer_receipt = select(literal(1)).select_from(newer).join(
+        newer_e, _evidence_join(newer, newer_e)
+    ).where(
+        *newer_common, newer.transfer_header_id.is_(None),
+        newer.stocktake_session_id.is_(None),
+        newer.reference_type == "INBOUND_SUPPLIER",
+        newer.reference_id == m.reference_id,
+        newer_e.request_id == e.request_id,
     ).correlate(m, e).exists()
+    newer_exists = case(
+        (m.transfer_header_id.is_not(None), newer_transfer),
+        (m.stocktake_session_id.is_not(None), newer_stocktake),
+        (and_(m.reference_type == "INBOUND_SUPPLIER",
+              e.request_id.is_not(None)), newer_receipt),
+        else_=false(),
+    )
 
     stmt = select(m, e.request_id).select_from(m).outerjoin(
         e, _evidence_join(m, e)
@@ -275,19 +296,43 @@ async def read_operation_groups(
     if search or movement_type or reference_id:
         child, child_e = aliased(InventoryMovement), aliased(InventorySupplierEvidence)
         variant, actor = aliased(ProductVariant), aliased(Driver)
-        match_exists = select(literal(1)).select_from(child).outerjoin(
-            child_e, _evidence_join(child, child_e)
-        ).join(variant, and_(variant.company_id == child.company_id,
-                             variant.id == child.product_variant_id)).outerjoin(
+        match_stmt = select(literal(1)).select_from(child).join(
+            variant, and_(variant.company_id == child.company_id,
+                          variant.id == child.product_variant_id)
+        ).outerjoin(
             actor, and_(actor.company_id == child.company_id,
                         actor.id == child.performed_by)
         ).where(
             _visible(child, access=access, company_id=company_id,
                      location_id=location_id, watermark=watermark),
-            or_(child.id == m.id, _same_document(m, e, child, child_e)),
             _matching(child, variant, actor, search=search,
                       movement_type=movement_type, reference_id=reference_id),
+        )
+        match_transfer = match_stmt.where(
+            child.transfer_header_id == m.transfer_header_id,
+        ).correlate(m).exists()
+        match_stocktake = match_stmt.where(
+            child.transfer_header_id.is_(None),
+            child.stocktake_session_id == m.stocktake_session_id,
+        ).correlate(m).exists()
+        match_receipt = match_stmt.join(
+            child_e, _evidence_join(child, child_e)
+        ).where(
+            child.transfer_header_id.is_(None),
+            child.stocktake_session_id.is_(None),
+            child.reference_type == "INBOUND_SUPPLIER",
+            child.reference_id == m.reference_id,
+            child_e.request_id == e.request_id,
         ).correlate(m, e).exists()
+        match_single = match_stmt.where(child.id == m.id).correlate(m).exists()
+        match_exists = case(
+            (m.transfer_header_id.is_not(None), match_transfer),
+            (m.stocktake_session_id.is_not(None), match_stocktake),
+            (and_(m.reference_type == "INBOUND_SUPPLIER",
+                  e.request_id.is_not(None)), match_receipt),
+            else_=match_single,
+        )
+
         stmt = stmt.where(match_exists)
     if position is not None:
         stmt = stmt.where(_earlier(m, *position))
