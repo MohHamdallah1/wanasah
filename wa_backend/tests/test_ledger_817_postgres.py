@@ -22,7 +22,8 @@ from domains.ledger.operation_read import read_operation_groups, read_operation_
 from domains.suppliers.contracts import SupplierSnapshot
 from domains.suppliers.models import Supplier
 from models import (
-    Company, InventoryMovement, InventoryTransferHeader,
+    Company, InventoryMovement, InventoryTransferHeader, StocktakeSession,
+    StocktakeLine, StocktakeCountAttempt, StocktakeCountAttemptLine,
     Product, ProductBatch, ProductVariant, UOM, utc_now,
 )
 from domains.identity.models import CompanyPrincipal
@@ -397,6 +398,162 @@ async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
                     "cursor": first["next_cursor"]},
         )).status_code == 400
         print("LEDGER_817_TRANSFER_SAME_DURABLE_HEADER_AND_HWM_KEYSET=PASS")
+
+
+@pytest.mark.asyncio
+async def test_817_full_stocktake_50_counted_7_posted_variances_grouped(pg):
+    """Synthetic *read-only* posted history; no production stocktake writes.
+
+    Canonical posting is separately accepted in CP9. This fixture verifies that
+    50 persisted count-attempt lines with 43 unchanged rows never become
+    invented Ledger movements: only the seven real persisted movement IDs
+    appear in the operation and in its bounded detail.
+    """
+    ref = "STK-817-" + uuid4().hex[:14]
+    company_id, warehouse = pg.a.company_id, pg.a.locations[0]
+    now = utc_now()
+    async with AsyncSession(pg.admin_engine, expire_on_commit=False) as seed:
+        await seed.execute(
+            text("SELECT set_config('app.current_tenant',:tenant,true)"),
+            {"tenant": str(company_id)},
+        )
+        product_id = int(await seed.scalar(select(ProductVariant.product_id).where(
+            ProductVariant.company_id == company_id,
+            ProductVariant.id == pg.a.variant_id,
+        )))
+        session = StocktakeSession(
+            company_id=company_id, location_id=warehouse,
+            reference_number=ref, stocktake_type="FULL_COUNT",
+            status="POSTED", created_at=now, updated_at=now,
+            snapshot_cutoff_at=now,
+            started_by=pg.a.owner.driver_id,
+            approved_by=pg.a.owner.driver_id,
+            approved_at=now, posted_at=now,
+        )
+        seed.add(session)
+        await seed.flush()
+        attempt = StocktakeCountAttempt(
+            company_id=company_id, stocktake_session_id=session.id,
+            attempt_number=1, counted_by=pg.a.owner.driver_id,
+            submitted_at=now,
+        )
+        seed.add(attempt)
+        await seed.flush()
+        evidence_ids = []
+        for index in range(50):
+            variant = ProductVariant(
+                company_id=company_id, product_id=product_id,
+                sku="STK817-" + uuid4().hex,
+                name=f"Counted distinct variant {index}",
+                base_uom_id=pg.a.uom_id, quantity_scale=6,
+                quantity_step=Decimal("0.000001"),
+                lot_control_mode="REQUIRED", expiry_control_mode="OPTIONAL",
+                lifecycle_status="ACTIVE", published_at=now,
+            )
+            seed.add(variant)
+            await seed.flush()
+            batch = ProductBatch(
+                company_id=company_id, product_variant_id=variant.id,
+                batch_number=f"COUNT817-{index}",
+            )
+            seed.add(batch)
+            await seed.flush()
+            line = StocktakeLine(
+                company_id=company_id, stocktake_session_id=session.id,
+                product_variant_id=variant.id, batch_id=batch.id,
+                stock_status="AVAILABLE", expected_quantity=Decimal("1"),
+            )
+            seed.add(line)
+            await seed.flush()
+            delta = Decimal("1") if index < 7 else Decimal("0")
+            seed.add(StocktakeCountAttemptLine(
+                company_id=company_id, stocktake_session_id=session.id,
+                count_attempt_id=attempt.id, stocktake_line_id=line.id,
+                expected_quantity=Decimal("1"),
+                actual_quantity=Decimal("1") + delta,
+                variance_quantity=delta,
+            ))
+            if delta:
+                movement = InventoryMovement(
+                    company_id=company_id,
+                    performed_by=pg.a.owner.driver_id,
+                    product_variant_id=variant.id, batch_id=batch.id,
+                    quantity=delta, movement_kind="PHYSICAL",
+                    reference_type="AUDIT_ADJUSTMENT", reference_id=ref,
+                    idempotency_key="STK817-" + uuid4().hex,
+                    destination_location_id=warehouse,
+                    destination_stock_status="AVAILABLE",
+                    stocktake_session_id=session.id,
+                    stocktake_count_attempt_id=attempt.id,
+                    created_at=now,
+                )
+                seed.add(movement)
+                await seed.flush()
+                evidence_ids.append(int(movement.id))
+        await seed.commit()
+
+    async with pg.session(pg.a) as db:
+        assert await db.scalar(select(func.count(StocktakeLine.id)).where(
+            StocktakeLine.company_id == company_id,
+            StocktakeLine.stocktake_session_id == session.id,
+        )) == 50
+        assert await db.scalar(select(func.count(StocktakeCountAttemptLine.id)).where(
+            StocktakeCountAttemptLine.company_id == company_id,
+            StocktakeCountAttemptLine.stocktake_session_id == session.id,
+            StocktakeCountAttemptLine.variance_quantity == 0,
+        )) == 43
+        company_code = (await db.get(Company, company_id)).company_code
+        username = await db.scalar(select(CompanyPrincipal.username).where(
+            CompanyPrincipal.company_id == company_id,
+            CompanyPrincipal.id == pg.a.owner.context.principal_id,
+        ))
+
+    app = FastAPI()
+    app.include_router(auth.router)
+    app.include_router(ledger.router)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://ledger817-stocktake.test",
+        timeout=30,
+    ) as client:
+        login = await client.post("/login", json={
+            "company_code": company_code, "username": username,
+            "password": "CP10FixturePassword123",
+        })
+        assert login.status_code == 200, login.text
+        header = {"Authorization": "Bearer " + login.json()["token"]}
+        params = {
+            "location_id": warehouse,
+            "reference_type": "AUDIT_ADJUSTMENT",
+            "reference_id": ref,
+        }
+        parent = await client.get(
+            "/warehouse/ledger/operations/cursor", headers=header,
+            params=params,
+        )
+        assert parent.status_code == 200, parent.text
+        groups = parent.json()["items"]
+        assert len(groups) == 1
+        group = groups[0]
+        assert group["group_kind"] == "STOCKTAKE"
+        assert group["operation_type"] == "AUDIT_ADJUSTMENT"
+        assert group["movement_count"] == 7
+        assert group["product_variant_count"] == 7
+        assert group["batch_count"] == 7
+        assert group["count_meaning"] == "POSTED_VARIANCE_MOVEMENTS"
+        assert group["stocktake_history"] == {
+            "session_id": int(session.id),
+            "warehouse_location_id": warehouse,
+            "reference": ref,
+        }
+        children = await client.get(
+            "/warehouse/ledger/operations/" + group["group_key"] + "/movements/cursor",
+            headers=header, params=params,
+        )
+        assert children.status_code == 200, children.text
+        assert {row["id"] for row in children.json()["items"]} == set(evidence_ids)
+        assert all(row["batch_number"] and row["movement_kind"] == "PHYSICAL"
+                   and row["matches_filter"] for row in children.json()["items"])
+    print("LEDGER_817_POSTED_STOCKTAKE_50_COUNTED_7_TRUE_VARIANCE_ROWS_PASS")
 
 
 @pytest.mark.asyncio
