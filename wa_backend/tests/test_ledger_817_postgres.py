@@ -300,6 +300,45 @@ async def test_817_supplier_51_lines_one_document_real_bearer_cursor_security(pg
         ]
         print("LEDGER_817_LONG_ARABIC_REFERENCE_OPAQUE_GROUP_TOKEN=PASS")
 
+        # Revoke a grant AFTER the same real bearer has already fetched an
+        # authorized parent+child. Both endpoints must deny the next read.
+        allowed = await page(headers=limited, params={"reference_id": ref})
+        assert allowed.status_code == 200
+        limited_key = allowed.json()["items"][0]["group_key"]
+        assert (await detail(
+            limited_key, headers=limited, params={"reference_id": ref}
+        )).status_code == 200
+        async with AsyncSession(pg.admin_engine, expire_on_commit=False) as revoke:
+            await revoke.execute(
+                text("SELECT set_config('app.current_tenant',:tenant,true)"),
+                {"tenant": str(pg.a.company_id)},
+            )
+            removed = (await revoke.execute(text("""
+                DELETE FROM user_location_access ula
+                USING role_permissions rp, permissions p
+                WHERE ula.company_id=:company
+                  AND ula.driver_id=:driver
+                  AND ula.location_id=:warehouse
+                  AND rp.company_id=ula.company_id
+                  AND rp.role_id=ula.role_id
+                  AND p.id=rp.permission_id
+                  AND p.code='ledger.read'
+                RETURNING ula.id
+            """), {
+                "company": pg.a.company_id,
+                "driver": pg.a.ordinary.driver_id,
+                "warehouse": pg.a.locations[0],
+            })).scalars().all()
+            assert len(removed) == 1
+            await revoke.commit()
+        assert (await page(
+            headers=limited, params={"reference_id": ref}
+        )).status_code == 403
+        assert (await detail(
+            limited_key, headers=limited, params={"reference_id": ref}
+        )).status_code == 403
+        print("LEDGER_817_LIVE_GRANT_REVOCATION_PARENT_CHILD_403=PASS")
+
 
 @pytest.mark.asyncio
 async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
@@ -398,6 +437,57 @@ async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
                     "cursor": first["next_cursor"]},
         )).status_code == 400
         print("LEDGER_817_TRANSFER_SAME_DURABLE_HEADER_AND_HWM_KEYSET=PASS")
+
+        # A subsequent canonical status stage on the SAME durable transfer
+        # header is not a new document. Historical HWM children remain frozen.
+        stage = _spec(
+            pg.a, pg.a.variant_id, pg.a.batch_id, pg.a.locations[0],
+            ref, "G817-STATUS-" + uuid4().hex,
+            source=pg.a.locations[0], destination=pg.a.locations[0],
+            reference_type="STATUS_RECLASSIFICATION",
+            transfer_header_id=transfer_id,
+        )
+        stage.update({
+            "movement_kind": "STATUS_CHANGE",
+            "source_stock_status": "AVAILABLE",
+            "destination_stock_status": "BLOCKED",
+        })
+        async with pg.session(pg.a) as db:
+            (status_movement,) = await apply_inventory_movements_batch(
+                db, company_id=pg.a.company_id,
+                performed_by=pg.a.owner.driver_id, movements=[stage],
+            )
+            await db.commit()
+        existing_detail = await client.get(
+            "/warehouse/ledger/operations/" +
+            first["items"][0]["group_key"] + "/movements/cursor",
+            headers=header, params={"location_id": pg.a.locations[0]},
+        )
+        assert existing_detail.status_code == 200, existing_detail.text
+        assert {e["id"] for e in existing_detail.json()["items"]} == set(ids)
+        new_stage = await groups({"reference_id": ref})
+        assert len(new_stage["items"]) == 1
+        stage_group = new_stage["items"][0]
+        assert stage_group["movement_count"] == 3
+        assert stage_group["group_kind"] == "TRANSFER"
+        assert stage_group["latest_movement_id"] == int(status_movement.id)
+        assert stage_group["stage_types"] == [
+            "STATUS_RECLASSIFICATION", "TRANSFER_DISPATCH",
+        ]
+        assert stage_group["movement_kinds"] == ["PHYSICAL", "STATUS_CHANGE"]
+        stage_detail = await client.get(
+            "/warehouse/ledger/operations/" +
+            stage_group["group_key"] + "/movements/cursor",
+            headers=header, params={
+                "location_id": pg.a.locations[0],
+                "reference_id": ref,
+            },
+        )
+        assert stage_detail.status_code == 200, stage_detail.text
+        assert {e["id"] for e in stage_detail.json()["items"]} == (
+            set(ids) | {int(status_movement.id)}
+        )
+        print("LEDGER_817_TRANSFER_TRUE_MULTI_STAGE_NO_FALSE_RECEIPT=PASS")
 
 
 @pytest.mark.asyncio
@@ -697,5 +787,23 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
             assert detail["next_cursor"]
             assert all(i["matches_filter"] for i in detail["items"])
             print("LEDGER_817_LARGE_DOCUMENT_1000_LINES_BOUNDED_20_DETAIL=PASS")
+            # Restricted-role EXPLAIN ANALYZE/BUFFERS proves the existing
+            # transfer-header index supports the batched identity lookup.
+            explain_rows = (await db.execute(text("""
+                EXPLAIN (ANALYZE, BUFFERS)
+                SELECT id FROM inventory_movements
+                WHERE company_id=:company
+                  AND transfer_header_id=:header_id
+                  AND destination_location_id=:warehouse
+                LIMIT 20
+            """), {
+                "company": company_id,
+                "header_id": int(hdrs[0]),
+                "warehouse": a,
+            })).scalars().all()
+            plan = " | ".join(str(line) for line in explain_rows)
+            assert "Index Scan" in plan, plan
+            print("LEDGER_817_EXPLAIN_ANALYZE_BUFFERS_INDEX_PASS " +
+                  plan[:1400])
     finally:
         event.remove(pg.runtime_engine.sync_engine, "before_cursor_execute", capture)
