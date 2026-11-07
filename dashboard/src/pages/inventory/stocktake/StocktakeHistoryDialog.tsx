@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Archive, ArrowLeft, ArrowRight, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import { createStocktakeLedgerReferenceTarget } from "@/pages/inventory/ledger/stocktakeLedgerNavigation";
 import { formatLocaleDecimal } from "@/lib/localeNumbers";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
@@ -13,6 +15,7 @@ interface Props {
   locationId: number;
   canRead: boolean;
   canReview: boolean;
+  canLedgerRead?: boolean;
   authenticatedFetch: StocktakeAuthFetch;
 }
 // Stocktake amounts remain canonical decimal strings. The shared formatter's
@@ -49,6 +52,7 @@ const words = {
     stockStatus: "الحالة", batch: "التشغيلة", submitted: "ثُبّت في",
     recountReason: "سبب إعادة العد", discovered: "بضاعة غير مدرجة سابقًا",
     movement: "قيود تسوية مخزنية معتمدة", noMovement: "الإلغاء لا يُنشئ قيد مخزون",
+    viewLedger: "عرض حركات تسوية الجرد",
     auditPrefix: "إجراء", current: "المحدد",
     "STOCKTAKE_COUNT_SUBMITTED": "تثبيت العد",
     "STOCKTAKE_RECOUNT_AUTHORIZED": "تفويض إعادة العد",
@@ -78,6 +82,7 @@ const words = {
     stockStatus: "Status", batch: "Batch", submitted: "Submitted",
     recountReason: "Recount reason", discovered: "Previously unlisted stock",
     movement: "Posted adjustment movements", noMovement: "Cancellation does not create an inventory movement",
+    viewLedger: "View stocktake adjustments",
     auditPrefix: "Action", current: "Selected",
     "STOCKTAKE_COUNT_SUBMITTED": "Count submitted",
     "STOCKTAKE_RECOUNT_AUTHORIZED": "Recount authorized",
@@ -91,7 +96,7 @@ const words = {
   },
 } as const;
 
-export function StocktakeHistoryDialog({ active, locationId, canRead, canReview, authenticatedFetch }: Props) {
+export function StocktakeHistoryDialog({ active, locationId, canRead, canReview, canLedgerRead = false, authenticatedFetch }: Props) {
   const { i18n } = useTranslation();
   const lang = (i18n.resolvedLanguage || i18n.language || "ar").startsWith("ar") ? "ar" : "en";
   const text = words[lang];
@@ -123,6 +128,16 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
       (entry.scope_batch_number ? " · " + entry.scope_batch_number : "");
   const current = history.detail?.session;
   const selectedAttempt = history.detail?.attempts.items.find(item => item.id === history.attemptId);
+  // The Ledger destination enforces its own warehouse and ledger.read authorization.
+  // History offers this navigation only for a genuinely POSTED adjustment.
+  const ledgerTarget = current?.status === "POSTED" && current.adjustment_movement_count > 0 &&
+    canReview && canLedgerRead ? (() => {
+      try {
+        return createStocktakeLedgerReferenceTarget({ locationId, reference: current.reference_number });
+      } catch {
+        return null;
+      }
+    })() : null;
   const itemButton = "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40";
   return (
     <Dialog open={enabled} onOpenChange={setOpen}>
@@ -181,6 +196,12 @@ export function StocktakeHistoryDialog({ active, locationId, canRead, canReview,
               {current.status === "POSTED" && current.adjustment_movement_count > 0 && canReview && history.detail && (
                 <section aria-label={text.movement} className="rounded-lg border border-slate-200 p-3 text-xs">
                   <h3 className="mb-1 font-black">{text.movement} · <span dir="ltr">{number(current.adjustment_movement_count)}</span></h3>
+                  {ledgerTarget && (
+                    <Link to={{ pathname: ledgerTarget.pathname, search: ledgerTarget.search }}
+                      state={ledgerTarget.state} className={itemButton + " mb-2 inline-flex"}>
+                      {text.viewLedger}
+                    </Link>
+                  )}
                   <ul className="space-y-1">
                     {history.detail.movements.items.map(item => (
                       <li key={item.id} className="flex flex-wrap gap-2 text-slate-700">
