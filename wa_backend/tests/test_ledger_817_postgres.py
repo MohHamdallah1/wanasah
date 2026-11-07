@@ -233,7 +233,7 @@ async def test_817_supplier_51_lines_one_document_real_bearer_cursor_security(pg
             if expected < 3:
                 assert state["has_more"] is True
         assert len(seen) == 51 and len({m["id"] for m in seen}) == 51
-        assert {m["batch_number"] for m in seen if m["product_name"].endswith("0")} == {
+        assert {m["batch_number"] for m in seen if m["product_name"] == "Searchable group child 0"} == {
             "G817-LOT-0-A", "G817-LOT-0-B",
         }
         assert all(m["movement_kind"] == "PHYSICAL" and
