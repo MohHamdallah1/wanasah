@@ -1,9 +1,11 @@
 import type { TFunction } from "i18next";
+import type { ReactNode } from "react";
 import { RefreshCcw, Search } from "lucide-react";
 
 import { ledgerMovementLabel, ledgerText } from "./ledgerI18n";
 
 interface Props {
+  warehouseSelector?: ReactNode;
   t: TFunction;
   language: string;
   search: string;
@@ -16,6 +18,7 @@ interface Props {
 }
 
 export function LedgerFilters({
+  warehouseSelector,
   t,
   language,
   search,
@@ -32,7 +35,7 @@ export function LedgerFilters({
       className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 p-2 sm:flex-row sm:items-center sm:px-3"
       data-cp13-controls="ledger-list"
     >
-      <div className="relative min-w-0 flex-1">
+      <div className="relative min-w-0 flex-1 sm:min-w-[9rem]">
         <Search aria-hidden="true" className="pointer-events-none absolute start-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
         <input
           type="search"
@@ -44,6 +47,11 @@ export function LedgerFilters({
           className="h-9 w-full rounded-lg border border-slate-200 bg-white ps-9 pe-3 text-xs font-bold text-slate-800 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
         />
       </div>
+      {warehouseSelector && (
+        <div className="flex min-w-0 shrink-0 items-center" data-ledger-warehouse-picker="true">
+          {warehouseSelector}
+        </div>
+      )}
       <select
         value={filterType}
         onChange={(event) => onFilterTypeChange(event.target.value)}
