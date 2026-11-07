@@ -52,8 +52,9 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
       const url = new URL(route.request().url());
       if (!url.searchParams.has("reference_id")) return send(route, pageData([
         entry(101, "RESERVATION"), entry(102, "STATUS_CHANGE"),
-        entry(103, "PHYSICAL", { input_unit_cost: "1.250000",
-          total_cost: "10.000000", average_cost_after: "1.125000", input_uom_code: "EACH" }),
+        entry(103, "PHYSICAL", { input_unit_cost: null, cost_method: "FIFO",
+          total_cost: "10.000000", average_cost_after: "1.125000", average_cost_uom_code: "EACH",
+          supplier_name: "Supplier proof", supplier_code: "SUP-9" }),
       ]));
       referencePages += 1;
       if (url.searchParams.has("cursor")) {
@@ -73,6 +74,10 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
     await expect(statusChange).toContainText(locale === "ar" ? "دون إضافة" : "no physical stock");
     const average = panel.getByText(locale === "ar" ? "متوسط تكلفة المخزون التاريخي بعد الحركة" : "Historical inventory average after movement", { exact: false });
     await expect(width === 390 ? average.last() : average.first()).toBeVisible();
+    const valueEvidence = panel.getByText(locale === "ar" ? "قيمة حركة المخزون: 10.000000 JOD" : "Inventory value movement: 10.000000 JOD");
+    await expect(valueEvidence.first()).toBeVisible();
+    await expect(panel.getByText("Supplier proof", { exact: false }).first()).toBeVisible();
+    await expect(panel.getByText(locale === "ar" ? "الوارد أولاً يُصرف أولاً (FIFO)" : "First in, first out (FIFO)", { exact: false }).first()).toBeVisible();
     await page.screenshot({ path: `node_modules/.cache/ledger-762/${locale}-${width}-movements.png`, fullPage: true });
     const link = panel.getByRole("button", { name: locale === "ar" ?
       "فتح دليل المرجع REF-762" : "Open evidence for reference REF-762" }).first();
