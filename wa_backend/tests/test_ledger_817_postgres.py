@@ -378,11 +378,13 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
             INSERT INTO inventory_transfer_headers (
                 company_id, reference_number, source_location_id,
                 destination_location_id, workflow_type, status,
-                transfer_purpose, commercial_context, dispatched_by
+                transfer_purpose, commercial_context, dispatched_by,
+                created_at, updated_at
             )
             SELECT :c, 'PERF817-' || :tag || '-' || gs::text,
                    :a, :b, 'DIRECT', 'DRAFT',
-                   'WAREHOUSE_BALANCING', '{}'::jsonb, :actor
+                   'WAREHOUSE_BALANCING', '{}'::jsonb, :actor,
+                   timezone('UTC', now()), timezone('UTC', now())
             FROM generate_series(1,1200) AS gs
             RETURNING id
         """), {"c": company_id, "tag": seed_id, "a": a, "b": b,
@@ -400,13 +402,13 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
                 company_id, performed_by, destination_location_id,
                 destination_stock_status, product_variant_id,
                 batch_id, quantity, movement_kind, reference_type,
-                reference_id, idempotency_key, transfer_header_id
+                reference_id, idempotency_key, transfer_header_id, created_at
             )
             SELECT :c, :actor, :a, 'AVAILABLE', :variant, :batch,
                    1, 'PHYSICAL', 'TRANSFER_DISPATCH',
                    headers.reference_number,
                    'PERF817-' || :tag || '-' || gs::text,
-                   headers.id
+                   headers.id, timezone('UTC', now())
             FROM generate_series(1,20000) AS gs
             JOIN headers ON headers.rn = (gs - 1) % 1200 + 1
         """), {"c": company_id, "actor": pg.a.owner.driver_id, "a": a,
@@ -428,11 +430,12 @@ async def test_817_real_pg16_large_history_bounded_sql_keyset(pg):
                 company_id, performed_by, destination_location_id,
                 destination_stock_status, product_variant_id,
                 batch_id, quantity, movement_kind, reference_type,
-                reference_id, idempotency_key, transfer_header_id
+                reference_id, idempotency_key, transfer_header_id, created_at
             )
             SELECT :c, :actor, :a, 'AVAILABLE', :variant, :batch,
                    1, 'PHYSICAL', 'TRANSFER_DISPATCH', :ref,
-                   'PERF817-LARGE-' || :tag || '-' || gs::text, :h
+                   'PERF817-LARGE-' || :tag || '-' || gs::text, :h,
+                   timezone('UTC', now())
             FROM generate_series(1,1000) AS gs
         """), {"c": company_id, "actor": pg.a.owner.driver_id, "a": a,
                "variant": pg.a.variant_id, "batch": pg.a.batch_id,
