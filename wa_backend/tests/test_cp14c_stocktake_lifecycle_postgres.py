@@ -998,6 +998,24 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
 
             counter_driver = await db.get(Driver, a.counter.driver_id)
             assert counter_driver is not None
+            # Deliberately reject the real authorizer credential before the
+            # successful recount. The existing command persists a security
+            # audit without turning the rejection into an inventory movement.
+            with pytest.raises(HTTPException) as rejected_recount:
+                await stocktake.recount_stocktake_session(
+                    session_id,
+                    StocktakeRecountCommand(
+                        request_id=uuid4(),
+                        count_attempt_id=attempt1["attempt_id"],
+                        reason="CP14C audit rejected authorizer",
+                        authorizer_username=counter_driver.username,
+                        authorizer_password="CP14CInvalidSyntheticAuthorization",
+                    ),
+                    db=db,
+                    access=a.operator.access(db),
+                    legacy_actor=a.operator.operational_driver,
+                )
+            assert rejected_recount.value.status_code == 403
             recounted = await stocktake.recount_stocktake_session(
                 session_id,
                 StocktakeRecountCommand(
@@ -1148,6 +1166,42 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
             assert [item["attempt_number"] for item in detail["attempts"]["items"]] == [2, 1]
             assert any(row["action_type"] == "STOCKTAKE_APPROVED_AND_POSTED"
                        for row in detail["audit"]["items"])
+            rejected_events = [
+                row for row in detail["audit"]["items"]
+                if row["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+            ]
+            assert len(rejected_events) == 1
+            assert rejected_events[0]["details"] == {}
+            assert rejected_events[0]["actor_name"]
+            # The audited command persisted the event, but its raw old/new
+            # values (including credential failure diagnostics) are never
+            # serialized by the terminal history reader.
+            review_cursor = None
+            found_rejected = []
+            for _ in range(20):
+                audit_page = await stocktake_history.get_stocktake_history_audit(
+                    session_id, location_id=a.a1, cursor=review_cursor, limit=1,
+                    db=db, access=a.operator.access(db),
+                )
+                found_rejected.extend(
+                    event for event in audit_page["items"]
+                    if event["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+                )
+                review_cursor = audit_page["next_cursor"]
+                if not review_cursor:
+                    break
+            else:
+                pytest.fail("Audited terminal recount pagination did not terminate")
+            assert len(found_rejected) == 1
+            assert found_rejected[0]["id"] == rejected_events[0]["id"]
+            assert found_rejected[0]["details"] == {}
+            with pytest.raises(HTTPException) as count_only_audit:
+                await stocktake_history.get_stocktake_history_audit(
+                    session_id, location_id=a.a1, cursor=None, limit=1,
+                    db=db, access=a.counter.access(db),
+                )
+            assert count_only_audit.value.status_code == 403
+            print("CP14C_TERMINAL_RECOUNT_AUTH_REJECTED_AUDIT_PAGED_REVIEW_ONLY=PASS")
             older = detail["attempts"]["items"][-1]
             old_lines = await stocktake_history.get_stocktake_history_attempt_lines(
                 session_id, older["id"], location_id=a.a1, cursor=None,
@@ -1954,6 +2008,24 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     db=db, access=a.operator.access(db),
                 )
             assert invalid_cursor.value.status_code == 400
+            scope = f"{a.company_id}|{a.a2}|terminal-v1"
+            for oversized in (1 << 63, 10 ** 70):
+                # Valid scope/signature and timestamp, but out-of-range ID:
+                # reject before asyncpg BIGINT binding, never a DB 500.
+                oversized_cursor = stocktake_history._cursor(
+                    oversized, scope, finished=utc_now(),
+                )
+                with pytest.raises(HTTPException) as rejected_cursor:
+                    await stocktake_history.list_stocktake_history(
+                        location_id=a.a2, cursor=oversized_cursor, limit=50,
+                        db=db, access=a.operator.access(db),
+                    )
+                assert rejected_cursor.value.status_code == 400
+            assert stocktake_history._decode(
+                stocktake_history._cursor((1 << 63) - 1, scope, finished=utc_now()),
+                scope, with_time=True,
+            )[1] == (1 << 63) - 1
+            print("CP14C_TERMINAL_HISTORY_CURSOR_BIGINT_BOUNDED_400=PASS")
             print("CP14C_TERMINAL_HISTORY_GT200_PAGED_NO_LEAK=PASS")
 
         print("CP14C_STOCKTAKE_START_COUNT_REVIEW_APPROVE=PASS")

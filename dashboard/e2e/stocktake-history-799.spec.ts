@@ -100,6 +100,8 @@ async function setup(page: Page, locale: "ar" | "en", reviewGranted: boolean) {
       audit: { items: [
         { id: 77, action_type: "STOCKTAKE_CANCELLED", actor_name: "Supervisor",
           timestamp: "2026-11-06T09:00:00Z", details: { reason: "Discrepancy confirmed" } },
+        { id: 76, action_type: "STOCKTAKE_RECOUNT_AUTH_REJECTED", actor_name: "Supervisor",
+          timestamp: "2026-11-06T08:25:00Z", details: {} },
       ], next_cursor: null, has_more: false },
     });
     if (path === "/warehouse/unified/stocktakes/history/81/attempts/92/lines") return respond(route, {
@@ -178,6 +180,9 @@ for (const lang of ["ar", "en"] as const) {
       await expect(dialog.getByText("0.001 Each", {exact: true})).toHaveCount(0);
       await expect(dialog.getByText("REAL-LOT-9").first()).toBeVisible();
       await expect(dialog.getByText("Discrepancy confirmed").first()).toBeVisible();
+      await expect(dialog.getByText(lang === "ar"
+        ? "رفض تفويض إعادة العد" : "Recount authorization rejected")).toBeVisible();
+      await expect(dialog.getByText("Invalid authorizer credentials")).toHaveCount(0);
       await dialog.screenshot({ path: testInfo.outputPath("history-review.png") });
       await dialog.getByRole("button", {
         name: (lang === "ar" ? "محاولة العد" : "Count attempt") + " #1 · Original operator",

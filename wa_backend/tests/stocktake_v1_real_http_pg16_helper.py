@@ -7,7 +7,7 @@ database may be selected.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,7 +17,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api import auth
-from api.warehouse import ledger, live_stock, stocktake
+from api.warehouse import ledger, live_stock, stocktake, stocktake_history
 from config import Config
 from domains.auth_sessions.codec import issue_access_token
 from domains.identity.models import CompanyPrincipal
@@ -269,6 +269,14 @@ async def assert_real_http_stocktake(
             "password": operator_password,
         }, headers=auth_header)
         assert premature.status_code in {403, 409}, premature.text
+        denied_recount = await client.post(f"{base}/{sid}/recount", json={
+            "request_id": _body_id(),
+            "count_attempt_id": first_attempt,
+            "reason": "Synthetic rejected recount authorizer",
+            "authorizer_username": authorizer_legacy_username,
+            "authorizer_password": "BadSyntheticRecountCredential",
+        }, headers=auth_header)
+        assert denied_recount.status_code == 403, denied_recount.text
         recounted = _check(await client.post(f"{base}/{sid}/recount", json={
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
@@ -438,6 +446,16 @@ async def assert_real_http_stocktake(
         assert (await client.get(history_url, params={
             "location_id": a.a2, "cursor": "invalid-tenant-cursor",
         }, headers=auth_header)).status_code == 400
+        scope = f"{a.company_id}|{a.a2}|terminal-v1"
+        for bad_id in (1 << 63, 10 ** 70):
+            signed_scope_cursor = stocktake_history._cursor(
+                bad_id, scope, finished=datetime(2026, 11, 6),
+            )
+            response = await client.get(history_url, params={
+                "location_id": a.a2, "cursor": signed_scope_cursor, "limit": 50,
+            }, headers=auth_header)
+            assert response.status_code == 400, response.text
+        print("CP14C_REAL_BEARER_HISTORY_OVERSIZED_CURSOR_400=PASS")
         posted_history = _check(await client.get(
             f"{history_url}/{sid}", params={"location_id": a.a2},
             headers=auth_header,
@@ -445,6 +463,31 @@ async def assert_real_http_stocktake(
         assert posted_history["session"]["status"] == "POSTED"
         assert len(posted_history["attempts"]["items"]) == 2
         assert posted_history["session"]["adjustment_movement_count"] == 2
+        assert any(row["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+                   and row["details"] == {}
+                   for row in posted_history["audit"]["items"])
+        audit_cursor = None
+        rejected_readback = []
+        for _ in range(20):
+            page = _check(await client.get(
+                f"{history_url}/{sid}/audit",
+                params={"location_id": a.a2, "limit": 1,
+                        **({"cursor": audit_cursor} if audit_cursor else {})},
+                headers=auth_header,
+            ))
+            rejected_readback.extend(
+                event for event in page["items"]
+                if event["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+            )
+            audit_cursor = page["next_cursor"]
+            if not audit_cursor:
+                break
+        else:
+            raise AssertionError("Terminal security audit pagination did not terminate")
+        assert len(rejected_readback) == 1
+        assert rejected_readback[0]["details"] == {}
+        assert (await client.get(f"{history_url}/{sid}/audit",
+            params={"location_id": a.a2}, headers=recount_header)).status_code == 403
         assert {row["id"] for row in posted_history["movements"]["items"]} == {
             m.id for m in moves
         }

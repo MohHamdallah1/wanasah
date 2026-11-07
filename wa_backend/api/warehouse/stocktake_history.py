@@ -36,10 +36,12 @@ router = APIRouter()
 _TERMINAL = ("POSTED", "CANCELLED")
 _AUDIT_ACTIONS = (
     "STOCKTAKE_COUNT_SUBMITTED", "STOCKTAKE_RECOUNT_AUTHORIZED",
+    "STOCKTAKE_RECOUNT_AUTH_REJECTED",
     "STOCKTAKE_CANCELLED", "STOCKTAKE_APPROVED_AND_POSTED",
     "STOCKTAKE_APPROVAL_REJECTED", "STOCKTAKE_CANCEL_REJECTED",
 )
 _MAX_PAGE = 100
+_MAX_PG_BIGINT_ID = (1 << 63) - 1
 
 
 def _time(value: datetime | None) -> str | None:
@@ -59,7 +61,8 @@ def _decode(cursor: str, scope: str, *, with_time: bool = False):
     try:
         data = json.loads(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)))
         if (type(data) is not dict or data.get("v") != 1
-            or type(data.get("id")) is not int or data["id"] < 1
+            or type(data.get("id")) is not int
+            or not 1 <= data["id"] <= _MAX_PG_BIGINT_ID
             or data.get("s") != hashlib.sha256(scope.encode()).hexdigest()[:24]):
             raise ValueError()
         if with_time:

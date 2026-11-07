@@ -52,6 +52,8 @@ const detail = (id: number) => ({
       timestamp: "2026-11-06T09:00:00Z", details: { reason: "Physical recount aborted" } },
     { id: 998, action_type: "STOCKTAKE_COUNT_SUBMITTED", actor_name: "Counter",
       timestamp: "2026-11-06T08:40:00Z", details: { attempt_number: 2 } },
+    { id: 997, action_type: "STOCKTAKE_RECOUNT_AUTH_REJECTED", actor_name: "Owner",
+      timestamp: "2026-11-06T08:22:00Z", details: {} },
   ], next_cursor: null, has_more: false },
 });
 const batchLine = (id: number) => ({
@@ -217,6 +219,10 @@ describe("Stocktake #799 terminal history (never a blind counting surface)", () 
     await waitFor(() => expect(dialog).toHaveTextContent("10 Each"));
     expect(dialog).toHaveTextContent(lang === "ar" ? "سجل الإجراءات" : "Audit events");
     expect(dialog).toHaveTextContent("Physical recount aborted");
+    expect(dialog).toHaveTextContent(
+      lang === "ar" ? "رفض تفويض إعادة العد" : "Recount authorization rejected"
+    );
+    expect(dialog).not.toHaveTextContent("Invalid authorizer credentials");
     fireEvent.click(within(dialog).getByRole("button", {
       name: lang === "ar" ? "العودة للسجل" : "Back to history",
     }));
