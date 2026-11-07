@@ -8,7 +8,6 @@ import { resolveI18nLocale } from "@/lib/locale";
 import { LedgerAdjustmentModal } from "./ledger/LedgerAdjustmentModal";
 import { LedgerFilters } from "./ledger/LedgerFilters";
 import { LedgerMobileCards } from "./ledger/LedgerMobileCards";
-import { LedgerPagination } from "./ledger/LedgerPagination";
 import { LedgerReferenceModal } from "./ledger/LedgerReferenceModal";
 import { LedgerTable } from "./ledger/LedgerTable";
 import type { LedgerEntry } from "./ledger/contracts";
@@ -53,7 +52,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
 
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
-  const denied = reference.denied;
+  const denied = reference.denied || query.denied;
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
@@ -87,6 +86,9 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     onOpenReference: reference.open,
     onOpenNotes: (entry: LedgerEntry) => setNoteEntry(entry),
     onOpenAdjustment: openAdjustment,
+    onNearBottom: query.loadMore,
+    hasMore: query.hasMore,
+    loadingMore: query.loadingMore,
   };
 
   return (
@@ -150,9 +152,9 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
         ) : null}
 
         {/* The desktop header must exist on the first frame, not appear after HTTP. */}
-        <LedgerTable {...commonRows} loading={query.loading} error={query.error || denied} />
-        <div className="min-h-0 flex-1 overflow-y-auto md:hidden">
-          {visibleEntries.length > 0 ? <LedgerMobileCards {...commonRows} /> : (
+        <LedgerTable key={query.scopeKey} {...commonRows} loading={query.loading} error={query.error || denied} />
+        <div className="min-h-0 flex-1 overflow-hidden md:hidden">
+          {visibleEntries.length > 0 ? <LedgerMobileCards key={query.scopeKey} {...commonRows} /> : (
             !query.error && !denied && (
               <p role="status" data-cp13-state={query.loading ? "loading" : "empty"}
                 className="p-8 text-center text-sm font-semibold text-slate-500">
@@ -162,17 +164,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           )}
         </div>
 
-        {!denied && <LedgerPagination
-          t={t}
-          language={language}
-          pageIndex={query.pageIndex}
-          count={visibleEntries.length}
-          canPrevious={query.canGoPrevious}
-          canNext={query.hasMore}
-          loading={query.loading}
-          onPrevious={query.goPrevious}
-          onNext={query.goNext}
-        />}
+        {!denied && query.loadingMore && <p role="status" className="border-t border-slate-100 px-3 py-1 text-center text-xs text-slate-500">{text("loading")}</p>}
       </section>
 
       <Modal
