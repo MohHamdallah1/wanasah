@@ -51,6 +51,9 @@ class InboundAdjustmentState:
     current_total_quantity: Decimal
     base_uom_id: int
     base_uom_code: str
+    # Internal revision of this supplier-reference correction chain, not a
+    # public API field. Every committed correction advances the revision.
+    latest_correction_movement_id: int | None
 
     def response(self) -> dict[str, Any]:
         return {
@@ -273,6 +276,11 @@ async def load_inbound_adjustment_state(
         current_total_quantity=current_total,
         base_uom_id=base_uom_id,
         base_uom_code=base_uom_code,
+        latest_correction_movement_id=max(
+            (int(movement.id) for movement in invoice_movements
+             if movement.reference_type == "INBOUND_CORRECTION"),
+            default=None,
+        ),
     )
 
 
@@ -312,7 +320,20 @@ async def apply_inbound_adjustment(
         f"{state.batch_id or 0}|{canonical_quantity(state.current_total_quantity)}|"
         f"{canonical_quantity(new_total_quantity)}"
     )
-    idempotency_key = "ADJ-" + hashlib.sha256(idempotency_raw.encode("utf-8")).hexdigest()
+    # Preserve the exact historical ADJ key for an untouched supplier chain.
+    # Once corrections exist, including corrections written by the old code,
+    # the most recent persisted correction ID is the authoritative revision.
+    # A later 10 -> 12 after 10 -> 12 -> 10 is a NEW event, whereas a retry
+    # after a successful commit is a no-op (delta == 0) under the same scope
+    # advisory transaction lock. No random key, schema change, or rewrite.
+    if state.latest_correction_movement_id is None:
+        idempotency_key = "ADJ-" + hashlib.sha256(idempotency_raw.encode("utf-8")).hexdigest()
+    else:
+        revisioned = (
+            f"ADJ2|{idempotency_raw}|after_movement="
+            f"{state.latest_correction_movement_id}"
+        )
+        idempotency_key = "ADJ2-" + hashlib.sha256(revisioned.encode("utf-8")).hexdigest()
     correction_notes = f"Supplier inbound correction: {notes}" if notes else "Supplier inbound correction"
 
     correction = await apply_inventory_movement(
