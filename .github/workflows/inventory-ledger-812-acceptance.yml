@@ -1,0 +1,85 @@
+name: Ledger V1 #812 correction-cycle PostgreSQL16 real Bearer
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/domains/ledger/inbound_adjustment.py"
+      - "wa_backend/tests/test_ledger_812_postgres.py"
+      - ".github/workflows/inventory-ledger-812-acceptance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  restricted-pg16-bearer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Ledger812SyntheticOnlyKeyAbc123456789012345678901234567890
+      DATABASE_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_GATE: "1"
+      WANASAH_CP10_PG_URL: postgresql+asyncpg://cp10_app@127.0.0.1:55450/wanasah_cp10_test
+      WANASAH_CP10_PG_ADMIN_URL: postgresql+asyncpg://cp10_admin@127.0.0.1:55450/wanasah_cp10_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Focused dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Disposable PostgreSQL16 only
+        run: |
+          docker run --detach --name ledger-812-pg16 --env POSTGRES_USER=cp10_admin --env POSTGRES_DB=wanasah_cp10_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55450:55450 postgres:16 -p 55450
+          for attempt in $(seq 1 30); do
+            if docker exec ledger-812-pg16 pg_isready -U cp10_admin -d wanasah_cp10_test -p 55450; then exit 0; fi
+            sleep 1
+          done
+          docker logs ledger-812-pg16
+          exit 1
+      - name: Restricted application role NOBYPASSRLS
+        run: |
+          python - <<'PY'
+          import os,psycopg
+          from sqlalchemy.engine import make_url
+          dsn=make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn,autocommit=True) as conn:
+              conn.execute("CREATE ROLE cp10_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Exact HEAD genuine login Bearer / RLS / adjustment cycle
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q -s tests/test_ledger_812_postgres.py
+      - name: Existing CP10 correction and canonical authorization acceptance
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q tests/test_cp10_ledger_postgres.py tests/test_cp10_ledger_postgres_multibatch.py tests/test_cp10_ledger_backend.py tests/test_inbound_adjustments_canonical_auth_cutover.py
+  exact-owner-scope:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Exact base and isolated backend files
+        env:
+          BASE_SHA: e8366a171f9836ba4b796b1b830c4532aca2ff10
+        run: |
+          git diff --check "$BASE_SHA" HEAD
+          python - <<'PY'
+          import os,subprocess
+          changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["BASE_SHA"],"HEAD"],text=True).splitlines())
+          expected={
+            "wa_backend/domains/ledger/inbound_adjustment.py",
+            "wa_backend/tests/test_ledger_812_postgres.py",
+            ".github/workflows/inventory-ledger-812-acceptance.yml",
+          }
+          assert changed <= expected and {"wa_backend/tests/test_ledger_812_postgres.py"} <= changed,sorted(changed)
+          print("LEDGER_812_EXACT_BACKEND_SCOPE=PASS",len(changed))
+          PY
