@@ -58,6 +58,8 @@ export function useLedgerQuery(
   const cursorsSeen = useRef(new Set<string>());
   const idsSeen = useRef(new Set<number>());
   const pagesFetched = useRef(0);
+  const revalidationFailed = useRef(false);
+  const canceledBeforeFirstPage = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -133,6 +135,7 @@ export function useLedgerQuery(
       setNextCursor(page.next_cursor);
       setHasMore(page.has_more);
       if (reset) {
+        canceledBeforeFirstPage.current = false;
         setTotal(page.total);
         setAvailableTypes(page.available_types);
         setVisibleScope(scopeKey);
@@ -153,7 +156,10 @@ export function useLedgerQuery(
         setNextCursor(null);
         setHasMore(false);
         setTotal(null);
-      } else setError(true);
+      } else {
+        if (reset) setVisibleScope(scopeKey);
+        setError(true);
+      }
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
@@ -174,6 +180,8 @@ export function useLedgerQuery(
     abortRef.current = controller;
     pending.current = true;
     setLoading(true);
+    setLoadingMore(false);
+    revalidationFailed.current = false;
     try {
       const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
         locationId, search: exactReference === null ? debouncedSearch : undefined,
@@ -182,9 +190,10 @@ export function useLedgerQuery(
       }), { signal: controller.signal }));
       if (requestId !== seq.current || scopeRef.current !== serverScope ||
         !isDashboardSessionCurrent(session)) return;
-      // Keep all authorized rows until the recheck completes. If the list
-      // never advanced beyond page one, replace its historical snapshot;
-      // otherwise refresh the head while retaining the appended tail.
+      // If only one page was retained, reconcile its new authoritative head.
+      // For multi-page signed snapshots, preserve the entire old keyset. New
+      // postings cannot be prepended without bridging through to overlap. A
+      // fresh explicit Refresh starts a new snapshot without missing events.
       if (pagesFetched.current <= 1) {
         idsSeen.current = new Set(page.items.map(item => item.id));
         setEntries(page.items);
@@ -192,11 +201,10 @@ export function useLedgerQuery(
         setNextCursor(page.next_cursor);
         setHasMore(page.has_more);
         cursorsSeen.current = new Set(page.next_cursor ? [page.next_cursor] : []);
-      } else {
-        const firstIds = new Set(page.items.map(item => item.id));
-        setEntries(previous => [...page.items, ...previous.filter(item => !firstIds.has(item.id))]);
-        for (const item of page.items) idsSeen.current.add(item.id);
       }
+      revalidationFailed.current = false;
+      setVisibleScope(scopeKey);
+      setError(false);
       setAvailableTypes(page.available_types);
       if (page.total !== null) setTotal(page.total);
     } catch (failure) {
@@ -211,7 +219,11 @@ export function useLedgerQuery(
         setTotal(null);
         setHasMore(false);
         setNextCursor(null);
-      } else if (!(failure instanceof Error && failure.name === "AbortError")) setError(true);
+      } else if (!(failure instanceof Error && failure.name === "AbortError")) {
+        revalidationFailed.current = true;
+        setVisibleScope(scopeKey);
+        setError(true);
+      }
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
@@ -226,6 +238,8 @@ export function useLedgerQuery(
       seq.current++;
       abortRef.current?.abort();
       pending.current = false;
+      setLoadingMore(false);
+      canceledBeforeFirstPage.current = pagesFetched.current === 0;
       return;
     }
     const returning = !wasActive.current;
@@ -234,6 +248,9 @@ export function useLedgerQuery(
       seq.current++;
       abortRef.current?.abort();
       pending.current = false;
+      setLoadingMore(false);
+      revalidationFailed.current = false;
+      canceledBeforeFirstPage.current = false;
       scopeRef.current = serverScope;
       sessionRef.current = captureDashboardSession();
       idsSeen.current = new Set();
@@ -247,17 +264,24 @@ export function useLedgerQuery(
       setVisibleScope(null);
       setDenied(false);
       void load(null, true);
-    } else if (returning) {
+    } else if (returning || canceledBeforeFirstPage.current || visibleScope !== scopeKey) {
+      canceledBeforeFirstPage.current = false;
       void revalidate();
     }
-    return () => { seq.current++; abortRef.current?.abort(); pending.current = false; };
-  }, [active, serverScope, load, revalidate]);
+    return () => {
+      if (pending.current && pagesFetched.current === 0) canceledBeforeFirstPage.current = true;
+      seq.current++;
+      abortRef.current?.abort();
+      pending.current = false;
+      setLoadingMore(false);
+    };
+  }, [active, serverScope, load, revalidate, scopeKey, visibleScope]);
 
   const loadMore = useCallback(() => {
-    if (!pending.current && hasMore && nextCursor && !denied && visibleScope === scopeKey) {
+    if (!pending.current && !error && hasMore && nextCursor && !denied && visibleScope === scopeKey) {
       void load(nextCursor, false);
     }
-  }, [denied, hasMore, load, nextCursor, scopeKey, visibleScope]);
+  }, [denied, error, hasMore, load, nextCursor, scopeKey, visibleScope]);
 
   const refresh = useCallback(() => {
     seq.current++;
@@ -272,19 +296,21 @@ export function useLedgerQuery(
     setNextCursor(null);
     setVisibleScope(null);
     setDenied(false);
+    revalidationFailed.current = false;
     void load(null, true);
   }, [load]);
   const retry = useCallback(() => {
     if (denied) return;
+    if (revalidationFailed.current) { void revalidate(); return; }
     void load(cursorRef.current, entries.length === 0);
-  }, [denied, entries.length, load]);
+  }, [denied, entries.length, load, revalidate]);
 
   const visible = visibleScope === scopeKey && !denied;
   return {
     entries: visible ? entries : [], searchInput, setSearchInput, filterType,
     setFilterType, availableTypes: visible ? availableTypes : [],
-    total: visible ? total : null, loading: loading || (!visible && !denied),
-    loadingMore, error: visible && error, hasMore: visible && hasMore,
+    total: visible ? total : null, loading: loading || (!visible && !denied && !error),
+    loadingMore, error: !denied && error && (visible || scopeRef.current === serverScope), hasMore: visible && hasMore,
     loadMore, refresh, retry, scopeKey, denied,
   };
 }
