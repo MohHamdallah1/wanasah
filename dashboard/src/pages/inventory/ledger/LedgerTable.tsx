@@ -7,11 +7,11 @@ import { ledgerBadgeClass, ledgerMovementLabel, ledgerText } from "./ledgerI18n"
 import {
   ledgerBalance,
   ledgerLocationEvidence,
-  ledgerMoney,
   ledgerSignedQuantity,
   ledgerQuantityMeaning,
 } from "./ledgerPresentation";
 import { formatPublicBatchNumber } from "../publicBatchNumber";
+import { LedgerCostEvidence } from "./LedgerCostEvidence";
 
 interface Props {
   t: TFunction;
@@ -48,7 +48,7 @@ export function LedgerTable({
         <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-start backdrop-blur">
           <tr>
             {(["movement", "product", "batch", "before", "quantity", "after", "evidence", "reference", "cost", "actor", "notes", "date"] as const).map((key) => (
-              <th key={key} className="px-3 py-2 text-start text-[11px] font-black text-slate-500">{text(key)}</th>
+              <th key={key} className="px-3 py-2 text-start text-[11px] font-black text-slate-500"><span title={key === "before" || key === "after" ? text("balanceScopeHelp") : undefined}>{text(key)}</span></th>
             ))}
           </tr>
         </thead>
@@ -78,7 +78,7 @@ export function LedgerTable({
                 <td className="px-3 py-2 text-xs font-black text-slate-600">
                   {formatPublicBatchNumber(entry.batch_number, text("noLot"))}
                 </td>
-                <td className="px-3 py-2 text-xs font-semibold text-slate-500">{ledgerBalance(entry, entry.balance_before, unit)}</td>
+                <td className="px-3 py-2 text-xs font-semibold text-slate-500"><span title={text("balanceScopeHelp")}>{ledgerBalance(entry, entry.balance_before, unit)}</span></td>
                 <td className="px-3 py-2">
                   <span
                     className={`inline-flex items-center gap-1 text-xs font-black tabular-nums ${outgoing ? "text-rose-700" : "text-emerald-700"}`}
@@ -89,7 +89,7 @@ export function LedgerTable({
                   </span>
                   <div className="mt-0.5 max-w-44 text-[10px] leading-4 text-slate-500" data-ledger-quantity-kind={entry.movement_kind ?? "PHYSICAL"}>{ledgerQuantityMeaning(t, language, entry)}</div>
                 </td>
-                <td className="px-3 py-2 text-xs font-black text-slate-700">{ledgerBalance(entry, entry.balance_after, unit)}</td>
+                <td className="px-3 py-2 text-xs font-black text-slate-700"><span title={text("balanceScopeHelp")}>{ledgerBalance(entry, entry.balance_after, unit)}</span></td>
                 <td className="px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
                   <div><span className="font-black">{text("source")}:</span> {locations.source}</div>
                   <div><span className="font-black">{text("destination")}:</span> {locations.destination}</div>
@@ -113,14 +113,7 @@ export function LedgerTable({
                   ) : null}
                 </td>
                 <td className="px-3 py-2 text-[10px] font-semibold leading-5 text-slate-600">
-                  {entry.input_unit_cost ? (
-                    <>
-                      <div>{ledgerMoney(entry.input_unit_cost, entry.currency_code)} / {entry.input_uom_code ?? entry.base_uom_code}</div>
-                      {entry.total_cost ? <div>{text("totalCost")}: {ledgerMoney(entry.total_cost, entry.currency_code)}</div> : null}
-                      {entry.average_cost_after ? <div>{text("averageAfter")}: {ledgerMoney(entry.average_cost_after, entry.currency_code)}</div> : null}
-                      <div className="mt-0.5 text-slate-500">{text("costMeaning")}</div>
-                    </>
-                  ) : "—"}
+                  <LedgerCostEvidence t={t} language={language} entry={entry} />
                 </td>
                 <td className="px-3 py-2 text-xs font-bold text-slate-600">{entry.admin_name || text("unknown")}</td>
                 <td className="px-3 py-2">
