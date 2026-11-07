@@ -818,6 +818,20 @@ LEDGER_811_EXACT = frozenset({
 })
 
 
+# Exact Ledger owner visual toolbar polish: move the existing authorized
+# warehouse selector into LedgerFilters and label the real movement count.
+# Do not admit partial or mixed scopes or change Live Stock ownership.
+LEDGER_TOOLBAR_EXACT = frozenset({
+    "dashboard/src/pages/inventory/MainInventory.tsx",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerFilters.tsx",
+    "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
+    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/inventory-ledger-762-acceptance.yml",
+})
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
@@ -825,6 +839,9 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
     if changed == STOCKTAKE_793_BRIDGE_EXACT:
         return "policy-maintenance", []
+
+    if mode in {"ux", "operational"} and changed == LEDGER_TOOLBAR_EXACT:
+        return "ledger-toolbar-exact", []
 
     if mode in {"ux", "operational"} and changed == LEDGER_811_EXACT:
         return "ledger-811-exact", []
@@ -949,6 +966,28 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    ledger_toolbar_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    assert len(LEDGER_TOOLBAR_EXACT) == 7
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(LEDGER_TOOLBAR_EXACT), ledger_toolbar_sem) == (
+            "ledger-toolbar-exact", []
+        )
+        for missing in LEDGER_TOOLBAR_EXACT:
+            partial = set(LEDGER_TOOLBAR_EXACT) - {missing}
+            assert classify(mode, partial, ledger_toolbar_sem)[0] != "ledger-toolbar-exact"
+            _expect_fail(mode, partial, ledger_toolbar_sem)
+        for foreign in (
+            "wa_backend/domains/ledger/read.py",
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+            "flutter_app/lib/main.dart",
+        ):
+            _expect_fail(mode, set(LEDGER_TOOLBAR_EXACT) | {foreign}, ledger_toolbar_sem)
+        _expect_fail(mode, set(LEDGER_TOOLBAR_EXACT) | LEDGER_811_EXACT, ledger_toolbar_sem)
+    assert classify("r3", set(LEDGER_TOOLBAR_EXACT), ledger_toolbar_sem) == (
+        "not-applicable", []
+    )
+
     ledger_811_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_811_EXACT) == 13
     assert "dashboard/src/pages/inventory/Tab4Ledger.tsx" in LEDGER_811_EXACT
