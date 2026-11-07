@@ -2,7 +2,7 @@
 
 **Status:** CANONICAL V2 BACKLOG — DO NOT DELETE OR ARCHIVE AS TEMPORARY NOTES  
 **Scope:** Product and operational capabilities intentionally deferred from Version 1
-**Last updated:** 2026-11-04
+**Last updated:** 2026-11-07
 
 This file is the canonical source of truth for capabilities intentionally deferred from Version 1. Some already have meaningful backend/domain foundations; others are future product or operational workflows that must not be mistaken for unfinished V1 work.
 
@@ -886,3 +886,36 @@ An operator may forget where an infrequently used setting lives (for example, **
 - [ ] **Not deferred / V1 release safety condition:** see [issue #773](https://github.com/MohHamdallah1/wanasah/issues/773). Before first-company production acceptance, prove an authorized, safe **stop-and-recover procedure** for mistakenly posted Lot/expiry, or explicitly identify and fix a narrowly proven launch blocker. Do not hide unsafe, uncorrectable saleable stock behind this V2 idea. This V1 condition is distinct from an optional generic V2 editor.
 
 **Scope rule:** None of these V2 UX enhancements changes the approved V1 physical inventory authority, pricing/COGS, sale/recall gates, permissions or existing page closure. Any proven safety or financial-integrity defect remains a V1 blocker regardless of where the improvement is documented.
+
+---
+
+## 18. Stocktake and Batches / Expiry — owner-deferred visual acceptance and workflow redesign (2026-11-07)
+
+**Status: V2 BACKLOG / NOT A V1 SCOPE CHANGE.** Owner deliberately postponed the detailed visual acceptance and optional UX/mechanism redesign of **Stocktake / الجرد والتسوية** and **Batches & Expiry / التشغيلات والصلاحية** to focus on first-company V1 essentials. This is a future acceptance/design task, not evidence that the current pages have already passed the owner's visual acceptance.
+
+### 18.1 Targeted multi-product stocktake (جرد أصناف محددة)
+
+- [ ] Keep **جرد صنف** as the simple single-product flow (all that product's physical Lots/statuses in the selected warehouse by default; optionally one Lot), and keep **جرد شامل** as the current full-warehouse flow.
+- [ ] Design a third scope, **جرد أصناف محددة / Selected-products stocktake**, where the operator can select two or more distinct products (search, add/remove, show a compact selection count and review the selected list) inside one clearly scoped counting session. It must NOT silently turn into a full-warehouse count or create many opaque sessions, and must have explicit product membership/snapshot semantics.
+- [ ] First validate the canonical Backend session/snapshot/line/overlap-lock model. If multi-SKU requires a deliberate scoped domain/API change, design and version it; do **not** fake a subset by misusing `FULL_COUNT`, manufacture Lots, bulk-submit multiple independent sessions, or corrupt expectations for missing/zero-stock lines.
+- [ ] Each selected product must preserve separate genuine physical Lot/status, expected/actual/variance, base-UOM arithmetic, durable draft and restart recovery; count blindness before submission, explicit zero, discovered registered-Lot stock, FEFO/expiry/quality gates, immutable recount attempts, password/capability/approval and idempotent adjustment posting remain authoritative.
+- [ ] Support current warehouse vs company catalog discovery, zero-stock products, changing/revoked warehouse access, unauthorized products, cursor-paginated large catalogs and stable selected membership across search/pagination. Never mix warehouse and vehicle custody or leak another company/location.
+- [ ] Define fair overlap/lock behavior across concurrent single-product, selected-products and full-warehouse sessions and recover/cancel safely. Add real PostgreSQL16 restricted-RLS/authorized bearer HTTP acceptance, cross-warehouse and denied-role tests, AR/EN desktop/mobile UI/keyboard acceptance and exact Ledger movement tracing.
+
+### 18.2 Stocktake page — owner visual acceptance and workflow review
+
+- [ ] Perform a deliberate **owner-led visual and interaction acceptance** on actual desktop/mobile screens for the single-product, selected-products and full-count entrances; count entry, empty/zero/discovered stock, saved drafts, restart/restore, submitted review, recount/approve/cancel, and terminal history.
+- [ ] Rework the Stocktake page's presentation/sequence only after the owner approves a concrete UX design. Prioritize one readable workspace, plain Arabic business wording, consistent toolbar/action hierarchy, compact but safe counts/variance visibility, clear step transitions and accessible error/recovery states. Test RTL/LTR, focus, responsive layout and no flicker.
+- [ ] Keep the current V1 **warehouse-door full-count entrance** and the owner-approved V1 baseline until an explicit V2 design decision replaces them. Do not silently remove controls or introduce duplicate authority screens.
+- [ ] Preserve company/location-scoped role access, immutable history, `POSTED` vs `CANCELLED` distinction, and the `ledger.read`-authorized direct adjustment lookup ONLY where real posted nonzero movements exist; never fabricate a movement from cancellation or zero variance.
+
+### 18.3 Batches & Expiry (التشغيلات والصلاحية) — owner visual acceptance and workflow review
+
+- [ ] Schedule owner-led visual acceptance and UX/mechanism review of batch lists, selected-warehouse toolbar/search/filters, batch details, expiry/quality/sellability status and reasons, quality actions (hold/recall/quarantine/release where authorized), errors and cross-links from unavailable-to-sell Live Stock.
+- [ ] Propose a clearer, compact, professional workflow that makes **which physical Lot has which problem and which authorized action resolves it** obvious; ensure desktop/mobile parity, Arabic-first copy, RTL/LTR, keyboard/focus and no unnecessary page remount/flicker.
+- [ ] Preserve real Lot identity, physical warehouse scope, expiry and quality/disposition authority, capability checks, FEFO/hold/recall restrictions, real on-hand vs historical/zero-stock distinctions and truthful inventory Ledger; never add unsafe \"force sellable\" toggles or financial/stock writes from presentation-only controls.
+- [ ] Coordinate with the already listed **section 17** batch-page improvements rather than duplicating a separate historical-Lot or posted-metadata-correction implementation.
+
+### V1/V2 boundary and completion
+
+V1 may close these pages **only after its mandatory business/security evidence remains passing**, including real restricted PostgreSQL16 + authorized HTTP, actual workflow parity, tenant/location/role isolation, correct physical adjustment and cost/ledger truth, denied actions, durable recovery and critical usable entry points. **A proven P0/P1 safety, financial-integrity, authorization or unusable critical-action defect is V1, not deferrable cosmetic polish.** Detailed owner visual redesign, selected-products stocktake and optional advanced UX are V2. V2 completion requires a reviewed design, owner visual acceptance, focused regression evidence, and independent code review before enabling.
