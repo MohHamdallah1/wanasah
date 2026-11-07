@@ -8,6 +8,10 @@ import { resolveI18nLocale } from "@/lib/locale";
 import { LedgerAdjustmentModal } from "./ledger/LedgerAdjustmentModal";
 import { LedgerFilters } from "./ledger/LedgerFilters";
 import { LedgerMobileCards } from "./ledger/LedgerMobileCards";
+import { LedgerOperationRows } from "./ledger/LedgerOperationRows";
+import { LedgerOperationDetails } from "./ledger/LedgerOperationDetails";
+import { useLedgerOperations } from "./ledger/useLedgerOperations";
+import type { LedgerOperation } from "./ledger/operationContracts";
 import { LedgerReferenceModal } from "./ledger/LedgerReferenceModal";
 import { LedgerTable } from "./ledger/LedgerTable";
 import type { LedgerEntry } from "./ledger/contracts";
@@ -44,15 +48,38 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     navigate({ pathname: routeLocation.pathname, search: search ? `?${search}` : "" },
       { replace: true, state: null });
   };
-  const query = useLedgerQuery(locationId, refreshKey, active, exactReference);
+  const [mode, setMode] = useState<"operations" | "movements">("operations");
+  const query = useLedgerQuery(locationId, refreshKey, active && mode === "movements", exactReference);
+  const operations = useLedgerOperations(locationId, refreshKey, active && mode === "operations",
+    query.searchInput, query.filterType, exactReference);
+  const [selectedOperation, setSelectedOperation] = useState<LedgerOperation | null>(null);
+  const [selectedScope, setSelectedScope] = useState<string | null>(null);
+  const [groupDeniedScope, setGroupDeniedScope] = useState<string | null>(null);
+  const detailsTrigger = useRef<HTMLButtonElement | null>(null);
+  const closeOperation = () => {
+    setSelectedOperation(null);
+    const trigger = detailsTrigger.current;
+    if (trigger?.isConnected) trigger.focus();
+    detailsTrigger.current = null;
+  };
   const reference = useLedgerReference(locationId, active);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
   const accessAlertRef = useRef<HTMLDivElement>(null);
 
-  const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
+  useEffect(() => {
+    // A former warehouse/search/session must not retain an open child panel.
+    if (selectedScope !== null && selectedScope !== operations.visibleScope) setSelectedOperation(null);
+  }, [operations.visibleScope, selectedScope]);
+  const operationTypes = [
+    "INBOUND_SUPPLIER", "INBOUND_CORRECTION", "TRANSFER_DISPATCH", "TRANSFER_RECEIPT",
+    "TRANSFER_REJECTED", "TRANSFER_CANCELLED", "AUDIT_ADJUSTMENT",
+    "STATUS_CHANGE", "STATUS_RECLASSIFICATION", "DISPATCH_LOAD",
+    "DISPATCH_UNLOAD", "VISIT_ITEM_OUT", "VISIT_RETURN_IN",
+  ];
+    const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
-  const denied = reference.denied || query.denied;
+  const denied = reference.denied || query.denied || operations.denied || groupDeniedScope === operations.visibleScope;
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
@@ -61,11 +88,13 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     }
   }, [denied, adjustment.close]);
   const visibleEntries = denied ? [] : query.entries;
+  const visibleOperations = denied ? [] : operations.items;
+  const operationOpen = selectedOperation !== null && selectedScope === operations.visibleScope && !denied && mode === "operations" && active;
   const canAdjust = !denied && access.can("ledger.adjust");
   useEffect(() => {
     if (!canAdjust && adjustment.entry !== null) adjustment.close();
   }, [canAdjust, adjustment.entry, adjustment.close]);
-  const total = denied || query.total === null
+  const total = mode !== "movements" || denied || query.total === null
     ? null
     : new Intl.NumberFormat(locale, {
         maximumFractionDigits: 0,
@@ -120,22 +149,27 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           filterType={query.filterType}
           totalCount={total}
           onFilterTypeChange={query.setFilterType}
-          availableTypes={query.availableTypes}
-          loading={query.loading}
-          onRefresh={query.refresh}
+          availableTypes={mode === "operations" ? operationTypes : query.availableTypes}
+          loading={mode === "operations" ? operations.loading : query.loading}
+          onRefresh={mode === "operations" ? operations.refresh : query.refresh}
         />}
 
+        <nav aria-label={language.startsWith("ar") ? "طريقة عرض السجل" : "Ledger display mode"} className="flex gap-1 border-b border-slate-100 bg-white px-3 py-1.5">
+          <button type="button" aria-pressed={mode === "operations"} onClick={() => setMode("operations")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "operations" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{language.startsWith("ar") ? "العمليات" : "Operations"}</button>
+          <button type="button" aria-pressed={mode === "movements"} onClick={() => setMode("movements")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "movements" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{language.startsWith("ar") ? "الحركات التفصيلية" : "Detailed movements"}</button>
+          {mode === "operations" && !denied && <span className="ms-auto self-center text-[10px] text-slate-500">{visibleOperations.length} {language.startsWith("ar") ? "عملية محملة" : "loaded operations"}</span>}
+        </nav>
         {denied ? (
           <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
             {text("referenceAccessChanged")}
           </div>
         ) : null}
-        {!denied && query.error ? (
+        {!denied && (mode === "operations" ? operations.error : query.error) ? (
           <div
             role="alert"
-            data-cp13-state={query.entries.length > 0 ? "stale" : "error"}
+            data-cp13-state={(mode === "operations" ? visibleOperations.length : query.entries.length) > 0 ? "stale" : "error"}
             className={`m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${
-              query.entries.length > 0
+              (mode === "operations" ? visibleOperations.length : query.entries.length) > 0
                 ? "border-amber-200 bg-amber-50 text-amber-900"
                 : "border-red-200 bg-red-50 text-red-800"
             }`}
@@ -143,7 +177,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
             <span>{text("loadFailed")}</span>
             <button
               type="button"
-              onClick={query.retry}
+              onClick={mode === "operations" ? operations.retry : query.retry}
               className="rounded-lg border border-current/20 bg-white px-2.5 py-1.5 outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
             >
               {text("retry")}
@@ -151,22 +185,50 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           </div>
         ) : null}
 
-        {/* The desktop header must exist on the first frame, not appear after HTTP. */}
-        <LedgerTable key={query.scopeKey} {...commonRows} loading={query.loading} error={query.error || denied} />
-        <div className="min-h-0 flex-1 overflow-hidden md:hidden">
-          {visibleEntries.length > 0 ? <LedgerMobileCards key={query.scopeKey} {...commonRows} /> : (
-            !query.error && !denied && (
-              <p role="status" data-cp13-state={query.loading ? "loading" : "empty"}
-                className="p-8 text-center text-sm font-semibold text-slate-500">
-                {text(query.loading ? "loading" : "empty")}
-              </p>
-            )
+        <div className={`${mode === "operations" ? "flex" : "hidden"} min-h-0 flex-1 flex-col`} data-ledger-view="operations">
+          {!denied && (visibleOperations.length > 0 || operations.hasMore) ? (
+            <LedgerOperationRows key={operations.visibleScope} t={t} language={language} locale={locale}
+              items={visibleOperations} onNearBottom={operations.loadMore} hasMore={operations.hasMore}
+              loadingMore={operations.loadingMore}
+              onDetails={(item, trigger) => {
+                detailsTrigger.current = trigger;
+                setSelectedScope(operations.visibleScope);
+                setSelectedOperation(item);
+              }} />
+          ) : !denied && !operations.error && (
+            <p role="status" className="p-8 text-center text-sm text-slate-500">
+              {operations.loading ? text("loading") : text("empty")}
+            </p>
           )}
         </div>
-
-        {!denied && query.loadingMore && <p role="status" className="border-t border-slate-100 px-3 py-1 text-center text-xs text-slate-500">{text("loading")}</p>}
+        <div className={`${mode === "movements" ? "flex" : "hidden"} min-h-0 flex-1 flex-col`} data-ledger-view="movements">
+          <LedgerTable key={query.scopeKey} {...commonRows} loading={query.loading} error={query.error || denied} />
+          <div className="min-h-0 flex-1 overflow-hidden md:hidden">
+            {visibleEntries.length > 0 ? <LedgerMobileCards key={query.scopeKey} {...commonRows} /> : (
+              !query.error && !denied && (
+                <p role="status" data-cp13-state={query.loading ? "loading" : "empty"}
+                  className="p-8 text-center text-sm font-semibold text-slate-500">
+                  {text(query.loading ? "loading" : "empty")}
+                </p>
+              )
+            )}
+          </div>
+        </div>
+        {!denied && (mode === "operations" ? operations.loadingMore : query.loadingMore) &&
+          <p role="status" className="border-t border-slate-100 px-3 py-1 text-center text-xs text-slate-500">
+            {text("loading")}
+          </p>}
       </section>
 
+      {operationOpen && selectedOperation && (
+        <LedgerOperationDetails key={selectedOperation.group_key} operation={selectedOperation}
+          locationId={locationId} language={language} locale={locale} t={t}
+          search={query.searchInput} filterType={query.filterType} exactReference={exactReference}
+          onClose={closeOperation}
+          onDenied={() => { setGroupDeniedScope(operations.visibleScope); setSelectedOperation(null); }}
+          onOpenReference={(entry) => { closeOperation(); reference.open(entry); }}
+          onAdjust={(entry) => { closeOperation(); openAdjustment(entry); }} canAdjust={canAdjust} />
+      )}
       <Modal
         isOpen={active && !denied && noteEntry !== null}
         onClose={() => setNoteEntry(null)}
@@ -186,6 +248,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
         canAdjust={canAdjust}
         onChanged={() => {
           query.refresh();
+          operations.refresh();
           onInventoryChanged();
         }}
       />}
