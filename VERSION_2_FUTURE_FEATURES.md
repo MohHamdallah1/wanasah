@@ -913,7 +913,7 @@ An operator may forget where an infrequently used setting lives (for example, **
 
 - [ ] Schedule owner-led visual acceptance and UX/mechanism review of batch lists, selected-warehouse toolbar/search/filters, batch details, expiry/quality/sellability status and reasons, quality actions (hold/recall/quarantine/release where authorized), errors and cross-links from unavailable-to-sell Live Stock.
 - [ ] Propose a clearer, compact, professional workflow that makes **which physical Lot has which problem and which authorized action resolves it** obvious; ensure desktop/mobile parity, Arabic-first copy, RTL/LTR, keyboard/focus and no unnecessary page remount/flicker.
-- [ ] Preserve real Lot identity, physical warehouse scope, expiry and quality/disposition authority, capability checks, FEFO/hold/recall restrictions, real on-hand vs historical/zero-stock distinctions and truthful inventory Ledger; never add unsafe \"force sellable\" toggles or financial/stock writes from presentation-only controls.
+- [ ] Preserve real Lot identity, physical warehouse scope, expiry and quality/disposition authority, capability checks, FEFO/hold/recall restrictions, real on-hand vs historical/zero-stock distinctions and truthful inventory Ledger; never add unsafe “force sellable” toggles or financial/stock writes from presentation-only controls.
 - [ ] Coordinate with the already listed **section 17** batch-page improvements rather than duplicating a separate historical-Lot or posted-metadata-correction implementation.
 
 ### V1/V2 boundary and completion
