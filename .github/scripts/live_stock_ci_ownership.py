@@ -818,23 +818,11 @@ LEDGER_811_EXACT = frozenset({
 })
 
 
+# Reused for Ledger V1 visual-only white selectors / movement count polish.
 # Exact Ledger owner visual toolbar polish: move the existing authorized
 # warehouse selector into LedgerFilters and label the real movement count.
 # Do not admit partial or mixed scopes or change Live Stock ownership.
 LEDGER_TOOLBAR_EXACT = frozenset({
-    "dashboard/src/pages/inventory/MainInventory.tsx",
-    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
-    "dashboard/src/pages/inventory/ledger/LedgerFilters.tsx",
-    "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
-    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
-    ".github/scripts/live_stock_ci_ownership.py",
-    ".github/workflows/inventory-ledger-762-acceptance.yml",
-})
-
-
-# Exact Ledger/Stocktake owner presentation polish only. The substantive
-# stocktake/ledger authority, history and live-stock rules remain unchanged.
-LEDGER_OWNER_POLISH_EXACT = frozenset({
     "dashboard/src/pages/inventory/MainInventory.tsx",
     "dashboard/src/pages/inventory/Tab4Ledger.tsx",
     "dashboard/src/pages/inventory/ledger/LedgerFilters.tsx",
@@ -852,9 +840,6 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
     if changed == STOCKTAKE_793_BRIDGE_EXACT:
         return "policy-maintenance", []
-
-    if mode in {"ux", "operational"} and changed == LEDGER_OWNER_POLISH_EXACT:
-        return "ledger-owner-polish-exact", []
 
     if mode in {"ux", "operational"} and changed == LEDGER_TOOLBAR_EXACT:
         return "ledger-toolbar-exact", []
@@ -982,22 +967,6 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
-    ledger_owner_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
-    assert len(LEDGER_OWNER_POLISH_EXACT) == 7
-    for mode in ("ux", "operational"):
-        assert classify(mode, set(LEDGER_OWNER_POLISH_EXACT), ledger_owner_sem) == (
-            "ledger-owner-polish-exact", []
-        )
-        for foreign in (
-            "wa_backend/domains/ledger/read.py",
-            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
-            "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
-            "flutter_app/lib/main.dart",
-        ):
-            _expect_fail(mode, set(LEDGER_OWNER_POLISH_EXACT) | {foreign}, ledger_owner_sem)
-        _expect_fail(mode, set(LEDGER_OWNER_POLISH_EXACT) | LEDGER_811_EXACT, ledger_owner_sem)
-    assert classify("r3", set(LEDGER_OWNER_POLISH_EXACT), ledger_owner_sem) == ("not-applicable", [])
-
     ledger_toolbar_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_TOOLBAR_EXACT) == 7
     for mode in ("ux", "operational"):
