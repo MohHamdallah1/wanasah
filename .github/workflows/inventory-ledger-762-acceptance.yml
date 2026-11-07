@@ -88,7 +88,20 @@ jobs:
             ".github/scripts/live_stock_ci_ownership.py",
             ".github/workflows/inventory-ledger-762-acceptance.yml",
           }
-          assert changed == ledger_toolbar_exact or all(
+          # #817's exact read-only operation extension with its approved
+          # warehouse route manifest and two historical CI compatibility gates.
+          # All unrelated backend/dashboard changes remain rejected.
+          ledger_817_exact={
+            ".github/workflows/inventory-ledger-817-acceptance.yml",
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+            ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
+            "wa_backend/api/warehouse/ledger.py",
+            "wa_backend/domains/ledger/read.py",
+            "wa_backend/domains/ledger/operation_read.py",
+            "wa_backend/tests/test_ledger_817_postgres.py",
+            "wa_backend/scripts/warehouse_route_manifest_extensions.json",
+          }
+          assert changed == ledger_817_exact or changed == ledger_toolbar_exact or all(
             p in allowed_exact or p.startswith("dashboard/src/pages/inventory/ledger/")
             or p.startswith("dashboard/src/test/inventory-cp10-ledger-")
             for p in changed
