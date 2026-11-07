@@ -162,7 +162,8 @@ def _sign(data: dict[str, Any]) -> str:
 
 def _verify(token: str, *, kind: str, scope: str) -> dict[str, Any]:
     try:
-        if len(token) > 512 or token.count(".") != 1:
+        max_length = 1024 if kind == "op-key" else 512
+        if len(token) > max_length or token.count(".") != 1:
             raise ValueError("length")
         body, signature = token.split(".")
         if not body or "=" in body or "=" in signature:
@@ -441,7 +442,7 @@ async def read_operation_groups(
         if kind == "RECEIPT":
             token_data["r"] = movement.reference_id
         token = _sign(token_data)
-        if len(token) > 512:
+        if len(token) > 1024:
             raise RuntimeError("Operation token exceeded bounded contract.")
         result.append({
             "group_key": token, "group_kind": kind,

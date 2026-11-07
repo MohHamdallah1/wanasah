@@ -138,7 +138,7 @@ class LedgerOperationStocktakeHistory(BaseModel):
 
 
 class LedgerOperationSummary(BaseModel):
-    group_key: str = Field(..., max_length=512)
+    group_key: str = Field(..., max_length=1024)
     group_kind: Literal["TRANSFER", "STOCKTAKE", "RECEIPT", "MOVEMENT"]
     operation_type: str = Field(..., max_length=50)
     reference: str = Field(..., max_length=100)
@@ -170,7 +170,7 @@ class LedgerOperationMovementItem(WarehouseLedgerEvidenceItem):
 
 
 class LedgerOperationMovementPage(BaseModel):
-    group_key: str = Field(..., max_length=512)
+    group_key: str = Field(..., max_length=1024)
     items: list[LedgerOperationMovementItem] = Field(..., max_length=200)
     next_cursor: Optional[str] = Field(None, max_length=512)
     has_more: bool
@@ -220,7 +220,7 @@ async def get_warehouse_ledger_operations(
     status_code=200,
 )
 async def get_warehouse_ledger_operation_movements(
-    group_key: str = Path(..., min_length=1, max_length=512),
+    group_key: str = Path(..., min_length=1, max_length=1024),
     location_id: int = Query(..., gt=0),
     cursor: Optional[str] = Query(None, max_length=512),
     limit: int = Query(50, ge=1, le=200),

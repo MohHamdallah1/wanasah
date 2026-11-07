@@ -262,6 +262,43 @@ async def test_817_supplier_51_lines_one_document_real_bearer_cursor_security(pg
         print("LEDGER_817_COLLISION_TWO_UUIDS_TWO_GROUPS=PASS")
         print("LEDGER_817_REAL_BEARER_RLS_HMAC_MATCH_ANY_CHILD_BOUNDED_DETAIL=PASS")
 
+        # A valid 100-character Arabic supplier reference must not become an
+        # internal 500 merely because the signed group token encodes UTF-8.
+        # Keyset continuation cursors remain bounded to 512.
+        long_reference = "م" * 100
+        async with pg.session(pg.a) as db:
+            (unicode_movement,) = await apply_inventory_movements_batch(
+                db, company_id=pg.a.company_id,
+                performed_by=pg.a.owner.driver_id, movements=[
+                    _spec(pg.a, pg.a.variant_id, pg.a.batch_id,
+                          pg.a.locations[0], long_reference,
+                          "G817-UTF8-" + uuid4().hex,
+                          destination=pg.a.locations[0]),
+                ],
+            )
+            record_supplier_evidence(
+                db, company_id=pg.a.company_id,
+                movement_ids=[unicode_movement.id],
+                supplier=SupplierSnapshot(
+                    id=supplier_id, name="Synthetic supplier #817", code=None,
+                ),
+                request_id=uuid4(),
+            )
+            await db.commit()
+        utf8_groups = await page(params={"reference_id": long_reference})
+        assert utf8_groups.status_code == 200, utf8_groups.text
+        assert len(utf8_groups.json()["items"]) == 1
+        utf8_key = utf8_groups.json()["items"][0]["group_key"]
+        assert 512 < len(utf8_key) <= 1024
+        utf8_detail = await detail(
+            utf8_key, params={"reference_id": long_reference},
+        )
+        assert utf8_detail.status_code == 200, utf8_detail.text
+        assert [row["id"] for row in utf8_detail.json()["items"]] == [
+            int(unicode_movement.id)
+        ]
+        print("LEDGER_817_LONG_ARABIC_REFERENCE_OPAQUE_GROUP_TOKEN=PASS")
+
 
 @pytest.mark.asyncio
 async def test_817_transfer_stage_keyset_and_new_post_highwater(pg):
