@@ -171,6 +171,7 @@ export function useLedgerQuery(
     abortRef.current?.abort();
     abortRef.current = controller;
     pending.current = true;
+    setLoading(true);
     try {
       const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
         locationId, search: exactReference === null ? debouncedSearch : undefined,
@@ -197,7 +198,10 @@ export function useLedgerQuery(
         setNextCursor(null);
       } else if (!(failure instanceof Error && failure.name === "AbortError")) setError(true);
     } finally {
-      if (requestId === seq.current) pending.current = false;
+      if (requestId === seq.current) {
+        pending.current = false;
+        setLoading(false);
+      }
     }
   }, [authFetch, debouncedSearch, exactReference, filterType, locationId, serverScope]);
 
