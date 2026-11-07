@@ -256,6 +256,7 @@ export function Tab3Stocktake({
             locationId={locationId}
             canRead={canReadStocktake}
             canReview={warehouseAccess.can("stocktake.review")}
+            canLedgerRead={warehouseAccess.can("ledger.read")}
             authenticatedFetch={authenticatedFetch}
           />
           <button type="button" onClick={refreshSessions} disabled={sessionsLoading}
