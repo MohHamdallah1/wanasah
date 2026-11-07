@@ -20,7 +20,7 @@ from domains.inventory_supplier_evidence import InventorySupplierEvidence, recor
 from domains.suppliers.contracts import SupplierSnapshot
 from domains.suppliers.models import Supplier
 from models import (
-    Company, CompanyOwner, InventoryMovement, InventoryTransferHeader,
+    Company, InventoryMovement, InventoryTransferHeader,
     Product, ProductBatch, ProductVariant, UOM, utc_now,
 )
 from domains.identity.models import CompanyPrincipal
