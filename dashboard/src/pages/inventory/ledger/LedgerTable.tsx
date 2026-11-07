@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { useLedgerWindow } from "./useLedgerWindow";
 import { ArrowDownRight, ArrowUpRight, Eye, FileText, TriangleAlert } from "lucide-react";
 
 import { compareQuantity } from "@/lib/quantity";
@@ -21,6 +22,9 @@ interface Props {
   loading?: boolean;
   error?: boolean;
   canAdjust: boolean;
+  onNearBottom?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   onOpenReference: (entry: LedgerEntry) => void;
   onOpenNotes: (entry: LedgerEntry, trigger: HTMLButtonElement) => void;
   onOpenAdjustment: (entry: LedgerEntry) => void;
@@ -34,6 +38,9 @@ export function LedgerTable({
   loading = false,
   error = false,
   canAdjust,
+  onNearBottom = () => undefined,
+  hasMore = false,
+  loadingMore = false,
   onOpenReference,
   onOpenNotes,
   onOpenAdjustment,
@@ -41,9 +48,12 @@ export function LedgerTable({
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
   const unit = (code: string) => t(`uom.${code}`, { defaultValue: code });
+  const window = useLedgerWindow(entries.length, 108, onNearBottom, hasMore, loadingMore);
+  const visibleEntries = entries.slice(window.first, window.last);
+
 
   return (
-    <div className="hidden min-h-0 flex-1 overflow-auto md:block" data-cp13-ledger-list="chronological">
+    <div ref={window.rootRef} onScroll={window.onScroll} className="hidden min-h-0 flex-1 overflow-auto md:block" data-cp13-ledger-list="chronological" data-ledger-mounted={window.mounted}>
       <table className="w-full min-w-[1260px] text-sm">
         <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-start backdrop-blur">
           <tr>
@@ -61,7 +71,8 @@ export function LedgerTable({
               </td>
             </tr>
           )}
-          {entries.map((entry) => {
+          {window.before > 0 && <tr aria-hidden="true"><td colSpan={12} style={{height:window.before,padding:0,border:0}} /></tr>}
+          {visibleEntries.map((entry) => {
             const locations = ledgerLocationEvidence(t, language, entry);
             const outgoing = compareQuantity(entry.quantity, "0") < 0;
             const DirectionIcon = outgoing ? ArrowDownRight : ArrowUpRight;
@@ -150,8 +161,10 @@ export function LedgerTable({
               </tr>
             );
           })}
+          {window.after > 0 && <tr aria-hidden="true"><td colSpan={12} style={{height:window.after,padding:0,border:0}} /></tr>}
         </tbody>
       </table>
+      <div ref={window.markerRef} data-ledger-bottom="true" aria-hidden="true" className="h-px" />
     </div>
   );
 }
