@@ -11,11 +11,13 @@ import base64
 import hashlib
 import hmac
 import json
+import re
+import zlib
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import String, and_, case, cast, distinct, func, literal, or_, select, false
+from sqlalchemy import String, and_, case, cast, distinct, func, literal, or_, select, false, text
 from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -32,7 +34,8 @@ _KINDS = {"TRANSFER", "STOCKTAKE", "RECEIPT", "MOVEMENT"}
 
 
 def _visible(m, *, access: BackofficeCapabilityAccess, company_id: int,
-             location_id: int, watermark: int | None = None):
+             location_id: int, watermark: int | None = None,
+             snapshot: str | None = None):
     predicates = [
         m.company_id == company_id,
         or_(m.source_location_id == location_id, m.destination_location_id == location_id),
@@ -41,6 +44,15 @@ def _visible(m, *, access: BackofficeCapabilityAccess, company_id: int,
     ]
     if watermark is not None:
         predicates.append(m.id <= watermark)
+    if snapshot is not None:
+        # Persisted InventoryMovement is strictly append-only. The creator
+        # transaction must have been VISIBLE at the first-page snapshot.
+        # Excludes late commits whose movement ID was allocated earlier.
+        predicates.append(text(
+            "pg_visible_in_snapshot("
+            "inventory_movements.xmin::text::xid8, "
+            "CAST(:ledger_read_snapshot AS pg_snapshot))"
+        ).bindparams(ledger_read_snapshot=snapshot))
     return and_(*predicates)
 
 
@@ -192,6 +204,39 @@ def _verify(token: str, *, kind: str, scope: str) -> dict[str, Any]:
                               "Invalid or cross-scope operation token.") from exc
 
 
+def _pack_snapshot(value: str) -> str:
+    """Compact signed-token transport for an actual PostgreSQL MVCC snapshot."""
+    if type(value) is not str or not re.fullmatch(
+        r"\d+:\d+:(?:\d+(?:,\d+)*)?", value
+    ):
+        raise RuntimeError("Invalid PostgreSQL snapshot authority.")
+    encoded = zlib.compress(value.encode("ascii"), level=9)
+    return base64.urlsafe_b64encode(encoded).decode("ascii").rstrip("=")
+
+
+def _unpack_snapshot(value: Any) -> str:
+    try:
+        if type(value) is not str or not 0 < len(value) <= 1024 or "=" in value:
+            raise ValueError("length")
+        packed = base64.b64decode(
+            value + "=" * (-len(value) % 4), altchars=b"-_", validate=True
+        )
+        if base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=") != value:
+            raise ValueError("noncanonical compressed snapshot")
+        decoder = zlib.decompressobj()
+        decoded = decoder.decompress(packed, 8193)
+        if (len(decoded) > 8192 or decoder.unconsumed_tail
+                or not decoder.eof or decoder.unused_data):
+            raise ValueError("oversize or incomplete snapshot")
+        result = decoded.decode("ascii")
+        if not re.fullmatch(r"\d+:\d+:(?:\d+(?:,\d+)*)?", result):
+            raise ValueError("snapshot syntax")
+        return result
+    except Exception as exc:
+        raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID",
+                              "Invalid signed MVCC snapshot fence.") from exc
+
+
 def _int_from_token(value: Any) -> int:
     if type(value) is not int or not 0 < value <= _MAX_ID:
         raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID", "Invalid operation cursor ID.")
@@ -241,6 +286,7 @@ def _operation_key(movement, request_uuid):
 async def _stats_for_candidates(
     db: AsyncSession, *, access: BackofficeCapabilityAccess,
     company_id: int, location_id: int, watermark: int,
+    snapshot: str,
     candidates: list, search: str, movement_type: str, reference_id: str,
 ) -> dict[tuple[str, str], Any]:
     """One bounded batch aggregate for candidate document identities.
@@ -294,7 +340,8 @@ async def _stats_for_candidates(
         e, _evidence_join(m, e)
     ).where(
         _visible(m, access=access, company_id=company_id,
-                 location_id=location_id, watermark=watermark),
+                 location_id=location_id, watermark=watermark,
+                 snapshot=snapshot),
         or_(*predicates),
     )
     if search or movement_type or reference_id:
@@ -333,15 +380,21 @@ async def read_operation_groups(
     position = None
     if cursor:
         data = _verify(cursor, kind="op-page", scope=page_scope)
-        if set(data) != {"v", "k", "s", "h", "t", "i"}:
+        if set(data) != {"v", "k", "s", "h", "t", "i", "x"}:
             raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID",
                                   "Invalid group cursor fields.")
+        snapshot = _unpack_snapshot(data["x"])
+        packed_snapshot = data["x"]
         watermark = _int_from_token(data["h"])
         position = _position(data)
     else:
+        snapshot = str(await db.scalar(select(
+            cast(func.pg_current_snapshot(), String)
+        )))
+        packed_snapshot = _pack_snapshot(snapshot)
         watermark = await db.scalar(select(func.max(InventoryMovement.id)).where(
             _visible(InventoryMovement, access=access, company_id=company_id,
-                     location_id=location_id)))
+                     location_id=location_id, snapshot=snapshot)))
         if watermark is None:
             return {
                 "items": [], "next_cursor": None, "has_more": False,
@@ -359,6 +412,9 @@ async def read_operation_groups(
     BATCH = 256
     MAX_MOVEMENTS_PER_PAGE = 8192
     accepted = []
+    # Authority and visibility are fixed within this read. A 10,000-line
+    # document is aggregated ONCE for the whole page, not once per raw window.
+    stats_cache: dict[tuple[str, str], Any] = {}
     scanned = 0
     exhausted = False
     last_scanned = position
@@ -369,7 +425,8 @@ async def read_operation_groups(
             evidence, _evidence_join(m, evidence)
         ).where(
             _visible(m, access=access, company_id=company_id,
-                     location_id=location_id, watermark=watermark),
+                     location_id=location_id, watermark=watermark,
+                     snapshot=snapshot),
         )
         if last_scanned is not None:
             stmt = stmt.where(_earlier(m, *last_scanned))
@@ -380,15 +437,24 @@ async def read_operation_groups(
             exhausted = True
             break
         scanned += len(chunk)
-        stats = await _stats_for_candidates(
-            db, access=access, company_id=company_id,
-            location_id=location_id, watermark=watermark,
-            candidates=chunk, search=search, movement_type=movement_type,
-            reference_id=reference_id,
-        )
+        new_candidates = []
+        discovered = set()
+        for movement, request_uuid in chunk:
+            key = _operation_key(movement, request_uuid)
+            if key not in stats_cache and key not in discovered:
+                discovered.add(key)
+                new_candidates.append((movement, request_uuid))
+        if new_candidates:
+            stats_cache.update(await _stats_for_candidates(
+                db, access=access, company_id=company_id,
+                location_id=location_id, watermark=watermark,
+                snapshot=snapshot, candidates=new_candidates,
+                search=search, movement_type=movement_type,
+                reference_id=reference_id,
+            ))
         for movement, request_uuid in chunk:
             group_key = _operation_key(movement, request_uuid)
-            stat = stats.get(group_key)
+            stat = stats_cache.get(group_key)
             if stat is None or int(stat.latest_movement_id) != movement.id:
                 continue
             if (search or movement_type or reference_id) and not stat.matched:
@@ -408,7 +474,8 @@ async def read_operation_groups(
     if not rows:
         next_cursor = (
             _sign({"v": 1, "k": "op-page", "s": page_scope,
-                   "h": watermark, "t": _utc_stamp(last_scanned[0]),
+                   "h": watermark, "x": packed_snapshot,
+                   "t": _utc_stamp(last_scanned[0]),
                    "i": last_scanned[1]})
             if has_more and last_scanned is not None else None
         )
@@ -441,6 +508,7 @@ async def read_operation_groups(
         token_data = {
             "v": 1, "k": "op-key", "s": token_scope,
             "g": kind, "d": document_id, "h": watermark,
+            "x": packed_snapshot,
         }
         if kind == "RECEIPT":
             token_data["r"] = movement.reference_id
@@ -484,7 +552,8 @@ async def read_operation_groups(
     )
     next_cursor = (
         _sign({"v": 1, "k": "op-page", "s": page_scope,
-               "h": watermark, "t": _utc_stamp(cursor_position[0]),
+               "h": watermark, "x": packed_snapshot,
+               "t": _utc_stamp(cursor_position[0]),
                "i": cursor_position[1]})
         if has_more else None
     )
@@ -505,11 +574,12 @@ async def read_operation_movements(
                          search=search, movement_type=movement_type,
                          reference_id=reference_id)
     data = _verify(group_token, kind="op-key", scope=token_scope)
-    if (set(data) not in ({"v", "k", "s", "g", "d", "h"},
-                          {"v", "k", "s", "g", "d", "h", "r"})
+    if (set(data) not in ({"v", "k", "s", "g", "d", "h", "x"},
+                          {"v", "k", "s", "g", "d", "h", "x", "r"})
             or data.get("g") not in _KINDS or type(data.get("d")) is not str):
         raise LedgerReadError(400, "LEDGER_OPERATION_TOKEN_INVALID", "Invalid operation key.")
     kind, document_id, watermark = data["g"], data["d"], _int_from_token(data["h"])
+    snapshot = _unpack_snapshot(data["x"])
     reference = data.get("r")
     if kind == "RECEIPT":
         try:
@@ -555,7 +625,8 @@ async def read_operation_movements(
                        actor.id == m.performed_by)
     ).where(
         _visible(m, access=access, company_id=company_id,
-                 location_id=location_id, watermark=watermark),
+                 location_id=location_id, watermark=watermark,
+                 snapshot=snapshot),
         _document_filter(m, e, kind=kind, document_id=document_id,
                          reference=reference),
     )
