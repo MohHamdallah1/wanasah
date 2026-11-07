@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { useLedgerWindow } from "./useLedgerWindow";
 import { ArrowDownRight, ArrowUpRight, Eye, FileText, TriangleAlert } from "lucide-react";
 
 import { compareQuantity } from "@/lib/quantity";
@@ -14,6 +15,9 @@ interface Props {
   locale: string;
   entries: LedgerEntry[];
   canAdjust: boolean;
+  onNearBottom?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
   onOpenReference: (entry: LedgerEntry) => void;
   onOpenNotes: (entry: LedgerEntry, trigger: HTMLButtonElement) => void;
   onOpenAdjustment: (entry: LedgerEntry) => void;
@@ -25,6 +29,9 @@ export function LedgerMobileCards({
   locale,
   entries,
   canAdjust,
+  onNearBottom = () => undefined,
+  hasMore = false,
+  loadingMore = false,
   onOpenReference,
   onOpenNotes,
   onOpenAdjustment,
@@ -32,10 +39,15 @@ export function LedgerMobileCards({
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
   const unit = (code: string) => t(`uom.${code}`, { defaultValue: code });
+  const window = useLedgerWindow(entries.length, 260, onNearBottom, hasMore, loadingMore);
+  const visibleEntries = entries.slice(window.first, window.last);
+
 
   return (
-    <div className="space-y-1.5 overflow-y-auto p-2 md:hidden" data-cp13-phone-list="true">
-      {entries.map((entry) => {
+    <div ref={window.rootRef} onScroll={window.onScroll} className="min-h-0 h-full overflow-y-auto p-2 md:hidden" data-cp13-phone-list="true" data-ledger-mounted={window.mounted}>
+      <div className="space-y-1.5"> 
+      {window.before > 0 && <div aria-hidden="true" style={{ height: window.before }} />}
+      {visibleEntries.map((entry) => {
         const locations = ledgerLocationEvidence(t, language, entry);
         const outgoing = compareQuantity(entry.quantity, "0") < 0;
         const DirectionIcon = outgoing ? ArrowDownRight : ArrowUpRight;
@@ -133,6 +145,9 @@ export function LedgerMobileCards({
           </article>
         );
       })}
+      {window.after > 0 && <div aria-hidden="true" style={{ height: window.after }} />}
+      <div ref={window.markerRef} data-ledger-bottom="true" aria-hidden="true" className="h-px" />
+      </div>
     </div>
   );
 }
