@@ -100,11 +100,15 @@ const page = (items: LedgerEntry[], next: string | null = null) => ({
   available_types: ["TRANSFER", "INBOUND_SUPPLIER", "AUDIT_ADJUSTMENT"],
 });
 
-const renderLedger = (locationId = 11, initialEntry = "/inventory") => render(
-  <MemoryRouter initialEntries={[initialEntry]}>
-    <Tab4Ledger locationId={locationId} refreshKey={0} onInventoryChanged={() => undefined} />
-  </MemoryRouter>,
-);
+const renderLedger = (locationId = 11, initialEntry = "/inventory") => {
+  const result = render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <Tab4Ledger locationId={locationId} refreshKey={0} onInventoryChanged={() => undefined} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+  return result;
+};
 
 function LedgerModeHarness() {
   const navigate = useNavigate();
@@ -119,11 +123,15 @@ function LedgerModeHarness() {
     <Tab4Ledger locationId={warehouse} refreshKey={0} onInventoryChanged={() => undefined} />
   </>;
 }
-const renderLedgerMode = () => render(
-  <MemoryRouter initialEntries={["/inventory"]}>
-    <LedgerModeHarness />
-  </MemoryRouter>,
-);
+const renderLedgerMode = () => {
+  const result = render(
+    <MemoryRouter initialEntries={["/inventory"]}>
+      <LedgerModeHarness />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+  return result;
+};
 
 beforeEach(() => {
   mocks.authFetch.mockReset();
@@ -153,6 +161,7 @@ describe("CP10 Ledger Dashboard", () => {
         />
       </MemoryRouter>,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
     expect(await screen.findByRole("option", { name: "All movements (1)" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Movement ledger" })).not.toBeInTheDocument();
     const controls = container.querySelector('[data-cp13-controls="ledger-list"]');
