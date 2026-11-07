@@ -94,3 +94,63 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 390] as c
     await page.screenshot({ path: `node_modules/.cache/ledger-762/${locale}-${width}-revoked.png`, fullPage: true });
   });
 }
+
+for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390] as const) {
+  test(`ledger #818 real-operation row and lazy detail ${locale} ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
+    await installUxApi(page, 1, { allowOtherInventoryReads: true });
+    await page.route("**/api/warehouse/ledger/operations/cursor?*", route => send(route, {
+      items: [{
+        group_key: "opaque-818-transfer", group_kind: "TRANSFER",
+        operation_type: "WAREHOUSE_TRANSFER", reference: "TX-818",
+        latest_at: "2026-11-07T15:00:00+00:00", latest_movement_id: 302,
+        source_location_name: "Warehouse A", destination_location_name: "Warehouse B",
+        latest_actor_name: "Operator", stage_types: ["TRANSFER_DISPATCH", "TRANSFER_RECEIPT"],
+        movement_kinds: ["PHYSICAL"], movement_count: 20, product_variant_count: 10,
+        batch_count: 10, expandable: true, count_meaning: "AUTHORIZED_IMMUTABLE_MOVEMENTS",
+        stocktake_history: null,
+      }],
+      next_cursor: null, has_more: false, snapshot_max_movement_id: 302,
+      type_filter_semantics: "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED",
+    }));
+    await page.route("**/api/warehouse/ledger/operations/opaque-818-transfer/movements/cursor?*", route =>
+      send(route, {
+        group_key: "opaque-818-transfer",
+        items: [
+          entry(301, "PHYSICAL", {
+            type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH", reference: "TX-818",
+            batch_number: "LOT-SEND", matches_filter: true,
+            total_cost: "0.000000", average_cost_after: "1.250000", cost_method: "FIFO",
+            average_cost_uom_code: "EACH", notes: "Real dispatch phase",
+          }),
+          entry(302, "PHYSICAL", {
+            type: "TRANSFER_RECEIPT", reference_type: "TRANSFER_RECEIPT", reference: "TX-818",
+            batch_number: "LOT-RECV", matches_filter: true,
+            total_cost: null, notes: "Real receipt phase",
+          }),
+        ],
+        next_cursor: null, has_more: false,
+      }));
+    await seedUx(page, locale, "light", "ledger");
+    await page.goto("/inventory");
+    const panel = page.locator(".inventory-ledger");
+    const label = locale === "ar" ? "عملية تحويل" : "Warehouse transfer";
+    await expect(panel.getByText(label)).toBeVisible();
+    await expect(panel.locator('[data-ledger-operation-row="true"]')).toHaveCount(1);
+    await expect(panel.getByText(locale === "ar" ? "10 أصناف" : "10 products")).toBeVisible();
+    await page.screenshot({
+      path: `node_modules/.cache/ledger-762/${locale}-${width}-operation.png`, fullPage: true,
+    });
+    await panel.getByRole("button", { name: `${locale === "ar" ? "التفاصيل" : "Details"}: TX-818` }).click();
+    await expect(page.locator('[data-ledger-operation-details="true"]')).toBeVisible();
+    await expect(page.locator('[data-ledger-child-id="301"]')).toBeVisible();
+    await expect(page.locator('[data-ledger-child-id="302"]')).toBeVisible();
+    await expect(page.getByText("LOT-SEND")).toBeVisible();
+    await expect(page.getByText("LOT-RECV")).toBeVisible();
+    await expect(page.getByText(locale === "ar" ? "قيمة حركة المخزون: 0.000000 JOD" :
+      "Inventory value movement: 0.000000 JOD")).toBeVisible();
+    await page.screenshot({
+      path: `node_modules/.cache/ledger-762/${locale}-${width}-operation-details.png`, fullPage: true,
+    });
+  });
+}
