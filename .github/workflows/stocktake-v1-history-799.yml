@@ -1,0 +1,205 @@
+name: Stocktake V1 P1 terminal history #799
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/warehouse/stocktake_history.py"
+      - "wa_backend/api/warehouse/stocktake_discovery.py"
+      - "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py"
+      - "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py"
+      - "dashboard/src/pages/inventory/Tab3Stocktake.tsx"
+      - "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx"
+      - "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts"
+      - "dashboard/src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx"
+      - "dashboard/e2e/stocktake-history-799.spec.ts"
+      - "dashboard/e2e/stocktake-history-799.config.ts"
+      - ".github/workflows/stocktake-v1-history-799.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-pg16-authorized-http:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Cp14CPostgresSyntheticOnlyKeyAbc123456789012345678901234
+      DATABASE_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_GATE: "1"
+      WANASAH_CP14C_PG_URL: postgresql+asyncpg://cp14c_app@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP14C_PG_ADMIN_URL: postgresql+asyncpg://cp14c_admin@127.0.0.1:55452/wanasah_cp14c_test
+      WANASAH_CP9_PG_GATE: "1"
+      WANASAH_VEHICLE_RECON_LOCK_ORDER_DB_GATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused PostgreSQL acceptance dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic==1.18.4 pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable PostgreSQL16
+        run: |
+          docker run --detach --name stocktake-history-postgres \
+            --env POSTGRES_USER=cp14c_admin \
+            --env POSTGRES_DB=wanasah_cp14c_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55452:55452 \
+            postgres:16 -p 55452
+          for attempt in $(seq 1 30); do
+            if docker exec stocktake-history-postgres pg_isready -U cp14c_admin -d wanasah_cp14c_test -p 55452; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs stocktake-history-postgres
+          exit 1
+      - name: Restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              if conn.execute(
+                  "SELECT 1 FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone() is None:
+                  conn.execute(
+                      "CREATE ROLE cp14c_app LOGIN NOSUPERUSER NOCREATEDB "
+                      "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+                  )
+              flags = conn.execute(
+                  "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname='cp14c_app'"
+              ).fetchone()
+              assert flags == (False, False), flags
+          PY
+      - name: Clean existing migrations in disposable database
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Exact-head terminal history, real bearer HTTP, and restricted PostgreSQL16
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s
+          tests/test_cp14c_stocktake_lifecycle_postgres.py
+
+  react-contract-and-owner-scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: New AR EN terminal history tests and TypeScript
+        working-directory: dashboard
+        run: |
+          npm run test -- src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx
+          npx tsc --noEmit
+          npx eslint src/pages/inventory/Tab3Stocktake.tsx src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx e2e/stocktake-history-799.spec.ts
+      - name: Exact owner-approved history scope and whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          BASE="$BASE_SHA"
+          if [ -z "$BASE" ]; then BASE="$(git merge-base origin/main HEAD)"; fi
+          git diff --check "$BASE" HEAD
+          BASE="$BASE" python - <<'PY'
+          import os, subprocess
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["BASE"], "HEAD"],
+              text=True,
+          ).splitlines())
+          approved = {
+              ".github/workflows/stocktake-v1-history-799.yml",
+              "wa_backend/api/warehouse/stocktake_history.py",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+              "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
+              "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryDialog.tsx",
+              "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeHistory.ts",
+              "dashboard/src/pages/inventory/stocktake/StocktakeHistoryV1.test.tsx",
+              "dashboard/e2e/stocktake-history-799.spec.ts",
+              "dashboard/e2e/stocktake-history-799.config.ts",
+          }
+          assert files == approved, {
+              "error": "STOCKTAKE_799_EXACT_SCOPE_FAIL",
+              "missing": sorted(approved - files),
+              "unexpected": sorted(files - approved),
+          }
+          for forbidden in (
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/models.py",
+              "dashboard/src/pages/inventory/stocktake/StocktakeIdlePanel.tsx",
+              "dashboard/src/pages/inventory/stocktake/StocktakeCountModals.tsx",
+          ):
+              assert forbidden not in files
+          print("STOCKTAKE_799_EXACT_SCOPE_AND_IMMUTABLE_DOOR=PASS")
+          PY
+
+  real-chromium:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Locked dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Compile exact history dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174/api
+        run: npm run build
+      - name: Install disposable Chromium
+        working-directory: dashboard
+        run: |
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Launch read-only fixture preview
+        working-directory: dashboard
+        run: |
+          nohup npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/stocktake-799-preview.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/inventory >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/stocktake-799-preview.log
+          exit 1
+      - name: Real AR EN 1440 390 browser history and denial
+        working-directory: dashboard
+        env:
+          STOCKTAKE_799_BASE_URL: http://127.0.0.1:4173
+        run: npx playwright test --config e2e/stocktake-history-799.config.ts
+      - name: Upload Chromium history screenshots and traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stocktake-history-799-${{ github.sha }}
+          path: dashboard/node_modules/.cache/stocktake-history-799/
+          if-no-files-found: warn
+          retention-days: 30

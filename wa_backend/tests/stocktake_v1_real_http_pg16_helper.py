@@ -7,7 +7,7 @@ database may be selected.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api import auth
-from api.warehouse import ledger, live_stock, stocktake
+from api.warehouse import ledger, live_stock, stocktake, stocktake_history
 from config import Config
 from domains.auth_sessions.codec import issue_access_token
 from domains.identity.models import CompanyPrincipal
@@ -48,6 +48,8 @@ async def assert_real_http_stocktake(
     a,
     b,
     earlier_discovered_batch_id: int,
+    previous_cancel_after_count_id: int,
+    previous_cancel_before_count_id: int,
     runtime_session,
     grant_location,
     operator_password: str,
@@ -177,6 +179,11 @@ async def assert_real_http_stocktake(
         sid = int(started["session_id"])
         assert _check(await client.post(base + "/start",
                                         json=starting, headers=auth_header), 201) == started
+        # The new history endpoint cannot be used to reveal a live blind count.
+        assert (await client.get(
+            f"/warehouse/unified/stocktakes/history/{sid}",
+            params={"location_id": a.a2}, headers=auth_header,
+        )).status_code == 404
         wrong_start = {**starting, "notes": "mutated replay is forbidden"}
         _check(await client.post(base + "/start", json=wrong_start,
                                  headers=auth_header), 409)
@@ -267,6 +274,14 @@ async def assert_real_http_stocktake(
             "password": operator_password,
         }, headers=auth_header)
         assert premature.status_code in {403, 409}, premature.text
+        denied_recount = await client.post(f"{base}/{sid}/recount", json={
+            "request_id": _body_id(),
+            "count_attempt_id": first_attempt,
+            "reason": "Synthetic rejected recount authorizer",
+            "authorizer_username": authorizer_legacy_username,
+            "authorizer_password": "BadSyntheticRecountCredential",
+        }, headers=auth_header)
+        assert denied_recount.status_code == 403, denied_recount.text
         recounted = _check(await client.post(f"{base}/{sid}/recount", json={
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
@@ -417,6 +432,128 @@ async def assert_real_http_stocktake(
                 InventoryLock.stocktake_session_id == cancel_id,
                 InventoryLock.released_at.is_(None),
             ))) == 0
+
+
+        history_url = "/warehouse/unified/stocktakes/history"
+        assert (await client.get(history_url, params={"location_id": a.a2})).status_code == 401
+        assert (await client.get(history_url, params={"location_id": a.a2},
+                                 headers=denied_header)).status_code == 403
+        foreign_history = await client.get(history_url, params={"location_id": b.a1},
+                                           headers=auth_header)
+        assert foreign_history.status_code in {403, 404}
+        listing = _check(await client.get(history_url,
+                                          params={"location_id": a.a2, "limit": 50},
+                                          headers=auth_header))
+        assert {sid, cancel_id, previous_cancel_after_count_id,
+                previous_cancel_before_count_id}.issubset({
+                    row["id"] for row in listing["items"]
+                })
+        assert (await client.get(history_url, params={
+            "location_id": a.a2, "cursor": "invalid-tenant-cursor",
+        }, headers=auth_header)).status_code == 400
+        scope = f"{a.company_id}|{a.a2}|terminal-v1"
+        for bad_id in (1 << 63, 10 ** 70):
+            signed_scope_cursor = stocktake_history._cursor(
+                bad_id, scope, finished=datetime(2026, 11, 6),
+            )
+            response = await client.get(history_url, params={
+                "location_id": a.a2, "cursor": signed_scope_cursor, "limit": 50,
+            }, headers=auth_header)
+            assert response.status_code == 400, response.text
+        print("CP14C_REAL_BEARER_HISTORY_OVERSIZED_CURSOR_400=PASS")
+        posted_history = _check(await client.get(
+            f"{history_url}/{sid}", params={"location_id": a.a2},
+            headers=auth_header,
+        ))
+        assert posted_history["session"]["status"] == "POSTED"
+        assert len(posted_history["attempts"]["items"]) == 2
+        assert posted_history["session"]["adjustment_movement_count"] == 2
+        assert any(row["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+                   and row["details"] == {}
+                   for row in posted_history["audit"]["items"])
+        audit_cursor = None
+        rejected_readback = []
+        for _ in range(20):
+            page = _check(await client.get(
+                f"{history_url}/{sid}/audit",
+                params={"location_id": a.a2, "limit": 1,
+                        **({"cursor": audit_cursor} if audit_cursor else {})},
+                headers=auth_header,
+            ))
+            rejected_readback.extend(
+                event for event in page["items"]
+                if event["action_type"] == "STOCKTAKE_RECOUNT_AUTH_REJECTED"
+            )
+            audit_cursor = page["next_cursor"]
+            if not audit_cursor:
+                break
+        else:
+            raise AssertionError("Terminal security audit pagination did not terminate")
+        assert len(rejected_readback) == 1
+        assert rejected_readback[0]["details"] == {}
+        assert (await client.get(f"{history_url}/{sid}/audit",
+            params={"location_id": a.a2}, headers=recount_header)).status_code == 403
+        assert {row["id"] for row in posted_history["movements"]["items"]} == {
+            m.id for m in moves
+        }
+        assert {row["reference_id"] for row in posted_history["movements"]["items"]} == {
+            str(m.reference_id) for m in moves
+        }
+        # Read model signs follow physical movement direction; canonical
+        # underlying InventoryMovement amounts remain positive.
+        expected_signed = {
+            m.id: (-Decimal(m.quantity) if m.source_location_id == a.a2
+                   else Decimal(m.quantity))
+            for m in moves
+        }
+        assert {int(row["id"]): Decimal(row["quantity"]) for row in
+                posted_history["movements"]["items"]} == expected_signed
+        assert any(v < 0 for v in expected_signed.values())
+        assert any(v > 0 for v in expected_signed.values())
+        later = _check(await client.get(
+            f"{history_url}/{sid}/movements",
+            params={"location_id": a.a2, "limit": 50}, headers=auth_header,
+        ))
+        assert {int(row["id"]): Decimal(row["quantity"]) for row in
+                later["items"]} == expected_signed
+        latest_attempt_id = posted_history["attempts"]["items"][0]["id"]
+        rows = _check(await client.get(
+            f"{history_url}/{sid}/attempts/{latest_attempt_id}/lines",
+            params={"location_id": a.a2, "limit": 100}, headers=auth_header,
+        ))
+        assert len(rows["items"]) == len(recount_items)
+        assert {(row["batch_id"], row["stock_status"]) for row in rows["items"]} == {
+            (row["batch_id"], row["stock_status"]) for row in recount_items
+        }
+        assert any(row["expected_quantity"] != row["actual_quantity"]
+                   for row in rows["items"])
+        assert (await client.get(
+            f"{history_url}/{sid}", params={"location_id": a.a2},
+            headers=recount_header,
+        )).status_code == 403
+        assert (await client.get(
+            f"{history_url}/{sid}", params={"location_id": b.a1},
+            headers=auth_header,
+        )).status_code == 404
+        after = _check(await client.get(
+            f"{history_url}/{previous_cancel_after_count_id}",
+            params={"location_id": a.a2}, headers=auth_header,
+        ))
+        assert after["session"]["status"] == "CANCELLED"
+        assert after["session"]["cancelled_after_count"] is True
+        assert len(after["attempts"]["items"]) >= 1
+        assert after["session"]["adjustment_movement_count"] == 0
+        assert after["movements"]["items"] == []
+        assert any(row["action_type"] == "STOCKTAKE_CANCELLED"
+                   for row in after["audit"]["items"])
+        before = _check(await client.get(
+            f"{history_url}/{previous_cancel_before_count_id}",
+            params={"location_id": a.a2}, headers=auth_header,
+        ))
+        assert before["session"]["status"] == "CANCELLED"
+        assert before["attempts"]["items"] == []
+        assert before["movements"]["items"] == []
+        print("CP14C_REAL_BEARER_TERMINAL_HISTORY_POST_CANCEL_ROLE_RLS=PASS")
 
         # #798: The previously submitted mandatory attempt is immutable even
         # when the company's explicit policy is later removed. Test-only
