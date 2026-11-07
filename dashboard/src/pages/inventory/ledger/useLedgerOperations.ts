@@ -1,0 +1,200 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAuthFetch } from "@/hooks/useAuthFetch";
+import {
+  captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession,
+  type DashboardSession,
+} from "@/lib/authStorage";
+import {
+  buildLedgerOperationUrl, parseLedgerOperationPage, type LedgerOperation,
+} from "./operationContracts";
+
+export interface LedgerOperationQuery {
+  items: LedgerOperation[];
+  loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  error: boolean;
+  denied: boolean;
+  loadMore: () => void;
+  retry: () => void;
+  refresh: () => void;
+  visibleScope: string;
+}
+
+/**
+ * Parent rows are authoritative server groups. Page boundaries may split a
+ * single group or return zero items with a valid continuation cursor.
+ */
+export function useLedgerOperations(
+  locationId: number, refreshKey: number, active: boolean,
+  search: string, movementType: string, exactReference: string | null,
+): LedgerOperationQuery {
+  const authFetch = useAuthFetch();
+  const [debounced, setDebounced] = useState("");
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const [items, setItems] = useState<LedgerOperation[]>([]);
+  const [scopeVisible, setScopeVisible] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const seq = useRef(0);
+  const pending = useRef(false);
+  const aborted = useRef<AbortController | null>(null);
+  const scopeRef = useRef<string | null>(null);
+  const sessionRef = useRef<DashboardSession | null>(null);
+  const cursorRef = useRef<string | null>(null);
+  const seenCursors = useRef(new Set<string>());
+  const seenGroups = useRef(new Set<string>());
+  const wasActive = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => subscribeDashboardSession(() => {
+    seq.current++;
+    aborted.current?.abort();
+    pending.current = false;
+    scopeRef.current = null;
+    sessionRef.current = null;
+    setItems([]);
+    setScopeVisible(null);
+    setHasMore(false);
+    setDenied(false);
+    setSessionVersion(x => x + 1);
+  }), []);
+
+  const visibleScope = useMemo(() => JSON.stringify([
+    locationId, refreshKey, sessionVersion, exactReference !== null ? "EXACT_STK" : "FUZZY",
+    exactReference ?? search.trim(), exactReference !== null ? "AUDIT_ADJUSTMENT" : movementType,
+  ]), [locationId, refreshKey, sessionVersion, exactReference, search, movementType]);
+  const queryScope = useMemo(() => JSON.stringify([
+    locationId, refreshKey, sessionVersion, exactReference !== null ? "EXACT_STK" : "FUZZY",
+    exactReference ?? debounced, exactReference !== null ? "AUDIT_ADJUSTMENT" : movementType,
+  ]), [locationId, refreshKey, sessionVersion, exactReference, debounced, movementType]);
+
+  const fetchPage = useCallback(async (cursor: string | null, reset: boolean) => {
+    const session = sessionRef.current;
+    if (!active || pending.current || scopeRef.current !== queryScope ||
+      !session || !isDashboardSessionCurrent(session)) return;
+    const requestId = ++seq.current;
+    pending.current = true;
+    const controller = new AbortController();
+    aborted.current?.abort();
+    aborted.current = controller;
+    if (reset) setLoading(true);
+    else setLoadingMore(true);
+    setError(false);
+    try {
+      const page = parseLedgerOperationPage(await authFetch(buildLedgerOperationUrl({
+        locationId, cursor, search: exactReference === null ? debounced : undefined,
+        referenceType: exactReference !== null ? "AUDIT_ADJUSTMENT" : movementType,
+        referenceId: exactReference ?? undefined,
+      }), { signal: controller.signal }));
+      if (requestId !== seq.current || scopeRef.current !== queryScope ||
+        !isDashboardSessionCurrent(session)) return;
+      if (page.has_more && (!page.next_cursor || seenCursors.current.has(page.next_cursor))) {
+        throw new Error("LEDGER_GROUP_CURSOR_STALLED");
+      }
+      if (page.has_more && page.next_cursor) seenCursors.current.add(page.next_cursor);
+      const fresh = page.items.filter(item => {
+        if (seenGroups.current.has(item.group_key)) return false;
+        seenGroups.current.add(item.group_key);
+        return true;
+      });
+      setItems(old => reset ? fresh : [...old, ...fresh]);
+      cursorRef.current = page.next_cursor;
+      setHasMore(page.has_more);
+      if (reset) {
+        setScopeVisible(visibleScope);
+        setDenied(false);
+      }
+    } catch (err) {
+      if (requestId !== seq.current || scopeRef.current !== queryScope ||
+        !isDashboardSessionCurrent(session)) return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      const status = Number((err as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        setItems([]);
+        setScopeVisible(null);
+        setHasMore(false);
+        cursorRef.current = null;
+        seenGroups.current.clear();
+        setDenied(true);
+      } else setError(true);
+    } finally {
+      if (requestId === seq.current) {
+        pending.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [active, authFetch, debounced, exactReference, locationId, movementType, queryScope, visibleScope]);
+
+  useEffect(() => {
+    if (!active) {
+      wasActive.current = false;
+      seq.current++;
+      aborted.current?.abort();
+      pending.current = false;
+      return;
+    }
+    const returning = !wasActive.current;
+    wasActive.current = true;
+    if (scopeRef.current !== queryScope) {
+      seq.current++;
+      aborted.current?.abort();
+      pending.current = false;
+      scopeRef.current = queryScope;
+      sessionRef.current = captureDashboardSession();
+      cursorRef.current = null;
+      seenCursors.current = new Set();
+      seenGroups.current = new Set();
+      setItems([]);
+      setHasMore(false);
+      setScopeVisible(null);
+      setDenied(false);
+      void fetchPage(null, true);
+    } else if (returning && !pending.current && cursorRef.current === null) {
+      // Revalidate authorization on returning to an initially empty list.
+      void fetchPage(null, true);
+    }
+    return () => {
+      seq.current++;
+      aborted.current?.abort();
+      pending.current = false;
+    };
+  }, [active, queryScope, fetchPage]);
+
+  const loadMore = useCallback(() => {
+    if (active && !pending.current && hasMore && cursorRef.current &&
+      scopeVisible === visibleScope && !denied) {
+      void fetchPage(cursorRef.current, false);
+    }
+  }, [active, denied, fetchPage, hasMore, scopeVisible, visibleScope]);
+  const refresh = useCallback(() => {
+    seq.current++;
+    aborted.current?.abort();
+    pending.current = false;
+    cursorRef.current = null;
+    seenCursors.current.clear();
+    seenGroups.current.clear();
+    setItems([]);
+    setScopeVisible(null);
+    setHasMore(false);
+    void fetchPage(null, true);
+  }, [fetchPage]);
+  const retry = useCallback(() => {
+    if (!denied) void fetchPage(cursorRef.current, items.length === 0);
+  }, [denied, fetchPage, items.length]);
+
+  const admitted = scopeVisible === visibleScope && !denied;
+  return {
+    items: admitted ? items : [], loading: loading || (!admitted && !denied),
+    loadingMore, hasMore: admitted && hasMore, error: admitted && error,
+    denied, loadMore, retry, refresh, visibleScope,
+  };
+}
