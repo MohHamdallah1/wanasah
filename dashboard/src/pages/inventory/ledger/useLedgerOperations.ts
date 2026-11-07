@@ -134,6 +134,55 @@ export function useLedgerOperations(
     }
   }, [active, authFetch, debounced, exactReference, locationId, movementType, queryScope, visibleScope]);
 
+  const revalidate = useCallback(async () => {
+    // Return to this exact authorized scope: keep its scroll/rows while
+    // rechecking the current warehouse bearer grant on the server.
+    const session = sessionRef.current;
+    if (!session || pending.current || !isDashboardSessionCurrent(session)) return;
+    const requestId = ++seq.current;
+    pending.current = true;
+    const controller = new AbortController();
+    aborted.current?.abort();
+    aborted.current = controller;
+    setLoading(true);
+    try {
+      const page = parseLedgerOperationPage(await authFetch(buildLedgerOperationUrl({
+        locationId,
+        search: exactReference === null ? debounced : undefined,
+        referenceType: exactReference !== null ? "AUDIT_ADJUSTMENT" : movementType,
+        referenceId: exactReference ?? undefined,
+      }), { signal: controller.signal }));
+      if (requestId !== seq.current || scopeRef.current !== queryScope ||
+        !isDashboardSessionCurrent(session)) return;
+      // Only page-one lists can be safely replaced by page-one results.
+      // If already appended, retain the signed original continuation snapshot.
+      if (seenCursors.current.size === 0) {
+        setItems(page.items);
+        seenGroups.current = new Set(page.items.map(item => item.group_key));
+        setHasMore(page.has_more);
+        cursorRef.current = page.next_cursor;
+        seenCursors.current = new Set(page.next_cursor ? [page.next_cursor] : []);
+      }
+      setError(false);
+    } catch (failure) {
+      if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
+      const status = Number((failure as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        setItems([]);
+        setScopeVisible(null);
+        setHasMore(false);
+        cursorRef.current = null;
+        seenGroups.current.clear();
+        setDenied(true);
+      } else if (!(failure instanceof Error && failure.name === "AbortError")) setError(true);
+    } finally {
+      if (requestId === seq.current) {
+        pending.current = false;
+        setLoading(false);
+      }
+    }
+  }, [authFetch, debounced, exactReference, locationId, movementType, queryScope]);
+
   useEffect(() => {
     if (!active) {
       wasActive.current = false;
@@ -158,16 +207,15 @@ export function useLedgerOperations(
       setScopeVisible(null);
       setDenied(false);
       void fetchPage(null, true);
-    } else if (returning && !pending.current && cursorRef.current === null) {
-      // Revalidate authorization on returning to an initially empty list.
-      void fetchPage(null, true);
+    } else if (returning) {
+      void revalidate();
     }
     return () => {
       seq.current++;
       aborted.current?.abort();
       pending.current = false;
     };
-  }, [active, queryScope, fetchPage]);
+  }, [active, queryScope, fetchPage, revalidate]);
 
   const loadMore = useCallback(() => {
     if (active && !pending.current && hasMore && cursorRef.current &&
