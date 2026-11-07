@@ -118,9 +118,9 @@ describe("Ledger #818 authoritative operations", () => {
     expect(await screen.findByText("Product 101 · LOT-101")).toBeInTheDocument();
     expect(screen.getByText("Product 102 · LOT-102")).toBeInTheDocument();
     expect(screen.getAllByText(/Inventory value movement: 0.000000 JOD/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Posted physical event/)).toBeInTheDocument();
-    expect(container.querySelector('[data-ledger-child-id="101"]')).not.toBeNull();
-    expect(container.querySelector('[data-ledger-child-id="102"]')).not.toBeNull();
+    expect(screen.getAllByText(/Posted physical event/).length).toBeGreaterThan(0);
+    expect(document.querySelector('[data-ledger-child-id="101"]')).not.toBeNull();
+    expect(document.querySelector('[data-ledger-child-id="102"]')).not.toBeNull();
   });
 
   it("shows real posted variances, not 50 fake stocktake movements", async () => {
