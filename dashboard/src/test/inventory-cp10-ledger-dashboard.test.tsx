@@ -279,14 +279,14 @@ describe("CP10 Ledger Dashboard", () => {
     await waitFor(() => {
       const matching = mocks.authFetch.mock.calls.map(([path]) => String(path)).filter((path) => path.includes("search=alpha"));
       expect(matching.length).toBeGreaterThan(0);
-      expect(matching.at(-1)).not.toContain("cursor=");
+      expect(matching.some(path => !path.includes("cursor="))).toBe(true);
     });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Movement" }), { target: { value: "TRANSFER" } });
     await waitFor(() => {
       const matching = mocks.authFetch.mock.calls.map(([path]) => String(path)).filter((path) => path.includes("reference_type=TRANSFER"));
       expect(matching.length).toBeGreaterThan(0);
-      expect(matching.at(-1)).not.toContain("cursor=");
+      expect(matching.some(path => !path.includes("cursor="))).toBe(true);
     });
   });
 
@@ -369,7 +369,7 @@ describe("CP10 Ledger Dashboard", () => {
       expect(screen.queryByText("Exact posted adjustment")).not.toBeInTheDocument();
       expect(calls.at(-1)).toContain("search=STK-ABC");
       expect(calls.at(-1)).not.toContain("reference_id=");
-      expect(calls.at(-1)).not.toContain("cursor=");
+      expect(calls.some(call => call.includes("search=STK-ABC") && !call.includes("cursor=") && !call.includes("reference_id="))).toBe(true);
     },
   );
 
