@@ -88,7 +88,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     onOpenAdjustment: openAdjustment,
     onNearBottom: query.loadMore,
     hasMore: query.hasMore,
-    loadingMore: query.loadingMore,
+    loadingMore: query.loadingMore || query.error,
   };
 
   return (
