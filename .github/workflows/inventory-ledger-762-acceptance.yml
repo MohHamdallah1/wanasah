@@ -79,9 +79,20 @@ jobs:
             "dashboard/e2e/ledger-762.spec.ts",
             "dashboard/e2e/ledger-762.config.ts",
           }
-          assert all(p in allowed_exact or p.startswith("dashboard/src/pages/inventory/ledger/")
-                     or p.startswith("dashboard/src/test/inventory-cp10-ledger-")
-                     for p in changed), sorted(changed)
+          ledger_toolbar_exact={
+            "dashboard/src/pages/inventory/MainInventory.tsx",
+            "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+            "dashboard/src/pages/inventory/ledger/LedgerFilters.tsx",
+            "dashboard/src/pages/inventory/ledger/ledgerI18n.ts",
+            "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+            ".github/scripts/live_stock_ci_ownership.py",
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+          }
+          assert changed == ledger_toolbar_exact or all(
+            p in allowed_exact or p.startswith("dashboard/src/pages/inventory/ledger/")
+            or p.startswith("dashboard/src/test/inventory-cp10-ledger-")
+            for p in changed
+          ), sorted(changed)
           print("LEDGER_762_SCOPE=PASS",len(changed))
           PY
       - name: Chromium screenshots and failure traces

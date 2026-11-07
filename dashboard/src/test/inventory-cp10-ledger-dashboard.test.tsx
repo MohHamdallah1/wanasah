@@ -132,6 +132,57 @@ beforeEach(() => {
 });
 
 describe("CP10 Ledger Dashboard", () => {
+  it("labels the scoped movement count and aligns warehouse selector between search and movement type", async () => {
+    const onWarehouseChange = vi.fn();
+    mocks.authFetch.mockResolvedValue(page([entry(26)]));
+    const { container } = render(
+      <MemoryRouter initialEntries={["/inventory"]}>
+        <Tab4Ledger
+          locationId={11}
+          refreshKey={0}
+          onInventoryChanged={() => undefined}
+          warehouseSelector={
+            <label>Warehouse
+              <select aria-label="Choose warehouse" value="11"
+                onChange={(event) => onWarehouseChange(event.target.value)}>
+                <option value="11">Warehouse A1</option>
+                <option value="12">Warehouse A2</option>
+              </select>
+            </label>
+          }
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Total movements: 1")).toBeInTheDocument();
+    const controls = container.querySelector('[data-cp13-controls="ledger-list"]');
+    expect(controls).not.toBeNull();
+    const search = screen.getByRole("searchbox");
+    const warehouse = screen.getByRole("combobox", { name: "Choose warehouse" });
+    const type = screen.getByRole("combobox", { name: "Movement" });
+    const refresh = screen.getByRole("button", { name: "Refresh movement ledger" });
+    expect(Array.from(controls!.querySelectorAll("input, select, button"))).toEqual([
+      search, warehouse, type, refresh,
+    ]);
+    fireEvent.change(warehouse, { target: { value: "12" } });
+    expect(onWarehouseChange).toHaveBeenCalledWith("12");
+  });
+
+  it("keeps the warehouse selector available during exact stocktake reference filtering", async () => {
+    mocks.authFetch.mockResolvedValue(page([]));
+    render(
+      <MemoryRouter initialEntries={["/inventory?ledger_ref=STK-ABC&ledger_location=11"]}>
+        <Tab4Ledger locationId={11} refreshKey={0} onInventoryChanged={() => undefined}
+          warehouseSelector={<select aria-label="Choose warehouse" value="11" onChange={() => undefined}>
+            <option value="11">Warehouse A1</option>
+          </select>}
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("combobox", { name: "Choose warehouse" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show all movements" })).toBeInTheDocument();
+  });
+
   it("renders outbound cost without purchase price, real average denominator, supplier and warehouse balance scope", async () => {
     mocks.authFetch.mockResolvedValue(page([entry(44, {
       type: "VISIT_SAMPLE_OUT", reference_type: "VISIT_SAMPLE_OUT",
