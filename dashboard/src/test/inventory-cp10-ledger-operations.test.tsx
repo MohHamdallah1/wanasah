@@ -22,7 +22,7 @@ vi.mock("react-i18next", async (original) => {
   return { ...actual, useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
       let value = String(opts?.defaultValue ?? key);
-      Object.entries(opts ?? {}).forEach(([name, v]) => { value = value.replaceAll(`{{${name}}}`, String(v)); });
+      Object.entries(opts ?? {}).forEach(([name, v]) => { value = value.split(`{{${name}}}`).join(String(v)); });
       return value;
     },
     i18n: { language: mocks.language, resolvedLanguage: mocks.language,
