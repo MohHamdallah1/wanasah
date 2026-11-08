@@ -518,9 +518,9 @@ describe("Ledger #818 authoritative operations", () => {
     const long = "TRN-F492EC77AA084613A047F261A8BEE9E9";
     expect(abbreviatedOperationReference(long)).toMatch(/^TRN-F492EC77…8BEE9E9$/);
     expect(abbreviatedOperationReference("13")).toBe("13");
-    expect(operationLocationLabel("Vehicle 12-25132", "ar")).toBe("مركبة 12-25132");
-    expect(operationLocationLabel("Vehicle 12-25132", "en")).toBe("Vehicle 12-25132");
-    expect(operationLocationLabel("Warehouse A", "ar")).toBe("Warehouse A");
+    expect(operationLocationLabel("Vehicle 12-25132", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("مركبة 12-25132");
+    expect(operationLocationLabel("Vehicle 12-25132", "en", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Vehicle 12-25132");
+    expect(operationLocationLabel("Warehouse A", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Warehouse A");
     expect(parseLedgerOperationPage(parent([
       operation(1, { reference: "13" }), operation(2, { reference: "13" }),
     ])).items.map(item => item.group_key)).toEqual(["signed-group-1", "signed-group-2"]);
