@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { parseLedgerOperationFailure, type LedgerOperationFailure } from "./operationI18n";
 import {
   captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession,
   type DashboardSession,
@@ -14,6 +15,7 @@ export interface LedgerOperationQuery {
   loadingMore: boolean;
   hasMore: boolean;
   error: boolean;
+  failure: LedgerOperationFailure | null;
   denied: boolean;
   loadMore: () => void;
   retry: () => void;
@@ -38,6 +40,7 @@ export function useLedgerOperations(
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState(false);
+  const [failure, setFailure] = useState<LedgerOperationFailure | null>(null);
   const [denied, setDenied] = useState(false);
   const seq = useRef(0);
   const pending = useRef(false);
@@ -66,6 +69,7 @@ export function useLedgerOperations(
     setItems([]);
     setScopeVisible(null);
     setHasMore(false);
+    setFailure(null);
     setDenied(false);
     setSessionVersion(x => x + 1);
   }), []);
@@ -91,6 +95,7 @@ export function useLedgerOperations(
     if (reset) setLoading(true);
     else setLoadingMore(true);
     setError(false);
+    setFailure(null);
     try {
       const page = parseLedgerOperationPage(await authFetch(buildLedgerOperationUrl({
         locationId, cursor, search: exactReference === null ? debounced : undefined,
@@ -113,7 +118,7 @@ export function useLedgerOperations(
       cursorRef.current = page.next_cursor;
       setHasMore(page.has_more);
       if (reset) {
-        setScopeVisible(visibleScope);
+        setScopeVisible(queryScope);
         setDenied(false);
       }
     } catch (err) {
@@ -121,14 +126,18 @@ export function useLedgerOperations(
         !isDashboardSessionCurrent(session)) return;
       if (err instanceof Error && err.name === "AbortError") return;
       const status = Number((err as { status?: unknown } | null)?.status);
-      if (status === 401 || status === 403) {
+      if (status === 401 || status === 403 || status === 404) {
         setItems([]);
         setScopeVisible(null);
         setHasMore(false);
         cursorRef.current = null;
         seenGroups.current.clear();
         setDenied(true);
-      } else { if (reset) setScopeVisible(visibleScope); setError(true); }
+      } else {
+        if (reset) setScopeVisible(queryScope);
+        setFailure(parseLedgerOperationFailure(err));
+        setError(true);
+      }
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
@@ -136,7 +145,7 @@ export function useLedgerOperations(
         setLoadingMore(false);
       }
     }
-  }, [active, authFetch, debounced, exactReference, locationId, movementType, queryScope, visibleScope]);
+  }, [active, authFetch, debounced, exactReference, locationId, movementType, queryScope]);
 
   const revalidate = useCallback(async () => {
     // Return to this exact authorized scope: keep its scroll/rows while
@@ -151,6 +160,7 @@ export function useLedgerOperations(
     revalidationFailed.current = false;
     setLoadingMore(false);
     setLoading(true);
+    setFailure(null);
     try {
       const page = parseLedgerOperationPage(await authFetch(buildLedgerOperationUrl({
         locationId,
@@ -170,7 +180,8 @@ export function useLedgerOperations(
         cursorRef.current = page.next_cursor;
         seenCursors.current = new Set(page.next_cursor ? [page.next_cursor] : []);
       }
-      setScopeVisible(visibleScope);
+      setScopeVisible(queryScope);
+      setFailure(null);
       setError(false);
     } catch (failure) {
       if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
@@ -184,7 +195,8 @@ export function useLedgerOperations(
         setDenied(true);
       } else if (!(failure instanceof Error && failure.name === "AbortError")) {
         revalidationFailed.current = true;
-        setScopeVisible(visibleScope);
+        setScopeVisible(queryScope);
+        setFailure(parseLedgerOperationFailure(failure));
         setError(true);
       }
     } finally {
@@ -216,6 +228,8 @@ export function useLedgerOperations(
       seenCursors.current = new Set();
       seenGroups.current = new Set();
       pageCount.current = 0;
+      setFailure(null);
+      setError(false);
       setItems([]);
       setHasMore(false);
       setScopeVisible(null);
@@ -245,6 +259,10 @@ export function useLedgerOperations(
     cursorRef.current = null;
     seenCursors.current.clear();
     seenGroups.current.clear();
+    pageCount.current = 0;
+    setFailure(null);
+    setError(false);
+    revalidationFailed.current = false;
     setItems([]);
     setScopeVisible(null);
     setHasMore(false);
@@ -259,7 +277,8 @@ export function useLedgerOperations(
   const admitted = scopeVisible === visibleScope && !denied;
   return {
     items: admitted ? items : [], loading: loading || (!admitted && !denied && !error),
-    loadingMore, hasMore: admitted && hasMore, error: !denied && error && (admitted || scopeRef.current === queryScope),
+    loadingMore, hasMore: admitted && hasMore, error: admitted && error,
+    failure: admitted && error ? failure : null,
     denied, loadMore, retry, refresh, visibleScope,
   };
 }
