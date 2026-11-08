@@ -568,6 +568,9 @@ describe("Ledger #818 canceled revalidation recovery", () => {
       return Promise.resolve(page([entry(900, { product_name: "Retained stock" })]));
     });
     render(<LedgerReentryHarness />);
+    // The grouped view is the owner-approved default; this regression is
+    // specifically for the alternate detailed-movement infinite scroll.
+    fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
     expect(await screen.findAllByText("Retained stock")).not.toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Leave ledger tab" }));
     fireEvent.click(screen.getByRole("button", { name: "Return ledger tab" }));
