@@ -186,7 +186,7 @@ export function useLedgerOperations(
     } catch (failure) {
       if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
       const status = Number((failure as { status?: unknown } | null)?.status);
-      if (status === 401 || status === 403) {
+      if (status === 401 || status === 403 || status === 404) {
         setItems([]);
         setScopeVisible(null);
         setHasMore(false);
