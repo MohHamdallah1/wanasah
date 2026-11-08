@@ -387,4 +387,31 @@ describe("Ledger #818 authoritative operations", () => {
       requestId: "req-ar-818", context: "reason: مرجع_غير_صالح" });
   });
 
+  it("revokes and recovers a multi-page grouped scope only after new authorized proof", async () => {
+    let firstReads = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("cursor=second")) return parent([operation(2)]);
+      firstReads++;
+      if (firstReads === 2) throw { status: 403 };
+      if (firstReads === 3) return parent([operation(3)]);
+      return parent([operation(1)], "second");
+    });
+    const hook = renderHook(({ active }) => useLedgerOperations(11, 0, active, "", "ALL", null), {
+      initialProps: { active: true },
+    });
+    await waitFor(() => expect(hook.result.current.hasMore).toBe(true));
+    await act(async () => hook.result.current.loadMore());
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(2));
+    await act(async () => hook.rerender({ active: false }));
+    await act(async () => hook.rerender({ active: true }));
+    await waitFor(() => expect(hook.result.current.denied).toBe(true));
+    expect(hook.result.current.items).toHaveLength(0);
+    await act(async () => hook.rerender({ active: false }));
+    await act(async () => hook.rerender({ active: true }));
+    await waitFor(() => expect(hook.result.current.denied).toBe(false));
+    expect(hook.result.current.items.map(row => row.group_key)).toEqual(["signed-group-3"]);
+    expect(hook.result.current.loading).toBe(false);
+    hook.unmount();
+  });
+
 });
