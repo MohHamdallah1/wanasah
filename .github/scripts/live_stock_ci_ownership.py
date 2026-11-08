@@ -833,6 +833,32 @@ LEDGER_TOOLBAR_EXACT = frozenset({
 })
 
 
+# #818 exact owner-approved two-stage Ledger frontend scope. No prefixes or
+# mixed-domain exemptions. Stage B's stacked PR can be based on main temporarily
+# for independent CI; after Stage A merge, only the B-only exact set matches.
+LEDGER_818_STAGE_A_EXACT = frozenset({
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerMobileCards.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerTable.tsx",
+    "dashboard/src/pages/inventory/ledger/useLedgerQuery.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerWindow.ts",
+    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+})
+LEDGER_818_STAGE_B_EXACT = frozenset({
+    ".github/workflows/inventory-ledger-762-acceptance.yml",
+    "dashboard/e2e/ledger-762.spec.ts",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerOperationDetails.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerOperationRows.tsx",
+    "dashboard/src/pages/inventory/ledger/operationContracts.ts",
+    "dashboard/src/pages/inventory/ledger/operationI18n.ts",
+    "dashboard/src/pages/inventory/ledger/useLedgerOperations.ts",
+    "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+    "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
+})
+LEDGER_818_STACKED_EXACT = LEDGER_818_STAGE_A_EXACT | LEDGER_818_STAGE_B_EXACT
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
@@ -840,6 +866,14 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
     if changed == STOCKTAKE_793_BRIDGE_EXACT:
         return "policy-maintenance", []
+
+    if mode in {"ux", "operational"}:
+        if changed == LEDGER_818_STAGE_A_EXACT:
+            return "ledger-818-stage-a-exact", []
+        if changed == LEDGER_818_STAGE_B_EXACT:
+            return "ledger-818-stage-b-exact", []
+        if changed == LEDGER_818_STACKED_EXACT:
+            return "ledger-818-stacked-exact", []
 
     if mode in {"ux", "operational"} and changed == LEDGER_TOOLBAR_EXACT:
         return "ledger-toolbar-exact", []
@@ -967,6 +1001,34 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    ledger_818_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    assert len(LEDGER_818_STAGE_A_EXACT) == 6
+    assert len(LEDGER_818_STAGE_B_EXACT) == 10
+    assert len(LEDGER_818_STACKED_EXACT) == 14
+    for ledger_mode in ("ux", "operational"):
+        for item_set, label in (
+            (LEDGER_818_STAGE_A_EXACT, "ledger-818-stage-a-exact"),
+            (LEDGER_818_STAGE_B_EXACT, "ledger-818-stage-b-exact"),
+            (LEDGER_818_STACKED_EXACT, "ledger-818-stacked-exact"),
+        ):
+            assert classify(ledger_mode, set(item_set), ledger_818_sem) == (label, [])
+            for missing in item_set:
+                assert classify(ledger_mode, set(item_set) - {missing}, ledger_818_sem)[0] != label
+            for foreign in (
+                HELPER,
+                "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                "wa_backend/domains/ledger/read.py",
+                "wa_backend/api/warehouse/stocktake.py",
+                "flutter_app/lib/main.dart",
+            ):
+                combined = set(item_set) | {foreign}
+                assert classify(ledger_mode, combined, ledger_818_sem)[0] != label
+                if foreign != HELPER:
+                    _expect_fail(ledger_mode, combined, ledger_818_sem)
+        _expect_fail(ledger_mode, set(LEDGER_818_STAGE_A_EXACT) | LEDGER_811_EXACT, ledger_818_sem)
+    assert classify("r3", set(LEDGER_818_STAGE_A_EXACT), ledger_818_sem) == ("not-applicable", [])
+    assert classify("r3", set(LEDGER_818_STAGE_B_EXACT), ledger_818_sem) == ("not-applicable", [])
+
     ledger_toolbar_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_TOOLBAR_EXACT) == 7
     for mode in ("ux", "operational"):
