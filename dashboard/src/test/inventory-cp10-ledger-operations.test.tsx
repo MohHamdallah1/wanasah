@@ -414,4 +414,40 @@ describe("Ledger #818 authoritative operations", () => {
     hook.unmount();
   });
 
+  it("releases child 403 denial only after a fresh authorized parent response", async () => {
+    let reads = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/signed-group-1/movements/cursor"))
+        throw { status: 403, code: "LEDGER_ACCESS_CHANGED", requestId: "req-revoked" };
+      if (path.includes("/operations/cursor")) {
+        reads += 1;
+        if (reads === 2) throw { status: 403 };
+        return parent([operation(1)]);
+      }
+      throw Error("unexpected endpoint: " + path);
+    });
+    const { container, rerender } = renderLedger();
+    await waitFor(() =>
+      expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: /Details: REF-SAME/ }));
+    // A child 403 hides stale rows while the immediate parent recheck rejects.
+    await waitFor(() => expect(reads).toBe(2));
+    await waitFor(() => expect(container.querySelector('[data-ledger-operation-row="true"]')).toBeNull());
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    rerender(
+      <MemoryRouter initialEntries={["/inventory"]}>
+        <Tab4Ledger active={false} locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+      </MemoryRouter>,
+    );
+    rerender(
+      <MemoryRouter initialEntries={["/inventory"]}>
+        <Tab4Ledger active={true} locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(reads).toBeGreaterThanOrEqual(3));
+    await waitFor(() =>
+      expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
 });
