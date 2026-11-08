@@ -20,6 +20,9 @@ export function ledgerMovementFilterTypes(
     !/[\u0000-\u001f\u007f]/.test(type);
   return [...new Set([
     ...LEDGER_OPERATION_REFERENCE_TYPES,
+    // Emitted by ordinary transfer terminal-status posting (transfers.py);
+    // missing from the older operations-mode static catalog.
+    "TRANSFER_TERMINAL_STATUS",
     ...availableTypes,
     selectedType,
   ].filter(valid))];
