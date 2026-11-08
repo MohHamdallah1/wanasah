@@ -225,7 +225,7 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
       const panel = page.locator(".inventory-ledger");
       const rows = panel.locator('[data-ledger-operation-row="true"]');
       await expect(rows).toHaveCount(3);
-      await expect(rows.filter({ hasText: "13" })).toHaveCount(2);
+      await expect(rows.locator('[data-ledger-column="columnReference"] bdi').filter({ hasText: /^13$/ })).toHaveCount(2);
       await expect(rows.first().getByRole("button", { name: (locale === "ar" ? "التفاصيل: " : "Details: ") + OWNER_825_TRN })).toBeVisible();
       const summaryRef = rows.first().locator('[data-ledger-column="columnReference"] bdi');
       await expect(summaryRef).toContainText("…");
