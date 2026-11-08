@@ -120,10 +120,10 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
   }, [mode, movementRecovery, query.refresh]);
   useEffect(() => {
     if (mode === "movements" && movementRecovery === "verify" &&
-        !query.denied && !query.error && !query.loading && query.total !== null) {
+        !query.denied && !query.error && !query.loading) {
       setMovementRecovery("idle");
     }
-  }, [mode, movementRecovery, query.denied, query.error, query.loading, query.total]);
+  }, [mode, movementRecovery, query.denied, query.error, query.loading]);
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
