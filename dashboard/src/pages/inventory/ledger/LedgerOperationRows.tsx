@@ -25,7 +25,6 @@ export const ledgerOperationKindLabel = (kind: LedgerOperation["group_kind"], t:
 export function LedgerOperationRows({
   t, language, locale, items, onDetails, onNearBottom, loadingMore, hasMore,
 }: Props) {
-  const ar = language.toLowerCase().startsWith("ar");
   const virtual = useLedgerWindow(items.length, 146, onNearBottom, hasMore, loadingMore);
   const visible = items.slice(virtual.first, virtual.last);
   const stage = (value: string) => {
