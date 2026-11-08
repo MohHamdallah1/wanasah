@@ -40,7 +40,8 @@ export function LedgerOperationRows({
     const label = ledgerMovementLabel(t, language, type);
     return label === type ? operationText(t, language, "copy1") : label;
   };
-  const kind = (item: LedgerOperation) => ledgerOperationKindLabel(item.group_kind, t, language);
+  const kind = (item: LedgerOperation) => item.group_kind === "MOVEMENT"
+    ? stage(item.operation_type) : ledgerOperationKindLabel(item.group_kind, t, language);
   const route = (item: LedgerOperation) => {
     const locations = [item.source_location_name, item.destination_location_name].filter(Boolean).join(" → ");
     const currentStage = item.stage_types.length ? stage(item.stage_types[item.stage_types.length - 1]) : "";
