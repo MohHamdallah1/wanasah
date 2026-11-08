@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildLedgerOperationUrl, parseLedgerOperationPage } from "@/pages/inventory/ledger/operationContracts";
 import { Tab4Ledger } from "@/pages/inventory/Tab4Ledger";
 import { LedgerOperationRows } from "@/pages/inventory/ledger/LedgerOperationRows";
+import { useLedgerOperations } from "@/pages/inventory/ledger/useLedgerOperations";
+import { LEDGER_OPERATION_REFERENCE_TYPES, parseLedgerOperationFailure } from "@/pages/inventory/ledger/operationI18n";
 import type { LedgerOperation } from "@/pages/inventory/ledger/operationContracts";
 
 const mocks = vi.hoisted(() => ({
@@ -189,6 +191,121 @@ describe("Ledger #818 authoritative operations", () => {
     expect(operations).toHaveLength(10001);
     expect(container.querySelectorAll('[data-ledger-operation-row="true"]').length).toBeLessThan(100);
     expect(Number(container.querySelector('[data-ledger-operation-root="true"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
+  });
+
+  it("offers all recorded special transfer, disposal and quality stage filters", () => {
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toContain("SPECIAL_TRANSFER_DISPATCH");
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toContain("SPECIAL_TRANSFER_TERMINAL_STATUS");
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toContain("FINAL_DISPOSAL");
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toContain("QUALITY_HANDLING_STAGE");
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toContain("VISIT_SAMPLE_OUT");
+  });
+
+  it("rejects unknown cursors and preserves the next signed cursor", () => {
+    expect(() => parseLedgerOperationPage({ ...parent([]), next_cursor: 13, has_more: true })).toThrow();
+    expect(() => parseLedgerOperationPage({ ...parent([]), next_cursor: null, has_more: true })).toThrow();
+    expect(parseLedgerOperationPage(parent([], "signed-page")).next_cursor).toBe("signed-page");
+  });
+
+  it("shows safe structured parent 422 reason, context and request ID; retry retains scope", async () => {
+    let calls = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (!path.includes("/operations/cursor")) throw new Error("Unexpected endpoint");
+      calls++;
+      if (calls === 1) throw {
+        status: 422, code: "LEDGER_REFERENCE_INVALID", context: { field: "reference_type" },
+        requestId: "req-parent-818", serverMessage: "internal details must not leak",
+      };
+      return parent([operation(1)]);
+    });
+    renderLedger();
+    expect(await screen.findByText(/Request ID/)).toBeInTheDocument();
+    expect(screen.getByText(/req-parent-818/)).toBeInTheDocument();
+    expect(screen.getByText(/LEDGER_REFERENCE_INVALID/)).toBeInTheDocument();
+    expect(screen.getByText(/field: reference_type/)).toBeInTheDocument();
+    expect(screen.queryByText(/internal details must not leak/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.getByText("50 products")).toBeInTheDocument());
+    expect(calls).toBe(2);
+  });
+
+  it("shows child 400 rejection and request ID without leaking server details", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/signed-group-1/movements/cursor")) throw {
+        status: 400, code: "LEDGER_CURSOR_INVALID", context: { reason: "stale_cursor" },
+        requestId: "req-child-818", serverMessage: "private stack or SQL",
+      };
+      if (path.includes("/operations/cursor")) return parent([operation(1)]);
+      throw new Error("Unexpected endpoint");
+    });
+    renderLedger();
+    fireEvent.click(await screen.findByRole("button", { name: "Details: REF-SAME" }));
+    expect(await screen.findByText(/req-child-818/)).toBeInTheDocument();
+    expect(screen.getByText(/LEDGER_CURSOR_INVALID/)).toBeInTheDocument();
+    expect(screen.queryByText(/private stack or SQL/)).not.toBeInTheDocument();
+  });
+
+  it("shows a 503 request ID but never its internal error code or context", async () => {
+    mocks.authFetch.mockRejectedValue({
+      status: 503, code: "DATABASE_INTERNAL_ERROR",
+      context: { reason: "secret_connection_string" }, requestId: "req-service-503",
+      serverMessage: "sensitive traceback",
+    });
+    renderLedger();
+    expect(await screen.findByText(/req-service-503/)).toBeInTheDocument();
+    expect(screen.getByText(/temporarily unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/DATABASE_INTERNAL_ERROR/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/secret_connection_string/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sensitive traceback/)).not.toBeInTheDocument();
+  });
+
+  it("continues an empty authorized group page through a real signed cursor", async () => {
+    const requested: string[] = [];
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      requested.push(path);
+      if (path.includes("cursor=signed-next")) return parent([operation(1)]);
+      return parent([], "signed-next");
+    });
+    const hook = renderHook(() => useLedgerOperations(11, 0, true, "", "ALL", null));
+    await waitFor(() => expect(hook.result.current.hasMore).toBe(true));
+    expect(hook.result.current.items).toHaveLength(0);
+    await act(async () => hook.result.current.loadMore());
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(1));
+    expect(requested.some(path => path.includes("cursor=signed-next"))).toBe(true);
+    hook.unmount();
+  });
+
+  it("keeps signed continuation state on reentry but resets it on Refresh", async () => {
+    const requested: string[] = [];
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      requested.push(path);
+      if (path.includes("cursor=signed-next")) return parent([operation(2)], null);
+      return parent([operation(1)], "signed-next");
+    });
+    const hook = renderHook(({active}) => useLedgerOperations(11, 0, active, "", "ALL", null), {
+      initialProps: { active: true },
+    });
+    await waitFor(() => expect(hook.result.current.hasMore).toBe(true));
+    await act(async () => hook.result.current.loadMore());
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(2));
+    await act(async () => hook.rerender({ active: false }));
+    await act(async () => hook.rerender({ active: true }));
+    await waitFor(() => expect(requested.length).toBeGreaterThanOrEqual(3));
+    expect(hook.result.current.items).toHaveLength(2);
+    await act(async () => hook.result.current.refresh());
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(1));
+    expect(hook.result.current.hasMore).toBe(true);
+    hook.unmount();
+  });
+
+  it("keeps context bounded and rejects arbitrary server payloads", () => {
+    expect(parseLedgerOperationFailure({
+      status: 422, code: "LEDGER_INVALID", requestId: "req-safe-818",
+      context: { field: "reference_type", password: "do-not-display" },
+    })).toEqual({
+      status: 422, code: "LEDGER_INVALID", requestId: "req-safe-818",
+      context: "field: reference_type",
+    });
   });
 
 });
