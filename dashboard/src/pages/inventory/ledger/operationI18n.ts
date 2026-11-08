@@ -46,6 +46,7 @@ const ar = {
   kindStocktake: "عملية جرد",
   kindReceipt: "عملية توريد",
   kindMovement: "حركة مستقلة",
+  locationNotShown: "موقع غير ظاهر",
 } as const;
 const en: Record<keyof typeof ar, string> = {
   copy1: "Recorded movement stage",
@@ -92,6 +93,7 @@ const en: Record<keyof typeof ar, string> = {
   kindStocktake: "Stocktake",
   kindReceipt: "Supplier receipt",
   kindMovement: "Individual movement",
+  locationNotShown: "Location not shown",
 };
 export const ledgerOperationKindLabel = (kind: LedgerOperation["group_kind"], t: TFunction, language: string) =>
   operationText(t, language, ({
