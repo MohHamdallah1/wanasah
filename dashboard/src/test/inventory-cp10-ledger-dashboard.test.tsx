@@ -108,7 +108,7 @@ const renderLedger = (locationId = 11, initialEntry = "/inventory") => {
       <Tab4Ledger locationId={locationId} refreshKey={0} onInventoryChanged={() => undefined} />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+  fireEvent.click(screen.getByRole("button", { name: mocks.language === "ar" ? "الحركات التفصيلية" : "Detailed movements" }));
   return result;
 };
 
@@ -131,7 +131,7 @@ const renderLedgerMode = () => {
       <LedgerModeHarness />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+  fireEvent.click(screen.getByRole("button", { name: mocks.language === "ar" ? "الحركات التفصيلية" : "Detailed movements" }));
   return result;
 };
 
@@ -173,7 +173,7 @@ describe("CP10 Ledger Dashboard", () => {
         />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+    fireEvent.click(screen.getByRole("button", { name: mocks.language === "ar" ? "الحركات التفصيلية" : "Detailed movements" }));
     expect(await screen.findByRole("option", { name: "All movements (1)" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Movement ledger" })).not.toBeInTheDocument();
     const controls = container.querySelector('[data-cp13-controls="ledger-list"]');
