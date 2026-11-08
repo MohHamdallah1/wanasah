@@ -56,6 +56,9 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
   const [selectedOperation, setSelectedOperation] = useState<LedgerOperation | null>(null);
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
   const [groupDeniedAt, setGroupDeniedAt] = useState<{ scope: string; proofSequence: number } | null>(null);
+  // A denial in one view cannot reveal cached rows from the other view.
+  const [movementDeniedAt, setMovementDeniedAt] = useState<number | null>(null);
+  const [movementRecovery, setMovementRecovery] = useState<"idle" | "start" | "verify">("idle");
   const detailsTrigger = useRef<HTMLButtonElement | null>(null);
   const closeOperation = () => {
     setSelectedOperation(null);
@@ -85,7 +88,42 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     operations.authorizedProof?.scope === groupDeniedAt.scope &&
     operations.authorizedProof.sequence > groupDeniedAt.proofSequence
   );
-  const denied = reference.denied || query.denied || operations.denied || childDenied || (access.isSuccess && !access.can("ledger.read"));
+  // Switching from a denied Detailed view requires a NEW authorized parent
+  // proof. A prior visible parent page is not a safe permission release.
+  const pendingParentProof = mode === "operations" && query.denied &&
+    (movementDeniedAt === null || !operations.authorizedProof ||
+      operations.authorizedProof.scope !== operations.visibleScope ||
+      operations.authorizedProof.sequence <= movementDeniedAt);
+  // Switching after a denied parent/child view requires a fresh movement
+  // page before any previously cached detailed rows may reappear.
+  const pendingMovementProof = mode === "movements" && movementRecovery !== "idle";
+  const denied = reference.denied || (access.isSuccess && !access.can("ledger.read")) ||
+    (mode === "operations"
+      ? operations.denied || childDenied || pendingParentProof
+      : query.denied || pendingMovementProof);
+  const switchMode = (next: "operations" | "movements") => {
+    if (next === mode) return;
+    if (next === "operations" && query.denied) {
+      setMovementDeniedAt(operations.authorizedProof?.sequence ?? 0);
+    }
+    if (next === "movements" && (operations.denied || childDenied)) {
+      setMovementRecovery("start");
+    }
+    setMode(next);
+  };
+  useEffect(() => {
+    if (mode !== "movements" || movementRecovery !== "start") return;
+    // Refresh clears prior page/scope immediately; only a newly admitted
+    // Bearer read may end this fail-closed transition.
+    query.refresh();
+    setMovementRecovery("verify");
+  }, [mode, movementRecovery, query.refresh]);
+  useEffect(() => {
+    if (mode === "movements" && movementRecovery === "verify" &&
+        !query.denied && !query.error && !query.loading && query.total !== null) {
+      setMovementRecovery("idle");
+    }
+  }, [mode, movementRecovery, query.denied, query.error, query.loading, query.total]);
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
@@ -161,8 +199,8 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
         />}
 
         <nav aria-label={operationText(t, language, "copy24")} className="flex gap-1 border-b border-slate-100 bg-white px-3 py-1.5">
-          <button type="button" aria-pressed={mode === "operations"} onClick={() => setMode("operations")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "operations" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy25")}</button>
-          <button type="button" aria-pressed={mode === "movements"} onClick={() => setMode("movements")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "movements" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy26")}</button>
+          <button type="button" aria-pressed={mode === "operations"} onClick={() => switchMode("operations")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "operations" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy25")}</button>
+          <button type="button" aria-pressed={mode === "movements"} onClick={() => switchMode("movements")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "movements" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy26")}</button>
           {mode === "operations" && !denied && <span className="ms-auto self-center text-[10px] text-slate-500">{visibleOperations.length} {operationText(t, language, "copy27")}</span>}
         </nav>
         {denied ? (
