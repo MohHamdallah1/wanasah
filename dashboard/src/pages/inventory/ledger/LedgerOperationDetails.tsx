@@ -1,4 +1,4 @@
-import { operationText } from "./operationI18n";
+import { operationText, operationFailureText, parseLedgerOperationFailure, type LedgerOperationFailure } from "./operationI18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { Modal } from "@/components/ui/modal";
@@ -48,6 +48,7 @@ export function LedgerOperationDetails({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
+  const [failure, setFailure] = useState<LedgerOperationFailure | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const cursorRef = useRef<string | null>(null);
   const idsRef = useRef(new Set<number>());
@@ -69,6 +70,7 @@ export function LedgerOperationDetails({
     if (cursor === null) setLoading(true);
     else setLoadingMore(true);
     setError(false);
+    setFailure(null);
     try {
       const data = parseLedgerOperationChildPage(await authFetch(buildLedgerOperationUrl({
         locationId, groupKey: operation.group_key, cursor, limit: 50,
@@ -99,6 +101,7 @@ export function LedgerOperationDetails({
         onCloseRef.current();
         return;
       }
+      setFailure(parseLedgerOperationFailure(failure));
       setError(true);
     } finally {
       if (alive.current) {
@@ -164,7 +167,14 @@ export function LedgerOperationDetails({
         )}
         {error && (
           <div role="alert" className="flex items-center justify-between rounded border border-amber-200 bg-amber-50 p-2 text-xs">
-            {operationText(t, language, "copy15")}
+            <span className="min-w-0 break-words">
+              {failure ? operationFailureText(t, language, failure) : operationText(t, language, "copy15")}
+              {failure?.code && failure.status >= 400 && failure.status < 500 && (
+                <span className="ms-2">{operationText(t, language, "errorCode")}: <bdi dir="ltr">{failure.code}</bdi></span>
+              )}
+              {failure?.context && <span className="ms-2">{failure.context}</span>}
+              {failure?.requestId && <span className="ms-2">{operationText(t, language, "requestId")}: <bdi dir="ltr">{failure.requestId}</bdi></span>}
+            </span>
             <button type="button" onClick={retry} className="rounded border px-2 py-1">{operationText(t, language, "copy16")}</button>
           </div>
         )}
