@@ -185,6 +185,18 @@ export function LedgerOperationDetails({
           {viewport.before > 0 && <div aria-hidden="true" style={{ height: viewport.before }} />}
           {items.slice(viewport.first, viewport.last).map((item, index) => {
             const locations = ledgerLocationEvidence(t, language, item);
+            // A null counterpart may be redacted by Backend warehouse RLS,
+            // not an actual external source/destination. Do not invent a
+            // physical location or reveal the inaccessible warehouse.
+            const visibleLocation = (side: "source" | "destination") => {
+              const id = side === "source" ? item.source_location_id : item.destination_location_id;
+              const name = side === "source" ? item.source_location_name : item.destination_location_name;
+              if (id !== null || name !== null) return locations[side];
+              // A genuine supplier receipt has a documented outside source.
+              if (side === "source" && operation.group_kind === "RECEIPT" &&
+                  item.reference_type === "INBOUND_SUPPLIER") return locations.source;
+              return operationText(t, language, "locationNotShown");
+            };
             return <article key={item.id} data-ledger-virtual-index={viewport.first + index} data-ledger-child-id={item.id}
               className={`mb-2 rounded-lg border p-3 text-xs ${item.matches_filter ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white"}`}>
               <div className="flex flex-wrap justify-between gap-2">
@@ -194,7 +206,7 @@ export function LedgerOperationDetails({
               <div className="mt-1 flex flex-wrap gap-2 text-slate-700">
                 <span className="rounded bg-slate-100 px-2 py-0.5">{stage(item.reference_type)}</span>
                 <bdi dir="auto" className="font-bold">{ledgerSignedQuantity(item, unit)}</bdi>
-                <span>{operationText(t, language, "copy8")}: {locations.source} · {operationText(t, language, "copy9")}: {locations.destination}</span>
+                <span>{operationText(t, language, "copy8")}: {visibleLocation("source")} · {operationText(t, language, "copy9")}: {visibleLocation("destination")}</span>
                 {item.admin_name && <span>{operationText(t, language, "copy20")}: {item.admin_name}</span>}
               </div>
               <div className="mt-1"><LedgerCostEvidence t={t} language={language} entry={item} /></div>
