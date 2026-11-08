@@ -859,6 +859,18 @@ LEDGER_818_STAGE_B_EXACT = frozenset({
 LEDGER_818_STACKED_EXACT = LEDGER_818_STAGE_A_EXACT | LEDGER_818_STAGE_B_EXACT
 
 
+# #825: exact owner-reviewed Ledger visual gate only; does not grant Ledger
+# or Live Stock authority to unrelated test, runtime, backend, or Flutter paths.
+LEDGER_825_VISUAL_EXACT = frozenset({
+    "dashboard/e2e/ledger-762.spec.ts",
+    "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerOperationDetails.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerOperationRows.tsx",
+    "dashboard/src/pages/inventory/ledger/LedgerReferenceModal.tsx",
+    "dashboard/src/pages/inventory/ledger/operationI18n.ts",
+    "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
+})
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
@@ -868,6 +880,8 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "policy-maintenance", []
 
     if mode in {"ux", "operational"}:
+        if changed == LEDGER_825_VISUAL_EXACT:
+            return "ledger-825-visual-exact", []
         if changed == LEDGER_818_STAGE_A_EXACT:
             return "ledger-818-stage-a-exact", []
         if changed == LEDGER_818_STAGE_B_EXACT:
@@ -1028,6 +1042,30 @@ def selftest() -> None:
         _expect_fail(ledger_mode, set(LEDGER_818_STAGE_A_EXACT) | LEDGER_811_EXACT, ledger_818_sem)
     assert classify("r3", set(LEDGER_818_STAGE_A_EXACT), ledger_818_sem) == ("not-applicable", [])
     assert classify("r3", set(LEDGER_818_STAGE_B_EXACT), ledger_818_sem) == ("not-applicable", [])
+
+    # #825 is an exact seven-file Ledger-only UI change. All subsets and
+    # mixed domains remain rejected; policy changes must be their own PR.
+    assert len(LEDGER_825_VISUAL_EXACT) == 7
+    for ledger_mode in ("ux", "operational"):
+        assert classify(ledger_mode, set(LEDGER_825_VISUAL_EXACT), ledger_818_sem) == (
+            "ledger-825-visual-exact", []
+        )
+        for missing in LEDGER_825_VISUAL_EXACT:
+            partial = set(LEDGER_825_VISUAL_EXACT) - {missing}
+            assert classify(ledger_mode, partial, ledger_818_sem)[0] != "ledger-825-visual-exact"
+            if "dashboard/src/pages/inventory/Tab4Ledger.tsx" in partial:
+                _expect_fail(ledger_mode, partial, ledger_818_sem)
+        for foreign in (HELPER, "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                        "wa_backend/domains/ledger/read.py", "flutter_app/lib/main.dart"):
+            candidate = set(LEDGER_825_VISUAL_EXACT) | {foreign}
+            assert classify(ledger_mode, candidate, ledger_818_sem)[0] != "ledger-825-visual-exact"
+            if foreign != HELPER:
+                _expect_fail(ledger_mode, candidate, ledger_818_sem)
+        _expect_fail(ledger_mode, set(LEDGER_825_VISUAL_EXACT) |
+                     {"dashboard/src/pages/inventory/ledger/LedgerFilters.tsx"}, ledger_818_sem)
+    assert classify("r3", set(LEDGER_825_VISUAL_EXACT), ledger_818_sem) == (
+        "not-applicable", []
+    )
 
     ledger_toolbar_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_TOOLBAR_EXACT) == 7
