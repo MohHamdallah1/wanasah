@@ -141,6 +141,16 @@ beforeEach(() => {
   mocks.permissions = new Set(["ledger.read", "ledger.adjust"]);
 });
 
+const scrollLedgerToEnd = () => {
+  const node = document.querySelector('[data-cp13-ledger-list="chronological"]') as HTMLDivElement;
+  Object.defineProperties(node, {
+    clientHeight: { configurable: true, value: 800 },
+    offsetWidth: { configurable: true, value: 1280 },
+    scrollHeight: { configurable: true, value: 850 },
+  });
+  fireEvent.scroll(node);
+};
+
 describe("CP10 Ledger Dashboard", () => {
   it("labels the scoped movement count and aligns warehouse selector between search and movement type", async () => {
     const onWarehouseChange = vi.fn();
@@ -283,7 +293,7 @@ describe("CP10 Ledger Dashboard", () => {
     });
     renderLedger();
     expect(await screen.findAllByText("Shared Product")).not.toHaveLength(0);
-    fireEvent.scroll(document.querySelector('[data-cp13-ledger-list="chronological"]')!);
+    scrollLedgerToEnd();
     await waitFor(() => expect(mocks.authFetch.mock.calls.some(([path]) => String(path).includes("cursor=next-1"))).toBe(true));
 
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "alpha" } });
@@ -358,7 +368,7 @@ describe("CP10 Ledger Dashboard", () => {
         target: { value: "AUDIT_ADJUSTMENT" },
       });
       expect(await screen.findAllByText("Fuzzy page one")).not.toHaveLength(0);
-      fireEvent.scroll(document.querySelector('[data-cp13-ledger-list="chronological"]')!);
+      scrollLedgerToEnd();
       expect(await screen.findAllByText("Fuzzy page two")).not.toHaveLength(0);
       expect(calls.some(call => call.includes("cursor=fuzzy-next"))).toBe(true);
 
