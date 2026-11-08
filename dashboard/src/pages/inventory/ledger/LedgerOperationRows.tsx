@@ -71,7 +71,7 @@ export function LedgerOperationRows({
             <article key={item.group_key} role="row"
               data-ledger-virtual-index={virtual.first + index}
               data-ledger-operation-row="true"
-              className={`mb-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs shadow-sm md:mb-0 ${desktopColumns} md:gap-2 md:rounded-none md:border-x-0 md:border-t-0 md:px-3 md:py-1.5 md:shadow-none">
+              className={`mb-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs shadow-sm md:mb-0 ${desktopColumns} md:gap-2 md:rounded-none md:border-x-0 md:border-t-0 md:px-3 md:py-1.5 md:shadow-none`}>
               <span role="cell" data-ledger-column="columnType" title={kind(item)} className="min-w-0 truncate font-bold text-slate-900">
                 {kind(item)}
               </span>
