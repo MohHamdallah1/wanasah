@@ -138,6 +138,9 @@ export function operationFailureText(
 /** Full canonical movement reference-type catalog from ledgerI18n backend producer labels.
  * Never use a partial UI-only list that drops historical producer types. */
 export const LEDGER_OPERATION_REFERENCE_TYPES: readonly string[] = [
+  "TRANSFER",
+  "STOCKTAKE",
+  "STOCKTAKE_ADJUSTMENT",
   "STATUS_RECLASSIFICATION",
   "FINAL_DISPOSAL",
   "SPECIAL_TRANSFER_DISPATCH",
