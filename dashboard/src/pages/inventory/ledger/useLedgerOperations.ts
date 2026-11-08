@@ -131,7 +131,12 @@ export function useLedgerOperations(
         setScopeVisible(null);
         setHasMore(false);
         cursorRef.current = null;
+        pageCount.current = 0;
+        seenCursors.current.clear();
         seenGroups.current.clear();
+        revalidationFailed.current = false;
+        setFailure(null);
+        setError(false);
         setDenied(true);
       } else {
         if (reset) setScopeVisible(queryScope);
@@ -181,6 +186,8 @@ export function useLedgerOperations(
         seenCursors.current = new Set(page.next_cursor ? [page.next_cursor] : []);
       }
       setScopeVisible(queryScope);
+      setDenied(false);
+      revalidationFailed.current = false;
       setFailure(null);
       setError(false);
     } catch (failure) {
@@ -191,7 +198,12 @@ export function useLedgerOperations(
         setScopeVisible(null);
         setHasMore(false);
         cursorRef.current = null;
+        pageCount.current = 0;
+        seenCursors.current.clear();
         seenGroups.current.clear();
+        revalidationFailed.current = false;
+        setFailure(null);
+        setError(false);
         setDenied(true);
       } else if (!(failure instanceof Error && failure.name === "AbortError")) {
         revalidationFailed.current = true;
