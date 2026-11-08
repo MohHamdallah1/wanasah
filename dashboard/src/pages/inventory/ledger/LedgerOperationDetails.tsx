@@ -1,3 +1,4 @@
+import { operationText } from "./operationI18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { Modal } from "@/components/ui/modal";
@@ -138,72 +139,71 @@ export function LedgerOperationDetails({
   const unit = (code: string) => t(`uom.${code}`, { defaultValue: code });
   const stage = (code: string) => {
     const label = ledgerMovementLabel(t, language, code);
-    return label === code ? (ar ? "حركة موثقة" : "Recorded movement") : label;
+    return label === code ? (operationText(t, language, "copy10")) : label;
   };
   const count = (n: number) => new Intl.NumberFormat(locale, { numberingSystem: "latn" }).format(n);
-  const heading = `${ledgerOperationKindLabel(operation.group_kind, ar)} · ${operation.reference || (ar ? "بدون مرجع" : "No reference")}`;
+  const heading = `${ledgerOperationKindLabel(operation.group_kind, t, language)} · ${operation.reference || (operationText(t, language, "copy11"))}`;
   return (
     <Modal isOpen={true} onClose={onClose} title={heading} maxWidth="max-w-5xl">
       <div data-ledger-operation-details="true" className="flex max-h-[75vh] min-h-0 flex-col gap-2">
         <p className="text-xs font-semibold text-slate-600">
-          {count(operation.product_variant_count)} {ar ? "أصناف" : "products"} · {count(operation.batch_count)} {ar ? "تشغيلات" : "lots"} · {count(operation.movement_count)} {ar ? "حركات أصلية مسجلة" : "original immutable movements"}
+          {count(operation.product_variant_count)} {operationText(t, language, "copy4")} · {count(operation.batch_count)} {operationText(t, language, "copy5")} · {count(operation.movement_count)} {operationText(t, language, "copy12")}
         </p>
         {operation.count_meaning === "POSTED_VARIANCE_MOVEMENTS" && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-            {ar ? "هذه الحركات تخص فروقات الجرد المثبتة فقط؛ الأصناف التي لم يتغير رصيدها موجودة في تاريخ الجرد المكتمل." :
-              "These are posted stocktake variances only. Unchanged counted products belong in completed stocktake history."}
+            {operationText(t, language, "copy13")}
             {operation.stocktake_history && (
               <button type="button" className="ms-2 rounded border border-amber-400 bg-white px-2 py-1 font-bold"
                 onClick={() => {
                   onClose();
                   navigate("/inventory", { state: createInventoryTabNavigationState("stocktake", operation.stocktake_history!.warehouse_location_id) });
                 }}>
-                {ar ? "فتح تاريخ الجرد" : "Open stocktake history"} · <bdi dir="ltr">{operation.stocktake_history.reference}</bdi>
+                {operationText(t, language, "copy14")} · <bdi dir="ltr">{operation.stocktake_history.reference}</bdi>
               </button>
             )}
           </div>
         )}
         {error && (
           <div role="alert" className="flex items-center justify-between rounded border border-amber-200 bg-amber-50 p-2 text-xs">
-            {ar ? "تعذر استكمال التفاصيل؛ الحركات المحملة محفوظة." : "Could not continue details; loaded movements are retained."}
-            <button type="button" onClick={retry} className="rounded border px-2 py-1">{ar ? "إعادة المحاولة" : "Retry"}</button>
+            {operationText(t, language, "copy15")}
+            <button type="button" onClick={retry} className="rounded border px-2 py-1">{operationText(t, language, "copy16")}</button>
           </div>
         )}
         <div ref={viewport.rootRef} onScroll={viewport.onScroll}
           className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2"
           data-ledger-child-list="true" data-ledger-mounted={viewport.mounted}>
-          {loading && items.length === 0 && <p role="status" className="p-3 text-sm">{ar ? "جاري تحميل التفاصيل..." : "Loading details..."}</p>}
-          {!loading && !error && items.length === 0 && <p role="status" className="p-3 text-sm">{ar ? "لا توجد حركات مرئية." : "No visible movements."}</p>}
+          {loading && items.length === 0 && <p role="status" className="p-3 text-sm">{operationText(t, language, "copy17")}</p>}
+          {!loading && !error && items.length === 0 && <p role="status" className="p-3 text-sm">{operationText(t, language, "copy18")}</p>}
           {viewport.before > 0 && <div aria-hidden="true" style={{ height: viewport.before }} />}
           {items.slice(viewport.first, viewport.last).map((item, index) => {
             const locations = ledgerLocationEvidence(t, language, item);
             return <article key={item.id} data-ledger-virtual-index={viewport.first + index} data-ledger-child-id={item.id}
               className={`mb-2 rounded-lg border p-3 text-xs ${item.matches_filter ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white"}`}>
               <div className="flex flex-wrap justify-between gap-2">
-                <strong className="text-slate-900">{item.product_name} · {formatPublicBatchNumber(item.batch_number, ar ? "بدون تشغيلة" : "No lot")}</strong>
+                <strong className="text-slate-900">{item.product_name} · {formatPublicBatchNumber(item.batch_number, operationText(t, language, "copy19"))}</strong>
                 <bdi dir="ltr" className="font-bold text-slate-500">#{item.id} · {formatLedgerDate(item.date, locale)}</bdi>
               </div>
               <div className="mt-1 flex flex-wrap gap-2 text-slate-700">
                 <span className="rounded bg-slate-100 px-2 py-0.5">{stage(item.reference_type)}</span>
                 <bdi dir="auto" className="font-bold">{ledgerSignedQuantity(item, unit)}</bdi>
-                <span>{ar ? "من" : "From"}: {locations.source} · {ar ? "إلى" : "To"}: {locations.destination}</span>
-                {item.admin_name && <span>{ar ? "المنفذ" : "Actor"}: {item.admin_name}</span>}
+                <span>{operationText(t, language, "copy8")}: {locations.source} · {operationText(t, language, "copy9")}: {locations.destination}</span>
+                {item.admin_name && <span>{operationText(t, language, "copy20")}: {item.admin_name}</span>}
               </div>
               <div className="mt-1"><LedgerCostEvidence t={t} language={language} entry={item} /></div>
               {item.notes && <p className="mt-1 whitespace-pre-wrap rounded bg-slate-50 p-2">{item.notes}</p>}
               <div className="mt-2 flex flex-wrap gap-2">
                 {item.reference && <button type="button" className="rounded border border-blue-200 px-2 py-1 text-blue-800"
-                  onClick={() => onOpenReference(item)}>{ar ? "دليل المرجع" : "Reference evidence"}</button>}
+                  onClick={() => onOpenReference(item)}>{operationText(t, language, "copy21")}</button>}
                 {canAdjust && item.type === "INBOUND_SUPPLIER" &&
                   <button type="button" className="rounded border border-purple-200 px-2 py-1 text-purple-800"
-                    onClick={() => onAdjust(item)}>{ar ? "تصحيح التوريد" : "Correct inbound"}</button>}
+                    onClick={() => onAdjust(item)}>{operationText(t, language, "copy22")}</button>}
               </div>
             </article>;
           })}
           {viewport.after > 0 && <div aria-hidden="true" style={{ height: viewport.after }} />}
           <div ref={viewport.markerRef} data-ledger-bottom="true" className="h-px" aria-hidden="true" />
         </div>
-        {loadingMore && <p role="status" className="text-center text-xs text-slate-500">{ar ? "جاري تحميل المزيد..." : "Loading more..."}</p>}
+        {loadingMore && <p role="status" className="text-center text-xs text-slate-500">{operationText(t, language, "copy23")}</p>}
       </div>
     </Modal>
   );
