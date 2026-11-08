@@ -2,7 +2,7 @@ import type { TFunction } from "i18next";
 import { formatLedgerDate } from "./contracts";
 import { ledgerMovementLabel } from "./ledgerI18n";
 import type { LedgerOperation } from "./operationContracts";
-import { operationText } from "./operationI18n";
+import { ledgerOperationKindLabel, operationText } from "./operationI18n";
 import { useLedgerWindow } from "./useLedgerWindow";
 
 interface Props {
@@ -15,12 +15,6 @@ interface Props {
   loadingMore: boolean;
   hasMore: boolean;
 }
-
-export const ledgerOperationKindLabel = (kind: LedgerOperation["group_kind"], t: TFunction, language: string) =>
-  operationText(t, language, ({
-    TRANSFER: "kindTransfer", STOCKTAKE: "kindStocktake",
-    RECEIPT: "kindReceipt", MOVEMENT: "kindMovement",
-  } as const)[kind]);
 
 /**
  * One DOM row for each canonical server group at every breakpoint. The only
