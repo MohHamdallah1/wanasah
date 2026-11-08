@@ -17,7 +17,10 @@ export function ledgerMovementFilterTypes(
     typeof type === "string" &&
     type.length > 0 && type.length <= 50 &&
     type.trim() === type && type !== "ALL" &&
-    !/[\u0000-\u001f\u007f]/.test(type);
+    [...type].every(character => {
+      const code = character.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    });
   return [...new Set([
     ...LEDGER_OPERATION_REFERENCE_TYPES,
     // Emitted by ordinary transfer terminal-status posting (transfers.py);
