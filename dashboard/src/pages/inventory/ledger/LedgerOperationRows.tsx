@@ -40,7 +40,7 @@ export function LedgerOperationRows({
   const route = (item: LedgerOperation) => {
     const locations = [item.source_location_name, item.destination_location_name]
       .filter((name): name is string => Boolean(name))
-      .map(name => operationLocationLabel(name, language)).join(" → ");
+      .map(name => operationLocationLabel(name, language, t)).join(" → ");
     // Backend returns an alphabetically sorted set, NOT a chronological latest stage.
     const recordedStages = item.stage_types.map(stage).join(" / ");
     return [locations, recordedStages].filter(Boolean).join(" · ") || "—";
