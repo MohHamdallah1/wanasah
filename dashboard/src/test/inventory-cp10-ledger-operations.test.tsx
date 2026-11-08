@@ -421,6 +421,28 @@ describe("Ledger #818 authoritative operations", () => {
     hook.unmount();
   });
 
+  it("recovers an inactive detailed-view 403 only after a new authorized grouped read", async () => {
+    let groupedReads = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/warehouse/ledger/cursor?")) throw { status: 403 };
+      if (path.includes("/operations/cursor")) {
+        groupedReads += 1;
+        return parent([operation(1)]);
+      }
+      throw Error("Unexpected endpoint: " + path);
+    });
+    const { container } = renderLedger();
+    await waitFor(() => expect(groupedReads).toBe(1));
+    expect(container.querySelector('[data-ledger-operation-row="true"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(container.querySelector('[data-ledger-operation-row="true"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await waitFor(() => expect(groupedReads).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(container.querySelector('[data-ledger-operation-row="true"]')).not.toBeNull());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("releases child 403 denial only after a fresh authorized parent response", async () => {
     let reads = 0;
     mocks.authFetch.mockImplementation(async (path: string) => {
