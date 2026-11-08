@@ -57,7 +57,7 @@ export function LedgerOperationRows({
       <div role="table" aria-label={operationText(t, language, "copy25")}>
         <div role="rowgroup" className="hidden border-b border-slate-200 bg-slate-50 md:block">
           <div role="row"
-            className={`grid ${desktopColumns.replace("md:grid-cols", "grid-cols")} items-center gap-2 px-3 py-2 text-[11px] font-bold text-slate-600`}>
+            className={`grid ${desktopColumns} items-center gap-2 px-3 py-2 text-[11px] font-bold text-slate-600`}>
             {columns.map(column => (
               <span key={column} role="columnheader" data-ledger-column={column} className="min-w-0 truncate text-start">
                 {operationText(t, language, column)}
