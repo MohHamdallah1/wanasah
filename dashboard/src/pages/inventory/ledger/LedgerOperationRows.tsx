@@ -98,10 +98,10 @@ export function LedgerOperationRows({
                 className="col-start-1 row-start-5 min-w-0 truncate whitespace-nowrap font-bold text-slate-800 md:col-auto md:row-auto">
                 {count(item.product_variant_count)} {item.count_meaning === "POSTED_VARIANCE_MOVEMENTS"
                   ? operationText(t, language, "varianceProducts")
-                  : (isArabic && item.product_variant_count === 1 ? operationText(t, language, "singularProduct") : products)}
+                  : (item.product_variant_count === 1 ? operationText(t, language, "singularProduct") : products)}
               </span>
               <span role="cell" data-ledger-column="columnMovements" className="col-start-1 row-start-6 whitespace-nowrap text-[11px] text-slate-600 md:col-auto md:row-auto">
-                {count(item.movement_count)} {movements}
+                {count(item.movement_count)} {item.movement_count === 1 ? operationText(t, language, "singularMovement") : movements}
               </span>
               <span role="cell" data-ledger-column="columnAction" className="col-start-2 row-span-6 row-start-1 self-center md:col-auto md:row-auto">
                 <button type="button" onClick={event => onDetails(item, event.currentTarget)}
