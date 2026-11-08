@@ -48,6 +48,7 @@ const ar = {
   kindReceipt: "عملية توريد",
   kindMovement: "حركة مستقلة",
   locationNotShown: "موقع غير ظاهر",
+  vehicleLabel: "مركبة",
   singularProduct: "صنف",
   singularMovement: "حركة موثقة",
   summaryProducts: "الأصناف",
@@ -106,6 +107,7 @@ const en: Record<keyof typeof ar, string> = {
   kindReceipt: "Supplier receipt",
   kindMovement: "Individual movement",
   locationNotShown: "Location not shown",
+  vehicleLabel: "Vehicle",
   singularProduct: "product",
   singularMovement: "immutable movement",
   summaryProducts: "products",
@@ -217,8 +219,8 @@ export function abbreviatedOperationReference(reference: string): string {
 
 /** Backend vehicle custody location names are system-managed from plate number.
  * Localize only the generated-looking prefix, retaining the original data. */
-export function operationLocationLabel(name: string, language: string): string {
+export function operationLocationLabel(name: string, language: string, t: TFunction): string {
   if (!language.toLowerCase().startsWith("ar")) return name;
   const generated = /^Vehicle ([A-Za-z0-9-]+)$/.exec(name);
-  return generated ? `مركبة ${generated[1]}` : name;
+  return generated ? `${operationText(t, language, "vehicleLabel")} ${generated[1]}` : name;
 }
