@@ -1,4 +1,6 @@
 import type { TFunction } from "i18next";
+import { useEffect, useRef } from "react";
+import { operationText } from "./operationI18n";
 
 import { Modal } from "@/components/ui/modal";
 import { ledgerLocationEvidence, ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
@@ -10,20 +12,20 @@ interface Props {
   t: TFunction;
   language: string;
   controller: LedgerReferenceState;
+  embedded?: boolean;
+  onBack?: () => void;
 }
 
-export function LedgerReferenceModal({ t, language, controller }: Props) {
+export function LedgerReferenceModal({ t, language, controller, embedded = false, onBack }: Props) {
+  const backRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (embedded && controller.entry) backRef.current?.focus();
+  }, [embedded, controller.entry]);
   const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
   const reference = controller.entry?.reference ?? "";
 
-  return (
-    <Modal
-      isOpen={controller.entry !== null}
-      onClose={controller.close}
-      title={text("referenceDetails", { reference })}
-      maxWidth="max-w-3xl"
-    >
+  const content = (
       <div className="space-y-3">
         {controller.loading && controller.items.length === 0 ? (
           <p role="status" className="py-8 text-center text-sm font-bold text-slate-400">{text("referenceLoading")}</p>
@@ -79,6 +81,29 @@ export function LedgerReferenceModal({ t, language, controller }: Props) {
           <p className="py-6 text-center text-xs font-semibold text-slate-500">{text("referenceEmpty")}</p>
         ) : null}
       </div>
+  );
+  if (embedded) {
+    if (!controller.entry) return null;
+    return (
+      <section data-ledger-reference-in-panel="true" className="min-h-0 flex-1 overflow-y-auto" aria-label={text("referenceDetails", { reference })}>
+        <div className="sticky top-0 z-10 mb-2 flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white pb-2">
+          <button ref={backRef} data-ledger-reference-back="true" type="button"
+            onClick={onBack ?? controller.close}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+            {operationText(t, language, "backToOperation")}
+          </button>
+          <h4 className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">
+            {text("referenceDetails", { reference })}
+          </h4>
+        </div>
+        {content}
+      </section>
+    );
+  }
+  return (
+    <Modal isOpen={controller.entry !== null} onClose={controller.close}
+      title={text("referenceDetails", { reference })} maxWidth="max-w-3xl">
+      {content}
     </Modal>
   );
 }
