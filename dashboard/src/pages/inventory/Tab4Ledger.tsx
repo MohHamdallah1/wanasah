@@ -1,3 +1,4 @@
+import { operationText } from "./ledger/operationI18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -154,10 +155,10 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           onRefresh={mode === "operations" ? operations.refresh : query.refresh}
         />}
 
-        <nav aria-label={language.startsWith("ar") ? "طريقة عرض السجل" : "Ledger display mode"} className="flex gap-1 border-b border-slate-100 bg-white px-3 py-1.5">
-          <button type="button" aria-pressed={mode === "operations"} onClick={() => setMode("operations")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "operations" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{language.startsWith("ar") ? "العمليات" : "Operations"}</button>
-          <button type="button" aria-pressed={mode === "movements"} onClick={() => setMode("movements")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "movements" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{language.startsWith("ar") ? "الحركات التفصيلية" : "Detailed movements"}</button>
-          {mode === "operations" && !denied && <span className="ms-auto self-center text-[10px] text-slate-500">{visibleOperations.length} {language.startsWith("ar") ? "عملية محملة" : "loaded operations"}</span>}
+        <nav aria-label={operationText(t, language, "copy24")} className="flex gap-1 border-b border-slate-100 bg-white px-3 py-1.5">
+          <button type="button" aria-pressed={mode === "operations"} onClick={() => setMode("operations")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "operations" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy25")}</button>
+          <button type="button" aria-pressed={mode === "movements"} onClick={() => setMode("movements")} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${mode === "movements" ? "bg-blue-50 text-blue-800" : "text-slate-600"}`}>{operationText(t, language, "copy26")}</button>
+          {mode === "operations" && !denied && <span className="ms-auto self-center text-[10px] text-slate-500">{visibleOperations.length} {operationText(t, language, "copy27")}</span>}
         </nav>
         {denied ? (
           <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
