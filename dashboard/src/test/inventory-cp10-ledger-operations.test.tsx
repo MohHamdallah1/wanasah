@@ -524,8 +524,8 @@ describe("Ledger #818 authoritative operations", () => {
     const tDefault = ((_key: string, o?: Record<string, unknown>) => String(o?.defaultValue ?? _key)) as never;
     const original = movement(401, { source_location_name: "Vehicle 12-25132",
       source_location_type: "VEHICLE", source_stock_status: "AVAILABLE",
-      destination_location_name: null }) as never;
-    const localized = localizedOperationLocationNames(original, "ar", tDefault);
+      destination_location_name: null });
+    const localized = localizedOperationLocationNames(original as never, "ar", tDefault);
     expect(localized.source_location_name).toBe("12-25132");
     expect(localized.destination_location_name).toBeNull();
     expect(original.source_location_name).toBe("Vehicle 12-25132");
