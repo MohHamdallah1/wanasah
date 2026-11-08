@@ -106,7 +106,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     if (next === "operations" && query.denied) {
       setMovementDeniedAt(operations.authorizedProof?.sequence ?? 0);
     }
-    if (next === "movements" && (operations.denied || childDenied)) {
+    if (next === "movements" && (operations.denied || childDenied || query.denied)) {
       setMovementRecovery("start");
     }
     setMode(next);
@@ -204,8 +204,24 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           {mode === "operations" && !denied && <span className="ms-auto self-center text-[10px] text-slate-500">{visibleOperations.length} {operationText(t, language, "copy27")}</span>}
         </nav>
         {denied ? (
-          <div ref={accessAlertRef} tabIndex={-1} role="alert" className="m-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
-            {text("referenceAccessChanged")}
+          <div ref={accessAlertRef} tabIndex={-1} role="alert"
+            className="m-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-800">
+            <span>
+              {(mode === "operations" ? operations.error : query.error)
+                ? (mode === "operations" && operations.failure
+                  ? operationFailureText(t, language, operations.failure) : text("loadFailed"))
+                : text("referenceAccessChanged")}
+              {mode === "operations" && operations.error && operations.failure?.requestId && (
+                <span className="ms-2">{operationText(t, language, "requestId")}: <bdi dir="ltr">{operations.failure.requestId}</bdi></span>
+              )}
+            </span>
+            {(mode === "operations" ? operations.error : query.error) && (
+              <button type="button"
+                onClick={mode === "operations" ? operations.refresh : query.refresh}
+                className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-red-500">
+                {text("retry")}
+              </button>
+            )}
           </div>
         ) : null}
         {!denied && (mode === "operations" ? operations.error : query.error) ? (
