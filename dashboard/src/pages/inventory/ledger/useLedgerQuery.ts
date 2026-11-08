@@ -264,9 +264,13 @@ export function useLedgerQuery(
       setVisibleScope(null);
       setDenied(false);
       void load(null, true);
-    } else if (returning || canceledBeforeFirstPage.current || visibleScope !== scopeKey) {
-      canceledBeforeFirstPage.current = false;
-      void revalidate();
+    } else if (returning || canceledBeforeFirstPage.current || (visibleScope !== scopeKey && scopeKey === serverScope)) {
+      // Raw search text is not authorized to reuse the old debounced result;
+      // wait until its server scope catches up before admitting any rows.
+      if (scopeKey === serverScope) {
+        canceledBeforeFirstPage.current = false;
+        void revalidate();
+      }
     }
     return () => {
       if (pending.current && pagesFetched.current === 0) canceledBeforeFirstPage.current = true;
