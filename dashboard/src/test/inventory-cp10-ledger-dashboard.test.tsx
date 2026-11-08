@@ -44,6 +44,8 @@ vi.mock("react-i18next", async (importOriginal) => {
 });
 
 import { Tab4Ledger } from "@/pages/inventory/Tab4Ledger";
+import { LedgerTable } from "@/pages/inventory/ledger/LedgerTable";
+import { LedgerMobileCards } from "@/pages/inventory/ledger/LedgerMobileCards";
 
 const entry = (id: number, overrides: Partial<LedgerEntry> = {}): LedgerEntry => ({
   id,
@@ -130,6 +132,16 @@ beforeEach(() => {
   mocks.language = "en";
   mocks.permissions = new Set(["ledger.read", "ledger.adjust"]);
 });
+
+const scrollLedgerToEnd = () => {
+  const node = document.querySelector('[data-cp13-ledger-list="chronological"]') as HTMLDivElement;
+  Object.defineProperties(node, {
+    clientHeight: { configurable: true, value: 800 },
+    offsetWidth: { configurable: true, value: 1280 },
+    scrollHeight: { configurable: true, value: 850 },
+  });
+  fireEvent.scroll(node);
+};
 
 describe("CP10 Ledger Dashboard", () => {
   it("labels the scoped movement count and aligns warehouse selector between search and movement type", async () => {
@@ -272,21 +284,21 @@ describe("CP10 Ledger Dashboard", () => {
     });
     renderLedger();
     expect(await screen.findAllByText("Shared Product")).not.toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    scrollLedgerToEnd();
     await waitFor(() => expect(mocks.authFetch.mock.calls.some(([path]) => String(path).includes("cursor=next-1"))).toBe(true));
 
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "alpha" } });
     await waitFor(() => {
       const matching = mocks.authFetch.mock.calls.map(([path]) => String(path)).filter((path) => path.includes("search=alpha"));
       expect(matching.length).toBeGreaterThan(0);
-      expect(matching.at(-1)).not.toContain("cursor=");
+      expect(matching.some(path => !path.includes("cursor="))).toBe(true);
     });
 
     fireEvent.change(screen.getByRole("combobox", { name: "Movement" }), { target: { value: "TRANSFER" } });
     await waitFor(() => {
       const matching = mocks.authFetch.mock.calls.map(([path]) => String(path)).filter((path) => path.includes("reference_type=TRANSFER"));
       expect(matching.length).toBeGreaterThan(0);
-      expect(matching.at(-1)).not.toContain("cursor=");
+      expect(matching.some(path => !path.includes("cursor="))).toBe(true);
     });
   });
 
@@ -347,8 +359,7 @@ describe("CP10 Ledger Dashboard", () => {
         target: { value: "AUDIT_ADJUSTMENT" },
       });
       expect(await screen.findAllByText("Fuzzy page one")).not.toHaveLength(0);
-      const nextLabel = language === "ar" ? "الصفحة التالية" : "Next page";
-      fireEvent.click(screen.getByRole("button", { name: nextLabel }));
+      scrollLedgerToEnd();
       expect(await screen.findAllByText("Fuzzy page two")).not.toHaveLength(0);
       expect(calls.some(call => call.includes("cursor=fuzzy-next"))).toBe(true);
 
@@ -370,7 +381,7 @@ describe("CP10 Ledger Dashboard", () => {
       expect(screen.queryByText("Exact posted adjustment")).not.toBeInTheDocument();
       expect(calls.at(-1)).toContain("search=STK-ABC");
       expect(calls.at(-1)).not.toContain("reference_id=");
-      expect(calls.at(-1)).not.toContain("cursor=");
+      expect(calls.some(call => call.includes("search=STK-ABC") && !call.includes("cursor=") && !call.includes("reference_id="))).toBe(true);
     },
   );
 
@@ -522,5 +533,70 @@ describe("CP10 Ledger Dashboard", () => {
     resolveOld?.(page([entry(11, { product_name: "Stale A1 Product" })]));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(screen.queryByText("Stale A1 Product")).not.toBeInTheDocument();
+  });
+});
+
+function LedgerReentryHarness() {
+  const [active, setActive] = useState(true);
+  return <MemoryRouter initialEntries={["/inventory"]}>
+    <button type="button" onClick={() => setActive(false)}>Leave ledger tab</button>
+    <button type="button" onClick={() => setActive(true)}>Return ledger tab</button>
+    <Tab4Ledger active={active} locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+  </MemoryRouter>;
+}
+
+describe("Ledger #818 canceled revalidation recovery", () => {
+  it("restarts an aborted same-scope head after typing and clearing within debounce while retaining rows", async () => {
+    let secondSignal: AbortSignal | undefined;
+    let cursorRequests = 0;
+    mocks.authFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (!url.startsWith("/warehouse/ledger/cursor?")) throw Error(url);
+      cursorRequests += 1;
+      if (cursorRequests === 2) {
+        secondSignal = init?.signal as AbortSignal;
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve(page([entry(900, { product_name: "Retained stock" })]));
+    });
+    render(<LedgerReentryHarness />);
+    expect(await screen.findAllByText("Retained stock")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Leave ledger tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Return ledger tab" }));
+    await waitFor(() => expect(cursorRequests).toBe(2));
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "temporary" } });
+    expect(secondSignal?.aborted).toBe(true);
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(cursorRequests).toBeGreaterThanOrEqual(3));
+    expect(await screen.findAllByText("Retained stock")).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Refresh movement ledger" })).not.toBeDisabled();
+  });
+});
+
+describe("Ledger #818 bounded large-list rendering", () => {
+  it("keeps desktop and mobile mounted DOM bounded at 10,001 authorized movements", () => {
+    const entries = Array.from({ length: 10001 }, (_, index) => entry(index + 1));
+    const props = {
+      t: ((key: string, options?: Record<string, unknown>) => String(options?.defaultValue ?? key)) as never,
+      language: "en",
+      locale: "en-US",
+      entries,
+      canAdjust: false,
+      onOpenReference: vi.fn(),
+      onOpenNotes: vi.fn(),
+      onOpenAdjustment: vi.fn(),
+      hasMore: false,
+    };
+    const { container } = render(
+      <>
+        <LedgerTable {...props} />
+        <LedgerMobileCards {...props} />
+      </>,
+    );
+    expect(entries).toHaveLength(10001);
+    expect(container.querySelectorAll('[data-cp13-ledger-row="compact"]').length).toBeLessThan(100);
+    expect(container.querySelectorAll('[data-cp13-ledger-card="compact"]').length).toBeLessThan(100);
+    expect(Number(container.querySelector('[data-cp13-ledger-list="chronological"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
+    expect(Number(container.querySelector('[data-cp13-phone-list="true"]')?.getAttribute("data-ledger-mounted"))).toBeLessThan(100);
   });
 });

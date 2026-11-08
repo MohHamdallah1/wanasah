@@ -1,7 +1,10 @@
 import { buildLedgerCursorUrl } from "./buildLedgerCursorUrl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import {
+  captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession,
+  type DashboardSession,
+} from "@/lib/authStorage";
 import { parseLedgerPage, type LedgerEntry } from "./contracts";
 
 export interface LedgerQueryState {
@@ -12,17 +15,18 @@ export interface LedgerQueryState {
   setFilterType: (value: string) => void;
   availableTypes: string[];
   total: number | null;
-  pageIndex: number;
   loading: boolean;
+  loadingMore: boolean;
   error: boolean;
   hasMore: boolean;
-  canGoPrevious: boolean;
-  goNext: () => void;
-  goPrevious: () => void;
+  loadMore: () => void;
   refresh: () => void;
   retry: () => void;
+  scopeKey: string;
+  denied: boolean;
 }
 
+/** Append-only list over the server's signed keyset. No page numbers or client-side grouping. */
 export function useLedgerQuery(
   locationId: number,
   refreshKey: number,
@@ -36,164 +40,300 @@ export function useLedgerQuery(
   const [filterType, setFilterType] = useState("ALL");
   const [availableTypes, setAvailableTypes] = useState<string[]>([]);
   const [total, setTotal] = useState<number | null>(null);
-  const [pageIndex, setPageIndex] = useState(0);
-  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([null]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
-
-  const requestSeq = useRef(0);
+  const [denied, setDenied] = useState(false);
+  const [visibleScope, setVisibleScope] = useState<string | null>(null);
+  const [sessionVersion, setSessionVersion] = useState(0);
+  const seq = useRef(0);
+  const pending = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
-  const loadedScope = useRef<string | null>(null);
-  // Hide rows synchronously when an exact STK reference or warehouse scope changes.
-  // The effect may not have cleared the previous scope at render time yet.
-  const [visibleScopeKey, setVisibleScopeKey] = useState<string | null>(null);
+  const scopeRef = useRef<string | null>(null);
+  const sessionRef = useRef<DashboardSession | null>(null);
+  const cursorRef = useRef<string | null>(null);
+  const wasActive = useRef(false);
+  const cursorsSeen = useRef(new Set<string>());
+  const idsSeen = useRef(new Set<number>());
+  const pagesFetched = useRef(0);
+  const revalidationFailed = useRef(false);
+  const canceledBeforeFirstPage = useRef(false);
+  // An interrupted first-page revalidation must restart even with saved pages.
+  const revalidating = useRef(false);
+  const interruptedRevalidation = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const scopeKey = useMemo(
-    // Mode is part of cursor authorization: fuzzy search=STK-X is NOT the
-    // same scope as exact reference_id=STK-X, even with identical text/type.
-    // Distinct identity hides old rows during render, resets page to cursor
-    // null and invalidates in-flight fuzzy responses before the exact read.
-    () => `${locationId}|${exactReference !== null ? "EXACT_STOCKTAKE_REFERENCE" : "FUZZY_SEARCH"}|${exactReference ?? debouncedSearch}|${exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType}|${refreshKey}`,
-    [debouncedSearch, exactReference, filterType, locationId, refreshKey],
-  );
+  useEffect(() => subscribeDashboardSession(() => {
+    // Token refresh inside the same authorized company/principal/session is
+    // not a scope switch and must not discard 10k appended movements.
+    if (sessionRef.current && isDashboardSessionCurrent(sessionRef.current)) return;
+    seq.current++;
+    abortRef.current?.abort();
+    pending.current = false;
+    scopeRef.current = null;
+    sessionRef.current = null;
+    setVisibleScope(null);
+    setEntries([]);
+    setNextCursor(null);
+    setTotal(null);
+    setHasMore(false);
+    setLoadingMore(false);
+    setSessionVersion(current => current + 1);
+  }), []);
 
-  const loadPage = useCallback(async (
-    cursor: string | null,
-    targetPage: number,
-    clearForNewScope: boolean,
-  ) => {
-    const sequence = ++requestSeq.current;
+  // The raw search input is part of the visible scope to hide previously
+  // authorized rows immediately, before debounce and the next server read.
+  const scopeKey = useMemo(() =>
+    JSON.stringify([locationId, refreshKey, sessionVersion,
+      exactReference !== null ? "EXACT_STK" : "FUZZY",
+      exactReference ?? searchInput.trim(),
+      exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType]),
+    [locationId, refreshKey, sessionVersion, exactReference, searchInput, filterType]);
+  const serverScope = useMemo(() =>
+    JSON.stringify([locationId, refreshKey, sessionVersion,
+      exactReference !== null ? "EXACT_STK" : "FUZZY",
+      exactReference ?? debouncedSearch,
+      exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType]),
+    [locationId, refreshKey, sessionVersion, exactReference, debouncedSearch, filterType]);
+
+  const load = useCallback(async (cursor: string | null, reset: boolean) => {
+    if (!active || pending.current || (!reset && !cursor)) return;
+    const session = sessionRef.current;
+    if (!session || !isDashboardSessionCurrent(session) || scopeRef.current !== serverScope) return;
+    const requestId = ++seq.current;
+    pending.current = true;
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-    setLoading(true);
+    if (reset) setLoading(true);
+    else setLoadingMore(true);
     setError(false);
-    if (clearForNewScope) {
-      setVisibleScopeKey(scopeKey);
+    try {
+      const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
+        locationId,
+        cursor,
+        search: exactReference === null ? debouncedSearch : undefined,
+        referenceType: exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType,
+        referenceId: exactReference ?? undefined,
+      }), { signal: controller.signal }));
+      if (requestId !== seq.current || scopeRef.current !== serverScope ||
+        !isDashboardSessionCurrent(session)) return;
+      if (page.has_more && (!page.next_cursor || cursorsSeen.current.has(page.next_cursor))) {
+        throw new Error("LEDGER_CURSOR_STALLED");
+      }
+      if (page.has_more && page.next_cursor) cursorsSeen.current.add(page.next_cursor);
+      // Across page boundaries a posted movement may appear twice. Never render
+      // duplicate immutable movement identities.
+      const fresh = page.items.filter(item => {
+        if (idsSeen.current.has(item.id)) return false;
+        idsSeen.current.add(item.id);
+        return true;
+      });
+      setEntries(previous => reset ? fresh : [...previous, ...fresh]);
+      pagesFetched.current = reset ? 1 : pagesFetched.current + 1;
+      cursorRef.current = page.next_cursor;
+      setNextCursor(page.next_cursor);
+      setHasMore(page.has_more);
+      if (reset) {
+        canceledBeforeFirstPage.current = false;
+        setTotal(page.total);
+        setAvailableTypes(page.available_types);
+        setVisibleScope(scopeKey);
+        setDenied(false);
+      }
+    } catch (failure) {
+      if (requestId !== seq.current || scopeRef.current !== serverScope ||
+        !isDashboardSessionCurrent(session)) return;
+      if (failure instanceof Error && failure.name === "AbortError") return;
+      const status = Number((failure as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        seq.current++;
+        setDenied(true);
+        setEntries([]);
+        idsSeen.current.clear();
+        cursorsSeen.current.clear();
+        cursorRef.current = null;
+        setNextCursor(null);
+        setHasMore(false);
+        setTotal(null);
+      } else {
+        if (reset) setVisibleScope(scopeKey);
+        setError(true);
+      }
+    } finally {
+      if (requestId === seq.current) {
+        pending.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    }
+  }, [active, authFetch, debouncedSearch, exactReference, filterType, locationId, scopeKey, serverScope]);
+
+  const revalidate = useCallback(async () => {
+    // Re-entering the same tab must re-check the current warehouse grant,
+    // without dropping already-rendered rows, cursor or scroll position.
+    const session = sessionRef.current;
+    if (!session || pending.current || !isDashboardSessionCurrent(session)) return;
+    const requestId = ++seq.current;
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    pending.current = true;
+    setLoading(true);
+    setLoadingMore(false);
+    revalidating.current = true;
+    interruptedRevalidation.current = false;
+    revalidationFailed.current = false;
+    try {
+      const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
+        locationId, search: exactReference === null ? debouncedSearch : undefined,
+        referenceType: exactReference !== null ? "AUDIT_ADJUSTMENT" : filterType,
+        referenceId: exactReference ?? undefined,
+      }), { signal: controller.signal }));
+      if (requestId !== seq.current || scopeRef.current !== serverScope ||
+        !isDashboardSessionCurrent(session)) return;
+      // If only one page was retained, reconcile its new authoritative head.
+      // For multi-page signed snapshots, preserve the entire old keyset. New
+      // postings cannot be prepended without bridging through to overlap. A
+      // fresh explicit Refresh starts a new snapshot without missing events.
+      if (pagesFetched.current <= 1) {
+        pagesFetched.current = 1;
+        idsSeen.current = new Set(page.items.map(item => item.id));
+        setEntries(page.items);
+        cursorRef.current = page.next_cursor;
+        setNextCursor(page.next_cursor);
+        setHasMore(page.has_more);
+        cursorsSeen.current = new Set(page.next_cursor ? [page.next_cursor] : []);
+      }
+      revalidationFailed.current = false;
+      setVisibleScope(scopeKey);
+      setError(false);
+      setAvailableTypes(page.available_types);
+      if (page.total !== null) setTotal(page.total);
+    } catch (failure) {
+      if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
+      const status = Number((failure as { status?: unknown } | null)?.status);
+      if (status === 401 || status === 403) {
+        setDenied(true);
+        setEntries([]);
+        idsSeen.current.clear();
+        cursorsSeen.current.clear();
+        cursorRef.current = null;
+        setTotal(null);
+        setHasMore(false);
+        setNextCursor(null);
+      } else if (!(failure instanceof Error && failure.name === "AbortError")) {
+        revalidationFailed.current = true;
+        setVisibleScope(scopeKey);
+        setError(true);
+      }
+    } finally {
+      if (requestId === seq.current) {
+        pending.current = false;
+        revalidating.current = false;
+        setLoading(false);
+      }
+    }
+  }, [authFetch, debouncedSearch, exactReference, filterType, locationId, serverScope]);
+
+  useEffect(() => {
+    if (!active) {
+      wasActive.current = false;
+      seq.current++;
+      abortRef.current?.abort();
+      pending.current = false;
+      setLoadingMore(false);
+      canceledBeforeFirstPage.current = pagesFetched.current === 0;
+      if (revalidating.current) interruptedRevalidation.current = true;
+      revalidating.current = false;
+      setLoading(false);
+      return;
+    }
+    const returning = !wasActive.current;
+    wasActive.current = true;
+    if (scopeRef.current !== serverScope) {
+      seq.current++;
+      abortRef.current?.abort();
+      pending.current = false;
+      setLoadingMore(false);
+      revalidationFailed.current = false;
+      interruptedRevalidation.current = false;
+      revalidating.current = false;
+      canceledBeforeFirstPage.current = false;
+      scopeRef.current = serverScope;
+      sessionRef.current = captureDashboardSession();
+      idsSeen.current = new Set();
+      pagesFetched.current = 0;
+      cursorsSeen.current = new Set();
+      cursorRef.current = null;
       setEntries([]);
       setTotal(null);
       setNextCursor(null);
       setHasMore(false);
-    }
-
-    try {
-      const page = parseLedgerPage(await authFetch(
-        buildLedgerCursorUrl({
-          locationId,
-          cursor,
-          search: exactReference ? undefined : debouncedSearch,
-          referenceType: exactReference ? "AUDIT_ADJUSTMENT" : filterType,
-          referenceId: exactReference ?? undefined,
-        }),
-        { signal: controller.signal },
-      ));
-      if (sequence !== requestSeq.current) return;
-      setEntries(page.items);
-      setNextCursor(page.next_cursor);
-      setHasMore(page.has_more);
-      setPageIndex(targetPage);
-      if (page.total !== null) setTotal(page.total);
-      if (targetPage === 0) setAvailableTypes(page.available_types);
-    } catch (failure) {
-      if (sequence !== requestSeq.current) return;
-      if (failure instanceof Error && failure.name === "AbortError") return;
-      setError(true);
-      // Revoked reads cannot leave previously retained ledger quantities visible.
-      const status = Number((failure as { status?: unknown } | null)?.status);
-      if (status === 401 || status === 403) {
-        setEntries([]);
-        setTotal(null);
-        setNextCursor(null);
-        setHasMore(false);
-      } else if (clearForNewScope) {
-        setEntries([]);
-        setNextCursor(null);
-        setHasMore(false);
+      setVisibleScope(null);
+      setDenied(false);
+      void load(null, true);
+    } else if (returning || canceledBeforeFirstPage.current || interruptedRevalidation.current || (visibleScope !== scopeKey && scopeKey === serverScope)) {
+      // Raw search text is not authorized to reuse the old debounced result;
+      // wait until its server scope catches up before admitting any rows.
+      if (scopeKey === serverScope) {
+        canceledBeforeFirstPage.current = false;
+        interruptedRevalidation.current = false;
+        void revalidate();
       }
-    } finally {
-      if (abortRef.current === controller) abortRef.current = null;
-      if (sequence === requestSeq.current) setLoading(false);
-    }
-  }, [authFetch, debouncedSearch, exactReference, filterType, locationId, scopeKey]);
-
-  const resetAndLoad = useCallback(() => {
-    requestSeq.current += 1;
-    abortRef.current?.abort();
-    setCursorHistory([null]);
-    setPageIndex(0);
-    void loadPage(null, 0, true);
-  }, [loadPage]);
-
-  useEffect(() => {
-    if (!active) return;
-    if (loadedScope.current !== scopeKey) {
-      loadedScope.current = scopeKey;
-      resetAndLoad();
-    } else {
-      // Same-query tab reentry revalidates the visible page, without
-      // destroying the retained authorized rows or filter/page selection.
-      void loadPage(cursorHistory[pageIndex] ?? null, pageIndex, false);
     }
     return () => {
-      requestSeq.current += 1;
+      if (pending.current && pagesFetched.current === 0) canceledBeforeFirstPage.current = true;
+      if (pending.current && revalidating.current) interruptedRevalidation.current = true;
+      revalidating.current = false;
+      seq.current++;
       abortRef.current?.abort();
-      abortRef.current = null;
+      pending.current = false;
+      setLoadingMore(false);
+      setLoading(false);
     };
-    // Page clicks are handled explicitly below; changing page is not a
-    // reason to re-enter or repeat the first-page read.
-  }, [active, resetAndLoad, scopeKey]);
+  }, [active, serverScope, load, revalidate, scopeKey, visibleScope]);
 
-  const goNext = useCallback(() => {
-    if (!hasMore || !nextCursor || loading) return;
-    const target = pageIndex + 1;
-    setCursorHistory((current) => {
-      const next = current.slice(0, target);
-      next[target] = nextCursor;
-      return next;
-    });
-    void loadPage(nextCursor, target, false);
-  }, [hasMore, loadPage, loading, nextCursor, pageIndex]);
-
-  const goPrevious = useCallback(() => {
-    if (pageIndex <= 0 || loading) return;
-    const target = pageIndex - 1;
-    void loadPage(cursorHistory[target] ?? null, target, false);
-  }, [cursorHistory, loadPage, loading, pageIndex]);
+  const loadMore = useCallback(() => {
+    if (!pending.current && !error && hasMore && nextCursor && !denied && visibleScope === scopeKey) {
+      void load(nextCursor, false);
+    }
+  }, [denied, error, hasMore, load, nextCursor, scopeKey, visibleScope]);
 
   const refresh = useCallback(() => {
-    setCursorHistory([null]);
-    setPageIndex(0);
-    void loadPage(null, 0, false);
-  }, [loadPage]);
-
+    seq.current++;
+    abortRef.current?.abort();
+    pending.current = false;
+    idsSeen.current.clear();
+    pagesFetched.current = 0;
+    cursorsSeen.current.clear();
+    cursorRef.current = null;
+    setEntries([]);
+    setHasMore(false);
+    setNextCursor(null);
+    setVisibleScope(null);
+    setDenied(false);
+    revalidationFailed.current = false;
+    void load(null, true);
+  }, [load]);
   const retry = useCallback(() => {
-    void loadPage(cursorHistory[pageIndex] ?? null, pageIndex, entries.length === 0);
-  }, [cursorHistory, entries.length, loadPage, pageIndex]);
+    if (denied) return;
+    if (revalidationFailed.current) { void revalidate(); return; }
+    void load(cursorRef.current, entries.length === 0);
+  }, [denied, entries.length, load, revalidate]);
 
-  const currentScopeVisible = visibleScopeKey === scopeKey;
+  const visible = visibleScope === scopeKey && !denied;
   return {
-    entries: currentScopeVisible ? entries : [],
-    searchInput,
-    setSearchInput,
-    filterType,
-    setFilterType,
-    availableTypes: currentScopeVisible ? availableTypes : [],
-    total: currentScopeVisible ? total : null,
-    pageIndex: currentScopeVisible ? pageIndex : 0,
-    loading: loading || !currentScopeVisible,
-    error: currentScopeVisible && error,
-    hasMore: currentScopeVisible && hasMore,
-    canGoPrevious: currentScopeVisible && pageIndex > 0,
-    goNext,
-    goPrevious,
-    refresh,
-    retry,
+    entries: visible ? entries : [], searchInput, setSearchInput, filterType,
+    setFilterType, availableTypes: visible ? availableTypes : [],
+    total: visible ? total : null, loading: loading || (!visible && !denied && !error),
+    loadingMore, error: !denied && error && (visible || scopeRef.current === serverScope), hasMore: visible && hasMore,
+    loadMore, refresh, retry, scopeKey, denied,
   };
 }
