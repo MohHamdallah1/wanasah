@@ -168,3 +168,100 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
     });
   });
 }
+
+
+const OWNER_825_TRN = "TRN-F492EC77AA084613A047F261A8BEE9E9";
+for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390] as const) {
+  test("ledger #825 directional columns, exact reference and in-panel Back " + locale + " " + width,
+    async ({ page }) => {
+      await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
+      await installUxApi(page, 1, { allowOtherInventoryReads: true });
+      await page.route("**/api/inventory/access/me*", route => {
+        const url = new URL(route.request().url());
+        const location = url.searchParams.get("location_id");
+        return send(route, {
+          company_id: 1, principal_id: 7, backoffice_user_id: 17,
+          is_company_owner: true, location_id: location ? Number(location) : null,
+          permissions: ["inventory.read", "location.read", "ledger.read", "ledger.adjust"],
+          location_permissions: location ? ["ledger.read", "ledger.adjust"] : [],
+          any_permissions: ["inventory.read", "location.read", "ledger.read"],
+        });
+      });
+      const op = (id: number, reference: string) => ({
+        group_key: "signed-group-" + id, group_kind: "TRANSFER",
+        operation_type: "TRANSFER_DISPATCH", reference,
+        latest_at: "2026-11-08T04:10:00+00:00", latest_movement_id: 500 + id,
+        source_location_name: id === 1 ? "Vehicle 12-25132" : "Warehouse A",
+        destination_location_name: "Warehouse B", latest_actor_name: "Operator",
+        stage_types: ["TRANSFER_DISPATCH"], movement_kinds: ["PHYSICAL"],
+        movement_count: 1, product_variant_count: 1, batch_count: 1,
+        expandable: true, count_meaning: "AUTHORIZED_IMMUTABLE_MOVEMENTS",
+        stocktake_history: null,
+      });
+      await page.route("**/api/warehouse/ledger/operations/cursor?*", route => send(route, {
+        items: [op(1, OWNER_825_TRN), op(2, "13"), op(3, "13")],
+        next_cursor: null, has_more: false, snapshot_max_movement_id: 503,
+        type_filter_semantics: "MATCH_ANY_CHILD_SHOW_ALL_AUTHORIZED",
+      }));
+      await page.route("**/api/warehouse/ledger/operations/signed-group-1/movements/cursor?*", route =>
+        send(route, { group_key: "signed-group-1", items: [entry(501, "PHYSICAL", {
+          type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH",
+          reference: OWNER_825_TRN, batch_number: "LOT-SEND",
+          source_location_name: "Vehicle 12-25132", destination_location_name: "Warehouse B",
+          matches_filter: true,
+        })], next_cursor: null, has_more: false }));
+      let referenceCalls = 0;
+      await page.route("**/api/warehouse/ledger/cursor?*", route => {
+        const req = new URL(route.request().url());
+        expect(req.searchParams.get("reference_id")).toBe(OWNER_825_TRN);
+        referenceCalls++;
+        return send(route, pageData([entry(501, "PHYSICAL", {
+          type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH",
+          reference: OWNER_825_TRN, batch_number: "LOT-SEND",
+        })]));
+      });
+      await seedUx(page, locale, "light", "ledger");
+      await page.goto("/inventory");
+      const panel = page.locator(".inventory-ledger");
+      const rows = panel.locator('[data-ledger-operation-row="true"]');
+      await expect(rows).toHaveCount(3);
+      await expect(rows.filter({ hasText: "13" })).toHaveCount(2);
+      await expect(rows.first().getByRole("button", { name: (locale === "ar" ? "التفاصيل: " : "Details: ") + OWNER_825_TRN })).toBeVisible();
+      const summaryRef = rows.first().locator('[data-ledger-column="columnReference"] bdi');
+      await expect(summaryRef).toContainText("…");
+      await expect(summaryRef).toHaveAttribute("title", OWNER_825_TRN);
+      await summaryRef.focus();
+      await expect(summaryRef).toBeFocused();
+      const time = rows.first().locator('[data-ledger-column="columnDate"] time');
+      await expect(time).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
+      await expect(time).toHaveAttribute("dateTime", "2026-11-08T04:10:00+00:00");
+      await expect(rows.first()).toContainText(locale === "ar" ? "مركبة 12-25132" : "Vehicle 12-25132");
+      await expect(rows.first()).toContainText(locale === "ar" ? "1 صنف" : "1 products");
+      if (width === 1440) {
+        for (const col of ["columnType", "columnReference", "columnDate", "columnRoute",
+          "columnProducts", "columnMovements", "columnAction"]) {
+          const header = await panel.locator('[role="columnheader"][data-ledger-column="' + col + '"]').boundingBox();
+          const cell = await rows.first().locator('[role="cell"][data-ledger-column="' + col + '"]').boundingBox();
+          expect(header && cell && Math.abs(header.x - cell.x)).toBeLessThan(4);
+        }
+        await expect(panel.getByText(locale === "ar" ? "مرجع العملية" : "Operation reference")).toBeVisible();
+      }
+      await page.screenshot({ path: "node_modules/.cache/ledger-762/825-" + locale + "-" + width + "-operations.png", fullPage: true });
+      await rows.first().getByRole("button", { name: (locale === "ar" ? "التفاصيل: " : "Details: ") + OWNER_825_TRN }).click();
+      await expect(page.locator('[data-ledger-full-operation-reference="true"] bdi')).toHaveText(OWNER_825_TRN);
+      await expect(page.locator('[data-ledger-child-id="501"]')).toBeVisible();
+      await page.screenshot({ path: "node_modules/.cache/ledger-762/825-" + locale + "-" + width + "-details.png", fullPage: true });
+      const evidence = page.getByRole("button", { name: locale === "ar" ? "دليل المرجع" : "Reference evidence" });
+      await evidence.click();
+      const back = page.getByRole("button", { name: locale === "ar" ? "الرجوع إلى تفاصيل العملية" : "Back to operation details" });
+      await expect(back).toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(1);
+      await expect.poll(() => referenceCalls).toBe(1);
+      await page.screenshot({ path: "node_modules/.cache/ledger-762/825-" + locale + "-" + width + "-reference.png", fullPage: true });
+      await back.click();
+      await expect(evidence).toBeFocused();
+      await expect(page.locator('[data-ledger-child-id="501"]')).toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(1);
+      await page.screenshot({ path: "node_modules/.cache/ledger-762/825-" + locale + "-" + width + "-back.png", fullPage: true });
+    });
+}
