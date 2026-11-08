@@ -55,7 +55,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     query.searchInput, query.filterType, exactReference);
   const [selectedOperation, setSelectedOperation] = useState<LedgerOperation | null>(null);
   const [selectedScope, setSelectedScope] = useState<string | null>(null);
-  const [groupDeniedScope, setGroupDeniedScope] = useState<string | null>(null);
+  const [groupDeniedAt, setGroupDeniedAt] = useState<{ scope: string; proofSequence: number } | null>(null);
   const detailsTrigger = useRef<HTMLButtonElement | null>(null);
   const closeOperation = () => {
     setSelectedOperation(null);
@@ -79,7 +79,13 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
   ])];
     const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
-  const denied = reference.denied || query.denied || operations.denied || groupDeniedScope === operations.visibleScope || (access.isSuccess && !access.can("ledger.read"));
+  // Only a new authorized parent read of this exact warehouse/filter scope
+  // may release a child 403/404 denial. Cached pages or other scopes cannot.
+  const childDenied = groupDeniedAt?.scope === operations.visibleScope && !(
+    operations.authorizedProof?.scope === groupDeniedAt.scope &&
+    operations.authorizedProof.sequence > groupDeniedAt.proofSequence
+  );
+  const denied = reference.denied || query.denied || operations.denied || childDenied || (access.isSuccess && !access.can("ledger.read"));
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
@@ -236,7 +242,14 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
           locationId={locationId} language={language} locale={locale} t={t}
           search={query.searchInput} filterType={query.filterType} exactReference={exactReference}
           onClose={closeOperation}
-          onDenied={() => { setGroupDeniedScope(operations.visibleScope); setSelectedOperation(null); }}
+          onDenied={() => {
+            setGroupDeniedAt({ scope: operations.visibleScope,
+              proofSequence: operations.authorizedProof?.sequence ?? 0 });
+            setSelectedOperation(null);
+            // Recheck current bearer authorization after a rejected child read.
+            // Failed parent revalidation preserves the fail-closed guard.
+            operations.refresh();
+          }}
           onOpenReference={(entry) => { closeOperation(); reference.open(entry); }}
           onAdjust={(entry) => { closeOperation(); openAdjustment(entry); }} canAdjust={canAdjust} />
       )}
