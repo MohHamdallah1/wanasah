@@ -48,6 +48,8 @@ export function useLedgerOperations(
   const seenCursors = useRef(new Set<string>());
   const seenGroups = useRef(new Set<string>());
   const wasActive = useRef(false);
+  const pageCount = useRef(0);
+  const revalidationFailed = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(search.trim()), 300);
@@ -106,6 +108,7 @@ export function useLedgerOperations(
         return true;
       });
       setItems(old => reset ? fresh : [...old, ...fresh]);
+      pageCount.current = reset ? 1 : pageCount.current + 1;
       cursorRef.current = page.next_cursor;
       setHasMore(page.has_more);
       if (reset) {
@@ -124,7 +127,7 @@ export function useLedgerOperations(
         cursorRef.current = null;
         seenGroups.current.clear();
         setDenied(true);
-      } else setError(true);
+      } else { if (reset) setScopeVisible(visibleScope); setError(true); }
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
@@ -144,6 +147,8 @@ export function useLedgerOperations(
     const controller = new AbortController();
     aborted.current?.abort();
     aborted.current = controller;
+    revalidationFailed.current = false;
+    setLoadingMore(false);
     setLoading(true);
     try {
       const page = parseLedgerOperationPage(await authFetch(buildLedgerOperationUrl({
@@ -156,13 +161,14 @@ export function useLedgerOperations(
         !isDashboardSessionCurrent(session)) return;
       // Only page-one lists can be safely replaced by page-one results.
       // If already appended, retain the signed original continuation snapshot.
-      if (seenCursors.current.size === 0) {
+      if (pageCount.current <= 1) {
         setItems(page.items);
         seenGroups.current = new Set(page.items.map(item => item.group_key));
         setHasMore(page.has_more);
         cursorRef.current = page.next_cursor;
         seenCursors.current = new Set(page.next_cursor ? [page.next_cursor] : []);
       }
+      setScopeVisible(visibleScope);
       setError(false);
     } catch (failure) {
       if (requestId !== seq.current || !isDashboardSessionCurrent(session)) return;
@@ -174,7 +180,11 @@ export function useLedgerOperations(
         cursorRef.current = null;
         seenGroups.current.clear();
         setDenied(true);
-      } else if (!(failure instanceof Error && failure.name === "AbortError")) setError(true);
+      } else if (!(failure instanceof Error && failure.name === "AbortError")) {
+        revalidationFailed.current = true;
+        setScopeVisible(visibleScope);
+        setError(true);
+      }
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
@@ -189,6 +199,7 @@ export function useLedgerOperations(
       seq.current++;
       aborted.current?.abort();
       pending.current = false;
+      setLoadingMore(false);
       return;
     }
     const returning = !wasActive.current;
@@ -202,6 +213,7 @@ export function useLedgerOperations(
       cursorRef.current = null;
       seenCursors.current = new Set();
       seenGroups.current = new Set();
+      pageCount.current = 0;
       setItems([]);
       setHasMore(false);
       setScopeVisible(null);
@@ -214,15 +226,16 @@ export function useLedgerOperations(
       seq.current++;
       aborted.current?.abort();
       pending.current = false;
+      setLoadingMore(false);
     };
   }, [active, queryScope, fetchPage, revalidate]);
 
   const loadMore = useCallback(() => {
-    if (active && !pending.current && hasMore && cursorRef.current &&
+    if (active && !pending.current && !error && hasMore && cursorRef.current &&
       scopeVisible === visibleScope && !denied) {
       void fetchPage(cursorRef.current, false);
     }
-  }, [active, denied, fetchPage, hasMore, scopeVisible, visibleScope]);
+  }, [active, denied, error, fetchPage, hasMore, scopeVisible, visibleScope]);
   const refresh = useCallback(() => {
     seq.current++;
     aborted.current?.abort();
@@ -236,13 +249,15 @@ export function useLedgerOperations(
     void fetchPage(null, true);
   }, [fetchPage]);
   const retry = useCallback(() => {
-    if (!denied) void fetchPage(cursorRef.current, items.length === 0);
-  }, [denied, fetchPage, items.length]);
+    if (denied) return;
+    if (revalidationFailed.current) { void revalidate(); return; }
+    void fetchPage(cursorRef.current, items.length === 0);
+  }, [denied, fetchPage, items.length, revalidate]);
 
   const admitted = scopeVisible === visibleScope && !denied;
   return {
-    items: admitted ? items : [], loading: loading || (!admitted && !denied),
-    loadingMore, hasMore: admitted && hasMore, error: admitted && error,
+    items: admitted ? items : [], loading: loading || (!admitted && !denied && !error),
+    loadingMore, hasMore: admitted && hasMore, error: !denied && error && (admitted || scopeRef.current === queryScope),
     denied, loadMore, retry, refresh, visibleScope,
   };
 }
