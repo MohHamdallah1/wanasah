@@ -1,4 +1,4 @@
-import { ledgerOperationKindLabel, operationText, operationFailureText, parseLedgerOperationFailure, operationLocationLabel, type LedgerOperationFailure } from "./operationI18n";
+import { ledgerOperationKindLabel, operationText, operationFailureText, parseLedgerOperationFailure, localizedOperationLocationNames, type LedgerOperationFailure } from "./operationI18n";
 import { LedgerReferenceModal } from "./LedgerReferenceModal";
 import type { LedgerReferenceState } from "./useLedgerReference";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -204,14 +204,14 @@ export function LedgerOperationDetails({
           {!loading && !error && items.length === 0 && <p role="status" className="p-3 text-sm">{operationText(t, language, "copy18")}</p>}
           {viewport.before > 0 && <div aria-hidden="true" style={{ height: viewport.before }} />}
           {items.slice(viewport.first, viewport.last).map((item, index) => {
-            const locations = ledgerLocationEvidence(t, language, item);
+            const locations = ledgerLocationEvidence(t, language, localizedOperationLocationNames(item, language, t));
             // A null counterpart may be redacted by Backend warehouse RLS,
             // not an actual external source/destination. Do not invent a
             // physical location or reveal the inaccessible warehouse.
             const visibleLocation = (side: "source" | "destination") => {
               const id = side === "source" ? item.source_location_id : item.destination_location_id;
               const name = side === "source" ? item.source_location_name : item.destination_location_name;
-              if (id !== null || name !== null) return operationLocationLabel(locations[side], language, t);
+              if (id !== null || name !== null) return locations[side];
               // A genuine supplier receipt has a documented outside source.
               if (side === "source" && operation.group_kind === "RECEIPT" &&
                   item.reference_type === "INBOUND_SUPPLIER") return locations.source;
