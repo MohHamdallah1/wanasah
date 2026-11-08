@@ -81,8 +81,11 @@ export function LedgerOperationRows({
               </time>
               <span role="cell" className="col-start-1 row-start-4 min-w-0 truncate text-[11px] text-slate-600 md:col-auto md:row-auto"
                 title={route(item)}>{route(item)}</span>
-              <span role="cell" className="col-start-1 row-start-5 whitespace-nowrap font-bold text-slate-800 md:col-auto md:row-auto">
-                {count(item.product_variant_count)} {products}
+              <span role="cell"
+                title={item.count_meaning === "POSTED_VARIANCE_MOVEMENTS" ? operationText(t, language, "copy7") : products}
+                className="col-start-1 row-start-5 min-w-0 truncate whitespace-nowrap font-bold text-slate-800 md:col-auto md:row-auto">
+                {count(item.product_variant_count)} {item.count_meaning === "POSTED_VARIANCE_MOVEMENTS"
+                  ? operationText(t, language, "varianceProducts") : products}
               </span>
               <span role="cell" className="col-start-1 row-start-6 whitespace-nowrap text-[11px] text-slate-600 md:col-auto md:row-auto">
                 {count(item.movement_count)} {movements}
