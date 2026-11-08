@@ -80,7 +80,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
   ];
     const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
-  const denied = reference.denied || query.denied || operations.denied || groupDeniedScope === operations.visibleScope;
+  const denied = reference.denied || query.denied || operations.denied || groupDeniedScope === operations.visibleScope || (access.isSuccess && !access.can("ledger.read"));
   useEffect(() => {
     if (denied) {
       setNoteEntry(null);
