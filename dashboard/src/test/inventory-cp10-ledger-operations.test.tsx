@@ -555,7 +555,7 @@ describe("Ledger #818 authoritative operations", () => {
     expect(date.getAttribute("dir")).toBe(language === "ar" ? "rtl" : "ltr");
     expect(date.getAttribute("dateTime")).toBe("2026-11-07T14:00:00+00:00");
     expect(container.querySelector('[data-ledger-operation-row="true"] [data-ledger-column="columnProducts"]')?.textContent)
-      .toContain(language === "ar" ? "1 صنف" : "1 products");
+      .toContain(language === "ar" ? "1 صنف" : "1 product");
     expect(container.textContent).toContain(language === "ar" ? "مركبة 12-25132" : "Vehicle 12-25132");
     expect(screen.getAllByRole("button", { name: /TRN-F492EC77AA084613A047F261A8BEE9E9/ })).toHaveLength(1);
   });
