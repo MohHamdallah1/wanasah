@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import { useEffect, useRef } from "react";
-import { operationText } from "./operationI18n";
+import { operationText, operationLocationLabel } from "./operationI18n";
+import { formatLedgerDate } from "./contracts";
 
 import { Modal } from "@/components/ui/modal";
 import { ledgerLocationEvidence, ledgerQuantityMeaning, ledgerSignedQuantity } from "./ledgerPresentation";
@@ -58,10 +59,12 @@ export function LedgerReferenceModal({ t, language, controller, embedded = false
                       </span>
                     </td>
                     <td className="px-3 py-3 text-[10px] leading-5 text-slate-600">
-                      <div>#{item.id} · {new Date(item.date).toLocaleString(language.startsWith("ar") ? "ar" : "en", { numberingSystem: "latn" })}</div>
+                      <div><bdi dir="ltr">#{item.id}</bdi> · <time dateTime={item.date}
+                        lang={language.startsWith("ar") ? "ar" : "en"} dir={language.startsWith("ar") ? "rtl" : "ltr"}
+                        className="inline-block isolate whitespace-nowrap">{formatLedgerDate(item.date, language.startsWith("ar") ? "ar" : "en")}</time></div>
                       <div>{text("actor")}: {item.admin_name || text("unknown")}</div>
-                      <div>{text("source")}: {ledgerLocationEvidence(t, language, item).source}</div>
-                      <div>{text("destination")}: {ledgerLocationEvidence(t, language, item).destination}</div>
+                      <div>{text("source")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).source, language)}</div>
+                      <div>{text("destination")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).destination, language)}</div>
                     </td>
                   </tr>
                 ))}
