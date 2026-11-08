@@ -229,11 +229,21 @@ export function operationLocationLabel(name: string, language: string, t: TFunct
 /** Presentation-only localization BEFORE type/status decoration; never edits
  * immutable location names or reveals RLS-redacted counterparts. */
 export function localizedOperationLocationNames(entry: LedgerEntry, language: string, t: TFunction): LedgerEntry {
+  const visibleName = (name: string | null, kind: string | null | undefined) => {
+    if (name === null) return null;
+    const label = operationLocationLabel(name, language, t);
+    // The existing location-type evidence already supplies "مركبة".
+    // Avoid "مركبة · مركبة <plate>" while retaining the exact plate.
+    if (language.toLowerCase().startsWith("ar") && kind === "VEHICLE") {
+      const prefix = operationText(t, language, "vehicleLabel") + " ";
+      if (label.startsWith(prefix) && /^Vehicle [A-Za-z0-9-]+$/.test(name))
+        return label.slice(prefix.length);
+    }
+    return label;
+  };
   return {
     ...entry,
-    source_location_name: entry.source_location_name == null
-      ? null : operationLocationLabel(entry.source_location_name, language, t),
-    destination_location_name: entry.destination_location_name == null
-      ? null : operationLocationLabel(entry.destination_location_name, language, t),
+    source_location_name: visibleName(entry.source_location_name, entry.source_location_type),
+    destination_location_name: visibleName(entry.destination_location_name, entry.destination_location_type),
   };
 }
