@@ -175,9 +175,9 @@ export function LedgerOperationDetails({
           {loading && items.length === 0 && <p role="status" className="p-3 text-sm">{ar ? "جاري تحميل التفاصيل..." : "Loading details..."}</p>}
           {!loading && !error && items.length === 0 && <p role="status" className="p-3 text-sm">{ar ? "لا توجد حركات مرئية." : "No visible movements."}</p>}
           {viewport.before > 0 && <div aria-hidden="true" style={{ height: viewport.before }} />}
-          {items.slice(viewport.first, viewport.last).map(item => {
+          {items.slice(viewport.first, viewport.last).map((item, index) => {
             const locations = ledgerLocationEvidence(t, language, item);
-            return <article key={item.id} data-ledger-child-id={item.id}
+            return <article key={item.id} data-ledger-virtual-index={viewport.first + index} data-ledger-child-id={item.id}
               className={`mb-2 rounded-lg border p-3 text-xs ${item.matches_filter ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white"}`}>
               <div className="flex flex-wrap justify-between gap-2">
                 <strong className="text-slate-900">{item.product_name} · {formatPublicBatchNumber(item.batch_number, ar ? "بدون تشغيلة" : "No lot")}</strong>
