@@ -55,12 +55,13 @@ const words = (v: unknown): string[] => {
   return v.map(x => word(x, 50));
 };
 const cursorPage = (raw: Record<string, unknown>) => {
+  const next = raw.next_cursor;
   if (typeof raw.has_more !== "boolean" ||
-    (raw.next_cursor !== null && raw.next_cursor !== undefined && typeof raw.next_cursor !== "string") ||
-    (raw.next_cursor !== null && raw.next_cursor !== undefined && raw.next_cursor.length > 512)) {
+    (next !== null && next !== undefined && (typeof next !== "string" || !next || next.length > 512)) ||
+    (raw.has_more && typeof next !== "string")) {
     throw new Error("LEDGER_OPERATION_PAGE_INVALID");
   }
-  return { has_more: raw.has_more, next_cursor: (raw.next_cursor || null) as string | null };
+  return { has_more: raw.has_more, next_cursor: typeof next === "string" ? next : null };
 };
 
 export function parseLedgerOperationPage(raw: unknown): LedgerOperationPage {
