@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useEffect, useRef } from "react";
-import { operationText, operationLocationLabel } from "./operationI18n";
+import { operationText, localizedOperationLocationNames } from "./operationI18n";
 import { formatLedgerDate } from "./contracts";
 
 import { Modal } from "@/components/ui/modal";
@@ -63,8 +63,8 @@ export function LedgerReferenceModal({ t, language, controller, embedded = false
                         lang={language.startsWith("ar") ? "ar" : "en"} dir={language.startsWith("ar") ? "rtl" : "ltr"}
                         className="inline-block isolate whitespace-nowrap">{formatLedgerDate(item.date, language.startsWith("ar") ? "ar" : "en")}</time></div>
                       <div>{text("actor")}: {item.admin_name || text("unknown")}</div>
-                      <div>{text("source")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).source, language, t)}</div>
-                      <div>{text("destination")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).destination, language, t)}</div>
+                      <div>{text("source")}: {ledgerLocationEvidence(t, language, localizedOperationLocationNames(item, language, t)).source}</div>
+                      <div>{text("destination")}: {ledgerLocationEvidence(t, language, localizedOperationLocationNames(item, language, t)).destination}</div>
                     </td>
                   </tr>
                 ))}
