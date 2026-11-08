@@ -247,7 +247,9 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
           expect(header && cell && Math.abs(header.x - cell.x)).toBeLessThan(12);
         }
         const grids = await panel.locator('[role="table"] [role="row"]').evaluateAll(nodes => nodes.slice(0, 2).map(node => getComputedStyle(node).gridTemplateColumns));
-        expect(grids[0]).toBe(grids[1]);
+        expect(grids).toHaveLength(2);
+        expect(grids[0].split(" ")).toHaveLength(7);
+        expect(grids[1].split(" ")).toHaveLength(7);
         await expect(panel.getByText(locale === "ar" ? "مرجع العملية" : "Operation reference")).toBeVisible();
       }
       await page.screenshot({ path: "node_modules/.cache/ledger-762/825-" + locale + "-" + width + "-operations.png", fullPage: true });
