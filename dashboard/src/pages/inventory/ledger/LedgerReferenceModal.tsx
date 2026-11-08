@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useEffect, useRef } from "react";
-import { operationText, localizedOperationLocationNames } from "./operationI18n";
+import { operationText, localizedOperationLocationNames, abbreviatedOperationReference } from "./operationI18n";
 import { formatLedgerDate } from "./contracts";
 
 import { Modal } from "@/components/ui/modal";
@@ -95,8 +95,13 @@ export function LedgerReferenceModal({ t, language, controller, embedded = false
             className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
             {operationText(t, language, "backToOperation")}
           </button>
-          <h4 className="min-w-0 flex-1 break-all text-sm font-bold text-slate-800">
-            {text("referenceDetails", { reference })}
+          <h4 className="min-w-0 flex-1 text-start text-xs font-bold text-slate-800"
+            title={reference}>
+            {operationText(t, language, "copy21")} ·{" "}
+            <bdi dir="ltr" tabIndex={0} title={reference} aria-label={reference}
+              className="inline-block max-w-full truncate align-bottom outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
+              {abbreviatedOperationReference(reference)}
+            </bdi>
           </h4>
         </div>
         {content}
