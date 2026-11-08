@@ -1,4 +1,6 @@
-import { ledgerOperationKindLabel, operationText, operationFailureText, parseLedgerOperationFailure, type LedgerOperationFailure } from "./operationI18n";
+import { ledgerOperationKindLabel, operationText, operationFailureText, parseLedgerOperationFailure, localizedOperationLocationNames, type LedgerOperationFailure } from "./operationI18n";
+import { LedgerReferenceModal } from "./LedgerReferenceModal";
+import type { LedgerReferenceState } from "./useLedgerReference";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { Modal } from "@/components/ui/modal";
@@ -31,7 +33,10 @@ interface Props {
   exactReference: string | null;
   onClose: () => void;
   onDenied: () => void;
-  onOpenReference: (entry: LedgerEntry) => void;
+  onOpenReference: (entry: LedgerEntry, trigger: HTMLButtonElement) => void;
+  referenceController: LedgerReferenceState;
+  referenceInside: boolean;
+  onReferenceBack: () => void;
   onAdjust: (entry: LedgerEntry) => void;
   canAdjust: boolean;
 }
@@ -40,6 +45,7 @@ interface Props {
 export function LedgerOperationDetails({
   operation, locationId, language, locale, t, search, filterType, exactReference,
   onClose, onDenied, onOpenReference, onAdjust, canAdjust,
+  referenceController, referenceInside, onReferenceBack,
 }: Props) {
   const navigate = useNavigate();
   const authFetch = useAuthFetch();
@@ -48,6 +54,7 @@ export function LedgerOperationDetails({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
   const [failure, setFailure] = useState<LedgerOperationFailure | null>(null);
+  const [referenceCopied, setReferenceCopied] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const cursorRef = useRef<string | null>(null);
   const idsRef = useRef(new Set<number>());
@@ -143,10 +150,23 @@ export function LedgerOperationDetails({
     return label === code ? (operationText(t, language, "copy10")) : label;
   };
   const count = (n: number) => new Intl.NumberFormat(locale, { numberingSystem: "latn" }).format(n);
-  const heading = `${ledgerOperationKindLabel(operation.group_kind, t, language)} · ${operation.reference || (operationText(t, language, "copy11"))}`;
+  const heading = `${ledgerOperationKindLabel(operation.group_kind, t, language)} · ${operation.reference ? operation.reference.slice(0, 20) : operationText(t, language, "copy11")}`;
+  const isArabic = language.toLowerCase().startsWith("ar");
   return (
     <Modal isOpen={true} onClose={onClose} title={heading} maxWidth="max-w-5xl">
-      <div data-ledger-operation-details="true" className="flex max-h-[75vh] min-h-0 flex-col gap-2">
+      <div data-ledger-operation-details="true" className={`${referenceInside ? "hidden" : "flex"} max-h-[75vh] min-h-0 flex-col gap-2`}>
+        {operation.reference && (
+          <div data-ledger-full-operation-reference="true" className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-slate-100 bg-slate-50 p-2 text-xs">
+            <span className="font-bold text-slate-600">{operationText(t, language, "referenceFull")}</span>
+            <bdi dir="ltr" tabIndex={0} title={operation.reference}
+              className="min-w-0 flex-1 select-all break-all font-mono text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">{operation.reference}</bdi>
+            <button type="button" className="rounded border border-blue-200 bg-white px-2 py-1 font-semibold text-blue-800"
+              onClick={() => { if (navigator.clipboard?.writeText) void navigator.clipboard.writeText(operation.reference).then(() => setReferenceCopied(true)).catch(() => setReferenceCopied(false)); }}>
+              {referenceCopied ? operationText(t, language, "referenceCopied") : operationText(t, language, "copyReference")}
+            </button>
+            <p className="w-full text-[11px] text-slate-500">{operationText(t, language, /^TRN-[A-Za-z0-9]{20,}$/.test(operation.reference) ? "referenceMeaning" : "referenceMeaningOther")}</p>
+          </div>
+        )}
         <p className="text-xs font-semibold text-slate-600">
           {count(operation.product_variant_count)} {operationText(t, language, "copy4")} · {count(operation.batch_count)} {operationText(t, language, "copy5")} · {count(operation.movement_count)} {operationText(t, language, "copy12")}
         </p>
@@ -184,7 +204,7 @@ export function LedgerOperationDetails({
           {!loading && !error && items.length === 0 && <p role="status" className="p-3 text-sm">{operationText(t, language, "copy18")}</p>}
           {viewport.before > 0 && <div aria-hidden="true" style={{ height: viewport.before }} />}
           {items.slice(viewport.first, viewport.last).map((item, index) => {
-            const locations = ledgerLocationEvidence(t, language, item);
+            const locations = ledgerLocationEvidence(t, language, localizedOperationLocationNames(item, language, t));
             // A null counterpart may be redacted by Backend warehouse RLS,
             // not an actual external source/destination. Do not invent a
             // physical location or reveal the inaccessible warehouse.
@@ -201,7 +221,10 @@ export function LedgerOperationDetails({
               className={`mb-2 rounded-lg border p-3 text-xs ${item.matches_filter ? "border-blue-300 bg-blue-50/70" : "border-slate-200 bg-white"}`}>
               <div className="flex flex-wrap justify-between gap-2">
                 <strong className="text-slate-900">{item.product_name} · {formatPublicBatchNumber(item.batch_number, operationText(t, language, "copy19"))}</strong>
-                <bdi dir="ltr" className="font-bold text-slate-500">#{item.id} · {formatLedgerDate(item.date, locale)}</bdi>
+                <span className="min-w-0 text-[11px] font-bold text-slate-500">
+                  <bdi dir="ltr">#{item.id}</bdi> · <time dateTime={item.date} lang={isArabic ? "ar" : "en"}
+                    dir={isArabic ? "rtl" : "ltr"} className="inline-block isolate whitespace-nowrap">{formatLedgerDate(item.date, locale)}</time>
+                </span>
               </div>
               <div className="mt-1 flex flex-wrap gap-2 text-slate-700">
                 <span className="rounded bg-slate-100 px-2 py-0.5">{stage(item.reference_type)}</span>
@@ -213,7 +236,7 @@ export function LedgerOperationDetails({
               {item.notes && <p className="mt-1 whitespace-pre-wrap rounded bg-slate-50 p-2">{item.notes}</p>}
               <div className="mt-2 flex flex-wrap gap-2">
                 {item.reference && <button type="button" className="rounded border border-blue-200 px-2 py-1 text-blue-800"
-                  onClick={() => onOpenReference(item)}>{operationText(t, language, "copy21")}</button>}
+                  onClick={(event) => onOpenReference(item, event.currentTarget)}>{operationText(t, language, "copy21")}</button>}
                 {canAdjust && item.type === "INBOUND_SUPPLIER" &&
                   <button type="button" className="rounded border border-purple-200 px-2 py-1 text-purple-800"
                     onClick={() => onAdjust(item)}>{operationText(t, language, "copy22")}</button>}
@@ -225,6 +248,7 @@ export function LedgerOperationDetails({
         </div>
         {loadingMore && <p role="status" className="text-center text-xs text-slate-500">{operationText(t, language, "copy23")}</p>}
       </div>
+      {referenceInside && <LedgerReferenceModal t={t} language={language} controller={referenceController} embedded onBack={onReferenceBack} />}
     </Modal>
   );
 }

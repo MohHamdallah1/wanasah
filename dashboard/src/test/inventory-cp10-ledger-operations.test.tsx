@@ -11,7 +11,7 @@ import { ledgerMovementLabel } from "@/pages/inventory/ledger/ledgerI18n";
 import { buildLedgerCursorUrl } from "@/pages/inventory/ledger/buildLedgerCursorUrl";
 import { LedgerOperationRows } from "@/pages/inventory/ledger/LedgerOperationRows";
 import { useLedgerOperations } from "@/pages/inventory/ledger/useLedgerOperations";
-import { LEDGER_OPERATION_REFERENCE_TYPES, parseLedgerOperationFailure } from "@/pages/inventory/ledger/operationI18n";
+import { LEDGER_OPERATION_REFERENCE_TYPES, parseLedgerOperationFailure, abbreviatedOperationReference, operationLocationLabel, localizedOperationLocationNames } from "@/pages/inventory/ledger/operationI18n";
 import type { LedgerOperation } from "@/pages/inventory/ledger/operationContracts";
 
 const mocks = vi.hoisted(() => ({
@@ -517,6 +517,101 @@ describe("Ledger #818 authoritative operations", () => {
     await waitFor(() =>
       expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps real TRN references exact while abbreviating only display and preserves identical numeric references", () => {
+    const long = "TRN-F492EC77AA084613A047F261A8BEE9E9";
+    expect(abbreviatedOperationReference(long)).toMatch(/^TRN-F492EC77…8BEE9E9$/);
+    expect(abbreviatedOperationReference("13")).toBe("13");
+    expect(operationLocationLabel("Vehicle 12-25132", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("مركبة 12-25132");
+    expect(operationLocationLabel("Vehicle 12-25132", "en", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Vehicle 12-25132");
+    expect(operationLocationLabel("Warehouse A", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Warehouse A");
+    const tDefault = ((_key: string, o?: Record<string, unknown>) => String(o?.defaultValue ?? _key)) as never;
+    const original = movement(401, { source_location_name: "Vehicle 12-25132",
+      source_location_type: "VEHICLE", source_stock_status: "AVAILABLE",
+      destination_location_name: null });
+    const localized = localizedOperationLocationNames(original as never, "ar", tDefault);
+    expect(localized.source_location_name).toBe("12-25132");
+    expect(localized.destination_location_name).toBeNull();
+    expect(original.source_location_name).toBe("Vehicle 12-25132");
+
+    expect(parseLedgerOperationPage(parent([
+      operation(1, { reference: "13" }), operation(2, { reference: "13" }),
+    ])).items.map(item => item.group_key)).toEqual(["signed-group-1", "signed-group-2"]);
+  });
+
+  it.each(["ar", "en"] as const)("aligns seven operation columns and keeps RTL reference/date inside a directional cell (%s)", async language => {
+    mocks.language = language;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/cursor")) return parent([operation(1, {
+        reference: "TRN-F492EC77AA084613A047F261A8BEE9E9",
+        source_location_name: "Vehicle 12-25132",
+        destination_location_name: "Warehouse A",
+        product_variant_count: 1, movement_count: 1,
+      })]);
+      throw new Error("Unexpected: " + path);
+    });
+    const { container } = renderLedger();
+    const rows = await screen.findAllByRole("row");
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const headers = container.querySelectorAll('[role="columnheader"][data-ledger-column]');
+    const cells = container.querySelectorAll('[data-ledger-operation-row="true"] [role="cell"][data-ledger-column]');
+    expect(headers).toHaveLength(7);
+    expect(cells).toHaveLength(7);
+    expect([...headers].map(node => node.getAttribute("data-ledger-column"))).toEqual(
+      [...cells].map(node => node.getAttribute("data-ledger-column")));
+    const ref = container.querySelector('[data-ledger-column="columnReference"] bdi')!;
+    expect(ref.textContent).toContain("…");
+    expect(ref.getAttribute("title")).toBe("TRN-F492EC77AA084613A047F261A8BEE9E9");
+    expect(ref.getAttribute("dir")).toBe("ltr");
+    expect(ref.getAttribute("tabindex")).toBe("0");
+    const date = container.querySelector('[data-ledger-column="columnDate"] time')!;
+    expect(date.getAttribute("dir")).toBe(language === "ar" ? "rtl" : "ltr");
+    expect(date.getAttribute("dateTime")).toBe("2026-11-07T14:00:00+00:00");
+    expect(container.querySelector('[data-ledger-operation-row="true"] [data-ledger-column="columnProducts"]')?.textContent)
+      .toContain(language === "ar" ? "1 صنف" : "1 product");
+    expect(container.textContent).toContain(language === "ar" ? "مركبة 12-25132" : "Vehicle 12-25132");
+    expect(screen.getAllByRole("button", { name: /TRN-F492EC77AA084613A047F261A8BEE9E9/ })).toHaveLength(1);
+  });
+
+  it("opens the reference inside operation details and Back returns to the same loaded child with focus", async () => {
+    const ref = "TRN-F492EC77AA084613A047F261A8BEE9E9";
+    let childReads = 0;
+    let referenceReads = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/signed-group-1/movements/cursor")) {
+        childReads++;
+        return children("signed-group-1", [movement(301, {
+          reference: ref, type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH",
+        })]);
+      }
+      if (path.includes("/operations/cursor")) return parent([operation(1, {
+        group_kind: "TRANSFER", reference: ref, movement_count: 1,
+        product_variant_count: 1, batch_count: 1,
+      })]);
+      if (path.includes("/warehouse/ledger/cursor?")) {
+        referenceReads++;
+        return { items: [movement(301, {
+          reference: ref, type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH",
+        })], next_cursor: null, has_more: false, total: 1, available_types: ["TRANSFER_DISPATCH"] };
+      }
+      throw new Error("Unexpected: " + path);
+    });
+    renderLedger();
+    fireEvent.click(await screen.findByRole("button", { name: `Details: ${ref}` }));
+    expect(await screen.findByText("Product 301 · LOT-301")).toBeInTheDocument();
+    expect(screen.getByText(ref, { selector: "bdi" })).toBeInTheDocument();
+    const opener = screen.getByRole("button", { name: "Reference evidence" });
+    fireEvent.click(opener);
+    const back = await screen.findByRole("button", { name: "Back to operation details" });
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(document.querySelector('[data-ledger-reference-in-panel="true"]')).not.toBeNull();
+    expect(referenceReads).toBe(1);
+    fireEvent.click(back);
+    await waitFor(() => expect(opener).toHaveFocus());
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(document.querySelector('[data-ledger-child-id="301"]')).not.toBeNull();
+    expect(childReads).toBe(1);
   });
 
 });

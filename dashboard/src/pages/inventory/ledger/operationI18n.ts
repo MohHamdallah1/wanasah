@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { LedgerOperation } from "./operationContracts";
+import type { LedgerEntry } from "./contracts";
 
 const ar = {
   copy1: "مرحلة حركة موثقة",
@@ -31,11 +32,11 @@ const ar = {
   copy26: "الحركات التفصيلية",
   copy27: "عملية محملة",
   columnType: "نوع العملية",
-  columnReference: "المرجع",
+  columnReference: "مرجع العملية",
   columnDate: "التاريخ",
   columnRoute: "المصدر / الوجهة / المرحلة",
-  columnProducts: "الأصناف",
-  columnMovements: "الحركات",
+  columnProducts: "عدد الأصناف",
+  columnMovements: "عدد الحركات",
   columnAction: "التفاصيل",
   operationLoadFailed: "تعذّر تحميل العمليات. يمكن إعادة المحاولة دون فقدان الحركات المعتمدة.",
   badRequest: "تعذّر تنفيذ طلب السجل؛ تحقق من المرشحات والمرجع.",
@@ -48,6 +49,17 @@ const ar = {
   kindReceipt: "عملية توريد",
   kindMovement: "حركة مستقلة",
   locationNotShown: "موقع غير ظاهر",
+  vehicleLabel: "مركبة",
+  singularProduct: "صنف",
+  singularMovement: "حركة موثقة",
+  summaryProducts: "الأصناف",
+  summaryMovements: "الحركات",
+  referenceMeaning: "مرجع آلي فريد لتتبع العملية والبحث عنها. ليس رقم فاتورة.",
+  referenceMeaningOther: "مرجع العملية المسجل للتتبع والبحث، وليس بالضرورة رقم فاتورة.",
+  copyReference: "نسخ المرجع الكامل",
+  referenceCopied: "تم نسخ المرجع",
+  backToOperation: "الرجوع إلى تفاصيل العملية",
+  referenceFull: "مرجع العملية الكامل",
 } as const;
 const en: Record<keyof typeof ar, string> = {
   copy1: "Recorded movement stage",
@@ -79,11 +91,11 @@ const en: Record<keyof typeof ar, string> = {
   copy26: "Detailed movements",
   copy27: "loaded operations",
   columnType: "Operation",
-  columnReference: "Reference",
+  columnReference: "Operation reference",
   columnDate: "Date",
   columnRoute: "Source / destination / stage",
-  columnProducts: "Products",
-  columnMovements: "Movements",
+  columnProducts: "Product count",
+  columnMovements: "Movement count",
   columnAction: "Details",
   operationLoadFailed: "Could not load operations. Retry without losing authorized movements.",
   badRequest: "The ledger request was rejected. Check its filters and reference.",
@@ -96,6 +108,17 @@ const en: Record<keyof typeof ar, string> = {
   kindReceipt: "Supplier receipt",
   kindMovement: "Individual movement",
   locationNotShown: "Location not shown",
+  vehicleLabel: "Vehicle",
+  singularProduct: "product",
+  singularMovement: "immutable movement",
+  summaryProducts: "products",
+  summaryMovements: "movements",
+  referenceMeaning: "Unique generated reference used to trace and search this operation. It is not an invoice number.",
+  referenceMeaningOther: "Recorded reference for tracing and searching this operation; not necessarily an invoice number.",
+  copyReference: "Copy full reference",
+  referenceCopied: "Reference copied",
+  backToOperation: "Back to operation details",
+  referenceFull: "Full operation reference",
 };
 export const ledgerOperationKindLabel = (kind: LedgerOperation["group_kind"], t: TFunction, language: string) =>
   operationText(t, language, ({
@@ -187,3 +210,40 @@ export const LEDGER_OPERATION_REFERENCE_TYPES: readonly string[] = [
   "STATUS_CHANGE",
   "FINAL_VENDOR_HANDOVER",
 ];
+
+/** Summary shortening never mutates signed group, original reference or search. */
+export function abbreviatedOperationReference(reference: string): string {
+  if (/^TRN-[A-Za-z0-9]{20,}$/.test(reference))
+    return `${reference.slice(0,12)}…${reference.slice(-7)}`;
+  return reference;
+}
+
+/** Backend vehicle custody location names are system-managed from plate number.
+ * Localize only the generated-looking prefix, retaining the original data. */
+export function operationLocationLabel(name: string, language: string, t: TFunction): string {
+  if (!language.toLowerCase().startsWith("ar")) return name;
+  const generated = /^Vehicle ([A-Za-z0-9-]+)$/.exec(name);
+  return generated ? `${operationText(t, language, "vehicleLabel")} ${generated[1]}` : name;
+}
+
+/** Presentation-only localization BEFORE type/status decoration; never edits
+ * immutable location names or reveals RLS-redacted counterparts. */
+export function localizedOperationLocationNames(entry: LedgerEntry, language: string, t: TFunction): LedgerEntry {
+  const visibleName = (name: string | null, kind: string | null | undefined) => {
+    if (name === null) return null;
+    const label = operationLocationLabel(name, language, t);
+    // The existing location-type evidence already supplies "مركبة".
+    // Avoid "مركبة · مركبة <plate>" while retaining the exact plate.
+    if (language.toLowerCase().startsWith("ar") && kind === "VEHICLE") {
+      const prefix = operationText(t, language, "vehicleLabel") + " ";
+      if (label.startsWith(prefix) && /^Vehicle [A-Za-z0-9-]+$/.test(name))
+        return label.slice(prefix.length);
+    }
+    return label;
+  };
+  return {
+    ...entry,
+    source_location_name: visibleName(entry.source_location_name, entry.source_location_type),
+    destination_location_name: visibleName(entry.destination_location_name, entry.destination_location_type),
+  };
+}
