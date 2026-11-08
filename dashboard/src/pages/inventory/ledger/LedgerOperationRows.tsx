@@ -44,8 +44,9 @@ export function LedgerOperationRows({
     ? stage(item.operation_type) : ledgerOperationKindLabel(item.group_kind, t, language);
   const route = (item: LedgerOperation) => {
     const locations = [item.source_location_name, item.destination_location_name].filter(Boolean).join(" → ");
-    const currentStage = item.stage_types.length ? stage(item.stage_types[item.stage_types.length - 1]) : "";
-    return [locations, currentStage].filter(Boolean).join(" · ") || "—";
+    // Backend returns an alphabetically sorted set, NOT a chronological latest stage.
+    const recordedStages = item.stage_types.map(stage).join(" / ");
+    return [locations, recordedStages].filter(Boolean).join(" · ") || "—";
   };
   const columns = [
     "columnType", "columnReference", "columnDate", "columnRoute",
