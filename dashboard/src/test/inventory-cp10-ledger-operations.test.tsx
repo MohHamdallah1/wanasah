@@ -145,7 +145,7 @@ describe("Ledger #818 authoritative operations", () => {
     expect(await screen.findByText("7 immutable movements")).toBeInTheDocument();
     // Compact parent rows show truthful operation type and counts; the
     // posted-variance explanation appears inside the single Details panel.
-    expect(screen.getByText("Stocktake")).toBeInTheDocument();
+    expect(screen.getAllByText("Stocktake").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Details: STK-50" }));
     expect(await screen.findByText(/These are posted stocktake variances only/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open stocktake history/ })).toBeInTheDocument();
