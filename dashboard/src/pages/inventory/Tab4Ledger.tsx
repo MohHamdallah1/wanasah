@@ -60,20 +60,39 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
   const [movementDeniedAt, setMovementDeniedAt] = useState<number | null>(null);
   const [movementRecovery, setMovementRecovery] = useState<"idle" | "start" | "verify">("idle");
   const detailsTrigger = useRef<HTMLButtonElement | null>(null);
+  const referenceReturnFocus = useRef<HTMLButtonElement | null>(null);
+  const [referenceFromOperation, setReferenceFromOperation] = useState(false);
   const closeOperation = () => {
+    reference.close();
+    setReferenceFromOperation(false);
+    referenceReturnFocus.current = null;
     setSelectedOperation(null);
     const trigger = detailsTrigger.current;
     if (trigger?.isConnected) trigger.focus();
     detailsTrigger.current = null;
   };
   const reference = useLedgerReference(locationId, active);
+  const returnToOperation = () => {
+    reference.close();
+    setReferenceFromOperation(false);
+  };
+  useEffect(() => {
+    if (!referenceFromOperation && referenceReturnFocus.current?.isConnected) {
+      referenceReturnFocus.current.focus();
+      referenceReturnFocus.current = null;
+    }
+  }, [referenceFromOperation]);
   const adjustment = useLedgerAdjustment(locationId);
   const [noteEntry, setNoteEntry] = useState<LedgerEntry | null>(null);
   const accessAlertRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // A former warehouse/search/session must not retain an open child panel.
-    if (selectedScope !== null && selectedScope !== operations.visibleScope) setSelectedOperation(null);
+    if (selectedScope !== null && selectedScope !== operations.visibleScope) {
+      reference.close();
+      setReferenceFromOperation(false);
+      setSelectedOperation(null);
+    }
   }, [operations.visibleScope, selectedScope]);
   // Use every canonical backend producer type, not a selective 13-item UI list.
   const operationTypes = [...new Set([...LEDGER_OPERATION_REFERENCE_TYPES,
@@ -263,6 +282,8 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
               loadingMore={operations.loadingMore}
               onDetails={(item, trigger) => {
                 detailsTrigger.current = trigger;
+                setReferenceFromOperation(false);
+                referenceReturnFocus.current = null;
                 setSelectedScope(operations.visibleScope);
                 setSelectedOperation(item);
               }} />
@@ -304,7 +325,14 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
             // Failed parent revalidation preserves the fail-closed guard.
             operations.refresh();
           }}
-          onOpenReference={(entry) => { closeOperation(); reference.open(entry); }}
+          referenceController={reference}
+          referenceInside={referenceFromOperation && reference.entry !== null}
+          onReferenceBack={returnToOperation}
+          onOpenReference={(entry, trigger) => {
+            referenceReturnFocus.current = trigger;
+            setReferenceFromOperation(true);
+            reference.open(entry);
+          }}
           onAdjust={(entry) => { closeOperation(); openAdjustment(entry); }} canAdjust={canAdjust} />
       )}
       <Modal
@@ -318,7 +346,7 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
         </p>
       </Modal>
 
-      {active && !denied && <LedgerReferenceModal t={t} language={language} controller={reference} />}
+      {active && !denied && !operationOpen && <LedgerReferenceModal t={t} language={language} controller={reference} />}
       {active && !denied && <LedgerAdjustmentModal
         t={t}
         language={language}
