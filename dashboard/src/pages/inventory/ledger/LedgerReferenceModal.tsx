@@ -63,8 +63,8 @@ export function LedgerReferenceModal({ t, language, controller, embedded = false
                         lang={language.startsWith("ar") ? "ar" : "en"} dir={language.startsWith("ar") ? "rtl" : "ltr"}
                         className="inline-block isolate whitespace-nowrap">{formatLedgerDate(item.date, language.startsWith("ar") ? "ar" : "en")}</time></div>
                       <div>{text("actor")}: {item.admin_name || text("unknown")}</div>
-                      <div>{text("source")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).source, language)}</div>
-                      <div>{text("destination")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).destination, language)}</div>
+                      <div>{text("source")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).source, language, t)}</div>
+                      <div>{text("destination")}: {operationLocationLabel(ledgerLocationEvidence(t, language, item).destination, language, t)}</div>
                     </td>
                   </tr>
                 ))}
