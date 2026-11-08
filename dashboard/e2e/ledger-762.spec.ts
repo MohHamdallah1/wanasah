@@ -207,7 +207,8 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
         send(route, { group_key: "signed-group-1", items: [entry(501, "PHYSICAL", {
           type: "TRANSFER_DISPATCH", reference_type: "TRANSFER_DISPATCH",
           reference: OWNER_825_TRN, batch_number: "LOT-SEND",
-          source_location_name: "Vehicle 12-25132", destination_location_name: "Warehouse B",
+          source_location_name: "Vehicle 12-25132", source_location_type: "VEHICLE",
+          source_stock_status: "AVAILABLE", destination_location_name: "Warehouse B",
           matches_filter: true,
         })], next_cursor: null, has_more: false }));
       let referenceCalls = 0;
