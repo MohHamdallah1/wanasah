@@ -95,11 +95,9 @@ export function useLedgerWindow(
       for (const entry of entries) {
         const node = entry.target as HTMLElement;
         const index = Number(node.dataset.ledgerVirtualIndex);
-        const height = entry.borderBoxSize
-          ? (Array.isArray(entry.borderBoxSize)
-            ? entry.borderBoxSize[0]?.blockSize
-            : entry.borderBoxSize.blockSize)
-          : entry.contentRect.height;
+        const observedHeight = entry.borderBoxSize?.[0]?.blockSize;
+        const height = Number.isFinite(observedHeight) && observedHeight > 0
+          ? observedHeight : entry.contentRect.height;
         if (!Number.isSafeInteger(index) || index < 0 || index >= count ||
           !Number.isFinite(height) || height <= 0) continue;
         if (Math.abs((measured.current.get(index) ?? estimatedHeight) - height) > 1) {

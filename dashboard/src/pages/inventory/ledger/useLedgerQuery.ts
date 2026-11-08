@@ -60,6 +60,9 @@ export function useLedgerQuery(
   const pagesFetched = useRef(0);
   const revalidationFailed = useRef(false);
   const canceledBeforeFirstPage = useRef(false);
+  // An interrupted first-page revalidation must restart even with saved pages.
+  const revalidating = useRef(false);
+  const interruptedRevalidation = useRef(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 300);
@@ -184,6 +187,8 @@ export function useLedgerQuery(
     pending.current = true;
     setLoading(true);
     setLoadingMore(false);
+    revalidating.current = true;
+    interruptedRevalidation.current = false;
     revalidationFailed.current = false;
     try {
       const page = parseLedgerPage(await authFetch(buildLedgerCursorUrl({
@@ -231,6 +236,7 @@ export function useLedgerQuery(
     } finally {
       if (requestId === seq.current) {
         pending.current = false;
+        revalidating.current = false;
         setLoading(false);
       }
     }
@@ -244,6 +250,9 @@ export function useLedgerQuery(
       pending.current = false;
       setLoadingMore(false);
       canceledBeforeFirstPage.current = pagesFetched.current === 0;
+      if (revalidating.current) interruptedRevalidation.current = true;
+      revalidating.current = false;
+      setLoading(false);
       return;
     }
     const returning = !wasActive.current;
@@ -254,6 +263,8 @@ export function useLedgerQuery(
       pending.current = false;
       setLoadingMore(false);
       revalidationFailed.current = false;
+      interruptedRevalidation.current = false;
+      revalidating.current = false;
       canceledBeforeFirstPage.current = false;
       scopeRef.current = serverScope;
       sessionRef.current = captureDashboardSession();
@@ -268,20 +279,24 @@ export function useLedgerQuery(
       setVisibleScope(null);
       setDenied(false);
       void load(null, true);
-    } else if (returning || canceledBeforeFirstPage.current || (visibleScope !== scopeKey && scopeKey === serverScope)) {
+    } else if (returning || canceledBeforeFirstPage.current || interruptedRevalidation.current || (visibleScope !== scopeKey && scopeKey === serverScope)) {
       // Raw search text is not authorized to reuse the old debounced result;
       // wait until its server scope catches up before admitting any rows.
       if (scopeKey === serverScope) {
         canceledBeforeFirstPage.current = false;
+        interruptedRevalidation.current = false;
         void revalidate();
       }
     }
     return () => {
       if (pending.current && pagesFetched.current === 0) canceledBeforeFirstPage.current = true;
+      if (pending.current && revalidating.current) interruptedRevalidation.current = true;
+      revalidating.current = false;
       seq.current++;
       abortRef.current?.abort();
       pending.current = false;
       setLoadingMore(false);
+      setLoading(false);
     };
   }, [active, serverScope, load, revalidate, scopeKey, visibleScope]);
 
