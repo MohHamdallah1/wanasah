@@ -429,7 +429,7 @@ describe("Ledger #818 authoritative operations", () => {
         detailReads += 1;
         if (detailReads === 1) throw { status: 403 };
         return { items: [movement(101)], next_cursor: null, has_more: false,
-          total: 1, available_types: ["INBOUND_SUPPLIER"] };
+          total: null, available_types: ["INBOUND_SUPPLIER"] };
       }
       if (path.includes("/operations/cursor")) {
         groupedReads += 1;
