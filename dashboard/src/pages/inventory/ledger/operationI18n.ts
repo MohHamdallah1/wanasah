@@ -118,7 +118,7 @@ export function parseLedgerOperationFailure(error: unknown): LedgerOperationFail
   const context = status >= 400 && status < 500 && status !== 401 && status !== 403
     ? safeFields.flatMap(key => {
         const value = contextData[key];
-        return (typeof value === "string" && /^[\\p{L}\\p{N} _.-]{1,80}$/u.test(value))
+        return (typeof value === "string" && /^[\p{L}\p{N} _.-]{1,80}$/u.test(value))
           || (typeof value === "number" && Number.isSafeInteger(value))
           ? [`${key}: ${value}`] : [];
       }).join(" · ") || null
