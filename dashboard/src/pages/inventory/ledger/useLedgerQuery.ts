@@ -67,6 +67,9 @@ export function useLedgerQuery(
   }, [searchInput]);
 
   useEffect(() => subscribeDashboardSession(() => {
+    // Token refresh inside the same authorized company/principal/session is
+    // not a scope switch and must not discard 10k appended movements.
+    if (sessionRef.current && isDashboardSessionCurrent(sessionRef.current)) return;
     seq.current++;
     abortRef.current?.abort();
     pending.current = false;
@@ -195,6 +198,7 @@ export function useLedgerQuery(
       // postings cannot be prepended without bridging through to overlap. A
       // fresh explicit Refresh starts a new snapshot without missing events.
       if (pagesFetched.current <= 1) {
+        pagesFetched.current = 1;
         idsSeen.current = new Set(page.items.map(item => item.id));
         setEntries(page.items);
         cursorRef.current = page.next_cursor;
