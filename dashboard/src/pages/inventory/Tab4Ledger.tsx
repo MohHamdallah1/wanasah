@@ -1,4 +1,4 @@
-import { operationText } from "./ledger/operationI18n";
+import { operationText, operationFailureText, LEDGER_OPERATION_REFERENCE_TYPES } from "./ledger/operationI18n";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -72,12 +72,11 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
     // A former warehouse/search/session must not retain an open child panel.
     if (selectedScope !== null && selectedScope !== operations.visibleScope) setSelectedOperation(null);
   }, [operations.visibleScope, selectedScope]);
-  const operationTypes = [
-    "INBOUND_SUPPLIER", "INBOUND_CORRECTION", "TRANSFER_DISPATCH", "TRANSFER_RECEIPT",
-    "TRANSFER_REJECTED", "TRANSFER_CANCELLED", "AUDIT_ADJUSTMENT",
-    "STATUS_CHANGE", "STATUS_RECLASSIFICATION", "DISPATCH_LOAD",
-    "DISPATCH_UNLOAD", "VISIT_ITEM_OUT", "VISIT_RETURN_IN",
-  ];
+  // Use every canonical backend producer type, not a selective 13-item UI list.
+  const operationTypes = [...new Set([...LEDGER_OPERATION_REFERENCE_TYPES,
+    ...operations.items.flatMap(group => group.stage_types),
+    ...(query.filterType !== "ALL" ? [query.filterType] : []),
+  ])];
     const text = (key: Parameters<typeof ledgerText>[2], values: Record<string, unknown> = {}) =>
     ledgerText(t, language, key, values);
   const denied = reference.denied || query.denied || operations.denied || groupDeniedScope === operations.visibleScope || (access.isSuccess && !access.can("ledger.read"));
@@ -175,7 +174,18 @@ export function Tab4Ledger({ active = true, locationId, warehouseSelector, refre
                 : "border-red-200 bg-red-50 text-red-800"
             }`}
           >
-            <span>{text("loadFailed")}</span>
+            <span className="min-w-0 break-words">
+              {mode === "operations" && operations.failure
+                ? operationFailureText(t, language, operations.failure) : text("loadFailed")}
+              {mode === "operations" && operations.failure?.code &&
+                operations.failure.status >= 400 && operations.failure.status < 500 && (
+                  <span className="ms-2">{operationText(t, language, "errorCode")}: <bdi dir="ltr">{operations.failure.code}</bdi></span>
+                )}
+              {mode === "operations" && operations.failure?.context && <span className="ms-2">{operations.failure.context}</span>}
+              {mode === "operations" && operations.failure?.requestId && (
+                <span className="ms-2">{operationText(t, language, "requestId")}: <bdi dir="ltr">{operations.failure.requestId}</bdi></span>
+              )}
+            </span>
             <button
               type="button"
               onClick={mode === "operations" ? operations.retry : query.retry}
