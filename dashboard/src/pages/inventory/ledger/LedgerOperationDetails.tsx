@@ -42,7 +42,6 @@ export function LedgerOperationDetails({
   operation, locationId, language, locale, t, search, filterType, exactReference,
   onClose, onDenied, onOpenReference, onAdjust, canAdjust,
 }: Props) {
-  const ar = language.toLowerCase().startsWith("ar");
   const navigate = useNavigate();
   const authFetch = useAuthFetch();
   const [items, setItems] = useState<LedgerOperationChild[]>([]);
