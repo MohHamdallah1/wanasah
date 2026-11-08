@@ -6,7 +6,7 @@ import { buildLedgerOperationUrl, parseLedgerOperationPage } from "@/pages/inven
 import { Tab4Ledger } from "@/pages/inventory/Tab4Ledger";
 import { LedgerOperationRows } from "@/pages/inventory/ledger/LedgerOperationRows";
 import { useLedgerOperations } from "@/pages/inventory/ledger/useLedgerOperations";
-import { LEDGER_OPERATION_REFERENCE_TYPES, parseLedgerOperationFailure, abbreviatedOperationReference, operationLocationLabel } from "@/pages/inventory/ledger/operationI18n";
+import { LEDGER_OPERATION_REFERENCE_TYPES, parseLedgerOperationFailure, abbreviatedOperationReference, operationLocationLabel, localizedOperationLocationNames } from "@/pages/inventory/ledger/operationI18n";
 import type { LedgerOperation } from "@/pages/inventory/ledger/operationContracts";
 
 const mocks = vi.hoisted(() => ({
@@ -521,6 +521,15 @@ describe("Ledger #818 authoritative operations", () => {
     expect(operationLocationLabel("Vehicle 12-25132", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("مركبة 12-25132");
     expect(operationLocationLabel("Vehicle 12-25132", "en", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Vehicle 12-25132");
     expect(operationLocationLabel("Warehouse A", "ar", ((_key: string, o?: Record<string, unknown>) => o?.defaultValue ?? _key) as never)).toBe("Warehouse A");
+    const tDefault = ((_key: string, o?: Record<string, unknown>) => String(o?.defaultValue ?? _key)) as never;
+    const original = movement(401, { source_location_name: "Vehicle 12-25132",
+      source_location_type: "VEHICLE", source_stock_status: "AVAILABLE",
+      destination_location_name: null }) as never;
+    const localized = localizedOperationLocationNames(original, "ar", tDefault);
+    expect(localized.source_location_name).toBe("12-25132");
+    expect(localized.destination_location_name).toBeNull();
+    expect(original.source_location_name).toBe("Vehicle 12-25132");
+
     expect(parseLedgerOperationPage(parent([
       operation(1, { reference: "13" }), operation(2, { reference: "13" }),
     ])).items.map(item => item.group_key)).toEqual(["signed-group-1", "signed-group-2"]);
