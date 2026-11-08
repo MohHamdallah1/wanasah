@@ -82,7 +82,7 @@ jobs:
           changed=set(subprocess.check_output(["git","diff","--name-only",os.environ["BASE"],"HEAD"],text=True).splitlines())
           # Immutable route manifest and legacy CI guards are required
           # for precisely these new read-only endpoints, no other additions.
-          allowed={
+          backend_817_exact={
             "wa_backend/api/warehouse/ledger.py",
             "wa_backend/domains/ledger/read.py",
             "wa_backend/domains/ledger/operation_read.py",
@@ -92,7 +92,33 @@ jobs:
             ".github/workflows/inventory-ledger-762-acceptance.yml",
             ".github/workflows/inventory-cp2-batch-index-acceptance.yml",
           }
-          assert changed == allowed, sorted(changed)
-          print("LEDGER_817_BACKEND_ONLY_SCOPE_PASS",len(changed))
+          # #818 Stage B has no Backend change. Editing Ledger-762's focused
+          # UI acceptance workflow also triggers this historical #817 gate.
+          # Allow ONLY its reviewed ten-file read-only Dashboard scope.
+          ledger_818_stage_b_exact={
+            ".github/workflows/inventory-ledger-762-acceptance.yml",
+            "dashboard/e2e/ledger-762.spec.ts",
+            "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+            "dashboard/src/pages/inventory/ledger/LedgerOperationDetails.tsx",
+            "dashboard/src/pages/inventory/ledger/LedgerOperationRows.tsx",
+            "dashboard/src/pages/inventory/ledger/operationContracts.ts",
+            "dashboard/src/pages/inventory/ledger/operationI18n.ts",
+            "dashboard/src/pages/inventory/ledger/useLedgerOperations.ts",
+            "dashboard/src/test/inventory-cp10-ledger-dashboard.test.tsx",
+            "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
+          }
+          workflow_maintenance_exact={".github/workflows/inventory-ledger-817-acceptance.yml"}
+          accepted=(backend_817_exact,ledger_818_stage_b_exact,workflow_maintenance_exact)
+          assert len(backend_817_exact)==8 and len(ledger_818_stage_b_exact)==10
+          for scope in accepted:
+              for foreign in ("wa_backend/services.py",
+                              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                              "flutter_app/lib/main.dart"):
+                  assert not any(scope | {foreign} == allowed for allowed in accepted)
+          assert changed in accepted, sorted(changed)
+          print("LEDGER_817_SCOPED_GUARD=PASS",
+                "backend-817" if changed==backend_817_exact else
+                "frontend-818-stage-b" if changed==ledger_818_stage_b_exact else
+                "workflow-maintenance",len(changed))
           PY
           python -m py_compile wa_backend/api/warehouse/ledger.py wa_backend/domains/ledger/read.py wa_backend/domains/ledger/operation_read.py wa_backend/tests/test_ledger_817_postgres.py
