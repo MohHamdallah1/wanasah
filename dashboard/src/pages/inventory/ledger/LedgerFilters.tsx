@@ -1,8 +1,9 @@
 import type { TFunction } from "i18next";
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { RefreshCcw, Search } from "lucide-react";
 
 import { ledgerMovementLabel, ledgerText } from "./ledgerI18n";
+import { ledgerMovementFilterTypes } from "./ledgerMovementCatalog";
 
 interface Props {
   warehouseSelector?: ReactNode;
@@ -33,6 +34,8 @@ export function LedgerFilters({
 }: Props) {
   const text = (key: Parameters<typeof ledgerText>[2]) => ledgerText(t, language, key);
   const countSuffix = totalCount === null ? "" : ` (${totalCount})`;
+  const filterHelpId = useId();
+  const movementTypes = ledgerMovementFilterTypes(availableTypes, filterType);
   return (
     <div
       className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/70 p-2 md:flex-row md:items-center md:px-3"
@@ -59,14 +62,16 @@ export function LedgerFilters({
         value={filterType}
         onChange={(event) => onFilterTypeChange(event.target.value)}
         aria-label={text("movement")}
-        title={text("movementCountHelp")}
+        title={text("movementFilterHelp")}
+        aria-describedby={filterHelpId}
         className="h-9 min-w-44 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-bold text-slate-700 outline-none focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100"
       >
         <option value="ALL">{text("allTypes")}{filterType === "ALL" ? countSuffix : ""}</option>
-        {availableTypes.map((type) => (
+        {movementTypes.map((type) => (
           <option key={type} value={type}>{ledgerMovementLabel(t, language, type)}{filterType === type ? countSuffix : ""}</option>
         ))}
       </select>
+      <span id={filterHelpId} className="sr-only">{text("movementFilterHelp")}</span>
       <button
         type="button"
         onClick={onRefresh}
