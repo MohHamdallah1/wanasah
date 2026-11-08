@@ -536,6 +536,43 @@ describe("CP10 Ledger Dashboard", () => {
   });
 });
 
+function LedgerReentryHarness() {
+  const [active, setActive] = useState(true);
+  return <MemoryRouter initialEntries={["/inventory"]}>
+    <button type="button" onClick={() => setActive(false)}>Leave ledger tab</button>
+    <button type="button" onClick={() => setActive(true)}>Return ledger tab</button>
+    <Tab4Ledger active={active} locationId={11} refreshKey={0} onInventoryChanged={() => undefined} />
+  </MemoryRouter>;
+}
+
+describe("Ledger #818 canceled revalidation recovery", () => {
+  it("restarts an aborted same-scope head after typing and clearing within debounce while retaining rows", async () => {
+    let secondSignal: AbortSignal | undefined;
+    let cursorRequests = 0;
+    mocks.authFetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (!url.startsWith("/warehouse/ledger/cursor?")) throw Error(url);
+      cursorRequests += 1;
+      if (cursorRequests === 2) {
+        secondSignal = init?.signal as AbortSignal;
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve(page([entry(900, { product_name: "Retained stock" })]));
+    });
+    render(<LedgerReentryHarness />);
+    expect(await screen.findAllByText("Retained stock")).not.toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Leave ledger tab" }));
+    fireEvent.click(screen.getByRole("button", { name: "Return ledger tab" }));
+    await waitFor(() => expect(cursorRequests).toBe(2));
+    const search = screen.getByRole("searchbox");
+    fireEvent.change(search, { target: { value: "temporary" } });
+    expect(secondSignal?.aborted).toBe(true);
+    fireEvent.change(search, { target: { value: "" } });
+    await waitFor(() => expect(cursorRequests).toBeGreaterThanOrEqual(3));
+    expect(await screen.findAllByText("Retained stock")).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Refresh movement ledger" })).not.toBeDisabled();
+  });
+});
+
 describe("Ledger #818 bounded large-list rendering", () => {
   it("keeps desktop and mobile mounted DOM bounded at 10,001 authorized movements", () => {
     const entries = Array.from({ length: 10001 }, (_, index) => entry(index + 1));
