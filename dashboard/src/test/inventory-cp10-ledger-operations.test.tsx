@@ -534,11 +534,13 @@ describe("#824 ledger reference-type filter parity", () => {
   it.each(["ar", "en"])("offers ALL plus every canonical type even if no first-page movement exists (%s)", (language) => {
     const { rerender } = render(filters(language, ["TRANSFER_RECEIPT"]));
     const select = screen.getByRole("combobox");
-    const canonical = [...LEDGER_OPERATION_REFERENCE_TYPES];
-    expect(canonical).toHaveLength(37);
+    const canonical = ledgerMovementFilterTypes([], "ALL");
+    expect(LEDGER_OPERATION_REFERENCE_TYPES).toHaveLength(37);
+    expect(canonical).toHaveLength(38);
+    expect(canonical).toContain("TRANSFER_TERMINAL_STATUS");
     expect(Array.from(select.querySelectorAll("option"), option => option.value))
       .toEqual(["ALL", ...canonical]);
-    expect(select.querySelectorAll("option")).toHaveLength(38);
+    expect(select.querySelectorAll("option")).toHaveLength(39);
     // Operations and Detailed can report different first-page types; neither
     // may constrain the filter catalog to that page or an observed warehouse.
     rerender(filters(language, ["DISPATCH_LOAD"]));
@@ -559,7 +561,7 @@ describe("#824 ledger reference-type filter parity", () => {
     rerender(filters("en", [], "FUTURE_STOCK_EVENT"));
     expect(screen.getByRole("combobox")).toHaveValue("FUTURE_STOCK_EVENT");
     expect(ledgerMovementFilterTypes(["\u0000BAD", "", "ALL", "TRANSFER", "TRANSFER"], "ALL"))
-      .toEqual([...LEDGER_OPERATION_REFERENCE_TYPES]);
+      .toEqual(ledgerMovementFilterTypes([], "ALL"));
   });
 
   it.each(["ar", "en"])("keeps the two stocktake adjustment types distinct and describes empty categories (%s)", language => {
