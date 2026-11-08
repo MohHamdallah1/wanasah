@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import type { LedgerOperation } from "./operationContracts";
 
 const ar = {
   copy1: "مرحلة حركة موثقة",
@@ -92,6 +93,12 @@ const en: Record<keyof typeof ar, string> = {
   kindReceipt: "Supplier receipt",
   kindMovement: "Individual movement",
 };
+export const ledgerOperationKindLabel = (kind: LedgerOperation["group_kind"], t: TFunction, language: string) =>
+  operationText(t, language, ({
+    TRANSFER: "kindTransfer", STOCKTAKE: "kindStocktake",
+    RECEIPT: "kindReceipt", MOVEMENT: "kindMovement",
+  } as const)[kind]);
+
 export type OperationCopyKey = keyof typeof ar;
 export const operationText = (t: TFunction, language: string, key: OperationCopyKey): string =>
   String(t(`inventoryLedger.operation.${key}`, { defaultValue: language.toLowerCase().startsWith("ar") ? ar[key] : en[key] }));
