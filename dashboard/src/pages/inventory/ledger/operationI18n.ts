@@ -120,3 +120,42 @@ export function operationFailureText(
     return operationText(t, language, "serviceUnavailable");
   return operationText(t, language, "operationLoadFailed");
 }
+
+/** Full canonical movement reference-type catalog from ledgerI18n backend producer labels.
+ * Never use a partial UI-only list that drops historical producer types. */
+export const LEDGER_OPERATION_REFERENCE_TYPES: readonly string[] = [
+  "STATUS_RECLASSIFICATION",
+  "FINAL_DISPOSAL",
+  "SPECIAL_TRANSFER_DISPATCH",
+  "SPECIAL_TRANSFER_TERMINAL_STATUS",
+  "QUALITY_HANDLING_STAGE",
+  "HANDSHAKE_POST",
+  "HANDSHAKE_TERMINAL_STATUS",
+  "REPRESENTATIVE_CUSTODY_RECEIPT",
+  "VEHICLE_LOAD_DIRECT",
+  "VEHICLE_UNLOAD_DIRECT",
+  "VEHICLE_UNLOAD_SAFE_STATUS",
+  "VISIT_SAMPLE_OUT",
+  "VISIT_REWARD_OUT",
+  "INBOUND_SUPPLIER",
+  "INBOUND_CORRECTION",
+  "AUDIT_ADJUSTMENT",
+  "DISPATCH_LOAD",
+  "DISPATCH_UNLOAD",
+  "HANDSHAKE_RESERVE",
+  "HANDSHAKE_RELEASE",
+  "HANDSHAKE_COMMIT",
+  "HANDSHAKE_COMMIT_PULL",
+  "DRIVER_SHORTAGE",
+  "DRIVER_SURPLUS",
+  "VISIT_ITEM_OUT",
+  "VISIT_EXCHANGE_OUT",
+  "VISIT_RETURN_IN",
+  "VISIT_REVERSAL",
+  "TRANSFER_DISPATCH",
+  "TRANSFER_RECEIPT",
+  "TRANSFER_CANCELLED",
+  "TRANSFER_REJECTED",
+  "STATUS_CHANGE",
+  "FINAL_VENDOR_HANDOVER",
+];
