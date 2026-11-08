@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 import type { LedgerOperation } from "./operationContracts";
+import type { LedgerEntry } from "./contracts";
 
 const ar = {
   copy1: "مرحلة حركة موثقة",
@@ -223,4 +224,16 @@ export function operationLocationLabel(name: string, language: string, t: TFunct
   if (!language.toLowerCase().startsWith("ar")) return name;
   const generated = /^Vehicle ([A-Za-z0-9-]+)$/.exec(name);
   return generated ? `${operationText(t, language, "vehicleLabel")} ${generated[1]}` : name;
+}
+
+/** Presentation-only localization BEFORE type/status decoration; never edits
+ * immutable location names or reveals RLS-redacted counterparts. */
+export function localizedOperationLocationNames(entry: LedgerEntry, language: string, t: TFunction): LedgerEntry {
+  return {
+    ...entry,
+    source_location_name: entry.source_location_name == null
+      ? null : operationLocationLabel(entry.source_location_name, language, t),
+    destination_location_name: entry.destination_location_name == null
+      ? null : operationLocationLabel(entry.destination_location_name, language, t),
+  };
 }
