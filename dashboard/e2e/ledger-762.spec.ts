@@ -99,6 +99,20 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
   test(`ledger #818 real-operation row and lazy detail ${locale} ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 });
     await installUxApi(page, 1, { allowOtherInventoryReads: true });
+    // The shared Live Stock fixture intentionally grants inventory.read only.
+    // Ledger grouping requires a genuine location-scoped ledger.read grant;
+    // keep denial/revocation coverage in the separate tests above.
+    await page.route("**/api/inventory/access/me*", route => {
+      const url = new URL(route.request().url());
+      const location = url.searchParams.get("location_id");
+      return send(route, {
+        company_id: 1, principal_id: 7, backoffice_user_id: 17,
+        is_company_owner: true, location_id: location ? Number(location) : null,
+        permissions: ["inventory.read", "location.read", "ledger.read", "ledger.adjust"],
+        location_permissions: location ? ["ledger.read", "ledger.adjust"] : [],
+        any_permissions: ["inventory.read", "location.read", "ledger.read"],
+      });
+    });
     await page.route("**/api/warehouse/ledger/operations/cursor?*", route => send(route, {
       items: [{
         group_key: "opaque-818-transfer", group_kind: "TRANSFER",
