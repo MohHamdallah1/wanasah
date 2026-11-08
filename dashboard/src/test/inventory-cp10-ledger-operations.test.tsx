@@ -362,4 +362,29 @@ describe("Ledger #818 authoritative operations", () => {
     hook.unmount();
   });
 
+  it("does not misrepresent alphabetically sorted transfer stages as a latest status", async () => {
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/cursor")) return parent([operation(6, {
+        group_kind: "TRANSFER", operation_type: "TRANSFER",
+        source_location_name: null, destination_location_name: null,
+        stage_types: ["TRANSFER_CANCELLED", "TRANSFER_DISPATCH"],
+      })]);
+      throw new Error("Unexpected endpoint: " + path);
+    });
+    const { container } = renderLedger();
+    await waitFor(() => expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
+    const row = container.querySelector('[data-ledger-operation-row="true"]')!;
+    expect(row.textContent).toContain("Transfer cancellation");
+    expect(row.textContent).toContain("Transfer dispatch");
+    expect(row.textContent).not.toContain("Latest stage");
+  });
+
+  it("keeps safe Arabic reason values but never arbitrary sensitive server context", () => {
+    expect(parseLedgerOperationFailure({
+      status: 422, code: "LEDGER_INVALID", context: { reason: "مرجع_غير_صالح", auth_token: "secret" },
+      requestId: "req-ar-818",
+    })).toEqual({ status: 422, code: "LEDGER_INVALID",
+      requestId: "req-ar-818", context: "reason: مرجع_غير_صالح" });
+  });
+
 });
