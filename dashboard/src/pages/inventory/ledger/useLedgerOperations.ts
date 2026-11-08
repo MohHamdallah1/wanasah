@@ -16,6 +16,7 @@ export interface LedgerOperationQuery {
   hasMore: boolean;
   error: boolean;
   failure: LedgerOperationFailure | null;
+  authorizedProof: { scope: string; sequence: number } | null;
   denied: boolean;
   loadMore: () => void;
   retry: () => void;
@@ -42,6 +43,9 @@ export function useLedgerOperations(
   const [error, setError] = useState(false);
   const [failure, setFailure] = useState<LedgerOperationFailure | null>(null);
   const [denied, setDenied] = useState(false);
+  // Freshly authorized parent first-page reads, scoped to this company/warehouse.
+  const [authorizedProof, setAuthorizedProof] = useState<{ scope: string; sequence: number } | null>(null);
+  const proofSerial = useRef(0);
   const seq = useRef(0);
   const pending = useRef(false);
   const aborted = useRef<AbortController | null>(null);
@@ -120,6 +124,7 @@ export function useLedgerOperations(
       if (reset) {
         setScopeVisible(queryScope);
         setDenied(false);
+        setAuthorizedProof({ scope: queryScope, sequence: ++proofSerial.current });
       }
     } catch (err) {
       if (requestId !== seq.current || scopeRef.current !== queryScope ||
@@ -187,6 +192,7 @@ export function useLedgerOperations(
       }
       setScopeVisible(queryScope);
       setDenied(false);
+      setAuthorizedProof({ scope: queryScope, sequence: ++proofSerial.current });
       revalidationFailed.current = false;
       setFailure(null);
       setError(false);
@@ -291,6 +297,6 @@ export function useLedgerOperations(
     items: admitted ? items : [], loading: loading || (!admitted && !denied && !error),
     loadingMore, hasMore: admitted && hasMore, error: admitted && error,
     failure: admitted && error ? failure : null,
-    denied, loadMore, retry, refresh, visibleScope,
+    denied, authorizedProof, loadMore, retry, refresh, visibleScope,
   };
 }
