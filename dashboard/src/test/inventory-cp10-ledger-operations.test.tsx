@@ -308,4 +308,58 @@ describe("Ledger #818 authoritative operations", () => {
     });
   });
 
+  it("survives transient raw search changes before debounce without a frozen first read", async () => {
+    let finish!: (value: unknown) => void;
+    const first = new Promise<unknown>(resolve => { finish = resolve; });
+    mocks.authFetch.mockImplementation(() => first);
+    const hook = renderHook(({ search }) =>
+      useLedgerOperations(11, 0, true, search, "ALL", null),
+    { initialProps: { search: "" } });
+    await waitFor(() => expect(mocks.authFetch).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      hook.rerender({ search: "temporary" });
+      hook.rerender({ search: "" });
+    });
+    await act(async () => finish(parent([operation(3)])));
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(1));
+    expect(hook.result.current.loading).toBe(false);
+    expect(hook.result.current.error).toBe(false);
+    hook.unmount();
+  });
+
+  it.each([401, 403, 404])("fails closed for rejected grouped read HTTP %i", async status => {
+    mocks.authFetch.mockRejectedValue({ status, code: "LEDGER_ACCESS_CHANGED", requestId: "req-denied" });
+    const { container } = renderLedger();
+    await waitFor(() => expect(container.querySelector('[data-ledger-operation-row="true"]')).toBeNull());
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.queryByText("req-denied")).not.toBeInTheDocument();
+  });
+
+  it("recovers a canceled Refresh during tab switch with a new first-page snapshot", async () => {
+    let finishRefresh!: (value: unknown) => void;
+    const pendingRefresh = new Promise<unknown>(resolve => { finishRefresh = resolve; });
+    let count = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("cursor=second")) return parent([operation(2)]);
+      count++;
+      if (count === 2) return pendingRefresh;
+      return parent([operation(3)], "second");
+    });
+    const hook = renderHook(({ active }) => useLedgerOperations(11, 0, active, "", "ALL", null), {
+      initialProps: { active: true },
+    });
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(1));
+    await act(async () => hook.result.current.loadMore());
+    await waitFor(() => expect(hook.result.current.items).toHaveLength(2));
+    // Start a fresh snapshot, then navigate away before its first page arrives.
+    await act(async () => hook.result.current.refresh());
+    await act(async () => hook.rerender({ active: false }));
+    await act(async () => hook.rerender({ active: true }));
+    await act(async () => finishRefresh(parent([operation(4)], "new-signed")));
+    await waitFor(() => expect(hook.result.current.items.length).toBeGreaterThan(0));
+    expect(hook.result.current.items.some(row => row.group_key === "signed-group-4")).toBe(false);
+    expect(hook.result.current.hasMore).toBe(true);
+    hook.unmount();
+  });
+
 });
