@@ -423,8 +423,14 @@ describe("Ledger #818 authoritative operations", () => {
 
   it("recovers an inactive detailed-view 403 only after a new authorized grouped read", async () => {
     let groupedReads = 0;
+    let detailReads = 0;
     mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.includes("/warehouse/ledger/cursor?")) throw { status: 403 };
+      if (path.includes("/warehouse/ledger/cursor?")) {
+        detailReads += 1;
+        if (detailReads === 1) throw { status: 403 };
+        return { items: [movement(101)], next_cursor: null, has_more: false,
+          total: 1, available_types: ["INBOUND_SUPPLIER"] };
+      }
       if (path.includes("/operations/cursor")) {
         groupedReads += 1;
         return parent([operation(1)]);
@@ -440,6 +446,35 @@ describe("Ledger #818 authoritative operations", () => {
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     await waitFor(() => expect(groupedReads).toBeGreaterThanOrEqual(2));
     await waitFor(() => expect(container.querySelector('[data-ledger-operation-row="true"]')).not.toBeNull());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Detailed movements" }));
+    await waitFor(() => expect(detailReads).toBeGreaterThanOrEqual(2));
+    expect(await screen.findAllByText("Product 101")).not.toHaveLength(0);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("retries a child-denial revalidation network failure without exposing cached rows", async () => {
+    let parentReads = 0;
+    mocks.authFetch.mockImplementation(async (path: string) => {
+      if (path.includes("/operations/signed-group-1/movements/cursor"))
+        throw { status: 403, code: "LEDGER_ACCESS_CHANGED" };
+      if (path.includes("/operations/cursor")) {
+        parentReads += 1;
+        if (parentReads === 2) throw { status: 503, requestId: "req-recover-503" };
+        return parent([operation(1)]);
+      }
+      throw Error(path);
+    });
+    const { container } = renderLedger();
+    await waitFor(() => expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: /Details: REF-SAME/ }));
+    await waitFor(() => expect(parentReads).toBe(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument());
+    expect(screen.getByText("req-recover-503")).toBeInTheDocument();
+    expect(container.querySelector('[data-ledger-operation-row="true"]')).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(parentReads).toBeGreaterThanOrEqual(3));
+    await waitFor(() => expect(container.querySelectorAll('[data-ledger-operation-row="true"]')).toHaveLength(1));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
