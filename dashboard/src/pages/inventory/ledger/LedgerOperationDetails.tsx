@@ -211,7 +211,7 @@ export function LedgerOperationDetails({
             const visibleLocation = (side: "source" | "destination") => {
               const id = side === "source" ? item.source_location_id : item.destination_location_id;
               const name = side === "source" ? item.source_location_name : item.destination_location_name;
-              if (id !== null || name !== null) return operationLocationLabel(locations[side], language);
+              if (id !== null || name !== null) return operationLocationLabel(locations[side], language, t);
               // A genuine supplier receipt has a documented outside source.
               if (side === "source" && operation.group_kind === "RECEIPT" &&
                   item.reference_type === "INBOUND_SUPPLIER") return locations.source;
