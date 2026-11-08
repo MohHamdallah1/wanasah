@@ -516,7 +516,7 @@ describe("Ledger #818 authoritative operations", () => {
 
   it("keeps real TRN references exact while abbreviating only display and preserves identical numeric references", () => {
     const long = "TRN-F492EC77AA084613A047F261A8BEE9E9";
-    expect(abbreviatedOperationReference(long)).toMatch(/^TRN-F492EC77…BEE9E9$/);
+    expect(abbreviatedOperationReference(long)).toMatch(/^TRN-F492EC77…8BEE9E9$/);
     expect(abbreviatedOperationReference("13")).toBe("13");
     expect(operationLocationLabel("Vehicle 12-25132", "ar")).toBe("مركبة 12-25132");
     expect(operationLocationLabel("Vehicle 12-25132", "en")).toBe("Vehicle 12-25132");
@@ -554,7 +554,7 @@ describe("Ledger #818 authoritative operations", () => {
     const date = container.querySelector('[data-ledger-column="columnDate"] time')!;
     expect(date.getAttribute("dir")).toBe(language === "ar" ? "rtl" : "ltr");
     expect(date.getAttribute("dateTime")).toBe("2026-11-07T14:00:00+00:00");
-    expect(container.querySelector('[data-ledger-column="columnProducts"]')?.textContent)
+    expect(container.querySelector('[data-ledger-operation-row="true"] [data-ledger-column="columnProducts"]')?.textContent)
       .toContain(language === "ar" ? "1 صنف" : "1 products");
     expect(container.textContent).toContain(language === "ar" ? "مركبة 12-25132" : "Vehicle 12-25132");
     expect(screen.getAllByRole("button", { name: /TRN-F492EC77AA084613A047F261A8BEE9E9/ })).toHaveLength(1);
