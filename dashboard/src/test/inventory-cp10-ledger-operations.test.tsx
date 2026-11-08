@@ -143,17 +143,24 @@ describe("Ledger #818 authoritative operations", () => {
     });
     renderLedger();
     expect(await screen.findByText("7 immutable movements")).toBeInTheDocument();
-    expect(screen.getByText("Posted variances only")).toBeInTheDocument();
+    // Compact parent rows show truthful operation type and counts; the
+    // posted-variance explanation appears inside the single Details panel.
+    expect(screen.getByText("Stocktake")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Details: STK-50" }));
     expect(await screen.findByText(/These are posted stocktake variances only/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Open stocktake history/ })).toBeInTheDocument();
     expect(screen.queryByText("50 immutable movements")).not.toBeInTheDocument();
   });
 
-  it("purges the parent and child disclosure after a 403 during details", async () => {
+  it("purges the parent and child disclosure when a child 403 and parent recheck both deny", async () => {
+    let parentReads = 0;
     mocks.authFetch.mockImplementation(async (path: string) => {
       if (path.includes("/operations/signed-group-1/movements/cursor")) throw { status: 403 };
-      if (path.includes("/operations/cursor")) return parent([operation(1)]);
+      if (path.includes("/operations/cursor")) {
+        parentReads++;
+        if (parentReads > 1) throw { status: 403 };
+        return parent([operation(1)]);
+      }
       throw new Error("Unexpected request: " + path);
     });
     const { container } = renderLedger();
