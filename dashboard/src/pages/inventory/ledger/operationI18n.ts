@@ -28,6 +28,12 @@ const ar = {
   copy25: "العمليات",
   copy26: "الحركات التفصيلية",
   copy27: "عملية محملة",
+  operationLoadFailed: "تعذّر تحميل العمليات. يمكن إعادة المحاولة دون فقدان الحركات المعتمدة.",
+  badRequest: "تعذّر تنفيذ طلب السجل؛ تحقق من المرشحات والمرجع.",
+  invalidScope: "بيانات الطلب غير صالحة أو المرجع غير متاح لهذا المستودع.",
+  serviceUnavailable: "خدمة السجل غير متاحة مؤقتاً. أعد المحاولة.",
+  requestId: "رقم تتبع الطلب",
+  errorCode: "رمز السبب",
   kindTransfer: "عملية تحويل",
   kindStocktake: "عملية جرد",
   kindReceipt: "عملية توريد",
@@ -61,6 +67,12 @@ const en: Record<keyof typeof ar, string> = {
   copy25: "Operations",
   copy26: "Detailed movements",
   copy27: "loaded operations",
+  operationLoadFailed: "Could not load operations. Retry without losing authorized movements.",
+  badRequest: "The ledger request was rejected. Check its filters and reference.",
+  invalidScope: "The request is invalid or its reference is unavailable in this warehouse.",
+  serviceUnavailable: "Ledger service is temporarily unavailable. Retry.",
+  requestId: "Request ID",
+  errorCode: "Reason code",
   kindTransfer: "Warehouse transfer",
   kindStocktake: "Stocktake",
   kindReceipt: "Supplier receipt",
@@ -69,3 +81,42 @@ const en: Record<keyof typeof ar, string> = {
 export type OperationCopyKey = keyof typeof ar;
 export const operationText = (t: TFunction, language: string, key: OperationCopyKey): string =>
   String(t(`inventoryLedger.operation.${key}`, { defaultValue: language.toLowerCase().startsWith("ar") ? ar[key] : en[key] }));
+
+/** Display only safe bounded public error fields; never leak 5xx server bodies. */
+export interface LedgerOperationFailure {
+  status: number;
+  code: string | null;
+  requestId: string | null;
+  context: string | null;
+}
+export function parseLedgerOperationFailure(error: unknown): LedgerOperationFailure {
+  const candidate = error && typeof error === "object"
+    ? error as Record<string, unknown> : {};
+  const status = typeof candidate.status === "number" && Number.isFinite(candidate.status)
+    ? candidate.status : 0;
+  const code = typeof candidate.code === "string" && /^[A-Z0-9_]{1,80}$/.test(candidate.code)
+    ? candidate.code : null;
+  const requestId = typeof candidate.requestId === "string" && /^[a-zA-Z0-9._:-]{1,128}$/.test(candidate.requestId)
+    ? candidate.requestId : null;
+  const contextData = candidate.context && typeof candidate.context === "object" &&
+    !Array.isArray(candidate.context) ? candidate.context as Record<string, unknown> : {};
+  const safeFields = ["field", "reason", "limit", "reference_type", "location_id"];
+  const context = status >= 400 && status < 500 && status !== 401 && status !== 403
+    ? safeFields.flatMap(key => {
+        const value = contextData[key];
+        return (typeof value === "string" && /^[a-zA-Z0-9 _.-]{1,80}$/.test(value))
+          || (typeof value === "number" && Number.isSafeInteger(value))
+          ? [`${key}: ${value}`] : [];
+      }).join(" · ") || null
+    : null;
+  return { status, code, requestId, context };
+}
+export function operationFailureText(
+  t: TFunction, language: string, failure: LedgerOperationFailure,
+): string {
+  if (failure.status === 400) return operationText(t, language, "badRequest");
+  if (failure.status === 422) return operationText(t, language, "invalidScope");
+  if (failure.status === 503 || failure.status === 408 || failure.status === 0)
+    return operationText(t, language, "serviceUnavailable");
+  return operationText(t, language, "operationLoadFailed");
+}
