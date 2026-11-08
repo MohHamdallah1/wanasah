@@ -1,4 +1,4 @@
-import { operationText, operationFailureText, parseLedgerOperationFailure, type LedgerOperationFailure } from "./operationI18n";
+import { ledgerOperationKindLabel, operationText, operationFailureText, parseLedgerOperationFailure, type LedgerOperationFailure } from "./operationI18n";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { TFunction } from "i18next";
 import { Modal } from "@/components/ui/modal";
@@ -18,7 +18,6 @@ import {
   buildLedgerOperationUrl, parseLedgerOperationChildPage,
   type LedgerOperation, type LedgerOperationChild,
 } from "./operationContracts";
-import { ledgerOperationKindLabel } from "./LedgerOperationRows";
 import { useLedgerWindow } from "./useLedgerWindow";
 
 interface Props {
