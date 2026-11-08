@@ -236,7 +236,7 @@ for (const locale of ["ar", "en"] as const) for (const width of [1440, 700, 390]
       await expect(time).toHaveAttribute("dir", locale === "ar" ? "rtl" : "ltr");
       await expect(time).toHaveAttribute("dateTime", "2026-11-08T04:10:00+00:00");
       await expect(rows.first()).toContainText(locale === "ar" ? "مركبة 12-25132" : "Vehicle 12-25132");
-      await expect(rows.first()).toContainText(locale === "ar" ? "1 صنف" : "1 products");
+      await expect(rows.first()).toContainText(locale === "ar" ? "1 صنف" : "1 product");
       if (width === 1440) {
         for (const col of ["columnType", "columnReference", "columnDate", "columnRoute",
           "columnProducts", "columnMovements", "columnAction"]) {
