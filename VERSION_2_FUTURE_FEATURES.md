@@ -919,3 +919,43 @@ An operator may forget where an infrequently used setting lives (for example, **
 ### V1/V2 boundary and completion
 
 V1 may close these pages **only after its mandatory business/security evidence remains passing**, including real restricted PostgreSQL16 + authorized HTTP, actual workflow parity, tenant/location/role isolation, correct physical adjustment and cost/ledger truth, denied actions, durable recovery and critical usable entry points. **A proven P0/P1 safety, financial-integrity, authorization or unusable critical-action defect is V1, not deferrable cosmetic polish.** Detailed owner visual redesign, selected-products stocktake and optional advanced UX are V2. V2 completion requires a reviewed design, owner visual acceptance, focused regression evidence, and independent code review before enabling.
+
+---
+
+## 19. Inventory tabs — deferred cache/query improvements (owner consolidation 2026-11-08)
+
+**Status: V2 BACKLOG — not a V1 launch blocker without a reproducible safety or core-workflow failure.** The V1 corrections IT-02/IT-03/IT-04/IT-09 are already merged and accepted (PRs #741, #750/#746, #742); this section preserves **all five pending items IT-01, IT-05, IT-06, IT-07 and IT-08** with their original evidence, scope and acceptance. Their former root plan was retired after this transfer.
+
+- [ ] **IT-01 — [V2] حد 100 معرّف في دفعة فحص صلاحيات المواقع.**
+  - **النوع:** عدم تطابق عقد API مؤكد؛ أثره مشروط بتجاوز **100 معرّف موقع مختلف في الطلب الواحد**، وليس بامتلاك الشركة 150 مستودعاً.
+  - **المصدر:** `dashboard/src/hooks/useInventoryAccess.ts` (`useLocationCapabilities`) يرسل قائمة المعرّفات دفعة واحدة؛ `wa_backend/api/inventory_permissions.py` يحد `location_ids` بـ100. المستهلكان الظاهران: `transfers/TransferTable.tsx` و`TabWarehouseLocations.tsx`.
+  - **الأثر:** عند تجاوز الحد يرفض الخادم الطلب `422`؛ قد تظهر أزرار إجراءات على أنها غير مخولة بسبب فشل القراءة. **لم يثبت** أن بيانات شركة V1 الحالية وصلت لهذا الشرط.
+  - **المطلوب في V2:** تجزئة مأذونة ومحدودة إلى دفعات ≤100 أو عقد خادم مبرر، مع دمج حتمي للنتائج ومعالجة رفض/انقطاع كل دفعة بأمان.
+  - **قبول الإغلاق:** 100/101/201 موقعاً؛ صلاحيات صحيحة، لا صلاحية زائفة، لا N+1، لا طلب يتجاوز الحد، وأثر الرفض واضح. **ليس مانع إطلاق V1 دون إعادة إنتاج مؤثرة.**
+
+- [ ] **IT-05 — [V2] وميض سجل الحركات عند تغيير نطاق البحث/الفلاتر.**
+  - **النوع:** تحسين UX، وليس صحة الادعاء بأن `loading=true` يخفي الصفوف دائماً.
+  - **المصدر:** `ledger/useLedgerQuery.ts`: `setEntries([])` عند `clearForNewScope`. `ledger/LedgerTable.tsx` يعرض `entries.map` حتى أثناء تحميل عادي.
+  - **المطلوب في V2:** معالجة الانتقال بصرياً دون تقديم صفوف النطاق القديم كأنها نتيجة الفلتر الجديد؛ الاحتفاظ بالصفوف السابقة يُسمح به فقط لنفس نطاق الصلاحية والاستعلام مع توضيح حداثتها.
+  - **قبول الإغلاق:** بحث/فلتر/صفحات/رجوع/401/403/إلغاء استجابة متأخرة؛ بقاء صحة العرض والصلاحيات. **لا نعدّ إفراغ صفوف فلتر مختلف عيباً بحد ذاته.**
+
+- [ ] **IT-06 — [V2] تسلسل تجهيز بيانات التوريد (catalog → inbound options).**
+  - **النوع:** فرصة أداء/تفاعل تحتاج قياساً، وليست إثبات «أربعة طلبات متتالية» ثابتة.
+  - **المصدر:** `Tab2Inbound.tsx` يحمل قائمة المنتجات، ثم يبدأ `useInboundOptions` طلب وحدات الخيارات لمنتجاتها؛ سياسة التكلفة والموردون لديهما طلبات مستقلة (قد تتوازى)، مع طلبات إضافية مشروطة بالمسودات.
+  - **المطلوب في V2:** قياس مخطط الشبكة، إزالة التعاقب غير اللازم دون استباق قوائم كاملة أو تغيير سلطة التكلفة/الوحدات.
+  - **قبول الإغلاق:** مقارنة عدد الطلبات وزمن جاهزية 50 منتجاً قبل/بعد، واجهة قابلة للعمل بأمان عند البطء، عدم طلب خيارات أصناف غير معروضة بلا مبرر، وعدم الإخلال باستعادة المسودات أو التحقق وقت الحفظ.
+
+- [ ] **IT-07 — [V2] جلب عائلات المنتجات مسبقاً عند دخول الرصيد الحي.**
+  - **النوع:** تحسين اختياري، لا خطأ مؤكد.
+  - **المصدر:** `liveStock/LiveStockFilters.tsx` يطلب `/warehouse/inventory/families` بعد 250ms حتى لو لم تُفتح قائمة العائلات.
+  - **المطلوب في V2:** مقارنة كلفة الطلب بفائدة فتح القائمة فوراً؛ استخدام جلب كسول أو كاش مقيد بالنطاق **فقط إن كان فعلاً أفضل**.
+  - **قبول الإغلاق:** لا طلب زائد عند عدم الحاجة إذا تقرر التأجيل، ولا تأخر محسوس/فقد اختيار العائلة عند فتح الفلتر، ونتائج البحث والتصفية صحيحة بعد تغيير الموقع والهوية.
+
+- [ ] **IT-08 — [V2] كلفة استعلام إعادة بناء أرصدة سجل الحركات التاريخية.**
+  - **النوع:** خطر أداء مدعوم ببنية SQL، **وليس فشل زمن استجابة مثبتاً**.
+  - **المصدر:** `wa_backend/domains/ledger/read.py`: `_load_snapshots` يبني Window Function على تاريخ الأصناف الظاهرة، مع `COUNT(*)` و`DISTINCT reference_type` واستعلامات إثراء أخرى. حجم الصفحة 20 لا يضمن معالجة 20 حركة فقط داخل الاستعلام التاريخي؛ عدد SQL الفعلي ليس «9 ثابتة».
+  - **المطلوب في V2:** أولاً `EXPLAIN (ANALYZE, BUFFERS)` وقياس SQL count وp50/p95 على PG16 بأحجام تاريخ مختلفة وصلاحيات مقيدة؛ تحسين محدد فقط إذا ثبت عنق زجاجة مؤثر. **إذا فشل سير سجل الحركات المطلوب في V1 فعلياً، يُرقّى إلى V1 BLOCKER بالدليل.**
+  - **حاجز الحقيقة:** `InventoryMovementImpact.on_hand_before/on_hand_after` لرصيد أثر حركة محددة، **ليس** بالضرورة رصيد `PRODUCT_LOCATION` المجمّع؛ يُمنع استبدال الحساب التاريخي به دون برهان التكافؤ على التشغيلات وحالات المخزون والحجز.
+  - **قبول الإغلاق:** تطابق الأرصدة قبل/بعد، شركة/موقع/صلاحيات، حركات التحويل والحجز والحالة، عدد SQL مقيد، خطط SQL موثقة وأداء لا يتدهور على عينات كبيرة.
+
+**Execution order and guardrails:** First IT-01 then IT-08 *only when scale/performance evidence warrants it*; assess IT-05/IT-06/IT-07 based on measurable UX or request improvements. A proven V1 failure of permission isolation, company/location scope, stock/financial truth, or a required workflow must be handled as a V1 blocker regardless of this deferral. Never make cached state authorization, show previous tenant/warehouse information, substitute movement-impact snapshots for true historical warehouse balances without equivalence proof, weaken RLS/FEFO/cost, or introduce N+1 requests. Keep work bounded to isolated reviewed PRs with targeted PostgreSQL16, AR/EN RTL/LTR, mobile/desktop and authorization tests when applicable; only mark complete after merged evidence.
