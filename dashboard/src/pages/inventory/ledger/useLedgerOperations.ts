@@ -57,6 +57,7 @@ export function useLedgerOperations(
   }, [search]);
 
   useEffect(() => subscribeDashboardSession(() => {
+    if (sessionRef.current && isDashboardSessionCurrent(sessionRef.current)) return;
     seq.current++;
     aborted.current?.abort();
     pending.current = false;
@@ -162,6 +163,7 @@ export function useLedgerOperations(
       // Only page-one lists can be safely replaced by page-one results.
       // If already appended, retain the signed original continuation snapshot.
       if (pageCount.current <= 1) {
+        pageCount.current = 1;
         setItems(page.items);
         seenGroups.current = new Set(page.items.map(item => item.group_key));
         setHasMore(page.has_more);
