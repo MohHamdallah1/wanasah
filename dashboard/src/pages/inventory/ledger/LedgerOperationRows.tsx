@@ -41,8 +41,8 @@ export function LedgerOperationRows({
   const product = ar ? "أصناف" : "products";
   const lots = ar ? "تشغيلات" : "lots";
 
-  const card = (item: LedgerOperation) => (
-    <article key={item.group_key} data-ledger-operation-row="true"
+  const card = (item: LedgerOperation, index: number) => (
+    <article key={item.group_key} data-ledger-virtual-index={virtual.first + index} data-ledger-operation-row="true"
       className="min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm md:rounded-none md:border-x-0 md:border-t-0 md:shadow-none">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
