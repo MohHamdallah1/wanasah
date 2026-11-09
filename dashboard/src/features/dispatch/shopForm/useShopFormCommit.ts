@@ -3,7 +3,8 @@ import { toast } from "sonner";
 import { apiErrorCode, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStorage";
 import {
-  createPayload, createdShopVerified, financeReadback, metadataPayload, metadataVerified,
+  createPayload, createdShopVerified, financeReadback, findCreatedShopAfterUnknownWrite,
+  metadataPayload, metadataVerified,
   ShopFormInputError, type ShopCreatePayload, type ShopFormState, type ShopFinanceReadback,
   type ShopMetadataPayload,
 } from "./contract";
@@ -22,9 +23,11 @@ export interface DuplicateShopWarning {
 }
 
 type PendingVerification = {
-  id: string;
+  id: string | null;
   mode: "create" | "edit";
   payload: ShopCreatePayload | ShopMetadataPayload;
+  /** Captured from an authorized GET BEFORE POST; never guessed afterwards. */
+  baselineIds?: string[];
 };
 
 interface Args {
@@ -118,11 +121,17 @@ export function useShopFormCommit({
     try {
       const rows = await fetch("/dispatch/shops", { cache: "no-store" });
       if (!current(token)) return false;
-      const verified = verification.mode === "create"
-        ? createdShopVerified(rows, verification.id, verification.payload as ShopCreatePayload)
-        : metadataVerified(rows, verification.id, verification.payload as ShopMetadataPayload);
+      const id = verification.mode === "create" && !verification.id
+        ? findCreatedShopAfterUnknownWrite(
+          rows, verification.baselineIds ?? [], verification.payload as ShopCreatePayload,
+        )
+        : verification.id;
+      const verified = Boolean(id) && (verification.mode === "create"
+        ? createdShopVerified(rows, id!, verification.payload as ShopCreatePayload)
+        : metadataVerified(rows, id!, verification.payload as ShopMetadataPayload));
       if (!verified) {
-        setFeedback(shopFormText(language, "readback"));
+        setFeedback(shopFormText(language,
+          verification.mode === "create" && !verification.id ? "createNotFound" : "readback"));
         return false;
       }
       setPending(null);
@@ -179,20 +188,43 @@ export function useShopFormCommit({
     setFeedback(null);
     const payload = editId ? metadata : create!;
     const mode: PendingVerification["mode"] = editId ? "edit" : "create";
+    let baselineIds: string[] | undefined;
+    let mutationStarted = false;
     try {
+      if (!editId) {
+        // A lost POST response contains no shop_id. A PRE-write authorized
+        // membership snapshot is required to identify exactly one new match.
+        // If offline here, NO mutation is attempted and no unknown guard is set.
+        const before = await fetch("/dispatch/shops", { cache: "no-store" });
+        if (!current(token)) return false;
+        if (!Array.isArray(before) || !before.every(row =>
+          row && typeof row === "object" && /^\d+$/.test(String((row as { id?: unknown }).id ?? "")))) {
+          throw new Error("SHOP_FORM_PRECREATE_SNAPSHOT_INVALID");
+        }
+        baselineIds = before.map(row => String((row as { id: unknown }).id));
+      }
+      mutationStarted = true;
       const response = await fetch(editId ? `/dispatch/shops/${editId}` : "/dispatch/shops", {
         method: editId ? "PUT" : "POST",
         body: JSON.stringify(payload),
       });
       if (!current(token)) return false;
       const id = editId || parseCreatedId(response);
-      const verification: PendingVerification = { id, mode, payload };
+      const verification: PendingVerification = { id, mode, payload, baselineIds };
       setPending(verification); // lock repeat mutation until authorized GET verifies
       return await finish(token, verification);
     } catch (error) {
       if (!current(token)) return false;
       const status = apiErrorStatus(error);
       const code = apiErrorCode(error);
+      if (!mutationStarted) {
+        const denied = status === 401 || status === 403;
+        const message = withSafeReference(shopFormText(language,
+          denied ? "denied" : "beforeCreateFailed"), apiErrorRequestId(error), language);
+        setFeedback(message);
+        toast.error(message);
+        return false; // definitively no POST; ordinary retry remains possible
+      }
       if (!editId && status === 409 && !forcePayload) {
         const existing = readDuplicate(error);
         if (existing) {
@@ -224,7 +256,7 @@ export function useShopFormCommit({
         const message = withSafeReference(shopFormText(language, "unknown"), apiErrorRequestId(error), language);
         setFeedback(message);
         toast.error(message);
-        setPending({ id: editId || "", mode, payload });
+        setPending({ id: editId, mode, payload, baselineIds });
       }
       return false;
     } finally {
