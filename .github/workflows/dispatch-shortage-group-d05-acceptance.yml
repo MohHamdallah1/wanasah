@@ -40,7 +40,7 @@ jobs:
         run: |
           python - <<'PY'
           import subprocess
-          base = "f5f7d316e401945dd0cd654be6037d67e8c30ff2"
+          base = "1a74f15db7df87f2c74a2b451af41c91b15725ed"
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           assert subprocess.check_output(
               ["git", "merge-base", base, "HEAD"], text=True
@@ -62,7 +62,7 @@ jobs:
               ["git", "rev-parse", "HEAD"], text=True).strip())
           print("WORKER1_SCOPE_FILES=" + ", ".join(sorted(files)))
           PY
-          git diff --check f5f7d316e401945dd0cd654be6037d67e8c30ff2 HEAD
+          git diff --check 1a74f15db7df87f2c74a2b451af41c91b15725ed HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -71,7 +71,7 @@ jobs:
       - name: Reproduce original exact-main HTTP 405 against baseline ASGI app
         run: |
           mkdir -p "$RUNNER_TEMP/dispatch-849-before"
-          git archive f5f7d316e401945dd0cd654be6037d67e8c30ff2 wa_backend | tar -x -C "$RUNNER_TEMP/dispatch-849-before"
+          git archive 1a74f15db7df87f2c74a2b451af41c91b15725ed wa_backend | tar -x -C "$RUNNER_TEMP/dispatch-849-before"
           cd "$RUNNER_TEMP/dispatch-849-before/wa_backend"
           python - <<'PY'
           import asyncio
