@@ -297,7 +297,19 @@ test("real launch product catalog remains absent from init and actual Warehouse/
   expect(discovery.status).toBe(200);
   expect(Array.isArray(discovery.body.items)).toBe(true);
   expect(discovery.body.items.length).toBeLessThanOrEqual(80);
-  expect(inventory.body.some((x:any)=>String(x.id??x.product_id??x.productId)===String(data.variantId))).toBe(true);
+  const eligible=discovery.body.items.find((x:any)=>String(x.id)===String(data.variantId));
+  expect(eligible,"The physically stocked Warehouse product must be discovered").toBeTruthy();
+  const loaded=inventory.body.find((x:any)=>String(x.product_id)===String(data.variantId));
+  expect(loaded,"The Vehicle must have its own real custody row").toBeTruthy();
+  expect(Number(loaded.current_base_quantity)).toBe(25);
+  const proof=dbProbe("snapshot");
+  const physical=(locationId:string)=>proof.stock
+    .filter((row:any)=>String(row.locationId)===String(locationId) &&
+      String(row.productId)===String(data.variantId))
+    .reduce((total:number,row:any)=>total+Number(row.quantity),0);
+  expect(physical(String(data.warehouseId))).toBe(55);
+  expect(physical(String(data.vehicleLocationId))).toBe(25);
+  expect(Number(eligible.load?.current_base_quantity??25)).toBe(25);
 });
 
 test("N3: interruption between restore-zone and restore-shop must not pretend atomic success",async({page},info)=>{
@@ -319,17 +331,27 @@ test("N3: interruption between restore-zone and restore-shop must not pretend at
   // Fault injection: only the second HTTP command is interrupted. The first
   // restore goes to genuine FastAPI/PG16 and MUST be inspected, never mocked.
   await page.route("**/dispatch/shops/bulk_update",r=>r.abort("failed"));
+  const failedShopWrite=page.waitForEvent("requestfailed",{
+    predicate:request=>new URL(request.url()).pathname==="/dispatch/shops/bulk_update" &&
+      request.method()==="PUT",
+    timeout:20_000,
+  });
   const first=page.waitForResponse(r=>new URL(r.url()).pathname===`/dispatch/zones/${zone}/restore`&&r.request().method()==="PUT");
   await prompt.getByRole("button",{name:/استعادة المنطقة والمحل/}).click();
   const firstResult=await first;
   expect(firstResult.status()).toBe(200);
+  // A response from the *first* write does not guarantee the second was
+  // attempted. Only remove the fault after observing the second request fail.
+  const aborted=await failedShopWrite;
+  expect(aborted.failure()?.errorText).toMatch(/failed|ERR_FAILED|aborted/i);
   await page.unroute("**/dispatch/shops/bulk_update");
   const init=await api(page,"GET","/dispatch/init");
   const shops=await api(page,"GET","/dispatch/shops");
   const zoneRestored=init.body.zones.some((z:any)=>String(z.id)===zone);
   const shopArchived=shops.body.some((s:any)=>String(s.id)===shopId && s.archived===true);
   await info.attach("N3-real-half-commit.json",{body:Buffer.from(JSON.stringify({
-    firstStatus:firstResult.status(),zoneRestored,shopArchived,db:dbProbe("snapshot"),
+    firstStatus:firstResult.status(),secondRequestAborted:aborted.failure()?.errorText,
+    zoneRestored,shopArchived,db:dbProbe("snapshot"),
   },null,2)),contentType:"application/json"});
   expect(zoneRestored && shopArchived,
     "Combined restore left a partially committed Zone/Shop pair after network loss").toBe(false);
