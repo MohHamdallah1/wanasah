@@ -121,11 +121,18 @@ export function useShopFormCommit({
     try {
       const rows = await fetch("/dispatch/shops", { cache: "no-store" });
       if (!current(token)) return false;
-      const id = verification.mode === "create" && !verification.id
-        ? findCreatedShopAfterUnknownWrite(
+      if (verification.mode === "create" && !verification.id) {
+        // A new matching ID is not evidence that THIS request created it.
+        // Another principal could have inserted identical metadata while our
+        // POST never committed. Without a server-backed operation identity,
+        // do not mark success, clear the draft or permit another POST.
+        const possibleMatch = findCreatedShopAfterUnknownWrite(
           rows, verification.baselineIds ?? [], verification.payload as ShopCreatePayload,
-        )
-        : verification.id;
+        );
+        setFeedback(shopFormText(language, possibleMatch ? "createUncorrelated" : "createNotFound"));
+        return false;
+      }
+      const id = verification.id;
       const verified = Boolean(id) && (verification.mode === "create"
         ? createdShopVerified(rows, id!, verification.payload as ShopCreatePayload)
         : metadataVerified(rows, id!, verification.payload as ShopMetadataPayload));
