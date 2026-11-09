@@ -66,6 +66,7 @@ export function useShopOrderCommit({
     const pending = loadShopOrderRecovery(recoveryScope);
     if (!pending) return;
     let active = true;
+    let settled = false;
     setSaving(true);
     void read().then(fresh => {
       if (!active) return;
@@ -83,8 +84,19 @@ export function useShopOrderCommit({
       toast.info(shopOrderText(language, "recoveredDraft"));
     }).catch(() => {
       if (active) toast.error(shopOrderText(language, "recoveryFailed"));
-    }).finally(() => { if (active) setSaving(false); });
-    return () => { active = false; };
+    }).finally(() => {
+      settled = true;
+      if (active) setSaving(false);
+    });
+    return () => {
+      active = false;
+      // Language changes or another initial fetch can invalidate recovery.
+      // Do not leave Saving stuck or silently abandon a stored draft.
+      if (!settled) {
+        restoredScope.current = null;
+        setSaving(false);
+      }
+    };
   }, [recoveryScope, setZoneId, draft.length, baseline, read, language,
     setSaving, setShops, setDirty, setEditMode]);
 
