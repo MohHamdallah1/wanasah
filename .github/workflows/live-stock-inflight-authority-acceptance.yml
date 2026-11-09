@@ -334,6 +334,9 @@ jobs:
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
           print(f"INFLIGHT_AUTH_REPAIR_SCOPE PASS mode={mode}")
           PY
+          # Run the real original Live Stock owner-matrix and all #847
+          # counterexamples rather than trusting only the inline gate.
+          python .github/scripts/live_stock_ci_ownership.py --selftest
       - name: Retain sanitized evidence only
         if: always()
         uses: actions/upload-artifact@v4
