@@ -119,11 +119,13 @@ export function metadataVerified(rows: unknown, id: string, submitted: ShopMetad
     String(row.zoneId ?? "") === String(submitted.zoneId);
 }
 
+/** A live receivable is NOT immutable opening debt: field collections can change it
+ * immediately after POST. The accepted create write/body and canonical PG16
+ * financial event supply opening-money evidence; fresh GET verifies identity
+ * and metadata only, without rewriting/guessing historical balances.
+ */
 export function createdShopVerified(rows: unknown, id: string, submitted: ShopCreatePayload): boolean {
-  const actual = financeReadback(rows, id);
-  return metadataVerified(rows, id, submitted) &&
-    actual?.initialDebt === submitted.initialDebt &&
-    actual?.maxDebtLimit === submitted.maxDebtLimit;
+  return metadataVerified(rows, id, submitted);
 }
 
 /** Resolve a lost create response only using a pre-POST authorized ID snapshot.
