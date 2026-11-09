@@ -1,0 +1,142 @@
+import type { Shop } from "@/types/dispatch";
+
+export type ShopOrderChange = { id: string; sequence?: number; archived?: boolean };
+
+/** Match the visible stable sequence sort. Tied legacy 999 rows retain backend order. */
+export const compareShopSequence = (a: Shop, b: Shop): number =>
+  Number(a.sequence) - Number(b.sequence);
+
+/** Search is company-wide; sequence edits belong ONLY to the selected Zone. */
+export const canReorderShop = (shop: Shop, selectedZoneId: string): boolean =>
+  Boolean(selectedZoneId) && !shop.archived && shop.zoneId === selectedZoneId;
+
+/** Reorder the entire selected-zone active list, never the cross-zone search subset. */
+export function moveShopInSelectedZone(
+  shops: readonly Shop[],
+  selectedZoneId: string,
+  sourceShopId: string,
+  targetIndex: number,
+): Shop[] {
+  const active = shops.filter(s => canReorderShop(s, selectedZoneId)).sort(compareShopSequence);
+  const from = active.findIndex(s => s.id === sourceShopId);
+  if (from < 0 || !Number.isInteger(targetIndex)) return shops as Shop[];
+  const to = Math.min(Math.max(targetIndex, 0), active.length - 1);
+  if (from === to && active.every((s, index) => Number(s.sequence) === index + 1)) return shops as Shop[];
+  const reordered = [...active];
+  const [moved] = reordered.splice(from, 1);
+  reordered.splice(to, 0, moved);
+  const order = new Map(reordered.map((s, index) => [s.id, index + 1]));
+  return shops.map(s => order.has(s.id) ? { ...s, sequence: order.get(s.id)! } : s);
+}
+
+export function moveShopBeforeInSelectedZone(
+  shops: readonly Shop[], selectedZoneId: string, sourceId: string, targetId: string,
+): Shop[] {
+  const active = shops.filter(s => canReorderShop(s, selectedZoneId)).sort(compareShopSequence);
+  const sourceIndex = active.findIndex(s => s.id === sourceId);
+  const targetIndex = active.findIndex(s => s.id === targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return shops as Shop[];
+  // Drag-and-drop uses the target row's final position, not the search result index.
+  return moveShopInSelectedZone(shops, selectedZoneId, sourceId, targetIndex);
+}
+
+/** Diff exclusively within the selected zone, preserving staged archive semantics. */
+export function buildShopOrderChanges(
+  original: readonly Shop[], draft: readonly Shop[], selectedZoneId: string,
+): ShopOrderChange[] {
+  if (!selectedZoneId) return [];
+  const baseline = new Map(original.filter(s => s.zoneId === selectedZoneId).map(s => [s.id, s]));
+  const changes: ShopOrderChange[] = [];
+  for (const shop of draft) {
+    if (shop.zoneId !== selectedZoneId) continue;
+    const before = baseline.get(shop.id);
+    if (!before || before.zoneId !== shop.zoneId) continue;
+    if (before.archived !== shop.archived) {
+      if (!before.archived && shop.archived) changes.push({ id: shop.id, archived: true });
+      // Restoring archived Shops belongs to the separate canonical restore flow.
+      continue;
+    }
+    if (!shop.archived && Number(before.sequence) !== Number(shop.sequence)) {
+      changes.push({ id: shop.id, sequence: shop.sequence });
+    }
+  }
+  return changes;
+}
+
+export const hasShopOrderChanges = (
+  original: readonly Shop[], draft: readonly Shop[], zoneId: string,
+) => buildShopOrderChanges(original, draft, zoneId).length > 0;
+
+/** Do not replay a pending draft across a new/missing selected-zone Shop membership. */
+export function sameSelectedZoneMembership(
+  intended: readonly ShopOrderRow[], current: readonly ShopOrderRow[], zoneId: string,
+): boolean {
+  if (!zoneId) return false;
+  const a = new Set(intended.filter(s => s.zoneId === zoneId).map(s => s.id));
+  const b = new Set(current.filter(s => s.zoneId === zoneId).map(s => s.id));
+  return a.size === b.size && [...a].every(id => b.has(id));
+}
+
+/** Same selected-zone Shops, archive state and full active ranking (not financial fields). */
+export function sameSelectedZoneState(
+  intended: readonly ShopOrderRow[], actual: readonly ShopOrderRow[], zoneId: string,
+): boolean {
+  if (!sameSelectedZoneMembership(intended, actual, zoneId)) return false;
+  const byId = new Map(actual.filter(s => s.zoneId === zoneId).map(s => [s.id, s]));
+  return intended.filter(s => s.zoneId === zoneId).every(row => {
+    const fresh = byId.get(row.id);
+    return !!fresh && fresh.archived === row.archived &&
+      (fresh.archived || Number(fresh.sequence) === Number(row.sequence));
+  });
+}
+
+/** The exact selected-zone snapshot surrounding a write with unknown outcome. */
+export type ShopOrderRow = Pick<Shop, "id" | "zoneId" | "sequence" | "archived">;
+export type ShopOrderWriteOutcome = "put_confirmed" | "transport_unknown";
+/** Unique local recovery generation; not a server operation/idempotency identifier. */
+export function newShopOrderAttemptId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export interface UncertainShopOrderCommand {
+  /** Distinguishes one mutation from an old same-principal session callback. */
+  attemptId?: string;
+  zoneId: string;
+  before: ShopOrderRow[];
+  intended: ShopOrderRow[];
+  outcome: ShopOrderWriteOutcome;
+  /** Safe correlation token only; never persist raw error context or messages. */
+  requestId?: string;
+}
+
+/**
+ * An unknown PUT may have applied all of its changes or none. Never replay
+ * a revised draft over a third state: it could contain another operator's
+ * edits, including rows absent from the earlier PUT.
+ */
+export function canReconcileUncertainShopOrder(
+  pending: UncertainShopOrderCommand, fresh: readonly Shop[], zoneId: string,
+): boolean {
+  return !!zoneId && pending.zoneId === zoneId && pending.outcome === "put_confirmed" &&
+    (sameSelectedZoneState(pending.before, fresh, zoneId) ||
+      sameSelectedZoneState(pending.intended, fresh, zoneId));
+}
+
+/** HTTP 200 is not enough: require a NEW authorized snapshot with every write reflected. */
+export function verifyShopOrderReadback(
+  changes: readonly ShopOrderChange[], readback: readonly Shop[], selectedZoneId: string,
+  intendedDraft: readonly Shop[],
+): boolean {
+  if (!changes.length || !selectedZoneId) return false;
+  if (!sameSelectedZoneState(intendedDraft, readback, selectedZoneId)) return false;
+  const byId = new Map(readback.map(s => [s.id, s]));
+  return changes.every(change => {
+    const row = byId.get(change.id);
+    if (!row || row.zoneId !== selectedZoneId) return false;
+    if (change.sequence !== undefined && Number(row.sequence) !== Number(change.sequence)) return false;
+    if (change.archived !== undefined && row.archived !== change.archived) return false;
+    return true;
+  });
+}
