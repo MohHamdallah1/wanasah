@@ -9,6 +9,7 @@ import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import {
   buildShopOrderChanges, canReorderShop, hasShopOrderChanges, moveShopBeforeInSelectedZone,
   moveShopInSelectedZone, verifyShopOrderReadback, canReconcileUncertainShopOrder,
+  compareShopSequence,
 } from "@/features/dispatch/shopOrder/scope";
 import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
@@ -62,6 +63,32 @@ describe("Dispatch #843 selected-zone Shop order: immutable scope", () => {
     expect(buildShopOrderChanges(before, after, "A"))
       .toEqual([{ id: "A1", sequence: 1 }, { id: "A2", sequence: 2 }]);
   });
+
+  it.each(["ar", "en"] as const)(
+    "tied 999 Shop ids 1,2,10 in %s reorder exactly as displayed, not lexical 1,10,2",
+    async language => {
+      await setAppLanguage(language);
+      const before = [shop("1", "A", 999), shop("2", "A", 999),
+        shop("10", "A", 999), shop("20", "B", 999)];
+      const displayed = before.filter(s => s.zoneId === "A").sort(compareShopSequence);
+      expect(displayed.map(s => s.id)).toEqual(["1", "2", "10"]);
+      const after = moveShopInSelectedZone(before, "A", "1", 1);
+      expect(after.filter(s => s.zoneId === "A").sort(compareShopSequence).map(s => s.id))
+        .toEqual(["2", "1", "10"]);
+      expect(after.find(s => s.id === "10")?.sequence).toBe(3);
+      expect(after.find(s => s.id === "20")).toEqual(before[3]);
+      expect(buildShopOrderChanges(before, after, "A")).toEqual([
+        { id: "1", sequence: 2 }, { id: "2", sequence: 1 }, { id: "10", sequence: 3 },
+      ]);
+      const dragged = moveShopBeforeInSelectedZone(before, "A", "1", "2");
+      expect(dragged).toEqual(after);
+      const normalized = moveShopInSelectedZone(before, "A", "1", 0);
+      expect(normalized.filter(s => s.zoneId === "A").sort(compareShopSequence).map(s => s.id))
+        .toEqual(["1", "2", "10"]);
+      expect(normalized.filter(s => s.zoneId === "A").map(s => s.sequence))
+        .toEqual([1, 2, 3]); // tied rank normalization is not a no-op
+    },
+  );
 
   it("does not confirm a concurrent update of an unsubmitted row", async () => {
     const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 1);
@@ -352,26 +379,55 @@ describe("Shop order confirm feedback", () => {
     expect(toast.error).toHaveBeenLastCalledWith(shopOrderText("en", "unresolvedTransport"));
   });
 
-  it("a PUT 500 lost-response keeps its command UNKNOWN instead of retaining status as a definite rejection", async () => {
-    const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
-    const send = vi.fn().mockRejectedValue(Object.assign(new Error("server may have committed"), { status: 500 }));
-    const read = vi.fn().mockResolvedValue(snapshot());
-    const props = {
-      draft, baseline: { current: snapshot() }, zoneId: "A", language: "en",
-      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
-      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
-    };
-    await expect(commitShopOrder({
-      original, draft, selectedZoneId: "A", send, read,
-    })).rejects.toMatchObject({ command: { outcome: "transport_unknown", zoneId: "A" } });
-    const { result } = renderHook(() => useShopOrderCommit(props));
-    await act(async () => { expect(await result.current.save()).toBe(false); });
-    expect(result.current.needsReconciliation).toBe(true);
-    await act(async () => { expect(await result.current.save()).toBe(false); });
-    expect(send).toHaveBeenCalledTimes(2); // one direct function call + one hook call only
-    expect(read).toHaveBeenCalledOnce();
-    expect(toast.success).not.toHaveBeenCalled();
-  });
+  it.each(["ar", "en"] as const)(
+    "HTTP 500 unknown in %s retains safe code/context and request reference; no retry or raw internals",
+    async language => {
+      await setAppLanguage(language);
+      const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+      const cause = Object.assign(new Error("secret-internal-db-message"), {
+        status: 500, code: "INTERNAL_SERVER_ERROR",
+        context: { internal: "private-connection-details" },
+        requestId: "req-500-safe-ref",
+      });
+      const send = vi.fn().mockRejectedValue(cause);
+      const read = vi.fn().mockResolvedValue(snapshot());
+      const props = {
+        draft, baseline: { current: snapshot() }, zoneId: "A", language,
+        recoveryScope: "10:22", setZoneId: vi.fn(), saving: false,
+        setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+      };
+      let wrapped: ShopOrderUncertainError | null = null;
+      try {
+        await commitShopOrder({ original, draft, selectedZoneId: "A", send, read });
+      } catch (error) {
+        expect(error).toBeInstanceOf(ShopOrderUncertainError);
+        wrapped = error as ShopOrderUncertainError;
+      }
+      expect(wrapped).toMatchObject({
+        status: 500, code: "INTERNAL_SERVER_ERROR",
+        context: { internal: "private-connection-details" },
+        requestId: "req-500-safe-ref",
+        command: { outcome: "transport_unknown", zoneId: "A", requestId: "req-500-safe-ref" },
+      });
+      expect(wrapped?.cause).toBe(cause);
+      const { result } = renderHook(() => useShopOrderCommit(props));
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      expect(result.current.needsReconciliation).toBe(true);
+      expect(loadShopOrderRecovery("10:22")?.requestId).toBe("req-500-safe-ref");
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      expect(send).toHaveBeenCalledTimes(2); // direct + hook, never a second hook PUT
+      expect(read).toHaveBeenCalledOnce(); // only authorization, NOT completion proof
+      expect(toast.success).not.toHaveBeenCalled();
+      const messages = toast.error.mock.calls.map(([message]) => String(message));
+      expect(messages.some(message => message.includes("req-500-safe-ref"))).toBe(true);
+      for (const message of messages) {
+        expect(message).not.toContain("secret-internal-db-message");
+        expect(message).not.toContain("private-connection-details");
+        expect(message).not.toContain("INTERNAL_SERVER_ERROR");
+      }
+    },
+  );
 
   it.each([403, 409])("definitely rejected PUT %s does not create an uncertain pending command", async status => {
     const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
