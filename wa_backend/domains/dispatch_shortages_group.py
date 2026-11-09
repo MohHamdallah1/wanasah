@@ -66,7 +66,7 @@ def _reject(status: int, code: str, message: str):
 def _hash_payload(command: GroupShortageMutation) -> str:
     # Canonical ordering means a retry with reordered lines has one identity.
     lines = sorted((
-        int(i.zoneId), int(i.shopId), int(i.driverId) if i.driverId is not None else None,
+        int(i.zoneId), int(i.shopId), int(i.driverId) if i.driverId is not None else 0,
         int(i.product_variant_id), int(i.quantity),
     ) for i in command.items)
     canonical = json.dumps(
