@@ -888,7 +888,18 @@ SHOP_ORDER_843_EXACT = frozenset({
 SHOP_ORDER_843_NEW = SHOP_ORDER_843_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
 assert len(SHOP_ORDER_843_EXACT) == 9 and len(SHOP_ORDER_843_NEW) == 8
 
+# #847 is a maintenance-only PR. It changes exactly the three policy
+# surfaces and has no right to modify Dispatch, Stock, Driver or auth runtime.
+# Do not add these paths to broad UX/R3/operational allowed unions.
+CI_POLICY_847_EXACT = frozenset({
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+})
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == CI_POLICY_847_EXACT:
+        return "ci-policy-847-exact", []
     # Exact #846 ShopOrder change is outside Live Stock owner scope.
     # A partial set, even with the shared DispatchBoard, or any hitchhiker
     # is REJECTED whenever one of its eight newly extracted files appears.
@@ -1045,6 +1056,32 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    # The exact #847 three-file policy PR must pass unrelated Live Stock
+    # entrypoints without granting any general Dispatch CI workflow bypass.
+    policy_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, set(CI_POLICY_847_EXACT), policy_sem) == (
+            "ci-policy-847-exact", []
+        )
+        for missing in CI_POLICY_847_EXACT:
+            assert classify(mode, set(CI_POLICY_847_EXACT) - {missing}, policy_sem)[0] != (
+                "ci-policy-847-exact"
+            )
+        for foreign in (
+            "wa_backend/api/dispatch.py",
+            "wa_backend/api/driver.py",
+            "wa_backend/models.py",
+            "wa_backend/domains/inventory/services.py",
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "dashboard/src/lib/authStorage.ts",
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "wanasah_frontend/lib/main.dart",
+        ):
+            assert classify(mode, set(CI_POLICY_847_EXACT) | {foreign}, policy_sem)[0] != (
+                "ci-policy-847-exact"
+            )
+    print("CI_POLICY_847_LIVE_STOCK_SELFTEST=PASS exact=3 partial=3 foreign=8")
+
     # #847: real #846 payload passes only as its literal nine-file set.
     # Every partial-with-new-file and every foreign/mixed-domain path fails.
     shop_order_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
