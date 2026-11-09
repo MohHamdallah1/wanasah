@@ -11,7 +11,7 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete as sa_delete, func, select
 
 from models import (
     InventoryCostEvent, InventoryMovement, OperationIdempotency, ProductVariant,
@@ -261,7 +261,7 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
         # Same valid JWT must not replay a committed mutation after its persisted
         # cancellation grant is revoked. Authorization is checked on every call.
         async with pg.session() as db:
-            await db.execute(delete(UserRole).where(
+            await db.execute(sa_delete(UserRole).where(
                 UserRole.company_id == tenant.company_id,
                 UserRole.driver_id == tenant.ordinary.driver_id,
                 UserRole.role_id == cancel_role_id,
