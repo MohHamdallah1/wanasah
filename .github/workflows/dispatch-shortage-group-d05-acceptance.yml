@@ -68,6 +68,27 @@ jobs:
           python-version: "3.12"
       - name: Install focused backend test requirements
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Reproduce original exact-main HTTP 405 against baseline ASGI app
+        run: |
+          mkdir -p "$RUNNER_TEMP/dispatch-849-before"
+          git archive f5f7d316e401945dd0cd654be6037d67e8c30ff2 wa_backend | tar -x -C "$RUNNER_TEMP/dispatch-849-before"
+          cd "$RUNNER_TEMP/dispatch-849-before/wa_backend"
+          python - <<'PY'
+          import asyncio
+          from uuid import uuid4
+          import httpx
+          from main import app
+
+          async def verify_before():
+              transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+              async with httpx.AsyncClient(transport=transport, base_url="http://dispatch-849-before.test") as client:
+                  res = await client.put("/dispatch/shortages/group", json={
+                      "request_id": str(uuid4()), "shortage_ids": [1], "items": [],
+                  })
+              print(f"EXACT_MAIN_BEFORE_405={res.status_code}")
+              assert res.status_code == 405, res.text[:500]
+          asyncio.run(verify_before())
+          PY
       - name: Compile all group contract, lifecycle, adapter and focused test modules
         working-directory: wa_backend
         run: python -m py_compile domains/dispatch_shortages_group.py domains/dispatch_shortage_visits.py api/dispatch_shortages_group.py tests/test_dispatch_shortages_group_v1_postgres.py main.py
