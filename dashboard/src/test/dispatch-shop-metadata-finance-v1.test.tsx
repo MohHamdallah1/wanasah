@@ -75,6 +75,15 @@ describe("Shop metadata-only allowlist and create financial truth", () => {
     },
   );
 
+  it("cannot claim it cleared a populated phone when the backend intentionally ignores blank phone", () => {
+    const edit = existingShopForm(shop);
+    expect(() => metadataPayload({ ...edit, phone: "" }))
+      .toThrow(ShopFormInputError);
+    expect(metadataPayload({ ...edit, phone: "55112233" }).phone).toBe("55112233");
+    expect(metadataPayload({ ...emptyShopForm("3"), name: "New Store", phone: "" }).phone)
+      .toBe("");
+  });
+
   it("requires valid zone/name but does not depend on stale money for metadata changes", () => {
     expect(() => metadataPayload({ ...form, zoneId: "0" })).toThrow(ShopFormInputError);
     expect(() => metadataPayload({ ...form, name: "x" })).toThrow(ShopFormInputError);
@@ -86,6 +95,8 @@ describe("Shop metadata-only allowlist and create financial truth", () => {
     expect(financeReadback([wire()], "77"))
       .toEqual({ initialDebt: "80.000", maxDebtLimit: "75.125" });
     expect(financeReadback([], "77")).toBeNull();
+    expect(financeReadback([wire({ initialDebt: "-5.125" })], "77")?.initialDebt)
+      .toBe("-5.125"); // Reading current receivable is not a create-money validation.
     expect(financeReadback([wire({ initialDebt: null })], "77")).toBeNull();
     expect(metadataVerified([wire({ name: "Updated Grocery" })], "77",
       { ...metadataPayload(form), name: "Updated Grocery" })).toBe(true);
@@ -193,6 +204,34 @@ describe("Shop authenticated save/readback & financial denial", () => {
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.feedback).toContain(shopFormText("en", "financialAuthority"));
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it.each([409, 422])("deterministic create error %s does not lock future saves as uncertain", async status => {
+    const fetch = vi.fn().mockRejectedValue(fakeError(status, "BUSINESS_CONFLICT"));
+    const props = args(fetch, { editId: null });
+    const { result } = renderHook(() => useShopFormCommit(props));
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsVerification).toBe(false);
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("locale/finance permission changes do not erase a pending confirmed PUT verification guard", async () => {
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "PUT") return { message: "ok" };
+      throw fakeError(403, "FORBIDDEN");
+    });
+    const props = args(fetch, { form: { ...form, name: "Changed" } });
+    const hooked = renderHook(
+      (params: typeof props) => useShopFormCommit(params),
+      { initialProps: props },
+    );
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.needsVerification).toBe(true);
+    hooked.rerender({ ...props, language: "ar", canViewFinances: true });
+    await waitFor(() => expect(hooked.result.current.financeLoading).toBe(false));
+    expect(hooked.result.current.needsVerification).toBe(true);
+    expect(fetch.mock.calls.filter(([, opts]) => opts?.method === "PUT")).toHaveLength(1);
   });
 
   it.each([401, 403])("HTTP %s fails closed, no false success, no financial refresh after denial", async status => {
