@@ -3,7 +3,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -77,6 +77,21 @@ async def replace_shortages_group(
         raise HTTPException(status_code=409, detail={
             "code": "SHORTAGE_GROUP_CONCURRENT_CONFLICT",
             "message": "حصل تعارض متزامن، حدّث القائمة وأعد المحاولة.",
+        }) from exc
+    except DBAPIError as exc:
+        await db.rollback()
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        if sqlstate in ("55P03", "40P01", "40001"):
+            # NOWAIT lock contention, deadlock victim or serialization conflict:
+            # no partial transaction and never an opaque HTTP 500.
+            raise HTTPException(status_code=409, detail={
+                "code": "SHORTAGE_GROUP_CONCURRENT_CONFLICT",
+                "message": "حصل تعارض متزامن، حدّث القائمة وأعد المحاولة.",
+            }) from exc
+        logger.exception("Atomic shortage group database failure")
+        raise HTTPException(status_code=500, detail={
+            "code": "SHORTAGE_GROUP_FAILED",
+            "message": "تعذر حفظ مجموعة النواقص.",
         }) from exc
     except Exception as exc:
         await db.rollback()
