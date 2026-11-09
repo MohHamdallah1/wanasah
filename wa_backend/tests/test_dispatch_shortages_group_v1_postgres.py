@@ -18,7 +18,8 @@ from models import (
     ShortageRequest, SystemAuditLog, UserRole, Visit, utc_now,
 )
 from tests.test_dispatch_shop_finance_edit_v1_postgres import (
-    _add_shop, _grant_company_dispatch_capability, _real_http, _token, _zone,
+    _add_shop, _grant_company_dispatch_capability, _real_field_sale_prerequisites,
+    _real_http, _token, _zone,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_live_stock_v1_route_sale_unload_postgres import _seed_mobile_uom_and_field
@@ -301,3 +302,64 @@ async def test_concurrent_group_writers_cannot_double_replace(pg):
         assert len(after[0]) == 1 and after[0][0][3] in (2, 3)
         assert after[2] == before[2] + 1 and after[3] == before[3] + 1
         assert after[4:] == before[4:]
+
+
+async def test_active_route_auto_and_explicit_driver_groups_never_deadlock(pg):
+    """Real route + two shops in one zone: no deadlock/500 across lock inversions."""
+    tenant = pg.tenants[0]
+    field, zone, jurisdiction, route_request = await _real_field_sale_prerequisites(
+        pg, tenant,
+    )
+    driver = int(field.driver.id)
+    products = await _seed_variants(pg, tenant, count=3)
+    async with _real_http() as client:
+        owner = await _token(client, pg, tenant, tenant.owner, "NoLotSyntheticFixture123")
+        launch = await client.post("/dispatch/route", headers=owner, json=route_request)
+        assert launch.status_code == 201, launch.text
+        shops = [
+            (await _add_shop(client, owner, zone, balance="0", cap="0",
+                             jurisdiction_id=jurisdiction))[0]
+            for _ in range(2)
+        ]
+        for shop_id in shops:
+            created = await client.post(
+                "/dispatch/shortages", headers=owner,
+                json=[_item(shop_id, zone, driver, products[0])],
+            )
+            assert created.status_code == 201, created.text
+        listed = await client.get("/dispatch/shortages", headers=owner)
+        assert listed.status_code == 200, listed.text
+        per_shop = {
+            shop_id: [int(row["id"]) for row in listed.json()
+                      if int(row["shopId"]) == shop_id]
+            for shop_id in shops
+        }
+        assert all(len(ids) == 1 for ids in per_shop.values())
+        explicit = {
+            "request_id": str(uuid4()), "shortage_ids": per_shop[shops[0]],
+            "items": [_item(shops[0], zone, driver, products[1], 4)],
+        }
+        automatic = {
+            "request_id": str(uuid4()), "shortage_ids": per_shop[shops[1]],
+            "items": [_item(shops[1], zone, None, products[2], 5)],
+        }
+        replies = await asyncio.wait_for(asyncio.gather(
+            client.put("/dispatch/shortages/group", headers=owner, json=explicit),
+            client.put("/dispatch/shortages/group", headers=owner, json=automatic),
+        ), timeout=30)
+        assert all(resp.status_code in (200, 409) for resp in replies), [
+            (r.status_code, r.text) for r in replies
+        ]
+        # A NOWAIT lock-conflict has no partial mutation; the SAME durable
+        # request_id may be retried and must then commit or replay exactly.
+        for command, response in zip((explicit, automatic), replies):
+            if response.status_code == 409:
+                retry = await client.put(
+                    "/dispatch/shortages/group", headers=owner, json=command,
+                )
+                assert retry.status_code == 200, retry.text
+        for shop_id, quantity in zip(shops, (4, 5)):
+            snapshot = await _snapshot(pg, tenant, shop_id)
+            assert len(snapshot[0]) == 1, snapshot
+            assert snapshot[0][0][2] == driver
+            assert snapshot[0][0][3] == quantity
