@@ -170,6 +170,7 @@ V1_SCOPE_FREEZE.md و ARCHITECTURE.md يبقيان أعلى سلطة للنطا�
 
 2. [ ] Dispatch + Zones + Shops operational closure
    نغلق صفحة التوزيع الحالية والمناطق والمحلات والمسارات وتحميل/إطلاق السيارة كرحلة واحدة، مع مطابقة الـbackend الجديد والصلاحيات والـscope الصحيح. لا نعيد بناء Dispatch من الصفر.
+   خطة التنفيذ المعتمدة المبنية على تدقيقي Backend/Frontend: `docs/plans/DISPATCH_ZONES_SHOPS_V1_CLOSURE_PLAN.md`؛ متابعة الأدلة والـPRs في Issue #831؛ التنفيذ الوظيفي والصلاحيات أولاً، والقبول البصري من المالك أخيراً. وفق `ARCHITECTURE.md`: لا توسعة لملفات Driver/Dispatch الضخمة ولا إعادة تقسيم شاملة أثناء إغلاق V1.
 
 3. [ ] Main Dashboard closure
    نغلق الصفحة الرئيسية بعد استقرار Inventory وDispatch حتى تعرض بيانات وروابط وcapability-gating حقيقية بدل عقود قديمة أو افتراضات Owner-only.
