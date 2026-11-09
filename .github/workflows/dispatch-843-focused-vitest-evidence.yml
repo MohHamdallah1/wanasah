@@ -1,0 +1,68 @@
+name: Dispatch 843 isolated focused Vitest evidence
+on:
+  push:
+    branches:
+      - ci/dispatch-843-isolated-vitest-20261109
+permissions:
+  contents: read
+jobs:
+  dedicated-shop-order-spec:
+    name: exact-head-shop-order-vitest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8aac00baca4e88802bc9efc12b4a3fbc7e57ab0f
+          persist-credentials: false
+      - name: Prove isolated candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "8aac00baca4e88802bc9efc12b4a3fbc7e57ab0f"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Run dedicated actual Shop reorder React/Vitest spec
+        working-directory: dashboard
+        run: |
+          mkdir -p node_modules/.cache
+          npx vitest run src/test/dispatch-shop-reorder-scope-v1.test.tsx --reporter=default --reporter=junit --outputFile=node_modules/.cache/dispatch-843-junit.xml
+      - name: Prove executed test cases and zero skips or failures
+        if: always()
+        working-directory: dashboard
+        run: |
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET
+          path = pathlib.Path("node_modules/.cache/dispatch-843-junit.xml")
+          assert path.is_file(), "DEDICATED_VITEST_UNEXECUTED"
+          root = ET.parse(path).getroot()
+          cases = list(root.iter("testcase"))
+          failed = [x for x in cases if x.find("failure") is not None or x.find("error") is not None]
+          skipped = [x for x in cases if x.find("skipped") is not None]
+          print(f"DISPATCH_843_DEDICATED_CASES={len(cases)} FAILED={len(failed)} SKIPPED={len(skipped)}")
+          for case in failed[:20]:
+              print("FAIL", case.attrib.get("name"), (case.findtext("failure") or case.findtext("error") or "")[:1000])
+          assert len(cases) >= 25 and not failed and not skipped, "Dedicated acceptance is not green"
+          PY
+      - name: Exact HEAD TypeScript
+        if: success()
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Exact HEAD production build
+        if: success()
+        working-directory: dashboard
+        run: npm run build
+      - name: Exact HEAD focused lint
+        if: success()
+        working-directory: dashboard
+        run: npx eslint src/features/dispatch/shopOrder src/test/dispatch-shop-reorder-scope-v1.test.tsx src/components/dispatch/ShopTable.tsx src/pages/DispatchBoard.tsx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dispatch-843-dedicated-vitest-8aac00b
+          path: dashboard/node_modules/.cache/dispatch-843-junit.xml
+          if-no-files-found: warn
+          retention-days: 3
