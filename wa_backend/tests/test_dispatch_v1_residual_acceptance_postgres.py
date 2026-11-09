@@ -269,7 +269,7 @@ async def test_f12_active_route_tax_jurisdiction_change_uses_published_rule_or_b
             json={"request_id": str(uuid4()), "outcome": "Sale",
                   "cart_items": [{"product_variant_id": tenant.variant_id,
                                   "quantity": 0, "packs_quantity": 10}],
-                  "returns": [], "cash_collected": "0", "debt_paid": "0"},
+                  "returns": [], "cash_collected": "11", "debt_paid": "0"},
         )
         after = await _business_state(pg, tenant)
         async with pg.session() as db:
