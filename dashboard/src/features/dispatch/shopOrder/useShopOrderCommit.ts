@@ -9,7 +9,8 @@ import {
   type ShopOrderChange, type UncertainShopOrderCommand,
 } from "./scope";
 import {
-  clearShopOrderRecovery, loadShopOrderRecovery, restoreShopOrderDraft, storeShopOrderRecovery,
+  clearShopOrderRecovery, loadShopOrderRecoveryRecord, restoreShopOrderDraft,
+  stageShopOrderRecoveryDraft, storeShopOrderRecovery,
 } from "./useShopOrderDraft";
 
 interface Params {
@@ -61,8 +62,10 @@ export function useShopOrderCommit({
     clearSelection();
   }, [baseline, setShops, setDirty, setEditMode, clearSelection, recoveryScope]);
 
-  const applyRecoveredDraft = useCallback((fresh: Shop[], pending: UncertainShopOrderCommand): boolean => {
-    const restored = restoreShopOrderDraft(fresh, pending);
+  const applyRecoveredDraft = useCallback((
+    fresh: Shop[], pending: UncertainShopOrderCommand, latestDraft?: UncertainShopOrderCommand["intended"],
+  ): boolean => {
+    const restored = restoreShopOrderDraft(fresh, pending, latestDraft);
     if (!restored) return false;
     baseline.current = fresh;
     setZoneId?.(pending.zoneId);
@@ -80,8 +83,9 @@ export function useShopOrderCommit({
     if (!recoveryScope || !setZoneId || !draft.length ||
       restoredScope.current === recoveryScope) return;
     restoredScope.current = recoveryScope;
-    const pending = loadShopOrderRecovery(recoveryScope);
-    if (!pending) return;
+    const record = loadShopOrderRecoveryRecord(recoveryScope);
+    if (!record) return;
+    const { command: pending, latestDraft } = record;
     // Install the guard BEFORE the asynchronous GET. On a 401, timeout, or
     // membership conflict it must remain until an authorized restoration.
     setPendingCommand(pending);
@@ -91,7 +95,7 @@ export function useShopOrderCommit({
     setSaving(true);
     void read().then(fresh => {
       if (!active) return;
-      if (!Array.isArray(fresh) || !applyRecoveredDraft(fresh, pending)) {
+      if (!Array.isArray(fresh) || !applyRecoveredDraft(fresh, pending, latestDraft)) {
         toast.error(shopOrderText(language, "reconcileConflict"));
         return; // Keep pending guard AND stored draft on uncertain membership.
       }
@@ -124,11 +128,17 @@ export function useShopOrderCommit({
     setSaving(true);
     try {
       if (recoveryBlocked) {
-        // Reauth recovery failed earlier. A click may reattempt the authorized
-        // GET and restore the draft, but NEVER send a PUT in the same click.
-        if (!pendingCommand) throw new ShopOrderReconciliationConflictError();
+        // Reauth recovery failed earlier. Restore the LAST visual intent from
+        // durable storage, not the just-refetched default shop listing.
+        if (!pendingCommand || !recoveryScope) throw new ShopOrderReconciliationConflictError();
+        const record = loadShopOrderRecoveryRecord(recoveryScope);
+        if (!record || record.command.zoneId !== pendingCommand.zoneId ||
+          record.command.outcome !== pendingCommand.outcome) {
+          throw new ShopOrderReconciliationConflictError();
+        }
         const fresh = await read();
-        if (!Array.isArray(fresh) || !applyRecoveredDraft(fresh, pendingCommand)) {
+        if (!Array.isArray(fresh) ||
+          !applyRecoveredDraft(fresh, pendingCommand, record.latestDraft)) {
           throw new ShopOrderReconciliationConflictError();
         }
         toast.info(shopOrderText(language, "recoveredDraft"));
@@ -136,6 +146,10 @@ export function useShopOrderCommit({
       }
       let reconciled: Shop[] | null = null;
       if (pendingCommand) {
+        // The GET itself can trigger forceLogout. Preserve the CURRENT draft
+        // before crossing that network boundary; never rewrite the immutable
+        // snapshots of the earlier attempted PUT.
+        if (recoveryScope) stageShopOrderRecoveryDraft(recoveryScope, draft);
         // A transport timeout can hide an IN-FLIGHT server transaction. Even
         // an unchanged GET cannot prove completion without backend operation
         // identity/fence. No retry, cancellation, or auto-resend is safe.
@@ -233,5 +247,5 @@ export function useShopOrderCommit({
     }
   }, [saving, setSaving, read, reset, language, pendingCommand, recoveryBlocked]);
 
-  return { save, cancel, needsReconciliation };
+  return { save, cancel, needsReconciliation, recoveryBlocked };
 }
