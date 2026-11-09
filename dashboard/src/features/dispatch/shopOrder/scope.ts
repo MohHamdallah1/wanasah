@@ -93,7 +93,16 @@ export function sameSelectedZoneState(
 /** The exact selected-zone snapshot surrounding a write with unknown outcome. */
 export type ShopOrderRow = Pick<Shop, "id" | "zoneId" | "sequence" | "archived">;
 export type ShopOrderWriteOutcome = "put_confirmed" | "transport_unknown";
+/** Unique local recovery generation; not a server operation/idempotency identifier. */
+export function newShopOrderAttemptId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export interface UncertainShopOrderCommand {
+  /** Distinguishes one mutation from an old same-principal session callback. */
+  attemptId?: string;
   zoneId: string;
   before: ShopOrderRow[];
   intended: ShopOrderRow[];
