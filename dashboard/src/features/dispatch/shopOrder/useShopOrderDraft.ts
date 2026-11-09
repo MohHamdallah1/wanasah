@@ -12,15 +12,25 @@ interface Params {
   setShops: Dispatch<SetStateAction<Shop[]>>;
   setDirty: Dispatch<SetStateAction<boolean>>;
   saving: boolean;
+  /** Persist changed visual intent when an earlier PUT has uncertain readback. */
+  recoveryScope?: string | null;
+  uncertain?: boolean;
 }
 
 /** Only the local selected-zone ordering draft; no HTTP or server authority. */
-export function useShopOrderDraft({ shops, zoneId, baseline, setShops, setDirty, saving }: Params) {
+export function useShopOrderDraft({
+  shops, zoneId, baseline, setShops, setDirty, saving, recoveryScope, uncertain,
+}: Params) {
   const apply = useCallback((next: Shop[]) => {
     if (next === shops) return;
+    if (uncertain && recoveryScope) {
+      // An auth expiry may unmount on any subsequent GET. Persist immediately
+      // when the operator changes intent, not only after they press Save.
+      stageShopOrderRecoveryDraft(recoveryScope, next);
+    }
     setShops(next);
     setDirty(hasShopOrderChanges(baseline.current, next, zoneId));
-  }, [shops, baseline, zoneId, setShops, setDirty]);
+  }, [shops, baseline, zoneId, setShops, setDirty, uncertain, recoveryScope]);
 
   const changeSequence = useCallback((id: string, sequence: number) => {
     const row = shops.find(s => s.id === id);
@@ -38,17 +48,29 @@ export function useShopOrderDraft({ shops, zoneId, baseline, setShops, setDirty,
 
 /**
  * Session-tab recovery for a write that can outlive dashboard logout.
- * Store ONLY selected-zone ids/order/archive, never names, credentials or PII.
- * Identity comes from authorized company + principal discovery, not zone UI.
- * This records a draft, not a queued browser command: no automatic replay.
+ * Store ONLY selected-zone IDs/order/archive, never names, credentials or PII.
+ * The mutable latestDraft is distinct from immutable attempted before/intended.
+ * This records visual intent, NEVER queues a browser-side write for replay.
  */
 const recoveryKey = (scope: string): string => {
   if (!/^\d+:\d+$/.test(scope)) throw new Error("SHOP_ORDER_RECOVERY_SCOPE_REQUIRED");
   return `wanasah:dispatch:shop-order-recovery:v1:${scope}`;
 };
 
+export interface ShopOrderRecoveryRecord {
+  command: UncertainShopOrderCommand;
+  latestDraft: ShopOrderRow[];
+}
+
+const selectedZoneRows = (rows: readonly ShopOrderRow[], zoneId: string): ShopOrderRow[] =>
+  rows.filter(row => row.zoneId === zoneId).map(({ id, zoneId, sequence, archived }) =>
+    ({ id, zoneId, sequence, archived }));
+
 export function storeShopOrderRecovery(scope: string, command: UncertainShopOrderCommand): void {
-  sessionStorage.setItem(recoveryKey(scope), JSON.stringify({ version: 1, scope, command }));
+  sessionStorage.setItem(recoveryKey(scope), JSON.stringify({
+    version: 1, scope, command,
+    latestDraft: selectedZoneRows(command.intended, command.zoneId),
+  }));
 }
 
 export function clearShopOrderRecovery(scope: string): void {
@@ -64,12 +86,13 @@ const isOrderRow = (value: unknown): value is ShopOrderRow => {
     typeof row.archived === "boolean";
 };
 
-export function loadShopOrderRecovery(scope: string): UncertainShopOrderCommand | null {
+export function loadShopOrderRecoveryRecord(scope: string): ShopOrderRecoveryRecord | null {
   try {
     const raw = sessionStorage.getItem(recoveryKey(scope));
     if (!raw) return null;
     const envelope = JSON.parse(raw) as {
       version?: unknown; scope?: unknown; command?: Partial<UncertainShopOrderCommand>;
+      latestDraft?: unknown;
     };
     const command = envelope.command;
     if (envelope.version !== 1 || envelope.scope !== scope ||
@@ -82,19 +105,42 @@ export function loadShopOrderRecovery(scope: string): UncertainShopOrderCommand 
       !sameSelectedZoneMembership(command.before, command.intended, command.zoneId)) {
       return null;
     }
-    return command as UncertainShopOrderCommand;
+    const latest = envelope.latestDraft === undefined ? command.intended : envelope.latestDraft;
+    if (!Array.isArray(latest) || !latest.every(isOrderRow) ||
+      latest.some(row => row.zoneId !== command.zoneId) ||
+      !sameSelectedZoneMembership(command.before, latest, command.zoneId)) return null;
+    return { command: command as UncertainShopOrderCommand, latestDraft: selectedZoneRows(latest, command.zoneId) };
   } catch {
     return null;
   }
 }
 
+export function loadShopOrderRecovery(scope: string): UncertainShopOrderCommand | null {
+  return loadShopOrderRecoveryRecord(scope)?.command ?? null;
+}
+
+/** Write ONLY revised visual intent; leave the submitted command untouched. */
+export function stageShopOrderRecoveryDraft(scope: string, draft: readonly ShopOrderRow[]): void {
+  const record = loadShopOrderRecoveryRecord(scope);
+  if (!record) throw new Error("SHOP_ORDER_RECOVERY_MISSING");
+  const latestDraft = selectedZoneRows(draft, record.command.zoneId);
+  if (!sameSelectedZoneMembership(record.command.before, latestDraft, record.command.zoneId)) {
+    throw new Error("SHOP_ORDER_RECOVERY_MEMBERSHIP_CONFLICT");
+  }
+  sessionStorage.setItem(recoveryKey(scope), JSON.stringify({
+    version: 1, scope, command: record.command, latestDraft,
+  }));
+}
+
 /** Restore visual intent onto an authorized GET, never resurrect stale PII. */
 export function restoreShopOrderDraft(
   fresh: readonly Shop[], command: UncertainShopOrderCommand,
+  latestDraft: readonly ShopOrderRow[] = command.intended,
 ): Shop[] | null {
   if (!sameSelectedZoneMembership(command.before, fresh, command.zoneId) ||
-    !sameSelectedZoneMembership(command.intended, fresh, command.zoneId)) return null;
-  const intended = new Map(command.intended.map(row => [row.id, row]));
+    !sameSelectedZoneMembership(command.intended, fresh, command.zoneId) ||
+    !sameSelectedZoneMembership(latestDraft, fresh, command.zoneId)) return null;
+  const intended = new Map(latestDraft.map(row => [row.id, row]));
   return fresh.map(row => {
     if (row.zoneId !== command.zoneId) return row;
     const saved = intended.get(row.id);
