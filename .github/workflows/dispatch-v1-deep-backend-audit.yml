@@ -138,6 +138,17 @@ jobs:
           tests/test_dispatch_v1_residual_acceptance_postgres.py
           tests/test_dispatch_p0_route_stock_safety_postgres.py
           --junitxml=dispatch-v1-deep-pg16-junit.xml
+      - name: Supplemental real PG16 custody and adjust-load existing gates (unmodified)
+        if: always()
+        working-directory: wa_backend
+        env:
+          WANASAH_VEHICLE_LOAD_PG_GATE: "1"
+          WANASAH_ADJUST_LOAD_PG_GATE: "1"
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_vehicle_load_v1_postgres.py
+          tests/test_dispatch_adjust_load_uom.py
+          --junitxml=dispatch-v1-custody-supplement-junit.xml
       - name: Report ALL cases including failures and forbid skips
         if: always()
         working-directory: wa_backend
@@ -173,6 +184,25 @@ jobs:
           print(f"PG16_CASES={len(cases)} PASS={passed} FAIL={failed} ERROR={errors} SKIP={skipped}")
           assert len(cases) >= 29, "Expected 21 preserved prior cases + 8+ residual PG16 cases"
           assert skipped == 0, "A skip is UNPROVEN, not an accepted PG16 PASS"
+          # Supplementary direct-domain PG16 fixture is intentionally a SEPARATE
+          # test class from real Bearer HTTP. Do not conflate its evidence with
+          # authenticated ASGI cases in the primary 30+ matrix.
+          supplement = "dispatch-v1-custody-supplement-junit.xml"
+          assert os.path.isfile(supplement), "Supplemental PG16 JUnit must exist"
+          scases = list(ET.parse(supplement).getroot().iter("testcase"))
+          statuses = [
+              "SKIP" if c.find("skipped") is not None else
+              "ERROR" if c.find("error") is not None else
+              "FAIL" if c.find("failure") is not None else "PASS"
+              for c in scases
+          ]
+          for c, status in zip(scases, statuses):
+              print(f"SUPPLEMENT_PG16_{status} {c.attrib.get('classname')}.{c.attrib.get('name')}")
+          print("SUPPLEMENT_PG16_COUNT", len(scases),
+                "PASS", statuses.count("PASS"), "FAIL", statuses.count("FAIL"),
+                "ERROR", statuses.count("ERROR"), "SKIP", statuses.count("SKIP"))
+          assert scases, "Supplemental PG16 suite did not execute"
+          assert statuses.count("SKIP") == 0, "Skipped supplemental case remains UNPROVEN"
           # Deliberately do not convert known FAIL findings into green.
           PY
       - name: Publish full failure-preserving JUnit evidence
@@ -180,7 +210,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dispatch-v1-deep-pg16-junit-${{ github.run_id }}
-          path: wa_backend/dispatch-v1-deep-pg16-junit.xml
+          path: |
+            wa_backend/dispatch-v1-deep-pg16-junit.xml
+            wa_backend/dispatch-v1-custody-supplement-junit.xml
           if-no-files-found: warn
       - name: Show disposable PG logs on startup/migration failure
         if: failure()
