@@ -743,15 +743,21 @@ function DispatchSession() {
   }, [shortages]);
 
   // Shop order is a cohesive page-owned feature, not a new DispatchBoard workflow.
+  const readShopOrderSnapshot = useCallback(
+    async (): Promise<Shop[]> =>
+      normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
+    [authenticatedFetch],
+  );
   const { save: handleSaveReorder, cancel: handleCancelReorder, needsReconciliation } = useShopOrderCommit({
     draft: shops, baseline: savedShopsRef, zoneId: selectedZoneIdForZones,
     language: i18n.language, saving: isSaving, setSaving: setIsSaving,
     setShops, setDirty: setHasUnsavedChanges, setEditMode: setIsEditMode,
+    recoveryScope: productScope, setZoneId: setSelectedZoneIdForZones,
     clearSelection: () => setSelectedShopIds([]),
     send: changes => authenticatedFetch("/dispatch/shops/bulk_update", {
       method: "PUT", body: JSON.stringify(changes),
     }),
-    read: async () => normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
+    read: readShopOrderSnapshot,
   });
   const { changeSequence: changeShopSequence, drop: dropShopInZone } = useShopOrderDraft({
     shops, zoneId: selectedZoneIdForZones, baseline: savedShopsRef,
