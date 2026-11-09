@@ -11,11 +11,11 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from models import (
     InventoryCostEvent, InventoryMovement, OperationIdempotency, ProductVariant,
-    ShortageRequest, SystemAuditLog, Visit, utc_now,
+    ShortageRequest, SystemAuditLog, UserRole, Visit, utc_now,
 )
 from tests.test_dispatch_shop_finance_edit_v1_postgres import (
     _add_shop, _grant_company_dispatch_capability, _real_http, _token, _zone,
@@ -224,7 +224,7 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
             "/dispatch/shortages/group", headers=ordinary, json=payload,
         )).status_code == 403
 
-        await _grant_company_dispatch_capability(
+        cancel_role_id = await _grant_company_dispatch_capability(
             pg, tenant, tenant.ordinary, "shortage.cancel",
         )
         assert (await client.put(
@@ -255,7 +255,23 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
             "/dispatch/shortages/group", headers=ordinary, json=delete,
         )
         assert permitted.status_code == 200, permitted.text
-        assert not (await _snapshot(pg, tenant, shop))[0]
+        after_delete = await _snapshot(pg, tenant, shop)
+        assert not after_delete[0]
+
+        # Same valid JWT must not replay a committed mutation after its persisted
+        # cancellation grant is revoked. Authorization is checked on every call.
+        async with pg.session() as db:
+            await db.execute(delete(UserRole).where(
+                UserRole.company_id == tenant.company_id,
+                UserRole.driver_id == tenant.ordinary.driver_id,
+                UserRole.role_id == cancel_role_id,
+            ))
+            await db.commit()
+        rejected_replay = await client.put(
+            "/dispatch/shortages/group", headers=ordinary, json=delete,
+        )
+        assert rejected_replay.status_code == 403, rejected_replay.text
+        assert await _snapshot(pg, tenant, shop) == after_delete
 
 
 async def test_concurrent_group_writers_cannot_double_replace(pg):
