@@ -143,6 +143,10 @@ export function findCreatedShopAfterUnknownWrite(
   return candidates.length === 1 ? candidates[0] : null;
 }
 
+/** The header X, Escape, backdrop and Cancel share the same closure fence. */
+export const canCloseShopForm = (saving: boolean, needsVerification: boolean): boolean =>
+  !saving && !needsVerification;
+
 /** A Shop form cannot steal the shared ShopOrder draft authority. */
 export const canOpenShopForm = (dirtyOrder: boolean, pendingOrder: boolean): boolean =>
   !dirtyOrder && !pendingOrder;
