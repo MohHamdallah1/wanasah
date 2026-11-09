@@ -5,7 +5,7 @@ import { apiErrorMessage } from "@/lib/apiErrors";
 import { shopOrderText } from "./messages";
 import { commitShopOrder, ShopOrderVerificationError } from "./persist";
 import type { ShopOrderChange } from "./scope";
-import { sameSelectedZoneMembership } from "./scope";
+import { sameSelectedZoneMembership, sameSelectedZoneState } from "./scope";
 
 interface Params {
   draft: Shop[];
@@ -61,6 +61,9 @@ export function useShopOrderCommit({
         toast.success(shopOrderText(language, "saved"));
       } else {
         // No HTTP call, no success toast for a no-op.
+        if (reconciled && !sameSelectedZoneState(draft, reconciled, zoneId)) {
+          throw new ShopOrderVerificationError();
+        }
         if (reconciled) reset(reconciled);
         else {
           setDirty(false);
