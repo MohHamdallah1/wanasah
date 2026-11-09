@@ -369,10 +369,9 @@ jobs:
           def ownership_mode(candidate):
               if candidate == ci_policy_847_exact:
                   return "CI_POLICY_847_EXACT"
-              if ci_policy_847_exact < candidate:
-                  raise AssertionError(
-                      f"Forbidden CI-policy #847 mixed scope: {sorted(candidate - ci_policy_847_exact)}"
-                  )
+              # Existing owner-visual and Live Stock Worker1 bounded scopes
+              # also legitimately include all three shared CI files.
+              # Never treat a CI-policy subset as a general exclusion.
               if candidate & finance_842_unique:
                   assert candidate == finance_842_exact, (
                       f"Forbidden P0/finance #842 exact scope: "
@@ -453,6 +452,12 @@ jobs:
               else:
                   raise AssertionError("Mixed Shop/Finance/CI worker ownership accepted")
           assert ownership_mode(ci_policy_847_exact) == "CI_POLICY_847_EXACT"
+          # Codex P1 #848: preserve the exact accepted older policy modes
+          # when their files happen to include all three #847 shared CI files.
+          assert ci_policy_847_exact <= live_stock_worker1_allowed
+          assert ci_policy_847_exact <= owner_visual_allowed
+          assert ownership_mode(live_stock_worker1_allowed) == "LIVE_STOCK_WORKER1"
+          assert ownership_mode(owner_visual_allowed) == "LIVE_STOCK_OWNER_VISUAL"
           for foreign in ("wa_backend/models.py", "dashboard/src/pages/DispatchBoard.tsx",
                           "dashboard/src/lib/authStorage.ts", "wa_backend/api/driver.py"):
               try:
