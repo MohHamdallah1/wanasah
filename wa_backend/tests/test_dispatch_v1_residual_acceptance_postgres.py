@@ -34,6 +34,7 @@ from tests.test_dispatch_v1_deep_acceptance_postgres import (
     _simple_shop,
 )
 from tests.test_live_stock_v1_route_sale_unload_postgres import _seed_mobile_uom_and_field
+from tests.test_live_stock_v1_quantity_reconciliation_postgres import _seed_carton_conversion
 
 
 pytestmark = [
@@ -181,6 +182,10 @@ async def test_f12_active_route_tax_jurisdiction_change_uses_published_rule_or_b
         field, zone_id, shop_id, vehicle_location, launch = (
             await _loaded_route_prerequisites(pg, tenant)
         )
+        # Actual FIELD carton resolution requires an explicitly authored UOM
+        # conversion. The initial #841 run was blocked before tax evaluation
+        # (DRIVER_MOBILE_CARTON_UOM_UNRESOLVED); add only legitimate test master.
+        await _seed_carton_conversion(pg, tenant)
         async with pg.session() as db:
             a_jur = await db.scalar(select(Shop.tax_jurisdiction_id).where(
                 Shop.company_id == tenant.company_id, Shop.id == shop_id
