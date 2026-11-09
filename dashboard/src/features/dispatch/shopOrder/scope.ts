@@ -68,7 +68,7 @@ export const hasShopOrderChanges = (
 
 /** Do not replay a pending draft across a new/missing selected-zone Shop membership. */
 export function sameSelectedZoneMembership(
-  intended: readonly Shop[], current: readonly Shop[], zoneId: string,
+  intended: readonly ShopOrderRow[], current: readonly ShopOrderRow[], zoneId: string,
 ): boolean {
   if (!zoneId) return false;
   const a = new Set(intended.filter(s => s.zoneId === zoneId).map(s => s.id));
@@ -78,7 +78,7 @@ export function sameSelectedZoneMembership(
 
 /** Same selected-zone Shops, archive state and full active ranking (not financial fields). */
 export function sameSelectedZoneState(
-  intended: readonly Shop[], actual: readonly Shop[], zoneId: string,
+  intended: readonly ShopOrderRow[], actual: readonly ShopOrderRow[], zoneId: string,
 ): boolean {
   if (!sameSelectedZoneMembership(intended, actual, zoneId)) return false;
   const byId = new Map(actual.filter(s => s.zoneId === zoneId).map(s => [s.id, s]));
@@ -90,10 +90,13 @@ export function sameSelectedZoneState(
 }
 
 /** The exact selected-zone snapshot surrounding a write with unknown outcome. */
+export type ShopOrderRow = Pick<Shop, "id" | "zoneId" | "sequence" | "archived">;
+export type ShopOrderWriteOutcome = "put_confirmed" | "transport_unknown";
 export interface UncertainShopOrderCommand {
   zoneId: string;
-  before: Shop[];
-  intended: Shop[];
+  before: ShopOrderRow[];
+  intended: ShopOrderRow[];
+  outcome: ShopOrderWriteOutcome;
 }
 
 /**
@@ -104,7 +107,7 @@ export interface UncertainShopOrderCommand {
 export function canReconcileUncertainShopOrder(
   pending: UncertainShopOrderCommand, fresh: readonly Shop[], zoneId: string,
 ): boolean {
-  return !!zoneId && pending.zoneId === zoneId &&
+  return !!zoneId && pending.zoneId === zoneId && pending.outcome === "put_confirmed" &&
     (sameSelectedZoneState(pending.before, fresh, zoneId) ||
       sameSelectedZoneState(pending.intended, fresh, zoneId));
 }
