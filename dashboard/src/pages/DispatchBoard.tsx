@@ -1928,10 +1928,12 @@ function DispatchSession() {
             <div className="flex gap-2 w-full">
               <button onClick={() => setUnsavedTabPrompt(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
               <button
-                onClick={() => {
-                  handleCancelReorder();
-                  setActiveTab(unsavedTabPrompt);
-                  setUnsavedTabPrompt(null);
+                onClick={async () => {
+                  const discarded = await handleCancelReorder();
+                  if (discarded) {
+                    setActiveTab(unsavedTabPrompt);
+                    setUnsavedTabPrompt(null);
+                  }
                 }}
                 className="flex-1 bg-red-50 text-red-600 border border-red-200 py-2 rounded-xl font-bold hover:bg-red-100 transition-colors"
               >
