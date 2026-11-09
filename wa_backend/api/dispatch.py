@@ -13,9 +13,6 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from domains.dispatch_shortage_visits import (
-    ensure_shortage_pending_visit, settle_shortage_pending_visit,
-)
 from domains.dispatch_shop_finance_fence import (
     ShopFinancialEditConflict,
     require_metadata_only_shop_finance,
@@ -155,7 +152,6 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
-from api.dispatch_shortages_group import router as shortages_group_router
 from api.dispatch_products import router as product_discovery_router
 from api.dispatch_product_schemas import DispatchProductPageResponse
 from domains.dispatch_product_discovery import dispatch_product_page
@@ -163,7 +159,6 @@ from domains.dispatch_product_cursor import DispatchProductCursorError
 
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 router.include_router(product_discovery_router)
-router.include_router(shortages_group_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
@@ -5561,11 +5556,20 @@ async def add_shortages(
 
             owner_key = (driver_id, shop_id)
             visit = existing_owner_visits.get(owner_key)
-            visit = ensure_shortage_pending_visit(
-                db, company_id=company_id, driver_id=driver_id, shop=shop,
-                operational_date=company_local_date, existing=visit,
-            )
-            existing_owner_visits[owner_key] = visit
+            if visit is None:
+                visit = Visit(
+                    company_id=company_id,
+                    driver_id=driver_id,
+                    shop_id=shop_id,
+                    operational_date=company_local_date,
+                    status="Pending",
+                    sequence=shop.sequence if shop.sequence is not None else 999,
+                    is_emergency=True,
+                )
+                db.add(visit)
+                existing_owner_visits[owner_key] = visit
+            else:
+                visit.is_emergency = True
 
         await db.commit()
         asyncio.create_task(dispatch_manager.broadcast(
@@ -5628,9 +5632,39 @@ async def delete_shortage(
         await db.flush()
 
         if driver_id is not None:
-            await settle_shortage_pending_visit(
-                db, company_id=company_id, shop=shop, driver_id=driver_id,
-            )
+            remaining_for_owner = int((await db.execute(
+                select(func.count(ShortageRequest.id)).filter(
+                    ShortageRequest.company_id == company_id,
+                    ShortageRequest.shop_id == shop_id,
+                    ShortageRequest.driver_id == driver_id,
+                    ShortageRequest.status == "pending",
+                )
+            )).scalar() or 0)
+            if remaining_for_owner == 0:
+                pending_emergency = (await db.execute(
+                    select(Visit).filter(
+                        Visit.company_id == company_id,
+                        Visit.shop_id == shop_id,
+                        Visit.driver_id == driver_id,
+                        Visit.status == "Pending",
+                        Visit.is_emergency.is_(True),
+                    ).order_by(Visit.id.asc()).with_for_update()
+                )).scalars().all()
+                active_route = (await db.execute(
+                    select(DispatchRoute).filter(
+                        DispatchRoute.company_id == company_id,
+                        DispatchRoute.driver_id == driver_id,
+                        DispatchRoute.status == "active",
+                    ).order_by(DispatchRoute.id.asc()).limit(1)
+                )).scalars().first()
+                for visit in pending_emergency:
+                    if active_route is not None and int(active_route.zone_id) == int(shop.zone_id or 0):
+                        visit.is_emergency = False
+                    else:
+                        # لا نخلق Visit يتيمة ولا ننقلها لمندوب آخر بصمت؛ إلغاء الطلب يلغي مهمته فقط.
+                        visit.status = "Cancelled"
+                        visit.is_emergency = False
+                        visit.work_session_id = None
 
         await db.commit()
         asyncio.create_task(dispatch_manager.broadcast(
