@@ -63,3 +63,16 @@ export function shopOrderText(language: string, key: ShopOrderTextKey, values: R
   }
   return value;
 }
+
+/** Show only an operator-safe correlation token, never raw 5xx code/context. */
+export function shopOrderUncertainFeedback(
+  language: string, kind: "readbackFailed" | "unresolvedTransport", requestId?: string,
+): string {
+  if (!requestId || !/^[A-Za-z0-9._:-]{1,100}$/.test(requestId)) {
+    return shopOrderText(language, kind);
+  }
+  return shopOrderText(language,
+    kind === "readbackFailed" ? "readbackWithReference" : "unresolvedWithReference",
+    { reference: requestId },
+  );
+}
