@@ -1,7 +1,7 @@
 import type { Shop } from "@/types/dispatch";
 import { apiErrorCode, apiErrorContext, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import {
-  buildShopOrderChanges, verifyShopOrderReadback,
+  buildShopOrderChanges, newShopOrderAttemptId, verifyShopOrderReadback,
   type ShopOrderChange, type ShopOrderWriteOutcome, type UncertainShopOrderCommand,
 } from "./scope";
 
@@ -72,8 +72,11 @@ export async function commitShopOrder({
 }: ShopOrderCommitArgs): Promise<{ kind: "no_changes" } | { kind: "confirmed"; shops: Shop[] }> {
   const changes = buildShopOrderChanges(original, draft, selectedZoneId);
   if (!changes.length) return { kind: "no_changes" };
-  const unknown = attemptedCommand(selectedZoneId, original, draft, "transport_unknown");
-  const completed = attemptedCommand(selectedZoneId, original, draft, "put_confirmed");
+  const unknown = {
+    ...attemptedCommand(selectedZoneId, original, draft, "transport_unknown"),
+    attemptId: newShopOrderAttemptId(),
+  };
+  const completed: UncertainShopOrderCommand = { ...unknown, outcome: "put_confirmed" };
 
   // If the browser cannot safely retain recovery evidence, make NO mutation.
   beforeSend?.(unknown);
