@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "wa_backend/api/dispatch.py"
+      - "wa_backend/main.py"
       - "wa_backend/api/dispatch_shortages_group.py"
       - "wa_backend/domains/dispatch_shortages_group.py"
       - "wa_backend/domains/dispatch_shortage_visits.py"
@@ -49,11 +49,10 @@ jobs:
               ["git", "diff", "--name-only", base, "HEAD"], text=True
           ).splitlines())
           allowed = {
-              "wa_backend/api/dispatch.py",
+              "wa_backend/main.py",
               "wa_backend/api/dispatch_shortages_group.py",
               "wa_backend/domains/dispatch_shortages_group.py",
               "wa_backend/domains/dispatch_shortage_visits.py",
-              "wa_backend/domains/dispatch_shop_finance_fence.py",
               "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
               ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
           }
@@ -71,7 +70,7 @@ jobs:
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
       - name: Compile all group contract, lifecycle, adapter and focused test modules
         working-directory: wa_backend
-        run: python -m py_compile domains/dispatch_shortages_group.py domains/dispatch_shortage_visits.py api/dispatch_shortages_group.py tests/test_dispatch_shortages_group_v1_postgres.py api/dispatch.py
+        run: python -m py_compile domains/dispatch_shortages_group.py domains/dispatch_shortage_visits.py api/dispatch_shortages_group.py tests/test_dispatch_shortages_group_v1_postgres.py main.py
       - name: Start ONLY disposable local PostgreSQL 16
         run: |
           docker run --detach --name dispatch-849-pg16 \
@@ -178,7 +177,7 @@ jobs:
           print(f"PG16_CASES={len(cases)} PASS={passed} FAIL={failed} ERROR={errors} SKIP={skipped}")
           assert len(cases) >= 17, "Expected all real group tests and existing physical safety cases"
           assert skipped == 0, "A skip is UNPROVEN, not an accepted PG16 PASS"
-          assert failed == errors == 0, "Shop financial P0 and prior stock safety must PASS"
+          assert failed == errors == 0, "Group D05 and preserved physical safety must PASS"
           PY
       - name: Publish JUnit even on regression
         if: always()
