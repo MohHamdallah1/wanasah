@@ -83,12 +83,11 @@ export function createPayload(form: ShopFormState, force_save = false): ShopCrea
   };
 }
 
-/** Only consume finance returned by a new authorized Shop GET, never a draft. */
-/** Read-only balances may be signed; creation input may not. */
+/** Read-only balances from an authorized Shop GET may be signed; creation input may not. */
 const readMoney = (value: unknown): string => {
   if (typeof value !== "string" && typeof value !== "number") throw new Error("SHOP_FINANCE_INVALID");
   const clean = String(value);
-  if (!/^-?(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,3})?$/.test(clean)) {
+  if (!/^-?(?:0|[1-9]\d{0,8})(?:\.\d{1,3})?$/.test(clean)) {
     throw new Error("SHOP_FINANCE_INVALID");
   }
   const [whole, fractional = ""] = clean.split(".");
