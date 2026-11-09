@@ -164,15 +164,15 @@ def _assert_conflict(response, *, stale: bool):
     assert error["message"] and "حدّث" in error["message"] if stale else bool(error["message"])
 
 
-async def _grant_dispatch_execute(gate, tenant, actor):
+async def _grant_company_dispatch_capability(gate, tenant, actor, code):
     async with gate.session() as db:
         permission = await db.scalar(select(Permission).where(
-            Permission.code == "dispatch.execute"
+            Permission.code == code
         ))
         assert permission is not None
         role = Role(
             company_id=tenant.company_id,
-            name="842 shop execute " + uuid4().hex[:10],
+            name="842 dispatch " + code + " " + uuid4().hex[:8],
         )
         db.add(role)
         await db.flush()
@@ -309,7 +309,7 @@ async def test_f10_two_authorized_backoffice_actors_stale_credit_cap_denied(pg):
     """P1: old 150 screen cannot reset now-authoritative 75.125 Shop cap."""
     tenant = pg.tenants[0]
     zone = await _zone(pg, tenant)
-    await _grant_dispatch_execute(pg, tenant, tenant.ordinary)
+    await _grant_company_dispatch_capability(pg, tenant, tenant.ordinary, 'dispatch.execute')
     async with _real_http() as client:
         owner = await _owner(client, pg, tenant)
         ordinary = await _token(
@@ -403,6 +403,10 @@ async def test_unauthorized_and_cross_tenant_finance_edit_never_reveals_or_mutat
     home, foreign = pg.tenants
     zone_a = await _zone(pg, home)
     zone_b = await _zone(pg, foreign, party=1)
+    # The ordinary Backoffice user must authenticate successfully while
+    # possessing ONLY dispatch.read; unauthenticated 401 is not proof of
+    # the required capability-based 403 denial for financial writes.
+    await _grant_company_dispatch_capability(pg, home, home.ordinary, "dispatch.read")
     async with _real_http() as client:
         owner = await _owner(client, pg, home)
         foreign_owner = await _owner(client, pg, foreign)
