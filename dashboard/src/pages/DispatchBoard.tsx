@@ -20,6 +20,7 @@ import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
 import { emptyShopForm, existingShopForm, type ShopFormState } from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
+import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
@@ -1753,27 +1754,27 @@ function DispatchSession() {
         <Modal
           isOpen={Boolean(duplicateWarning)}
           onClose={() => clearDuplicateWarning()}
-          title="⚠️ تحذير: اكتشاف تطابق"
+          title={shopFormText(i18n.language, "duplicateTitle")}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => clearDuplicateWarning()} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
-              <button onClick={confirmDuplicateShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg">تخطي التحذير والحفظ</button>
+              <button onClick={() => clearDuplicateWarning()} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">{shopFormText(i18n.language, "cancel")}</button>
+              <button onClick={confirmDuplicateShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg">{shopFormText(i18n.language, "duplicateProceed")}</button>
             </div>
           }
         >
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">تم العثور على محل ببيانات مشابهة. يرجى مراجعة التطابق قبل الحفظ.</p>
-            <div className="grid grid-cols-2 gap-4">
+            <p className="text-sm text-slate-600">{shopFormText(i18n.language, "createDuplicate")}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="bg-red-50 p-4 rounded-xl border border-red-200">
-                <h4 className="text-sm font-bold text-red-700 mb-2 border-b border-red-200 pb-2">البيانات المدخلة حديثاً</h4>
+                <h4 className="text-sm font-bold text-red-700 mb-2 border-b border-red-200 pb-2">{shopFormText(i18n.language, "duplicateNew")}</h4>
                 <p className="font-bold text-slate-800 text-sm">{duplicateWarning.payload.name}</p>
                 <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.payload.phone}</p>
               </div>
               <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                <h4 className="text-sm font-bold text-emerald-700 mb-2 border-b border-emerald-200 pb-2">المحل الموجود مسبقاً</h4>
+                <h4 className="text-sm font-bold text-emerald-700 mb-2 border-b border-emerald-200 pb-2">{shopFormText(i18n.language, "duplicateExisting")}</h4>
                 <p className="font-bold text-slate-800 text-sm">{duplicateWarning.shopData.name}</p>
-                <p className="text-xs text-slate-600 mt-1">المالك: {duplicateWarning.shopData.owner}</p>
-                <p className="text-xs text-slate-600 mt-1">المنطقة: <span className="font-bold text-[#1e87bb]">{duplicateWarning.shopData.zone_name}</span></p>
+                <p className="text-xs text-slate-600 mt-1">{shopFormText(i18n.language, "duplicateOwner")}: {duplicateWarning.shopData.owner}</p>
+                <p className="text-xs text-slate-600 mt-1">{shopFormText(i18n.language, "duplicateZone")}: <span className="font-bold text-[#1e87bb]">{duplicateWarning.shopData.zone_name}</span></p>
                 <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.shopData.phone}</p>
               </div>
             </div>
