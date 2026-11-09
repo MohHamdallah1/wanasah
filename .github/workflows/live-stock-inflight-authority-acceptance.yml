@@ -157,19 +157,46 @@ jobs:
         if: always()
         run: |
           python - <<'PY'
+          import hashlib
           import xml.etree.ElementTree as ET
+
+          # #847 historical evidence: #753 added one valid Arabic UOM-pair
+          # regression after the workflow froze at 127. The #846 artifact
+          # 13653788381 contains 128 PASS, zero skipped/failed/duplicate cases.
+          # Freeze ALL 128 exact identities, not merely a len >= 127 gate:
+          # this digest also proves all original 127 case names are retained.
+          unit_manifest_sha256 = "457188a08d56e73c4a21290cc2851f49b091887a21d425624000303779c84770"
+          extra_cp7_identity = (
+              "src/test/inventory-cp7-live-stock.test.tsx",
+              "CP7 Live Stock Dashboard closure > separates Arabic number/UOM pairs "
+              "and preserves English and unknown labels",
+          )
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 127),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 128),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
               cases = list(root.iter("testcase"))
-              assert cases and (expected is None or len(cases) == expected), (path, len(cases))
-              assert not list(root.iter("skipped")), path
+              assert cases and len(cases) == expected, (path, len(cases), expected)
+              assert not list(root.iter("skipped")), f"Skipped mandatory case: {path}"
               failed = len(list(root.iter("failure"))) + len(list(root.iter("error")))
-              print(f"INFLIGHT_CASES file={path} executed={len(cases)} failed={failed} skipped=0")
-              assert failed == 0, "A security invariant remains RED: " + path
+              assert failed == 0, f"A security invariant remains RED: {path}"
+              identities = [(c.get("classname"), c.get("name")) for c in cases]
+              assert all(owner and name for owner, name in identities), f"Unnamed case: {path}"
+              assert len(set(identities)) == len(identities), f"Duplicated JUnit case: {path}"
+              if path.endswith("live-stock-inflight-unit.xml"):
+                  assert extra_cp7_identity in identities, "Missing real #753 UOM/RTL test"
+                  manifest = "\n".join(
+                      f"{owner}::{name}" for owner, name in sorted(identities)
+                  )
+                  actual_sha = hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+                  assert actual_sha == unit_manifest_sha256, (
+                      "Existing Live Stock/auth case identity changed or removed",
+                      actual_sha,
+                  )
+                  print(f"INFLIGHT_UNIT_EXACT_MANIFEST=PASS sha256={actual_sha}")
+              print(f"INFLIGHT_CASES file={path} executed={len(cases)} failed=0 skipped=0 duplicates=0")
           PY
       - name: Enforce independent ownership and whitespace
         if: always()
@@ -245,9 +272,67 @@ jobs:
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
           }
-          assert files <= owned, sorted(files - owned)
+          # #847: never grant Live Stock/auth ownership to a partial or
+          # mixed ShopOrder edit. Only the literal nine #846 files may cross
+          # this shared DispatchBoard trigger, without any extra path.
+          shop_order_843_exact = {
+              "dashboard/src/components/dispatch/ShopTable.tsx",
+              "dashboard/src/features/dispatch/shopOrder/ShopOrderScopeNotice.tsx",
+              "dashboard/src/features/dispatch/shopOrder/messages.ts",
+              "dashboard/src/features/dispatch/shopOrder/persist.ts",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/features/dispatch/shopOrder/useShopOrderCommit.ts",
+              "dashboard/src/features/dispatch/shopOrder/useShopOrderDraft.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shop-reorder-scope-v1.test.tsx",
+          }
+          shop_order_843_new = shop_order_843_exact - {
+              "dashboard/src/pages/DispatchBoard.tsx",
+          }
+          assert len(shop_order_843_exact) == 9 and len(shop_order_843_new) == 8
+
+          def ownership_mode(candidate):
+              if candidate & shop_order_843_new:
+                  assert candidate == shop_order_843_exact, (
+                      "INFLIGHT_SHOP_ORDER_843_SCOPE=FAIL",
+                      sorted(shop_order_843_exact - candidate),
+                      sorted(candidate - shop_order_843_exact),
+                  )
+                  return "SHOP_ORDER_843_EXACT"
+              assert candidate <= owned, sorted(candidate - owned)
+              return "INFLIGHT_AUTH_REPAIR_SCOPE"
+
+          assert ownership_mode(shop_order_843_exact) == "SHOP_ORDER_843_EXACT"
+          for missing in shop_order_843_exact:
+              partial = shop_order_843_exact - {missing}
+              if partial & shop_order_843_new:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Partial ShopOrder 843 admitted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "SHOP_ORDER_843_EXACT"
+          for foreign in (
+              "dashboard/src/hooks/useAuthFetch.ts", "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wa_backend/api/dispatch.py", "wa_backend/api/driver.py",
+              "wa_backend/models.py", "wa_backend/domains/inventory/services.py",
+              "dashboard/src/features/dispatch/shopOrder/extra.ts",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(shop_order_843_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign ShopOrder 843 path admitted: {foreign}")
+          print("INFLIGHT_847_SHOPORDER_SELFTEST=PASS exact=9 partial=9 foreign=10")
+          mode = ownership_mode(files)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
-          print("INFLIGHT_AUTH_REPAIR_SCOPE PASS")
+          print(f"INFLIGHT_AUTH_REPAIR_SCOPE PASS mode={mode}")
           PY
       - name: Retain sanitized evidence only
         if: always()
