@@ -22,7 +22,7 @@ from domains.authorization.field_provisioning import assign_new_representative_d
 from models import Company, DispatchRoute, InventoryBalance, InventoryMovement, Shop, Zone
 from domains.identity.models import CompanyPrincipal
 from tests.canonical_actor_fixtures import seed_field_fixture
-from tests.dispatch_p0_wire_fixture import test_seed_dispatch_browser
+from tests.dispatch_p0_wire_fixture import test_seed_dispatch_browser as _seed_accepted_dispatch_browser
 from tests.live_stock_real_browser_support import _engines, _runtime_session
 from tests.test_inbound_no_lot_frozen_postgres import checked_urls, pg  # noqa: F401
 
@@ -46,7 +46,7 @@ def gate() -> None:
 async def test_seed_real_dispatch_v1_dashboard(pg):
     gate()
     assert not STATE.exists(), "Refuse to reuse stale fixture state"
-    await test_seed_dispatch_browser(pg)
+    await _seed_accepted_dispatch_browser(pg)
     state = json.loads(STATE.read_text(encoding="utf8"))
     a, b = pg.tenants[0], pg.tenants[1]
     async with pg.session() as db:
