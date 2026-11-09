@@ -13,6 +13,10 @@ import { Modal } from "@/components/ui/modal";
 // Components
 import { CustomSelect } from "@/components/ui/custom-select";
 import { ShopTable } from "@/components/dispatch/ShopTable";
+import { ShopOrderScopeNotice } from "@/features/dispatch/shopOrder/ShopOrderScopeNotice";
+import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
+import { canReorderShop, hasShopOrderChanges, moveShopInSelectedZone, moveShopBeforeInSelectedZone } from "@/features/dispatch/shopOrder/scope";
+import { commitShopOrder, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
@@ -738,56 +742,75 @@ function DispatchSession() {
     return countMap;
   }, [shortages]);
 
-  // Helper: save the current reorder to the backend
+  // Shop order is an isolated selected-zone draft; HTTP commit must be read back.
   const handleSaveReorder = useCallback(async () => {
-    const currentZoneShops = shops.filter(s => s.zoneId === selectedZoneIdForZones);
-
-    // +++ اللوجيك الذكي: ترتيب المحلات النشطة، وإرسال حالة المحذوفة للسيرفر +++
-    let seq = 1;
-    const payload = currentZoneShops
-      .sort((a, b) => Number(a.sequence) - Number(b.sequence))
-      .map(s => {
-        if (s.archived) {
-          return { id: s.id, archived: true };
-        } else {
-          return { id: s.id, sequence: seq++, archived: false };
-        }
-      });
-
+    if (isSaving) return false;
     setIsSaving(true);
     try {
-      await authenticatedFetch("/dispatch/shops/bulk_update", {
-        method: "PUT",
-        body: JSON.stringify(payload)
+      const result = await commitShopOrder({
+        original: savedShopsRef.current, draft: shops, selectedZoneId: selectedZoneIdForZones,
+        send: changes => authenticatedFetch("/dispatch/shops/bulk_update", {
+          method: "PUT", body: JSON.stringify(changes),
+        }),
+        read: async () => normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
       });
-      savedShopsRef.current = shops; // new baseline
+      if (result.kind === "confirmed") {
+        setShops(result.shops);
+        savedShopsRef.current = result.shops;
+        toast.success(shopOrderText(i18n.language, "saved"));
+      } else {
+        toast.info(shopOrderText(i18n.language, "nothingChanged"));
+      }
       setHasUnsavedChanges(false);
       setIsEditMode(false);
       setSelectedShopIds([]);
-      fetchInitialData();
-      toast.success("تم حفظ التعديلات بنجاح ✓");
       return true;
-    } catch (err: unknown) {
-      toast.error("خطأ في حفظ التعديلات: " + getErrorMessage(err));
+    } catch (error: unknown) {
+      const message = error instanceof ShopOrderVerificationError
+        ? shopOrderText(i18n.language, "readbackFailed")
+        : shopOrderText(i18n.language, "saveFailed") + " " + getErrorMessage(error);
+      toast.error(message);
       return false;
     } finally {
       setIsSaving(false);
     }
-  }, [authenticatedFetch, fetchInitialData, selectedZoneIdForZones, shops]);
+  }, [authenticatedFetch, selectedZoneIdForZones, shops, isSaving, i18n.language]);
 
-  // Helper: cancel edits and revert by re-fetching from server
   const handleCancelReorder = useCallback(async () => {
+    if (isSaving) return false;
+    setIsSaving(true);
     try {
-      const freshShops = await authenticatedFetch("/dispatch/shops");
-      setShops(normalizeShops(freshShops));
-    } catch (e) {
-      // fallback to snapshot if fetch fails
-      setShops(savedShopsRef.current);
+      const fresh = normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" }));
+      setShops(fresh);
+      savedShopsRef.current = fresh;
+      setHasUnsavedChanges(false);
+      setIsEditMode(false);
+      setSelectedShopIds([]);
+      return true;
+    } catch {
+      toast.error(shopOrderText(i18n.language, "cancelFailed"));
+      return false;
+    } finally {
+      setIsSaving(false);
     }
-    setHasUnsavedChanges(false);
-    setIsEditMode(false);
-    setSelectedShopIds([]);
-  }, [authenticatedFetch]);
+  }, [authenticatedFetch, isSaving, i18n.language]);
+
+  const changeShopSequence = (id: string, sequence: number) => {
+    const current = shops.find(s => s.id === id);
+    if (isSaving || !current || !canReorderShop(current, selectedZoneIdForZones)) return;
+    const next = moveShopInSelectedZone(shops, selectedZoneIdForZones, id, sequence - 1);
+    if (next === shops) return;
+    setShops(next);
+    setHasUnsavedChanges(hasShopOrderChanges(savedShopsRef.current, next, selectedZoneIdForZones));
+  };
+
+  const dropShopInZone = (sourceId: string, targetId: string) => {
+    if (isSaving) return;
+    const next = moveShopBeforeInSelectedZone(shops, selectedZoneIdForZones, sourceId, targetId);
+    if (next === shops) return;
+    setShops(next);
+    setHasUnsavedChanges(hasShopOrderChanges(savedShopsRef.current, next, selectedZoneIdForZones));
+  };
 
   const fetchArchivedZones = async () => {
     try {
@@ -1677,7 +1700,13 @@ function DispatchSession() {
                   </div>
                   <div className="flex-1 overflow-y-auto p-2 space-y-1">
                     {zones.filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
-                      <div key={zone.id} onClick={() => setSelectedZoneIdForZones(zone.id)} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
+                      <div key={zone.id} onClick={() => {
+                        if (isSaving || zone.id === selectedZoneIdForZones) return;
+                        if (isEditMode && hasUnsavedChanges) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
+                        setSelectedZoneIdForZones(zone.id);
+                        setIsEditMode(false);
+                        setSelectedShopIds([]);
+                      }} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
                         <span className="flex items-center gap-2">
                           {zone.name}
                           {(!zone.startDate || !zone.intervalDays) && (
@@ -1710,14 +1739,19 @@ function DispatchSession() {
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-full xl:w-[75%] flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> إلغاء</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> جاري الحفظ...</> : <><Save className="w-4 h-4" /> حفظ</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />تعديل</button>)}<button
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || !hasUnsavedChanges} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, "save")}</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}<button
                     onClick={() => setShowRecycleBin(true)}
                     className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-blue-600"
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
                     <Archive className="w-5 h-5" />
                   </button><button onClick={() => { setEditingShopId(null); setShopForm({ name: "", owner: "", phone: "", mapLink: "", zoneId: selectedZoneIdForZones, initialDebt: 0, maxDebtLimit: 0 }); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
-                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={(id, n) => { const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === id); const to = Math.max(0, Math.min(n - 1, list.length - 1)); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
+                  <ShopOrderScopeNotice language={i18n.language}
+                    selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
+                    hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
+                    isEditMode={isEditMode} />
+                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode}
+                    language={i18n.language} isSaving={isSaving} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
                     if (isEditMode) {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
@@ -1749,7 +1783,7 @@ function DispatchSession() {
                         }
                       });
                     }
-                  }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { const draggedId = e.dataTransfer.getData("shopId"); if (draggedId === targetId) return; const list = [...shopsInSelectedZone]; const from = list.findIndex(s => s.id === draggedId); const to = list.findIndex(s => s.id === targetId); const [item] = list.splice(from, 1); list.splice(to, 0, item); const reordered = list.map((s, i) => ({ ...s, sequence: i + 1 })); setShops(prev => prev.map(s => { if (s.zoneId !== selectedZoneIdForZones || s.archived) return s; return reordered.find(r => r.id === s.id) || s; })); setHasUnsavedChanges(true); }} />
+                  }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => dropShopInZone(e.dataTransfer.getData("shopId"), targetId)} />
                   <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
                   <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
