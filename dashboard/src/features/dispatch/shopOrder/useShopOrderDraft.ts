@@ -2,6 +2,7 @@ import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction 
 import type { Shop } from "@/types/dispatch";
 import {
   canReorderShop, hasShopOrderChanges, moveShopBeforeInSelectedZone, moveShopInSelectedZone,
+  newShopOrderAttemptId,
   sameSelectedZoneMembership, type ShopOrderRow, type UncertainShopOrderCommand,
 } from "./scope";
 
@@ -67,14 +68,41 @@ const selectedZoneRows = (rows: readonly ShopOrderRow[], zoneId: string): ShopOr
     ({ id, zoneId, sequence, archived }));
 
 export function storeShopOrderRecovery(scope: string, command: UncertainShopOrderCommand): void {
+  const stored = { ...command, attemptId: command.attemptId ?? newShopOrderAttemptId() };
   sessionStorage.setItem(recoveryKey(scope), JSON.stringify({
-    version: 1, scope, command,
-    latestDraft: selectedZoneRows(command.intended, command.zoneId),
+    version: 1, scope, command: stored,
+    latestDraft: selectedZoneRows(stored.intended, stored.zoneId),
   }));
 }
 
-export function clearShopOrderRecovery(scope: string): void {
+/**
+ * A late callback from an unmounted login session may ONLY annotate its own
+ * still-present attempt. Preserve a newer latestDraft and completed outcome.
+ * Missing/replaced recovery MUST NOT be recreated by this API.
+ */
+export function updateShopOrderRecoveryIfAttempt(
+  scope: string, command: UncertainShopOrderCommand,
+): boolean {
+  const record = loadShopOrderRecoveryRecord(scope);
+  if (!record || !command.attemptId ||
+    record.command.attemptId !== command.attemptId ||
+    record.command.zoneId !== command.zoneId ||
+    (record.command.outcome === "put_confirmed" && command.outcome !== "put_confirmed")) {
+    return false;
+  }
+  sessionStorage.setItem(recoveryKey(scope), JSON.stringify({
+    version: 1, scope, command, latestDraft: record.latestDraft,
+  }));
+  return true;
+}
+
+/** Conditional cleanup: old sessions cannot erase a newer active command. */
+export function clearShopOrderRecoveryIfAttempt(scope: string, attemptId?: string): boolean {
+  if (!attemptId) return false;
+  const record = loadShopOrderRecoveryRecord(scope);
+  if (!record || record.command.attemptId !== attemptId) return false;
   sessionStorage.removeItem(recoveryKey(scope));
+  return true;
 }
 
 const isOrderRow = (value: unknown): value is ShopOrderRow => {
@@ -120,9 +148,14 @@ export function loadShopOrderRecovery(scope: string): UncertainShopOrderCommand 
 }
 
 /** Write ONLY revised visual intent; leave the submitted command untouched. */
-export function stageShopOrderRecoveryDraft(scope: string, draft: readonly ShopOrderRow[]): void {
+export function stageShopOrderRecoveryDraft(
+  scope: string, draft: readonly ShopOrderRow[], expectedAttemptId?: string,
+): void {
   const record = loadShopOrderRecoveryRecord(scope);
   if (!record) throw new Error("SHOP_ORDER_RECOVERY_MISSING");
+  if (expectedAttemptId && record.command.attemptId !== expectedAttemptId) {
+    throw new Error("SHOP_ORDER_RECOVERY_ATTEMPT_CHANGED");
+  }
   const latestDraft = selectedZoneRows(draft, record.command.zoneId);
   if (!sameSelectedZoneMembership(record.command.before, latestDraft, record.command.zoneId)) {
     throw new Error("SHOP_ORDER_RECOVERY_MEMBERSHIP_CONFLICT");
