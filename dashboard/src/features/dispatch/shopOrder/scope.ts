@@ -20,7 +20,7 @@ export function moveShopInSelectedZone(
   const from = active.findIndex(s => s.id === sourceShopId);
   if (from < 0 || !Number.isInteger(targetIndex)) return shops as Shop[];
   const to = Math.min(Math.max(targetIndex, 0), active.length - 1);
-  if (from === to) return shops as Shop[];
+  if (from === to && active.every((s, index) => Number(s.sequence) === index + 1)) return shops as Shop[];
   const reordered = [...active];
   const [moved] = reordered.splice(from, 1);
   reordered.splice(to, 0, moved);
@@ -69,9 +69,21 @@ export const hasShopOrderChanges = (
 /** HTTP 200 is not enough: require a NEW authorized snapshot with every write reflected. */
 export function verifyShopOrderReadback(
   changes: readonly ShopOrderChange[], readback: readonly Shop[], selectedZoneId: string,
+  intendedDraft: readonly Shop[],
 ): boolean {
   if (!changes.length || !selectedZoneId) return false;
-  const byId = new Map(readback.map(s => [s.id, s]));
+  const intended = intendedDraft.filter(s => s.zoneId === selectedZoneId);
+  const actual = readback.filter(s => s.zoneId === selectedZoneId);
+  if (actual.length !== intended.length || !intended.length) return false;
+  const byId = new Map(actual.map(s => [s.id, s]));
+  if (byId.size !== actual.length) return false;
+  // Verify the ENTIRE selected-zone order, not just rows mentioned in PUT.
+  // Another writer can change an unsubmitted row while our command is in flight.
+  if (!intended.every(row => {
+    const fresh = byId.get(row.id);
+    return !!fresh && fresh.archived === row.archived &&
+      (fresh.archived || Number(fresh.sequence) === Number(row.sequence));
+  })) return false;
   return changes.every(change => {
     const row = byId.get(change.id);
     if (!row || row.zoneId !== selectedZoneId) return false;
