@@ -271,6 +271,9 @@ async def replace_shortage_group(
         (i, int(i.driverId) if i.driverId is not None else automatic_driver)
         for i in items
     ]
+    if len({owner for _, owner in resolved}) > 1:
+        _reject(400, "SHORTAGE_GROUP_MIXED_DRIVER",
+                "لا يمكن توزيع المجموعة الواحدة على أكثر من مندوب.")
     # Lock both original and intended Visit owners; preserve unrelated owners.
     owners = {driver for _, driver in resolved if driver is not None}
     if old_driver_id is not None:
