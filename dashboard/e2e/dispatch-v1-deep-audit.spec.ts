@@ -97,6 +97,7 @@ test("real owner login → all three tabs / launch selectors / modal availabilit
 test("N1: postponed representative selection abandoned on close preserves committed identity",async({page},info)=>{
   const finish=await observe(page,info);
   await login(page,info);
+  try {
   const reset=await api(page,"PUT",`/dispatch/route/${data.routeId}/status`,{status:"waiting"});
   expect(reset.status).toBe(200);
   const postpone=await api(page,"PUT",`/dispatch/route/${data.routeId}/status`,{status:"postponed"});
@@ -114,7 +115,14 @@ test("N1: postponed representative selection abandoned on close preserves commit
   await expect(modal).not.toBeVisible();
   await page.getByRole("button",{name:/عرض المؤجل/}).click();
   await expect(page.getByRole("dialog").locator("select").first()).toHaveValue(String(data.driverId));
-  await finish();
+  } finally {
+    // Every locale/project shares this disposable route. A deliberately RED
+    // assertion must not contaminate subsequent tests.
+    const cleanup=await api(page,"PUT",`/dispatch/route/${data.routeId}/status`,{status:"waiting"});
+    await info.attach("N1-reset.json",{body:Buffer.from(JSON.stringify(cleanup)),contentType:"application/json"});
+    expect(cleanup.status).toBe(200);
+    await finish();
+  }
 });
 
 test("N2: cross-zone searched shop reorder sends the selected shop in real PUT",async({page},info)=>{
@@ -160,6 +168,11 @@ test("N5: Shop map link must be http(s) before browser receives an active anchor
   await page.locator('input[placeholder="بحث..."]').fill(name);
   const row=page.locator(".dispatch-shop-table tbody tr").filter({hasText:name});
   const link=row.getByRole("link",{name:"عرض الموقع"});
+  if(await link.count()===0) {
+    // Removing unsafe clickable content entirely is a safe outcome.
+    expect(await row.locator('a[href^="javascript:"]').count()).toBe(0);
+    return;
+  }
   await expect(link).toBeVisible();
   const href=await link.getAttribute("href");
   expect(href).toMatch(/^https?:\/\//i); // Do not click unsafe link: CSP may block navigation.
@@ -211,6 +224,9 @@ test("P1 shortage: group Edit uses registered transactional backend API",async({
   const card=modal.locator(".rounded-2xl.border.overflow-hidden").filter({hasText:group.shopName}).first();
   await expect(card).toBeVisible();
   await card.getByRole("button",{name:"تعديل",exact:true}).click();
+  const draft=modal.locator("table tbody tr").first();
+  await expect(draft).toBeVisible();
+  await draft.locator("button").nth(1).click(); // +1 base demand: 2 → 3
   const pending=page.waitForResponse(r=>new URL(r.url()).pathname==="/dispatch/shortages/group"&&r.request().method()==="PUT");
   await modal.getByRole("button",{name:/حفظ التعديلات \(/}).click();
   const response=await pending;
@@ -218,6 +234,10 @@ test("P1 shortage: group Edit uses registered transactional backend API",async({
     status:response.status(),payload:response.request().postDataJSON(),server:await response.text(),db:dbProbe("snapshot"),
   },null,2)),contentType:"application/json"});
   expect(response.status(),"The visible Edit workflow requires a real registered atomic endpoint").toBe(200);
+  const saved=await api(page,"GET","/dispatch/shortages");
+  expect(saved.status).toBe(200);
+  expect(saved.body.some((row:any)=>String(row.shopId)===group.shop && Number(row.quantity)===3))
+    .toBe(true); // server committed the edited demand, not merely a 200
 });
 
 test("P1 shortage: Delete All must be atomic and actually delete pending rows",async({page},info)=>{
