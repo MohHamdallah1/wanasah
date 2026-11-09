@@ -31,7 +31,7 @@ from models import (
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_v1_deep_acceptance_postgres import (
     _business_state, _client, _loaded_route_prerequisites, _login, _owner,
-    _simple_shop,
+    _shortage_scenario, _simple_shop,
 )
 from tests.test_live_stock_v1_route_sale_unload_postgres import _seed_mobile_uom_and_field
 from tests.test_live_stock_v1_quantity_reconciliation_postgres import _seed_carton_conversion
@@ -566,3 +566,59 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
                     assert all(rows >= target for rows in result_rows)
             print(f"F13 MEASURED_PG16_HTTP_SCALE={observations} "
                   "latencies single CI machine, n=5: severity UNPROVEN")
+
+
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+async def test_f03_restore_zone_then_recreate_unfulfilled_shortage_is_not_stranded(pg):
+    """Archive+restore repeat: a pending shortage must have executable follow-up."""
+    tenant = pg.tenants[0]
+    async with _client() as client:
+        owner = await _owner(client, pg, tenant)
+        zone_id, shop_id, shortage_id, visit_id, payload = await _shortage_scenario(
+            pg, client, tenant, owner
+        )
+        before = await _business_state(pg, tenant)
+        archived = await client.delete(f"/dispatch/zones/{zone_id}", headers=owner)
+        assert archived.status_code == 200, archived.text
+        restored = await client.put(
+            f"/dispatch/zones/{zone_id}/restore", headers=owner,
+            json={"mode": "shops_archived_by_same_zone"},
+        )
+        assert restored.status_code == 200, restored.text
+        repeat_restore = await client.put(
+            f"/dispatch/zones/{zone_id}/restore", headers=owner,
+            json={"mode": "shops_archived_by_same_zone"},
+        )
+        assert repeat_restore.status_code == 200, repeat_restore.text
+        new_demand = await client.post(
+            "/dispatch/shortages", headers=owner, json=payload,
+        )
+        async with pg.session() as db:
+            shop = await db.get(Shop, shop_id)
+            zone = await db.get(Zone, zone_id)
+            shortage = await db.get(ShortageRequest, shortage_id)
+            visit = await db.get(Visit, visit_id)
+            state = {
+                "zone_active": bool(zone.is_active),
+                "shop_archived": bool(shop.is_archived),
+                "shortage_status": shortage.status,
+                "visit_status": visit.status,
+                "new_shortage_http": new_demand.status_code,
+                "restored_shops": restored.json().get("restored_shops"),
+                "repeat_restored_shops": repeat_restore.json().get("restored_shops"),
+            }
+        after = await _business_state(pg, tenant)
+        print(f"F03-RESTORE archived=200, restore={restored.status_code}, "
+              f"repeat={repeat_restore.status_code}, new={new_demand.status_code}, "
+              f"db={state}, stock_before={before}, stock_after={after}")
+        assert state["zone_active"] and not state["shop_archived"]
+        assert all(before[k] == after[k] for k in
+                   ("inventory_movements", "inventory_cost_events", "physical"))
+        assert not (
+            state["shortage_status"] == "pending"
+            and state["visit_status"] == "Cancelled"
+            and state["new_shortage_http"] == 409
+        ), (
+            f"F03 P1 recoverability after zone restore: open demand cannot be "
+            f"re-dispatched, no executable Visit exists; actual={state}"
+        )
