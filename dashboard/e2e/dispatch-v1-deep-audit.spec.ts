@@ -309,7 +309,8 @@ test("real launch product catalog remains absent from init and actual Warehouse/
     .reduce((total:number,row:any)=>total+Number(row.quantity),0);
   expect(physical(String(data.warehouseId))).toBe(55);
   expect(physical(String(data.vehicleLocationId))).toBe(25);
-  expect(Number(eligible.load?.current_base_quantity??25)).toBe(25);
+  expect(eligible.load, "LOAD discovery must carry current Vehicle custody evidence").toBeTruthy();
+  expect(Number(eligible.load.current_base_quantity)).toBe(25);
 });
 
 test("N3: interruption between restore-zone and restore-shop must not pretend atomic success",async({page},info)=>{
