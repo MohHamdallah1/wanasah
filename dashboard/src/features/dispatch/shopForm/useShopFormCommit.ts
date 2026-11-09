@@ -98,8 +98,8 @@ export function useShopFormCommit({
         if (active && current(token)) setFinanceLoading(false);
       });
     return () => { active = false; controller.abort(); };
-    // Locale changes do not invalidate the pending request or trigger another GET.
-  }, [open, editId, canViewFinances, session, fetch, current]);
+    // A language change may re-read finance but never clears a pending mutation.
+  }, [open, editId, canViewFinances, session, fetch, current, language]);
 
   const refreshAfterConflict = useCallback(async (token: number, id: string): Promise<void> => {
     // A rejected 409 is NOT success; refresh current finance without replacing
