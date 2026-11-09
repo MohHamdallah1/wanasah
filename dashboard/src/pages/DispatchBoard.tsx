@@ -192,6 +192,9 @@ function DispatchSession() {
 
   const authenticatedFetch = useAuthFetch();
   const { isCompanyOwner, data: discoveryAccess } = useInventoryAccess();
+  // Match existing /dispatch/shops authorized read authority; no new finance grant.
+  const canReadShopFinances = isCompanyOwner ||
+    Boolean(discoveryAccess?.any_permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   useEffect(() => {
     if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
@@ -1005,7 +1008,7 @@ function DispatchSession() {
     needsVerification: shopNeedsVerification,
   } = useShopFormCommit({
     open: isShopModalOpen, editId: editingShopId, form: shopForm,
-    language: i18n.language, session: session!, canViewFinances: isCompanyOwner,
+    language: i18n.language, session: session!, canViewFinances: canReadShopFinances,
     busy: isSaving, setBusy: setIsSaving, fetch: authenticatedFetch,
     onVerified: (rows, isCreate, zoneId) => {
       if (!isDashboardSessionCurrent(session!)) return;
@@ -1658,7 +1661,7 @@ function DispatchSession() {
       <ShopFormModal isOpen={isShopModalOpen} onClose={() => { if (!shopNeedsVerification) setIsShopModalOpen(false); }}
         editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones}
         onSave={handleSaveShop} onVerify={verifyShopSave} language={i18n.language}
-        saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={isCompanyOwner}
+        saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
         isOpen={showRecycleBin}
