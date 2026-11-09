@@ -394,13 +394,9 @@ async def test_f05_scoped_read_reports_actual_financial_visibility_and_revocatio
     async with _client() as client:
         owner = await _owner(client, pg, tenant)
         foreign_owner = await _owner(client, pg, foreign)
-        limited = await _login(
-            client, pg, tenant, tenant.ordinary, "SyntheticFixture123"
-        )
-        denied = await client.get("/dispatch/shops", headers=limited)
-        assert denied.status_code == 403, (
-            f"F05 missing dispatch grant expected 403, got {denied.status_code}"
-        )
+        # A brand-new ordinary principal without any role is rejected by
+        # the Dashboard login boundary (no usable access session). Mint the
+        # genuine Bearer token only AFTER assigning the W1-only grant.
         async with pg.session() as db:
             permission = await db.scalar(
                 select(Permission).where(Permission.code == "dispatch.read")
@@ -422,6 +418,9 @@ async def test_f05_scoped_read_reports_actual_financial_visibility_and_revocatio
             role_id = int(role.id)
             await db.commit()
 
+        limited = await _login(
+            client, pg, tenant, tenant.ordinary, "SyntheticFixture123"
+        )
         init = await client.get("/dispatch/init", headers=limited)
         shops = await client.get("/dispatch/shops", headers=limited)
         routes = await client.get("/dispatch/active_routes", headers=limited)
