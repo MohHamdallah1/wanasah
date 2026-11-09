@@ -142,3 +142,18 @@ export function findCreatedShopAfterUnknownWrite(
   }).map(row => String((row as { id: unknown }).id));
   return candidates.length === 1 ? candidates[0] : null;
 }
+
+/** A Shop form cannot steal the shared ShopOrder draft authority. */
+export const canOpenShopForm = (dirtyOrder: boolean, pendingOrder: boolean): boolean =>
+  !dirtyOrder && !pendingOrder;
+
+/** Keep only authorized fresh Shop IDs; preserve unsaved local sequence/archive edits. */
+export function preserveUnsavedShopOrder(
+  local: readonly Shop[], authorized: readonly Shop[],
+): Shop[] {
+  const previous = new Map(local.map(row => [row.id, row]));
+  return authorized.map(row => {
+    const draft = previous.get(row.id);
+    return draft ? { ...row, sequence: draft.sequence, archived: draft.archived } : row;
+  });
+}
