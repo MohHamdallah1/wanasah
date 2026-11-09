@@ -810,12 +810,12 @@ function DispatchSession() {
   // Helper: handle tab switch with dirty-state guard
   const handleTabChange = useCallback((tabId: TabId) => {
     if (tabId === activeTab) return;
-    if (hasUnsavedChanges) {
+    if (hasUnsavedChanges || needsReconciliation) {
       setUnsavedTabPrompt(tabId); // تفعيل النافذة الذكية بدل العادية
       return;
     }
     setActiveTab(tabId);
-  }, [activeTab, hasUnsavedChanges]);
+  }, [activeTab, hasUnsavedChanges, needsReconciliation]);
 
   const handleDispatchRoute = () => {
     if (!canLaunch) {
@@ -1648,7 +1648,7 @@ function DispatchSession() {
                     {zones.filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
                       <div key={zone.id} onClick={() => {
                         if (isSaving || zone.id === selectedZoneIdForZones) return;
-                        if (isEditMode && hasUnsavedChanges) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
+                        if (isEditMode && (hasUnsavedChanges || needsReconciliation)) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
                         setSelectedZoneIdForZones(zone.id);
                         setIsEditMode(false);
                         setSelectedShopIds([]);
