@@ -251,7 +251,16 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
         await route.continue();
       };
       await reader.route(API + "/warehouse/inventory/*/batches/*/source*", sourceHandler);
-      await first.getByRole("button", { name: "Actionable Warehouse source and reservations" }).click();
+      // Current two-step batch drilldown first opens advanced evidence; only
+      // its nested canonical source action triggers the real authorized read.
+      await first.getByRole("button", {
+        name: "Additional stock and reservation details", exact: true,
+      }).click();
+      const sourceButton = first.getByRole("button", {
+        name: "Stock and reservation details", exact: true,
+      });
+      await expect(sourceButton).toBeVisible();
+      await sourceButton.click();
       await captured;
 
       support("revoke");
