@@ -554,6 +554,45 @@ describe("Shop order confirm feedback", () => {
   });
 
 
+  it.each([403, 409])(
+    "reconciled PUT then definitively rejected replacement %s clears stale recovery before re-login",
+    async status => {
+      const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+      const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+      const send = vi.fn().mockResolvedValueOnce({})
+        .mockRejectedValueOnce(Object.assign(new Error("definitive rejection"), { status }));
+      const read = vi.fn().mockRejectedValueOnce(new Error("lost first GET"))
+        .mockResolvedValueOnce(first);
+      const props = {
+        baseline: { current: snapshot() }, zoneId: "A", language: "en",
+        recoveryScope: "5:30", setZoneId: vi.fn(), saving: false,
+        setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+      };
+      const initial = renderHook(
+        ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+        { initialProps: { draft: first } },
+      );
+      await act(async () => { expect(await initial.result.current.save()).toBe(false); });
+      expect(loadShopOrderRecovery("5:30")?.outcome).toBe("put_confirmed");
+      initial.rerender({ draft: revised });
+      await act(async () => { expect(await initial.result.current.save()).toBe(false); });
+      expect(read).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(loadShopOrderRecovery("5:30")).toBeNull();
+      expect(initial.result.current.needsReconciliation).toBe(false);
+      expect(toast.success).not.toHaveBeenCalled();
+
+      initial.unmount();
+      const nextRead = vi.fn().mockResolvedValue(first);
+      const subsequent = renderHook(() => useShopOrderCommit({
+        ...props, draft: first, read: nextRead,
+      }));
+      expect(subsequent.result.current.needsReconciliation).toBe(false);
+      expect(nextRead).not.toHaveBeenCalled(); // rejected request cannot resurrect
+    },
+  );
+
   it("a revised draft survives forced logout DURING the reconciliation GET, not only the first readback", async () => {
     const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
     const revised = moveShopInSelectedZone(first, "A", "A3", 1);
