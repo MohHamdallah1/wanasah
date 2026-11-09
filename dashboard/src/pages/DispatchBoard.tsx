@@ -748,7 +748,7 @@ function DispatchSession() {
       normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
     [authenticatedFetch],
   );
-  const { save: handleSaveReorder, cancel: handleCancelReorder, needsReconciliation } = useShopOrderCommit({
+  const { save: handleSaveReorder, cancel: handleCancelReorder, needsReconciliation, recoveryBlocked } = useShopOrderCommit({
     draft: shops, baseline: savedShopsRef, zoneId: selectedZoneIdForZones,
     language: i18n.language, saving: isSaving, setSaving: setIsSaving,
     setShops, setDirty: setHasUnsavedChanges, setEditMode: setIsEditMode,
@@ -761,7 +761,8 @@ function DispatchSession() {
   });
   const { changeSequence: changeShopSequence, drop: dropShopInZone } = useShopOrderDraft({
     shops, zoneId: selectedZoneIdForZones, baseline: savedShopsRef,
-    setShops, setDirty: setHasUnsavedChanges, saving: isSaving,
+    setShops, setDirty: setHasUnsavedChanges, saving: isSaving || recoveryBlocked,
+    recoveryScope: productScope, uncertain: needsReconciliation && !recoveryBlocked,
   });
 
   const fetchArchivedZones = async () => {
@@ -1702,8 +1703,8 @@ function DispatchSession() {
                     selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
                     hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={isEditMode} />
-                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode}
-                    language={i18n.language} isSaving={isSaving} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
+                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode && !recoveryBlocked}
+                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
                     if (isEditMode) {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
