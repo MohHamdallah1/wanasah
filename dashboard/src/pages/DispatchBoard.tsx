@@ -15,8 +15,8 @@ import { CustomSelect } from "@/components/ui/custom-select";
 import { ShopTable } from "@/components/dispatch/ShopTable";
 import { ShopOrderScopeNotice } from "@/features/dispatch/shopOrder/ShopOrderScopeNotice";
 import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
-import { canReorderShop, hasShopOrderChanges, moveShopInSelectedZone, moveShopBeforeInSelectedZone } from "@/features/dispatch/shopOrder/scope";
-import { commitShopOrder, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
+import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
+import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
@@ -742,75 +742,21 @@ function DispatchSession() {
     return countMap;
   }, [shortages]);
 
-  // Shop order is an isolated selected-zone draft; HTTP commit must be read back.
-  const handleSaveReorder = useCallback(async () => {
-    if (isSaving) return false;
-    setIsSaving(true);
-    try {
-      const result = await commitShopOrder({
-        original: savedShopsRef.current, draft: shops, selectedZoneId: selectedZoneIdForZones,
-        send: changes => authenticatedFetch("/dispatch/shops/bulk_update", {
-          method: "PUT", body: JSON.stringify(changes),
-        }),
-        read: async () => normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
-      });
-      if (result.kind === "confirmed") {
-        setShops(result.shops);
-        savedShopsRef.current = result.shops;
-        toast.success(shopOrderText(i18n.language, "saved"));
-      } else {
-        toast.info(shopOrderText(i18n.language, "nothingChanged"));
-      }
-      setHasUnsavedChanges(false);
-      setIsEditMode(false);
-      setSelectedShopIds([]);
-      return true;
-    } catch (error: unknown) {
-      const message = error instanceof ShopOrderVerificationError
-        ? shopOrderText(i18n.language, "readbackFailed")
-        : shopOrderText(i18n.language, "saveFailed") + " " + getErrorMessage(error);
-      toast.error(message);
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [authenticatedFetch, selectedZoneIdForZones, shops, isSaving, i18n.language]);
-
-  const handleCancelReorder = useCallback(async () => {
-    if (isSaving) return false;
-    setIsSaving(true);
-    try {
-      const fresh = normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" }));
-      setShops(fresh);
-      savedShopsRef.current = fresh;
-      setHasUnsavedChanges(false);
-      setIsEditMode(false);
-      setSelectedShopIds([]);
-      return true;
-    } catch {
-      toast.error(shopOrderText(i18n.language, "cancelFailed"));
-      return false;
-    } finally {
-      setIsSaving(false);
-    }
-  }, [authenticatedFetch, isSaving, i18n.language]);
-
-  const changeShopSequence = (id: string, sequence: number) => {
-    const current = shops.find(s => s.id === id);
-    if (isSaving || !current || !canReorderShop(current, selectedZoneIdForZones)) return;
-    const next = moveShopInSelectedZone(shops, selectedZoneIdForZones, id, sequence - 1);
-    if (next === shops) return;
-    setShops(next);
-    setHasUnsavedChanges(hasShopOrderChanges(savedShopsRef.current, next, selectedZoneIdForZones));
-  };
-
-  const dropShopInZone = (sourceId: string, targetId: string) => {
-    if (isSaving) return;
-    const next = moveShopBeforeInSelectedZone(shops, selectedZoneIdForZones, sourceId, targetId);
-    if (next === shops) return;
-    setShops(next);
-    setHasUnsavedChanges(hasShopOrderChanges(savedShopsRef.current, next, selectedZoneIdForZones));
-  };
+  // Shop order is a cohesive page-owned feature, not a new DispatchBoard workflow.
+  const { save: handleSaveReorder, cancel: handleCancelReorder } = useShopOrderCommit({
+    draft: shops, baseline: savedShopsRef, zoneId: selectedZoneIdForZones,
+    language: i18n.language, saving: isSaving, setSaving: setIsSaving,
+    setShops, setDirty: setHasUnsavedChanges, setEditMode: setIsEditMode,
+    clearSelection: () => setSelectedShopIds([]),
+    send: changes => authenticatedFetch("/dispatch/shops/bulk_update", {
+      method: "PUT", body: JSON.stringify(changes),
+    }),
+    read: async () => normalizeShops(await authenticatedFetch("/dispatch/shops", { cache: "no-store" })),
+  });
+  const { changeSequence: changeShopSequence, drop: dropShopInZone } = useShopOrderDraft({
+    shops, zoneId: selectedZoneIdForZones, baseline: savedShopsRef,
+    setShops, setDirty: setHasUnsavedChanges, saving: isSaving,
+  });
 
   const fetchArchivedZones = async () => {
     try {
