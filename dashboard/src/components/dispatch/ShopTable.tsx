@@ -2,11 +2,15 @@ import { GripVertical, Pencil, Archive } from "lucide-react";
 import { Shop, Zone } from "@/types/dispatch";
 import { SequenceInput } from "@/components/ui/sequence-input";
 import { useMemo } from "react";
+import { canReorderShop } from "@/features/dispatch/shopOrder/scope";
+import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 
 interface ShopTableProps {
   shops: Shop[];
   zones: Zone[];
   isEditMode: boolean;
+  isSaving: boolean;
+  language: string;
   selectedShopIds: string[];
   allFilteredShops: Shop[] | null;
   selectedZoneIdForZones: string;
@@ -23,6 +27,8 @@ export function ShopTable({
   shops,
   zones,
   isEditMode,
+  isSaving,
+  language,
   selectedShopIds,
   allFilteredShops,
   selectedZoneIdForZones,
@@ -70,13 +76,14 @@ export function ShopTable({
               <td colSpan={isEditMode ? 7 : 5} className="p-12 text-center text-slate-400">لا توجد محلات في هذه المنطقة حالياً.</td>
             </tr>
           ) : (
-            shops.map((shop) => (
-              <tr
+            shops.map((shop) => {
+              const orderEditable = isEditMode && !isSaving && canReorderShop(shop, selectedZoneIdForZones);
+              return <tr
                 key={shop.id}
-                draggable={isEditMode}
-                onDragStart={(e) => isEditMode && onDragStart(e, shop.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => isEditMode && onDrop(e, shop.id)}
+                draggable={orderEditable}
+                onDragStart={(e) => orderEditable && onDragStart(e, shop.id)}
+                onDragOver={(e) => { if (orderEditable) e.preventDefault(); }}
+                onDrop={(e) => { if (orderEditable) onDrop(e, shop.id); }}
                 className={`group hover:bg-slate-50/80 transition-colors ${isEditMode ? 'cursor-default' : 'cursor-default'}`}
               >
                 {isEditMode && (
@@ -87,15 +94,20 @@ export function ShopTable({
                       onChange={() => onToggleSelectShop(shop.id)}
                       className="w-4 h-4 rounded border-slate-300 text-[#1e87bb] focus:ring-[#1e87bb]/20 cursor-pointer"
                     />
-                    <GripVertical className="w-4 h-4 text-slate-300 group-hover:text-slate-500 cursor-grab active:cursor-grabbing" />
+                    <GripVertical aria-hidden="true" className={`w-4 h-4 ${orderEditable ? "text-slate-300 group-hover:text-slate-500 cursor-grab active:cursor-grabbing" : "text-slate-200"}`} />
                   </td>
                 )}
                 <td className="p-3 text-center">
-                  {isEditMode ? (
-                    <SequenceInput
-                      value={shop.sequence}
-                      onCommit={(n) => onSequenceChange(shop.id, n)}
-                    />
+                  {orderEditable ? (
+                    <label className="inline-block">
+                      <span className="sr-only">{shopOrderText(language, "orderInput", { shop: shop.name })}</span>
+                      <SequenceInput value={shop.sequence} onCommit={(n) => onSequenceChange(shop.id, n)} />
+                    </label>
+                  ) : isEditMode ? (
+                    <input type="number" disabled value={shop.sequence}
+                      aria-label={shopOrderText(language, "outsideZone")}
+                      title={shopOrderText(language, "outsideZone")}
+                      className="w-12 h-8 text-center rounded-lg border border-slate-200 bg-slate-100 text-slate-400" />
                   ) : (
                     <span className="font-bold text-slate-700">{shop.sequence}</span>
                   )}
@@ -161,8 +173,8 @@ export function ShopTable({
                     </div>
                   </td>
                 )}
-              </tr>
-            ))
+              </tr>;
+            })}
           )}
         </tbody>
       </table>
