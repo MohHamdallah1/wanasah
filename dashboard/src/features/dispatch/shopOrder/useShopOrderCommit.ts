@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRe
 import { toast } from "sonner";
 import type { Shop } from "@/types/dispatch";
 import { apiErrorMessage } from "@/lib/apiErrors";
-import { shopOrderText } from "./messages";
+import { shopOrderText, shopOrderUncertainFeedback } from "./messages";
 import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "./persist";
 import {
   canReconcileUncertainShopOrder, hasShopOrderChanges, sameSelectedZoneState,
@@ -204,6 +204,12 @@ export function useShopOrderCommit({
         // Both kinds retain their attempted draft. Only a completed PUT may
         // be rebased; a still-running PUT requires new server-side evidence.
         setPendingCommand(error.command);
+        // A failed GET may forceLogout and unmount before this catch runs.
+        // Update the already-staged durable command with its safe reference.
+        if (recoveryScope) {
+          try { storeShopOrderRecovery(recoveryScope, error.command); }
+          catch { /* prior pre-send recovery evidence is still retained */ }
+        }
       } else if (error instanceof ShopOrderReconciliationConflictError ||
         error instanceof ShopOrderUnresolvedTransportError) {
         // Keep the exact pending command/draft, even after a fresh GET.
@@ -214,11 +220,12 @@ export function useShopOrderCommit({
         clearShopOrderRecovery(recoveryScope);
       }
       toast.error(error instanceof ShopOrderUnresolvedTransportError
-        ? shopOrderText(language, "unresolvedTransport")
+        ? shopOrderUncertainFeedback(language, "unresolvedTransport", pendingCommand?.requestId)
         : error instanceof ShopOrderReconciliationConflictError
           ? shopOrderText(language, "reconcileConflict")
           : error instanceof ShopOrderVerificationError
-            ? shopOrderText(language, "readbackFailed")
+            ? shopOrderUncertainFeedback(language, "readbackFailed",
+              error instanceof ShopOrderUncertainError ? error.command.requestId : undefined)
             : apiErrorMessage(error, shopOrderText(language, "saveFailed")));
       return false;
     } finally {
@@ -236,7 +243,7 @@ export function useShopOrderCommit({
       return false; // missing authorized snapshot must not discard recovery
     }
     if (pendingCommand?.outcome === "transport_unknown") {
-      toast.error(shopOrderText(language, "unresolvedTransport"));
+      toast.error(shopOrderUncertainFeedback(language, "unresolvedTransport", pendingCommand.requestId));
       return false; // A later server commit could still overwrite this GET.
     }
     inFlight.current = true;
