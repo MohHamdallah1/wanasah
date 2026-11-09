@@ -16,6 +16,7 @@ import { ShopTable } from "@/components/dispatch/ShopTable";
 import { ShopOrderScopeNotice } from "@/features/dispatch/shopOrder/ShopOrderScopeNotice";
 import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
+import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -1181,7 +1182,7 @@ function DispatchSession() {
     let list = activeShops;
     if (shopSearchQuery.trim()) { const q = shopSearchQuery.toLowerCase(); list = list.filter(s => s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q) || s.phone.includes(q) || (zones.find(z => z.id === s.zoneId)?.name || "").toLowerCase().includes(q)); }
     else list = list.filter(s => s.zoneId === selectedZoneIdForZones);
-    return list.sort((a, b) => Number(a.sequence) - Number(b.sequence));
+    return list.sort(compareShopSequence);
   }, [activeShops, shopSearchQuery, selectedZoneIdForZones, zones]);
 
   const filteredRecycleBin = useMemo(() => {
