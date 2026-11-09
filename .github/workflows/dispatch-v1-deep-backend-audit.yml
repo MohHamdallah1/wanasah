@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "wa_backend/tests/test_dispatch_v1_deep_acceptance_postgres.py"
+      - "wa_backend/tests/test_dispatch_v1_residual_acceptance_postgres.py"
       - "wa_backend/tests/dispatch_v1_deep_acceptance_support.py"
       - ".github/workflows/dispatch-v1-deep-backend-audit.yml"
   workflow_dispatch:
@@ -46,6 +47,7 @@ jobs:
           ).splitlines())
           allowed = {
               "wa_backend/tests/test_dispatch_v1_deep_acceptance_postgres.py",
+              "wa_backend/tests/test_dispatch_v1_residual_acceptance_postgres.py",
               "wa_backend/tests/dispatch_v1_deep_acceptance_support.py",
               ".github/workflows/dispatch-v1-deep-backend-audit.yml",
           }
@@ -63,7 +65,7 @@ jobs:
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
       - name: Compile new test module only
         working-directory: wa_backend
-        run: python -m py_compile tests/test_dispatch_v1_deep_acceptance_postgres.py
+        run: python -m py_compile tests/test_dispatch_v1_deep_acceptance_postgres.py tests/test_dispatch_v1_residual_acceptance_postgres.py
       - name: Start ONLY disposable local PostgreSQL 16
         run: |
           docker run --detach --name dispatch-837-pg16 \
@@ -133,6 +135,7 @@ jobs:
         run: >-
           python -B -m pytest -p no:cacheprovider -q -s --tb=short
           tests/test_dispatch_v1_deep_acceptance_postgres.py
+          tests/test_dispatch_v1_residual_acceptance_postgres.py
           tests/test_dispatch_p0_route_stock_safety_postgres.py
           --junitxml=dispatch-v1-deep-pg16-junit.xml
       - name: Report ALL cases including failures and forbid skips
@@ -168,7 +171,7 @@ jobs:
               else:
                   passed += 1
           print(f"PG16_CASES={len(cases)} PASS={passed} FAIL={failed} ERROR={errors} SKIP={skipped}")
-          assert len(cases) >= 20, "Expected >=10 new independent probes + 11 original safety tests"
+          assert len(cases) >= 29, "Expected 21 preserved prior cases + 8+ residual PG16 cases"
           assert skipped == 0, "A skip is UNPROVEN, not an accepted PG16 PASS"
           # Deliberately do not convert known FAIL findings into green.
           PY
