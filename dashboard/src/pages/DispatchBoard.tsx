@@ -18,7 +18,10 @@ import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
 import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
-import { emptyShopForm, existingShopForm, type ShopFormState } from "@/features/dispatch/shopForm/contract";
+import {
+  canOpenShopForm, emptyShopForm, existingShopForm, preserveUnsavedShopOrder,
+  type ShopFormState,
+} from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
@@ -1013,7 +1016,9 @@ function DispatchSession() {
     busy: isSaving, setBusy: setIsSaving, fetch: authenticatedFetch,
     onVerified: (rows, isCreate, zoneId) => {
       if (!isDashboardSessionCurrent(session!)) return;
-      setShops(normalizeShops(rows));
+      const authorized = normalizeShops(rows);
+      setShops(previous => canOpenShopForm(hasUnsavedChanges, needsReconciliation)
+        ? authorized : preserveUnsavedShopOrder(previous, authorized));
       if (isCreate) setZones(prev => sortZones(prev.map(z => z.id === zoneId
         ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
       // Zone totals and names are server-owned; refreshed independently.
@@ -1550,13 +1555,25 @@ function DispatchSession() {
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
                     <Archive className="w-5 h-5" />
-                  </button><button onClick={() => { setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
+                  </button><button onClick={() => {
+                    if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                      toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                      return;
+                    }
+                    setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
+                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
                   <ShopOrderScopeNotice language={i18n.language}
                     selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
                     hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={isEditMode} />
                   <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode && !recoveryBlocked}
-                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => { setShopForm(existingShopForm(s)); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
+                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
+                       if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                         toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                         return;
+                       }
+                       setShopForm(existingShopForm(s)); setEditingShopId(s.id); setIsShopModalOpen(true);
+                     }} onArchiveShop={id => {
                     if (isEditMode) {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
@@ -1659,7 +1676,9 @@ function DispatchSession() {
         onConfirmAction={handleConfirmRouteAction}
       />
       )}
-      <ShopFormModal isOpen={isShopModalOpen} onClose={() => { if (!shopNeedsVerification) setIsShopModalOpen(false); }}
+      <ShopFormModal isOpen={isShopModalOpen} onClose={() => {
+        if (!isSaving && !shopNeedsVerification) setIsShopModalOpen(false);
+      }}
         editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones}
         onSave={handleSaveShop} onVerify={verifyShopSave} language={i18n.language}
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
