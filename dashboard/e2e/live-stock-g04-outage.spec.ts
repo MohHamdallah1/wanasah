@@ -108,18 +108,39 @@ async function commitForeignDashboardSession(page: Page) {
   }, { origin: API, credentials, warehouse: state.foreignWarehouse });
 }
 
-async function retryStale(page: Page) {
-  const stale = page.locator('[data-cp13-state="stale"]');
-  await expect(stale).toBeVisible();
+// A deliberate explicit refresh discards prior disclosure before any new
+// server read. A 5xx/network failure must not resurrect stale quantities from
+// the same or a prior authorization scope, nor masquerade as genuine zero stock.
+async function expectFailClosedOutage(page: Page) {
+  await expect(page.locator('[data-live-authority="refreshFailed"]')).toBeVisible();
+  const failure = page.locator('[data-cp13-state="error"]');
+  await expect(failure).toBeVisible();
+  await expect(failure).toContainText("No stale or unverified quantities");
+  await expect(page.locator('[data-live-count-kind="unverified"]')).toBeAttached();
+  await expect(page.locator('[data-cp13-state="stale"]')).toHaveCount(0);
+  await expect(page.locator('[data-cp13-state="empty"]')).toHaveCount(0);
+  await expect(item(page, state.mainName)).toHaveCount(0);
+  await expect(page.locator('.live-stock-row')).toHaveCount(0);
+}
+
+async function retryFailClosed(page: Page) {
+  const failed = page.locator('[data-cp13-state="error"]');
+  await expectFailClosedOutage(page);
   const fresh = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === "GET" &&
       url.pathname === "/warehouse/inventory/cursor" &&
       response.status() === 200;
   });
-  await stale.getByRole("button").click();
+  // Actual in-app retry from the visible fail-closed panel, not a forced
+  // reload or artificial server response. Re-admit only a fresh 200 page.
+  await failed.getByRole("button", { name: "Retry" }).click();
   await fresh;
-  await expect(stale).toHaveCount(0);
+  await expect(failed).toHaveCount(0);
+  const row = item(page, state.mainName);
+  await expect(row).toBeVisible();
+  await expect(row.locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
+  await expect(row.locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
 }
 
 test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16", async ({ page, browser }, info) => {
@@ -143,15 +164,13 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
     await page.locator(".live-stock-context-refresh").click();
     const failureResponse = await serverFailure;
     expect(failureResponse.status()).toBeGreaterThanOrEqual(500);
-    await expect(page.locator('[data-cp13-state="stale"]')).toBeVisible();
-    await expect(ownerRow).toBeVisible();
-    expect(await ownerRow.innerText()).toBe(initialText);
-    await expect(page.locator('[data-cp13-state="empty"]')).toHaveCount(0);
-    await page.screenshot({ path: info.outputPath("g04-real-db-outage-stale-not-zero.png"), fullPage: true });
+    await expectFailClosedOutage(page);
+    await page.screenshot({ path: info.outputPath("g04-real-db-outage-no-stale-unverified-data.png"), fullPage: true });
 
     startDatabase();
     await waitReady(page);
-    await retryStale(page);
+    await retryFailClosed(page);
+    expect(await ownerRow.innerText()).toBe(initialText);
     await expect(ownerRow.locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
     await expect(ownerRow.locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
 
@@ -167,11 +186,10 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
     await page.route(API + "/warehouse/inventory/cursor*", dropOnce);
     await page.locator(".live-stock-context-refresh").click();
     await expect.poll(() => dropped).toBe(true);
-    await expect(page.locator('[data-cp13-state="stale"]')).toBeVisible();
-    await expect(ownerRow).toBeVisible();
-    expect(await ownerRow.innerText()).toBe(initialText);
+    await expectFailClosedOutage(page);
     await page.unroute(API + "/warehouse/inventory/cursor*", dropOnce);
-    await retryStale(page);
+    await retryFailClosed(page);
+    expect(await ownerRow.innerText()).toBe(initialText);
 
     // Actual HTTP service unavailability: terminate the genuine FastAPI process,
     // refresh while the already-visible page cannot connect, then restart that
@@ -186,18 +204,16 @@ test("G04 real outage and fail-closed recovery on built Dashboard/FastAPI/PG16",
     await page.locator(".live-stock-context-refresh").click();
     const unavailableRequest = await failedCursor;
     expect(unavailableRequest.failure()?.errorText).toBeTruthy();
-    await expect(page.locator('[data-cp13-state="stale"]')).toBeVisible();
-    await expect(ownerRow).toBeVisible();
-    expect(await ownerRow.innerText()).toBe(initialText);
-    await expect(page.locator('[data-cp13-state="empty"]')).toHaveCount(0);
+    await expectFailClosedOutage(page);
     await page.screenshot({
-      path: info.outputPath("g04-real-http-unavailable-stale-not-zero.png"),
+      path: info.outputPath("g04-real-http-unavailable-no-stale-unverified-data.png"),
       fullPage: true,
     });
 
     support("api-start");
     await waitReady(page);
-    await retryStale(page);
+    await retryFailClosed(page);
+    expect(await ownerRow.innerText()).toBe(initialText);
     await expect(ownerRow.locator('[data-cp13-quantity="on-hand"]')).toContainText("121");
     await expect(ownerRow.locator('[data-cp13-quantity="vehicle"]')).toContainText("4");
 
