@@ -8,6 +8,7 @@ No production DB, dependency overrides, mocked transports or code modifications.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from decimal import Decimal
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from main import app
+from database import engine as http_runtime_engine
 from domains.identity.models import CompanyPrincipal
 from domains.inventory_vehicle_load.service import mutate_vehicle_load
 from models import (
@@ -25,6 +27,7 @@ from models import (
     Visit, Zone, role_permissions,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.canonical_actor_fixtures import FieldFixture
 from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
 from tests.test_live_stock_v1_route_sale_unload_postgres import (
     _seed_commercial_master, _seed_mobile_uom_and_field,
@@ -39,13 +42,21 @@ pytestmark = [
 ]
 
 
-def _client():
+@asynccontextmanager
+async def _client():
     assert not app.dependency_overrides, "Must exercise actual authentication/routers"
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
-        base_url="http://dispatch-837-isolated-pg16.test",
-        timeout=30,
-    )
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://dispatch-837-isolated-pg16.test",
+            timeout=30,
+        ) as client:
+            yield client
+    finally:
+        # The global application pool must NOT retain asyncpg connections tied
+        # to a pytest-asyncio function loop after that loop closes. No auth/DB
+        # mocks; only release this disposable test runner's pooled connections.
+        await http_runtime_engine.dispose()
 
 
 async def _login(client, gate, tenant, actor, password):
@@ -60,8 +71,9 @@ async def _login(client, gate, tenant, actor, password):
                 CompanyPrincipal.id == actor.context.principal_id
             )
         )
+    path = "/driver/login" if isinstance(actor, FieldFixture) else "/login"
     response = await client.post(
-        "/login",
+        path,
         json={"company_code": company_code, "username": username, "password": password},
     )
     assert response.status_code == 200, (
@@ -75,7 +87,11 @@ async def _owner(client, gate, tenant):
 
 
 async def _simple_shop(gate, tenant, *, balance="0", debt_limit="1000"):
-    async with gate.session() as db:
+    # The gate has TWO actual tenant scopes. Foreign company seeds must use
+    # party=1; creating Company B rows in Company A's RLS session is invalid.
+    party = next(i for i, row in enumerate(gate.tenants)
+                 if row.company_id == tenant.company_id)
+    async with gate.session(party) as db:
         zone = Zone(
             company_id=tenant.company_id,
             name="Deep test zone " + uuid4().hex[:10],
