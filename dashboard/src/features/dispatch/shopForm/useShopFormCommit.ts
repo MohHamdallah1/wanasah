@@ -167,7 +167,9 @@ export function useShopFormCommit({
       if (!editId) create = forcePayload ?? createPayload(form);
     } catch (error) {
       if (error instanceof ShopFormInputError) {
-        setFeedback(shopFormText(language, error.field === "money" ? "invalidMoney" : "invalidMetadata"));
+        const key = error.field === "money" ? "invalidMoney"
+          : error.field === "phone" ? "phoneCannotClear" : "invalidMetadata";
+        setFeedback(shopFormText(language, key));
         return false;
       }
       throw error;
