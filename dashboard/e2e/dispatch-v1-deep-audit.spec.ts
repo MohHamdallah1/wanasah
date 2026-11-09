@@ -242,6 +242,79 @@ test("P1 shortage: Delete All must be atomic and actually delete pending rows",a
   expect(raw.body.some((s:any)=>String(s.shopId)===group.shop)).toBe(false);
 });
 
+
+test("Company B real owner cannot read or mutate Company A route/shop data",async({page},info)=>{
+  await login(page,info,data.companyB.credentials);
+  const own=await api(page,"GET","/dispatch/shops");
+  expect(own.status).toBe(200);
+  expect(own.body.map((row:any)=>row.name)).not.toContain(data.initialShopName);
+  const otherRoute=await api(page,"GET",`/dispatch/active_routes?route_id=${data.routeId}`);
+  expect(otherRoute.status).toBe(200);
+  expect(otherRoute.body).toEqual([]);
+  const denied=await api(page,"PUT",`/dispatch/route/${data.routeId}/status`,{status:"closed"});
+  await info.attach("tenant-B-denied-wire.json",{body:Buffer.from(JSON.stringify({
+    ownShops:own.body.length,otherRoute:otherRoute.body,routeWriteStatus:denied.status,
+  },null,2)),contentType:"application/json"});
+  expect([403,404]).toContain(denied.status);
+  const after=dbProbe("snapshot");
+  expect(after.routes.find((x:any)=>x.id===String(data.routeId)).status).not.toBe("closed");
+});
+
+test("real launch product catalog remains absent from init and actual Warehouse/Vehicle are distinct",async({page},info)=>{
+  await login(page,info);
+  const init=await api(page,"GET","/dispatch/init");
+  expect(init.status).toBe(200);
+  expect(init.body).not.toHaveProperty("products");
+  const inventory=await api(page,"GET",`/dispatch/inventory/${data.vehicleId}`);
+  expect(inventory.status).toBe(200);
+  const discovery=await api(page,"GET",
+    `/dispatch/products?purpose=LOAD&warehouse_id=${data.warehouseId}&vehicle_id=${data.vehicleId}&limit=80`);
+  await info.attach("real-discovery-physical-wire.json",{body:Buffer.from(JSON.stringify({
+    initBytes:init.bytes,productRows:discovery.body.items?.length,
+    loadBytes:discovery.bytes,vehicleBytes:inventory.bytes,
+    vehicle:inventory.body,firstProduct:discovery.body.items?.[0],
+  },null,2)),contentType:"application/json"});
+  expect(discovery.status).toBe(200);
+  expect(Array.isArray(discovery.body.items)).toBe(true);
+  expect(discovery.body.items.length).toBeLessThanOrEqual(80);
+  expect(inventory.body.some((x:any)=>String(x.id??x.product_id??x.productId)===String(data.variantId))).toBe(true);
+});
+
+test("N3: interruption between restore-zone and restore-shop must not pretend atomic success",async({page},info)=>{
+  await login(page,info);
+  const name=unique()+" partial zone",shopName=unique()+" partial shop";
+  const zone=await addZone(page,name);
+  const shopId=await addShop(page,zone,shopName);
+  const archived=await api(page,"DELETE",`/dispatch/zones/${zone}`);
+  expect(archived.status).toBe(200);
+  await page.reload();
+  await selectTab(page,"zones");
+  await page.getByTitle("فتح أرشيف المحلات المؤرشفة").click();
+  const recycle=page.getByRole("dialog").first();
+  const archivedRow=recycle.locator(".divide-y > div").filter({hasText:shopName});
+  await expect(archivedRow).toBeVisible();
+  await archivedRow.getByRole("button",{name:/استعادة/}).click();
+  const prompt=page.getByRole("dialog").last();
+  await expect(prompt).toContainText("المنطقة مؤرشفة");
+  // Fault injection: only the second HTTP command is interrupted. The first
+  // restore goes to genuine FastAPI/PG16 and MUST be inspected, never mocked.
+  await page.route("**/dispatch/shops/bulk_update",r=>r.abort("failed"));
+  const first=page.waitForResponse(r=>new URL(r.url()).pathname===`/dispatch/zones/${zone}/restore`&&r.request().method()==="PUT");
+  await prompt.getByRole("button",{name:/استعادة المنطقة والمحل/}).click();
+  const firstResult=await first;
+  expect(firstResult.status()).toBe(200);
+  await page.unroute("**/dispatch/shops/bulk_update");
+  const init=await api(page,"GET","/dispatch/init");
+  const shops=await api(page,"GET","/dispatch/shops");
+  const zoneRestored=init.body.zones.some((z:any)=>String(z.id)===zone);
+  const shopArchived=shops.body.some((s:any)=>String(s.id)===shopId && s.archived===true);
+  await info.attach("N3-real-half-commit.json",{body:Buffer.from(JSON.stringify({
+    firstStatus:firstResult.status(),zoneRestored,shopArchived,db:dbProbe("snapshot"),
+  },null,2)),contentType:"application/json"});
+  expect(zoneRestored && shopArchived,
+    "Combined restore left a partially committed Zone/Shop pair after network loss").toBe(false);
+});
+
 test.afterEach(async({page},info)=>{
   // All failures stay red; preserve actual screenshots even when an assertion
   // throws before the explicit per-test witness can run.
