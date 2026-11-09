@@ -154,6 +154,7 @@ export default function DispatchBoard() {
 
 function DispatchSession() {
   const { t, i18n } = useTranslation();
+  const session = useDashboardSession();
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();
   const initialDispatchFocusRef = useRef(
