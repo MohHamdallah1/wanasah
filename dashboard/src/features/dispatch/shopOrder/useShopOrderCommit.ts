@@ -126,6 +126,9 @@ export function useShopOrderCommit({
     }
     inFlight.current = true;
     setSaving(true);
+    // setPendingCommand(null) is asynchronous: the closure still refers to
+    // the old command if the newly rebased PUT is definitively rejected.
+    let safelyReconciledPriorWrite = false;
     try {
       if (recoveryBlocked) {
         // Reauth recovery failed earlier. Restore the LAST visual intent from
@@ -167,6 +170,7 @@ export function useShopOrderCommit({
         baseline.current = reconciled;
         setPendingCommand(null);
         if (recoveryScope) clearShopOrderRecovery(recoveryScope);
+        safelyReconciledPriorWrite = true;
         setDirty(hasShopOrderChanges(reconciled, draft, zoneId));
       }
 
@@ -203,8 +207,10 @@ export function useShopOrderCommit({
       } else if (error instanceof ShopOrderReconciliationConflictError ||
         error instanceof ShopOrderUnresolvedTransportError) {
         // Keep the exact pending command/draft, even after a fresh GET.
-      } else if (!pendingCommand && recoveryScope) {
-        // Definitely denied PUT, or storage failure BEFORE any mutation.
+      } else if ((safelyReconciledPriorWrite || !pendingCommand) && recoveryScope) {
+        // A confirmed prior write was already reconciled. If the replacement
+        // PUT receives a DEFINITIVE 403/409, its staged transport_unknown
+        // record must not strand the next login in an impossible guard.
         clearShopOrderRecovery(recoveryScope);
       }
       toast.error(error instanceof ShopOrderUnresolvedTransportError
