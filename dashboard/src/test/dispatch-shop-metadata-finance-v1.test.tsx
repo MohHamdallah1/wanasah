@@ -68,7 +68,8 @@ describe("Shop metadata-only allowlist and create financial truth", () => {
       .toMatchObject({ initialDebt: "100.000", maxDebtLimit: "0.000" });
     expect(createdShopVerified([wire({ initialDebt: "100.125", maxDebtLimit: "150.500" })],
       "77", payload)).toBe(true);
-    expect(createdShopVerified([wire()], "77", payload)).toBe(false);
+    expect(createdShopVerified([wire()], "77", payload)).toBe(true);
+    // currentDebt may be 80 after a valid 100.125 opening + field collection.
   });
 
   it.each(["-1", "NaN", "Infinity", "100.1234", "1000000000", "", "1e6", "10.0010"])(
@@ -164,7 +165,8 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     expect(findCreatedShopAfterUnknownWrite(latest, [], sent)).toBe("77");
     expect(findCreatedShopAfterUnknownWrite(latest, ["77"], sent)).toBeNull();
     expect(findCreatedShopAfterUnknownWrite([...latest, { ...latest[0], id: "78" }], [], sent)).toBeNull();
-    expect(findCreatedShopAfterUnknownWrite(latest, [], { ...sent, maxDebtLimit: "150.501" })).toBeNull();
+    expect(findCreatedShopAfterUnknownWrite(latest, [], { ...sent, maxDebtLimit: "150.501" }))
+      .toBe("77"); // live finance is NOT immutable creation proof
   });
 
   it.each(["ar", "en"] as const)(
@@ -208,6 +210,53 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
     expect(toast.success).not.toHaveBeenCalled();
   });
+
+  it("a delayed create GET reconciles metadata after real field collection changes the live balance", async () => {
+    const postPayload = createPayload(form);
+    let reads = 0;
+    const live = wire({
+      initialDebt: "80.000", maxDebtLimit: "150.500",
+      // Current balance must not be equated to the original opening amount.
+    });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw fakeError(500, "INTERNAL_SERVER_ERROR");
+      reads++;
+      return reads === 1 ? [] : [live];
+    });
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.needsVerification).toBe(true);
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(true); });
+    expect(createdShopVerified([live], "77", postPayload)).toBe(true);
+    expect(props.onVerified).toHaveBeenCalledWith([live], true, "3");
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    expect(toast.success).toHaveBeenCalledOnce();
+  });
+
+  it.each(["ar", "en"] as const)(
+    "keeps user edits locked in %s until the previous save is verified", async language => {
+      await setAppLanguage(language);
+      const changes = vi.fn();
+      const modal = render(
+        <ShopFormModal isOpen onClose={vi.fn()} editingShopId="77"
+          shopForm={form} onShopFormChange={changes} zones={[zone]} onSave={vi.fn()}
+          onVerify={vi.fn()} language={language} saving={false}
+          needsVerification canViewFinances={false} finance={null}
+          financeLoading={false} feedback={null}/>,
+      );
+      const name = screen.getByDisplayValue(form.name) as HTMLInputElement;
+      const phone = screen.getByDisplayValue(form.phone) as HTMLInputElement;
+      expect(name).toBeDisabled();
+      expect(phone).toBeDisabled();
+      fireEvent.change(name, { target: { value: "Unsent new edit" } });
+      fireEvent.change(phone, { target: { value: "5559999" } });
+      expect(changes).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: shopFormText(language, "refresh") }))
+        .toBeEnabled(); // only authorized GET verify remains available
+      modal.unmount();
+    },
+  );
 
   it("offline authorized preflight fails before any POST and never creates impossible pending record", async () => {
     const fetch = vi.fn().mockRejectedValue(new Error("offline before request"));
