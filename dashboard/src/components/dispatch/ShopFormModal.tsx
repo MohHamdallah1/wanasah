@@ -53,6 +53,7 @@ export function ShopFormModal({
         event.preventDefault();
         if (needsVerification) onVerify(); else onSave();
       }} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <fieldset disabled={saving || needsVerification} className="contents">
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("name")}</span>
           <input type="text" required minLength={2} maxLength={150} value={shopForm.name}
@@ -125,6 +126,7 @@ export function ShopFormModal({
             </label>
           </>
         )}
+        </fieldset>
         {feedback && <p role="alert" className="text-sm font-semibold text-amber-700 sm:col-span-2">{feedback}</p>}
       </form>
     </Modal>
