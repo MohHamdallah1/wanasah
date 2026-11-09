@@ -19,7 +19,7 @@ import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDra
 import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
 import {
-  canOpenShopForm, emptyShopForm, existingShopForm, preserveUnsavedShopOrder,
+  canCloseShopForm, canOpenShopForm, emptyShopForm, existingShopForm, preserveUnsavedShopOrder,
   type ShopFormState,
 } from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
@@ -1677,7 +1677,7 @@ function DispatchSession() {
       />
       )}
       <ShopFormModal isOpen={isShopModalOpen} onClose={() => {
-        if (!isSaving && !shopNeedsVerification) setIsShopModalOpen(false);
+        if (canCloseShopForm(isSaving, shopNeedsVerification)) setIsShopModalOpen(false);
       }}
         editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones}
         onSave={handleSaveShop} onVerify={verifyShopSave} language={i18n.language}
