@@ -66,6 +66,16 @@ export const hasShopOrderChanges = (
   original: readonly Shop[], draft: readonly Shop[], zoneId: string,
 ) => buildShopOrderChanges(original, draft, zoneId).length > 0;
 
+/** Do not replay a pending draft across a new/missing selected-zone Shop membership. */
+export function sameSelectedZoneMembership(
+  intended: readonly Shop[], current: readonly Shop[], zoneId: string,
+): boolean {
+  if (!zoneId) return false;
+  const a = new Set(intended.filter(s => s.zoneId === zoneId).map(s => s.id));
+  const b = new Set(current.filter(s => s.zoneId === zoneId).map(s => s.id));
+  return a.size === b.size && [...a].every(id => b.has(id));
+}
+
 /** HTTP 200 is not enough: require a NEW authorized snapshot with every write reflected. */
 export function verifyShopOrderReadback(
   changes: readonly ShopOrderChange[], readback: readonly Shop[], selectedZoneId: string,
