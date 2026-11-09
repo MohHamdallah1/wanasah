@@ -1,0 +1,192 @@
+name: Dispatch Shortage Group D05 PG16 Bearer acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/api/dispatch_shortages_group.py"
+      - "wa_backend/domains/dispatch_shortages_group.py"
+      - "wa_backend/domains/dispatch_shortage_visits.py"
+      - "wa_backend/domains/dispatch_shop_finance_fence.py"
+      - "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py"
+      - ".github/workflows/dispatch-shortage-group-d05-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shortage-group-d05-exact-pg16:
+    name: shortage-group-d05-pg16-real-bearer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Dispatch842FinanceDedicatedTestKey01234567890123456
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHORTAGE_GROUP_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify #849 exact approved base and immutable file ownership
+        run: |
+          python - <<'PY'
+          import subprocess
+          base = "f5f7d316e401945dd0cd654be6037d67e8c30ff2"
+          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
+          assert subprocess.check_output(
+              ["git", "merge-base", base, "HEAD"], text=True
+          ).strip() == base, "Audit must descend from owner-approved exact MAIN"
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          allowed = {
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+          }
+          assert files and files <= allowed, f"Worker 1 #849 scope violated: {sorted(files - allowed)}"
+          print(f"EXACT_APPROVED_BASE={base}")
+          print("EXACT_TEST_HEAD=" + subprocess.check_output(
+              ["git", "rev-parse", "HEAD"], text=True).strip())
+          print("WORKER1_SCOPE_FILES=" + ", ".join(sorted(files)))
+          PY
+          git diff --check f5f7d316e401945dd0cd654be6037d67e8c30ff2 HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused backend test requirements
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile all group contract, lifecycle, adapter and focused test modules
+        working-directory: wa_backend
+        run: python -m py_compile domains/dispatch_shortages_group.py domains/dispatch_shortage_visits.py api/dispatch_shortages_group.py tests/test_dispatch_shortages_group_v1_postgres.py api/dispatch.py
+      - name: Start ONLY disposable local PostgreSQL 16
+        run: |
+          docker run --detach --name dispatch-849-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-849-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dispatch-849-pg16
+          exit 1
+      - name: Create isolated NOBYPASSRLS application role
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Full real Alembic migrations
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant DML on disposable schema to restricted role only
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Assert fresh PostgreSQL16 and restricted runtime identity
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(uri) as conn:
+              name, role, version, superuser, bypass = conn.execute(
+                  "SELECT current_database(), current_user, current_setting('server_version_num')::int, "
+                  "rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+              ).fetchone()
+              print("PG16_ROLE_EVIDENCE", name, role, version, superuser, bypass)
+              assert name == "wanasah_no_lot_contract_test"
+              assert role == "wanasah_app" and 160000 <= version < 170000
+              assert not superuser and not bypass
+          PY
+      - name: Run genuine Backoffice Bearer group mutations and original custody PG16 safety
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_shortages_group_v1_postgres.py
+          tests/test_dispatch_p0_route_stock_safety_postgres.py
+          --junitxml=shortage-group-d05-pg16-junit.xml
+      - name: Report all PASS/FAIL/ERROR/SKIP and enforce green safety release
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+          path = "shortage-group-d05-pg16-junit.xml"
+          if not os.path.isfile(path):
+              print("PG16 EVIDENCE NOT PRODUCED: no JUnit XML")
+              sys.exit(1)
+          cases = list(ET.parse(path).getroot().iter("testcase"))
+          passed = failed = skipped = errors = 0
+          for case in cases:
+              bad = case.find("failure")
+              error = case.find("error")
+              skip = case.find("skipped")
+              status = ("FAIL" if bad is not None else
+                        "ERROR" if error is not None else
+                        "SKIP" if skip is not None else "PASS")
+              print(f"CASE {status}: {case.attrib.get('classname')}.{case.attrib.get('name')}")
+              if bad is not None:
+                  failed += 1
+                  print((bad.text or "")[:4000])
+              elif error is not None:
+                  errors += 1
+                  print((error.text or "")[:4000])
+              elif skip is not None:
+                  skipped += 1
+              else:
+                  passed += 1
+          print(f"PG16_CASES={len(cases)} PASS={passed} FAIL={failed} ERROR={errors} SKIP={skipped}")
+          assert len(cases) >= 17, "Expected all real group tests and existing physical safety cases"
+          assert skipped == 0, "A skip is UNPROVEN, not an accepted PG16 PASS"
+          assert failed == errors == 0, "Shop financial P0 and prior stock safety must PASS"
+          PY
+      - name: Publish JUnit even on regression
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortage-group-d05-pg16-junit-${{ github.run_id }}
+          path: wa_backend/shortage-group-d05-pg16-junit.xml
+          if-no-files-found: warn
+      - name: Show disposable PG logs on startup/migration failure
+        if: failure()
+        run: docker logs dispatch-849-pg16 2>/dev/null | tail -n 130 || true
