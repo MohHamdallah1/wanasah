@@ -9,6 +9,8 @@ export interface ShopFormState {
   zoneId: string;
   initialDebt: string;
   maxDebtLimit: string;
+  /** UI-only original phone; never part of the server metadata allowlist. */
+  originalPhone?: string;
 }
 
 export type ShopMetadataPayload = Pick<ShopFormState,
@@ -32,10 +34,11 @@ export const existingShopForm = (shop: Shop): ShopFormState => ({
   zoneId: shop.zoneId,
   // These are never sent in EDIT, even if stale.
   initialDebt: String(shop.initialDebt), maxDebtLimit: String(shop.maxDebtLimit),
+  originalPhone: shop.phone,
 });
 
 export class ShopFormInputError extends Error {
-  constructor(public readonly field: "metadata" | "money") {
+  constructor(public readonly field: "metadata" | "money" | "phone") {
     super("SHOP_FORM_INPUT_INVALID");
   }
 }
@@ -54,6 +57,11 @@ const validMoney = (value: string): string => {
 export function metadataPayload(form: ShopFormState): ShopMetadataPayload {
   const name = form.name.trim();
   const zoneId = Number(form.zoneId);
+  if (form.originalPhone?.trim() && !form.phone.trim()) {
+    // Canonical backend deliberately ignores an empty phone on EDIT.
+    // Do not claim a number was cleared when the server would retain it.
+    throw new ShopFormInputError("phone");
+  }
   if (name.length < 2 || name.length > 150 ||
     !Number.isSafeInteger(zoneId) || zoneId <= 0 || zoneId > 2147483647 ||
     form.owner.length > 100 || form.phone.length > 20 || form.mapLink.length > 500) {
@@ -61,8 +69,8 @@ export function metadataPayload(form: ShopFormState): ShopMetadataPayload {
   }
   // Explicit allowlist: no initialDebt/maxDebtLimit, aliases, or archived/sequence.
   return {
-    name, owner: form.owner, phone: form.phone,
-    mapLink: form.mapLink, zoneId,
+    name, owner: form.owner.trim(), phone: form.phone.trim(),
+    mapLink: form.mapLink.trim(), zoneId,
   };
 }
 
@@ -76,6 +84,17 @@ export function createPayload(form: ShopFormState, force_save = false): ShopCrea
 }
 
 /** Only consume finance returned by a new authorized Shop GET, never a draft. */
+/** Read-only balances may be signed; creation input may not. */
+const readMoney = (value: unknown): string => {
+  if (typeof value !== "string" && typeof value !== "number") throw new Error("SHOP_FINANCE_INVALID");
+  const clean = String(value);
+  if (!/^-?(?:0|[1-9]\\d{0,8})(?:\\.\\d{1,3})?$/.test(clean)) {
+    throw new Error("SHOP_FINANCE_INVALID");
+  }
+  const [whole, fractional = ""] = clean.split(".");
+  return `${whole}.${fractional.padEnd(3, "0")}`;
+};
+
 export function financeReadback(rows: unknown, id: string): ShopFinanceReadback | null {
   if (!Array.isArray(rows)) return null;
   const shop = rows.find(row => row && typeof row === "object" &&
@@ -83,8 +102,8 @@ export function financeReadback(rows: unknown, id: string): ShopFinanceReadback 
   if (!shop || !["string", "number"].includes(typeof shop.initialDebt) ||
     !["string", "number"].includes(typeof shop.maxDebtLimit)) return null;
   try {
-    return { initialDebt: validMoney(String(shop.initialDebt)),
-      maxDebtLimit: validMoney(String(shop.maxDebtLimit)) };
+    return { initialDebt: readMoney(shop.initialDebt),
+      maxDebtLimit: readMoney(shop.maxDebtLimit) };
   } catch {
     return null;
   }
