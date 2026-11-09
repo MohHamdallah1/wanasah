@@ -11,7 +11,8 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, event, func, select
+from sqlalchemy.orm import Session
 
 from models import (
     InventoryCostEvent, InventoryMovement, OperationIdempotency, ProductVariant,
@@ -363,3 +364,63 @@ async def test_active_route_auto_and_explicit_driver_groups_never_deadlock(pg):
             assert len(snapshot[0]) == 1, snapshot
             assert snapshot[0][0][2] == driver
             assert snapshot[0][0][3] == quantity
+
+
+async def test_forced_late_commit_failure_rolls_back_shortages_visits_and_key(pg):
+    """Real PG transaction: fail just before commit, after flush and audit write.
+
+    Uses SQLAlchemy's native before_commit event, not a DB/auth/service mock.
+    The exact same HTTP idempotency key must be reusable after rollback.
+    """
+    tenant, zone, products, driver = await _setup(pg)
+    async with _real_http() as client:
+        owner = await _token(client, pg, tenant, tenant.owner, "NoLotSyntheticFixture123")
+        shop, _ = await _add_shop(client, owner, zone, balance="0", cap="0")
+        initial = await client.post(
+            "/dispatch/shortages", headers=owner,
+            json=[_item(shop, zone, driver, products[0], 2)],
+        )
+        assert initial.status_code == 201, initial.text
+        original = await client.get("/dispatch/shortages", headers=owner)
+        ids = [int(row["id"]) for row in original.json()
+               if int(row["shopId"]) == shop]
+        assert len(ids) == 1
+        before = await _snapshot(pg, tenant, shop)
+        payload = {
+            "request_id": str(uuid4()), "shortage_ids": ids,
+            "items": [_item(shop, zone, driver, products[1], 9)],
+        }
+        triggered = []
+
+        def abort_late_transaction(session):
+            if any(
+                isinstance(entity, OperationIdempotency)
+                and entity.operation == "DISPATCH_SHORTAGES_GROUP_V1"
+                and entity.state == "COMMITTED"
+                for entity in session.identity_map.values()
+            ):
+                triggered.append(True)
+                raise RuntimeError("D05 synthetic late commit-time abort")
+
+        event.listen(Session, "before_commit", abort_late_transaction)
+        try:
+            refused = await client.put(
+                "/dispatch/shortages/group", headers=owner, json=payload,
+            )
+        finally:
+            event.remove(Session, "before_commit", abort_late_transaction)
+        assert triggered, "The late abort must fire after business rows are flushed"
+        assert refused.status_code == 500, refused.text
+        assert refused.json()["error"]["code"] == "SHORTAGE_GROUP_FAILED"
+        assert await _snapshot(pg, tenant, shop) == before, (
+            "Failed commit must roll back old/new lines, visits, audit and idempotency"
+        )
+
+        recovered = await client.put(
+            "/dispatch/shortages/group", headers=owner, json=payload,
+        )
+        assert recovered.status_code == 200, recovered.text
+        after = await _snapshot(pg, tenant, shop)
+        assert len(after[0]) == 1 and after[0][0][3] == 9
+        assert after[2] == before[2] + 1 and after[3] == before[3] + 1
+        assert after[4:] == before[4:]
