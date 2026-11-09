@@ -24,7 +24,7 @@ from domains.taxation.models import (
 )
 from domains.taxation.publishing import publish_version as publish_tax_version
 from models import (
-    Company, DispatchRoute, ImportLog, InventoryCostEvent, InventoryMovement,
+    Company, DispatchRoute, ImportLog, InventoryBalance, InventoryCostEvent, InventoryMovement,
     Permission, Role, RouteCommercialContext, Shop, ShortageRequest, SystemAuditLog,
     UserLocationAccess, UserRole, Visit, VisitItem, WorkSession, Zone, role_permissions,
 )
@@ -44,6 +44,26 @@ pytestmark = [
     ),
     pytest.mark.asyncio(loop_scope="function"),
 ]
+
+
+async def _tenant_business_state(gate, tenant, party: int):
+    """Read actual committed company state under its OWN strict PG16 RLS tenant."""
+    async with gate.session(party) as db:
+        counts = {}
+        for model in (
+            Shop, Zone, DispatchRoute, Visit, ShortageRequest,
+            InventoryMovement, InventoryCostEvent,
+        ):
+            counts[model.__tablename__] = int(await db.scalar(
+                select(func.count()).select_from(model).where(
+                    model.company_id == tenant.company_id
+                )
+            ) or 0)
+        counts["physical"] = str(await db.scalar(
+            select(func.coalesce(func.sum(InventoryBalance.on_hand_quantity), 0))
+            .where(InventoryBalance.company_id == tenant.company_id)
+        ))
+        return counts
 
 
 async def _grant_company(gate, tenant, actor, code):
@@ -443,7 +463,7 @@ async def test_f11_cross_tenant_mutations_and_read_only_backoffice_field_fail_cl
         field_headers = await _login(client, pg, tenant, field,
                                      "SyntheticFixture123")
         original = await _business_state(pg, tenant)
-        original_b = await _business_state(pg, foreign)
+        original_b = await _tenant_business_state(pg, foreign, party=1)
         checks = [
             ("ordinary-shop", await client.put(
                 f"/dispatch/shops/{shop_a}", headers=ordinary,
@@ -501,7 +521,7 @@ async def test_f11_cross_tenant_mutations_and_read_only_backoffice_field_fail_cl
             shop = await db.get(Shop, shop_b)
             assert "FORBIDDEN" not in shop.name
         assert await _business_state(pg, tenant) == original
-        assert await _business_state(pg, foreign) == original_b
+        assert await _tenant_business_state(pg, foreign, party=1) == original_b
 
 
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
@@ -509,20 +529,61 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
     """Measured evidence only; NO guessed V1 severity from unbounded response design."""
     tenant = pg.tenants[0]
     zone_id, _ = await _simple_shop(pg, tenant)
-    total = 0
+    total_shops = 0
+    total_routes = 0
+    # Synthetic *READ-MODEL PERF FIXTURE ONLY*: 1/10/100 waiting routes
+    # with distinct zones and explicitly unassigned drivers/vehicles; these
+    # are NOT a proof of real route-launch/Vehicle/Field custody. Attach one
+    # valid pending shortage per Shop via synthetic fixtures; these do NOT
+    # claim executable emergency Visits. Actual HTTP and RLS reads are real.
+    route_targets = {100: 1, 500: 10, 2000: 100}
     async with _client() as client:
         owner = await _owner(client, pg, tenant)
         for target in (100, 500, 2000):
-            delta = target - total
+            delta = target - total_shops
+            desired_routes = route_targets[target]
             async with pg.session() as db:
-                await db.execute(insert(Shop), [
-                    dict(company_id=tenant.company_id, zone_id=zone_id,
-                         name=f"841-SCALE-{target}-{idx}-{uuid4().hex[:6]}",
-                         is_active=True, is_archived=False, sequence=idx)
-                    for idx in range(delta)
+                shop_ids = (await db.execute(
+                    insert(Shop).returning(Shop.id),
+                    [dict(
+                        company_id=tenant.company_id, zone_id=zone_id,
+                        name=f"841-SCALE-{target}-{idx}-{uuid4().hex[:6]}",
+                        is_active=True, is_archived=False, sequence=idx,
+                    ) for idx in range(delta)]
+                )).scalars().all()
+                assert len(shop_ids) == delta
+                await db.execute(insert(ShortageRequest), [
+                    dict(
+                        company_id=tenant.company_id, zone_id=zone_id,
+                        shop_id=int(shop_id), product_variant_id=tenant.variant_id,
+                        quantity=1, status="pending",
+                    ) for shop_id in shop_ids
+                ])
+                new_routes = desired_routes - total_routes
+                route_zone_ids = (await db.execute(
+                    insert(Zone).returning(Zone.id), [
+                        dict(
+                            company_id=tenant.company_id, is_active=True,
+                            name=f"841-SCALE-ROUTE-{target}-{i}-{uuid4().hex[:6]}",
+                        ) for i in range(new_routes)
+                    ]
+                )).scalars().all()
+                assert len(route_zone_ids) == new_routes
+                await db.execute(insert(DispatchRoute), [
+                    dict(
+                        company_id=tenant.company_id, zone_id=int(zid),
+                        source_location_id=tenant.location_id,
+                        status="waiting", driver_id=None, vehicle_id=None,
+                    ) for zid in route_zone_ids
                 ])
                 await db.commit()
-            total = target
+            total_shops = target
+            total_routes = desired_routes
+            expected_counts = {
+                "/dispatch/shops": target + 1,  # existing fixture Shop
+                "/dispatch/active_routes": desired_routes,
+                "/dispatch/shortages": target,
+            }
             observations = {}
             for path in ("/dispatch/shops", "/dispatch/active_routes",
                          "/dispatch/shortages"):
@@ -552,9 +613,15 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
                     query_counts.append(count[0])
                     payload_bytes.append(len(response.content))
                     result_rows.append(len(response.json()))
+                assert all(rows == expected_counts[path] for rows in result_rows), (
+                    f"F13 incorrect cardinality path={path}, expected="
+                    f"{expected_counts[path]}, actual={result_rows}"
+                )
                 ordered = sorted(durations)
                 observations[path] = {
                     "requested_shops": target,
+                    "synthetic_waiting_routes": desired_routes,
+                    "synthetic_pending_shortages": target,
                     "response_items": result_rows,
                     "response_bytes": payload_bytes,
                     "sql_queries": query_counts,
@@ -562,10 +629,9 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
                     "p95_ms_5_samples": ordered[-1] * 0.8 + ordered[-2] * 0.2,
                     "samples_ms": durations,
                 }
-                if path == "/dispatch/shops":
-                    assert all(rows >= target for rows in result_rows)
             print(f"F13 MEASURED_PG16_HTTP_SCALE={observations} "
-                  "latencies single CI machine, n=5: severity UNPROVEN")
+                  "latencies single CI machine, n=5; synthetic waiting "
+                  "unassigned routes + pending shortages; severity UNPROVEN")
 
 
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
