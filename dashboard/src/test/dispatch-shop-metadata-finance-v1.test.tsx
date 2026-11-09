@@ -396,6 +396,36 @@ describe("Shop authenticated save/readback & financial denial", () => {
     expect(toast.success).not.toHaveBeenCalled();
   });
 
+  it.each(["ar", "en"] as const)(
+    "create 400 archived zone and 409 duplicate phone in %s surface safe backend business reasons",
+    async language => {
+      await setAppLanguage(language);
+      for (const [status, reason] of [
+        [400, "المنطقة المحددة مؤرشفة ولا تقبل محلات جديدة"],
+        [409, "رقم الهاتف مستخدم لمحل آخر داخل الشركة"],
+      ] as const) {
+        const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+          if (opts?.method === "POST") {
+            throw Object.assign(new Error("not safe for display"), {
+              status, requestId: `req-business-${status}`,
+              data: { detail: reason },
+            });
+          }
+          return []; // authorized pre-POST membership snapshot
+        });
+        const props = args(fetch, { editId: null, language });
+        const hooked = renderHook(() => useShopFormCommit(props));
+        await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+        expect(hooked.result.current.feedback).toContain(reason);
+        expect(hooked.result.current.feedback).toContain(`req-business-${status}`);
+        expect(hooked.result.current.needsVerification).toBe(false);
+        expect(props.onVerified).not.toHaveBeenCalled();
+        expect(toast.success).not.toHaveBeenCalled();
+        hooked.unmount();
+      }
+    },
+  );
+
   it.each([409, 422])("deterministic create error %s does not lock future saves as uncertain", async status => {
     const fetch = vi.fn().mockRejectedValue(fakeError(status, "BUSINESS_CONFLICT"));
     const props = args(fetch, { editId: null });
