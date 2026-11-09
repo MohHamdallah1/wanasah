@@ -9,8 +9,8 @@ import {
   type ShopOrderChange, type UncertainShopOrderCommand,
 } from "./scope";
 import {
-  clearShopOrderRecovery, loadShopOrderRecoveryRecord, restoreShopOrderDraft,
-  stageShopOrderRecoveryDraft, storeShopOrderRecovery,
+  clearShopOrderRecoveryIfAttempt, loadShopOrderRecoveryRecord, restoreShopOrderDraft,
+  stageShopOrderRecoveryDraft, storeShopOrderRecovery, updateShopOrderRecoveryIfAttempt,
 } from "./useShopOrderDraft";
 
 interface Params {
@@ -44,6 +44,11 @@ export function useShopOrderCommit({
   setDirty, setEditMode, clearSelection, send, read, recoveryScope, setZoneId,
 }: Params) {
   const inFlight = useRef(false);
+  const liveSession = useRef(true);
+  useEffect(() => {
+    liveSession.current = true;
+    return () => { liveSession.current = false; };
+  }, []);
   const restoredScope = useRef<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<UncertainShopOrderCommand | null>(null);
   // While a prior authorized GET cannot restore the draft, no new mutation
@@ -51,12 +56,13 @@ export function useShopOrderCommit({
   const [recoveryBlocked, setRecoveryBlocked] = useState(false);
   const needsReconciliation = pendingCommand !== null || recoveryBlocked;
 
-  const reset = useCallback((latest: Shop[]) => {
+  const reset = useCallback((latest: Shop[], attemptId?: string) => {
+    if (!liveSession.current) return; // old auth session may finish after logout
     setShops(latest);
     baseline.current = latest;
     setPendingCommand(null);
     setRecoveryBlocked(false);
-    if (recoveryScope) clearShopOrderRecovery(recoveryScope);
+    if (recoveryScope) clearShopOrderRecoveryIfAttempt(recoveryScope, attemptId);
     setDirty(false);
     setEditMode(false);
     clearSelection();
@@ -129,6 +135,7 @@ export function useShopOrderCommit({
     // setPendingCommand(null) is asynchronous: the closure still refers to
     // the old command if the newly rebased PUT is definitively rejected.
     let safelyReconciledPriorWrite = false;
+    let currentAttemptId: string | undefined;
     try {
       if (recoveryBlocked) {
         // Reauth recovery failed earlier. Restore the LAST visual intent from
@@ -140,6 +147,7 @@ export function useShopOrderCommit({
           throw new ShopOrderReconciliationConflictError();
         }
         const fresh = await read();
+        if (!liveSession.current) return false;
         if (!Array.isArray(fresh) ||
           !applyRecoveredDraft(fresh, pendingCommand, record.latestDraft)) {
           throw new ShopOrderReconciliationConflictError();
@@ -152,7 +160,7 @@ export function useShopOrderCommit({
         // The GET itself can trigger forceLogout. Preserve the CURRENT draft
         // before crossing that network boundary; never rewrite the immutable
         // snapshots of the earlier attempted PUT.
-        if (recoveryScope) stageShopOrderRecoveryDraft(recoveryScope, draft);
+        if (recoveryScope) stageShopOrderRecoveryDraft(recoveryScope, draft, pendingCommand.attemptId);
         // A transport timeout can hide an IN-FLIGHT server transaction. Even
         // an unchanged GET cannot prove completion without backend operation
         // identity/fence. No retry, cancellation, or auto-resend is safe.
@@ -163,13 +171,14 @@ export function useShopOrderCommit({
         // Confirmed PUT completed before GET failed: now safe to reconcile
         // all selected-zone rows, then explicitly apply a revised local draft.
         reconciled = await read();
+        if (!liveSession.current) return false;
         if (!Array.isArray(reconciled) ||
           !canReconcileUncertainShopOrder(pendingCommand, reconciled, zoneId)) {
           throw new ShopOrderReconciliationConflictError();
         }
         baseline.current = reconciled;
         setPendingCommand(null);
-        if (recoveryScope) clearShopOrderRecovery(recoveryScope);
+        if (recoveryScope) clearShopOrderRecoveryIfAttempt(recoveryScope, pendingCommand.attemptId);
         safelyReconciledPriorWrite = true;
         setDirty(hasShopOrderChanges(reconciled, draft, zoneId));
       }
@@ -177,20 +186,24 @@ export function useShopOrderCommit({
       const outcome = await commitShopOrder({
         original: baseline.current, draft, selectedZoneId: zoneId, send, read,
         beforeSend: command => {
+          currentAttemptId = command.attemptId;
           if (recoveryScope) storeShopOrderRecovery(recoveryScope, command);
         },
         putConfirmed: command => {
-          if (recoveryScope) storeShopOrderRecovery(recoveryScope, command);
+          if (recoveryScope && !updateShopOrderRecoveryIfAttempt(recoveryScope, command)) {
+            throw new Error("SHOP_ORDER_RECOVERY_ATTEMPT_CHANGED");
+          }
         },
       });
+      if (!liveSession.current) return false;
       if (outcome.kind === "confirmed") {
-        reset(outcome.shops);
+        reset(outcome.shops, currentAttemptId);
         toast.success(shopOrderText(language, "saved"));
       } else {
         if (reconciled && !sameSelectedZoneState(draft, reconciled, zoneId)) {
           throw new ShopOrderReconciliationConflictError();
         }
-        if (reconciled) reset(reconciled);
+        if (reconciled) reset(reconciled, pendingCommand?.attemptId);
         else {
           setDirty(false);
           setEditMode(false);
@@ -203,12 +216,13 @@ export function useShopOrderCommit({
       if (error instanceof ShopOrderUncertainError) {
         // Both kinds retain their attempted draft. Only a completed PUT may
         // be rebased; a still-running PUT requires new server-side evidence.
-        setPendingCommand(error.command);
-        // A failed GET may forceLogout and unmount before this catch runs.
-        // Update the already-staged durable command with its safe reference.
+        if (liveSession.current) setPendingCommand(error.command);
+        // An obsolete GET may settle after the same principal reauthenticated.
+        // Only update THIS still-existing attempt; never recreate deleted data
+        // or discard a newer session's separately staged latestDraft.
         if (recoveryScope) {
-          try { storeShopOrderRecovery(recoveryScope, error.command); }
-          catch { /* prior pre-send recovery evidence is still retained */ }
+          try { updateShopOrderRecoveryIfAttempt(recoveryScope, error.command); }
+          catch { /* retain existing, newer or already-cleared evidence */ }
         }
       } else if (error instanceof ShopOrderReconciliationConflictError ||
         error instanceof ShopOrderUnresolvedTransportError) {
@@ -217,8 +231,9 @@ export function useShopOrderCommit({
         // A confirmed prior write was already reconciled. If the replacement
         // PUT receives a DEFINITIVE 403/409, its staged transport_unknown
         // record must not strand the next login in an impossible guard.
-        clearShopOrderRecovery(recoveryScope);
+        clearShopOrderRecoveryIfAttempt(recoveryScope, currentAttemptId);
       }
+      if (!liveSession.current) return false;
       toast.error(error instanceof ShopOrderUnresolvedTransportError
         ? shopOrderUncertainFeedback(language, "unresolvedTransport", pendingCommand?.requestId)
         : error instanceof ShopOrderReconciliationConflictError
@@ -230,7 +245,7 @@ export function useShopOrderCommit({
       return false;
     } finally {
       inFlight.current = false;
-      setSaving(false);
+      if (liveSession.current) setSaving(false);
     }
   }, [saving, setSaving, baseline, draft, zoneId, send, read, pendingCommand,
     reset, language, setDirty, setEditMode, clearSelection, recoveryScope,
@@ -248,17 +263,19 @@ export function useShopOrderCommit({
     }
     inFlight.current = true;
     setSaving(true);
+    const attemptId = recoveryScope
+      ? loadShopOrderRecoveryRecord(recoveryScope)?.command.attemptId : undefined;
     try {
-      reset(await read()); // authorized GET; never resurrect stale local snapshot
+      reset(await read(), attemptId); // never clear newer recovery from an obsolete GET
       return true;
     } catch {
       toast.error(shopOrderText(language, "cancelFailed"));
       return false; // retain draft and its pending uncertain command
     } finally {
       inFlight.current = false;
-      setSaving(false);
+      if (liveSession.current) setSaving(false);
     }
-  }, [saving, setSaving, read, reset, language, pendingCommand, recoveryBlocked]);
+  }, [saving, setSaving, read, reset, language, pendingCommand, recoveryBlocked, recoveryScope]);
 
   return { save, cancel, needsReconciliation, recoveryBlocked };
 }
