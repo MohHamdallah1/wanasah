@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShopFormModal } from "@/components/dispatch/ShopFormModal";
@@ -418,6 +419,28 @@ describe("Shop authenticated save/readback & financial denial", () => {
       JSON.parse(o!.body as string));
     expect(posted[0]).toMatchObject({ initialDebt: "100.125", maxDebtLimit: "150.500", force_save: false });
     expect(posted[1]).toMatchObject({ initialDebt: "100.125", maxDebtLimit: "150.500", force_save: true });
+  });
+
+  it("a verified edit closing its own modal always releases shared busy state", async () => {
+    const fetch = vi.fn().mockImplementation(async (_path: string, options?: RequestInit) =>
+      options?.method === "PUT" ? { message: "ok" } : [wire({ name: "Changed" })],
+    );
+    const props = args(fetch, { form: { ...form, name: "Changed" } });
+    const closed = vi.fn();
+    const hooked = renderHook(() => {
+      const [open, setOpen] = useState(true);
+      const [busy, setBusy] = useState(false);
+      const formHook = useShopFormCommit({
+        ...props, open, busy, setBusy,
+        onClose: () => { closed(); setOpen(false); },
+      });
+      return { ...formHook, open, busy };
+    });
+    await act(async () => { expect(await hooked.result.current.save()).toBe(true); });
+    expect(closed).toHaveBeenCalledOnce();
+    expect(hooked.result.current.open).toBe(false);
+    expect(hooked.result.current.busy).toBe(false);
+    expect(toast.success).toHaveBeenCalledOnce();
   });
 
   it("old session response after tenant switch cannot hydrate newer company form", async () => {
