@@ -338,7 +338,55 @@ jobs:
               assert not unexpected, f"Forbidden P0/CP2 product-gate scope: {unexpected}"
               return "CP2_PRODUCT_GATE_READ_ONLY"
 
+          # #847: immutable one-PR ownership boundaries, never wildcards.
+          # #845 and #846 contain the exact audited implementation files;
+          # the shared router/view alone still follows the existing P0 path.
+          finance_842_exact = {
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
+          }
+          shop_order_843_exact = {
+              "dashboard/src/components/dispatch/ShopTable.tsx",
+              "dashboard/src/features/dispatch/shopOrder/ShopOrderScopeNotice.tsx",
+              "dashboard/src/features/dispatch/shopOrder/messages.ts",
+              "dashboard/src/features/dispatch/shopOrder/persist.ts",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/features/dispatch/shopOrder/useShopOrderCommit.ts",
+              "dashboard/src/features/dispatch/shopOrder/useShopOrderDraft.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shop-reorder-scope-v1.test.tsx",
+          }
+          ci_policy_847_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+          }
+          finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
+          shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
+          assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
           def ownership_mode(candidate):
+              if candidate == ci_policy_847_exact:
+                  return "CI_POLICY_847_EXACT"
+              if ci_policy_847_exact < candidate:
+                  raise AssertionError(
+                      f"Forbidden CI-policy #847 mixed scope: {sorted(candidate - ci_policy_847_exact)}"
+                  )
+              if candidate & finance_842_unique:
+                  assert candidate == finance_842_exact, (
+                      f"Forbidden P0/finance #842 exact scope: "
+                      f"missing={sorted(finance_842_exact - candidate)} "
+                      f"extra={sorted(candidate - finance_842_exact)}"
+                  )
+                  return "FINANCE_842_EXACT"
+              if candidate & shop_order_843_unique:
+                  assert candidate == shop_order_843_exact, (
+                      f"Forbidden P0/ShopOrder #843 exact scope: "
+                      f"missing={sorted(shop_order_843_exact - candidate)} "
+                      f"extra={sorted(candidate - shop_order_843_exact)}"
+                  )
+                  return "SHOP_ORDER_843_EXACT"
               if cp2_product_gate_required <= candidate:
                   return assert_cp2_product_gate(candidate)
               if owner_visual_required <= candidate:
@@ -357,6 +405,63 @@ jobs:
               assert not unexpected, f"Forbidden P0/auth-session scope: {sorted(unexpected)}"
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
+
+          # #847 mandatory positive/negative contract probes on every run.
+          # A partial set containing *new* #842/#843 paths must fail;
+          # shared pre-existing router/view paths retain older P0 ownership.
+          for label, exact, unique in (
+              ("FINANCE_842_EXACT", finance_842_exact, finance_842_unique),
+              ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
+          ):
+              assert ownership_mode(exact) == label
+              for missing in exact:
+                  partial = exact - {missing}
+                  if partial & unique:
+                      try:
+                          ownership_mode(partial)
+                      except AssertionError:
+                          pass
+                      else:
+                          raise AssertionError(f"{label}: partial exact scope accepted: {missing}")
+                  else:
+                      assert ownership_mode(partial) != label
+              for foreign in (
+                  "wa_backend/api/driver.py", "wa_backend/models.py",
+                  "wa_backend/services.py", "wa_backend/api/warehouse/live_stock.py",
+                  "wa_backend/domains/inventory/services.py",
+                  "wa_backend/domains/authorization/backoffice_access.py",
+                  "dashboard/src/lib/authStorage.ts",
+                  "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                  "dashboard/src/features/dispatch/shopOrder/unreviewed.ts",
+                  "wanasah_frontend/lib/main.dart",
+              ):
+                  try:
+                      ownership_mode(exact | {foreign})
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"{label}: foreign file accepted: {foreign}")
+          for mixed in (
+              finance_842_exact | shop_order_843_exact,
+              finance_842_exact | ci_policy_847_exact,
+              shop_order_843_exact | ci_policy_847_exact,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed Shop/Finance/CI worker ownership accepted")
+          assert ownership_mode(ci_policy_847_exact) == "CI_POLICY_847_EXACT"
+          for foreign in ("wa_backend/models.py", "dashboard/src/pages/DispatchBoard.tsx",
+                          "dashboard/src/lib/authStorage.ts", "wa_backend/api/driver.py"):
+              try:
+                  ownership_mode(ci_policy_847_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"CI_POLICY_847_EXACT: foreign file accepted: {foreign}")
+          print("DISPATCH_847_POLICY_SELFTEST=PASS finance=4 shop_order=9 ci_policy=3 negative=PASS")
 
           # Exact-scope positive + adversarial controls, including a partial
           # CP2 contract and tempting Dispatch/auth/runtime hitchhikers.
