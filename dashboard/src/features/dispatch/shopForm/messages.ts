@@ -23,6 +23,9 @@ const copy = {
     readback: "تم إرسال الطلب، ولكن لم نتمكن من التحقق من بيانات الخادم. لا نعرض نجاحاً غير مؤكد.",
     refresh: "التحقق من نتيجة الحفظ",
     createDuplicate: "تأكد من بيانات المحل المتشابه قبل الإضافة.",
+    duplicateTitle: "تنبيه: يوجد محل مشابه", duplicateNew: "البيانات المدخلة حديثاً",
+    duplicateExisting: "المحل الموجود مسبقاً", duplicateProceed: "تخطي التحذير والإضافة",
+    duplicateOwner: "المالك", duplicateZone: "المنطقة",
   },
   en: {
     titleCreate: "Add shop", titleEdit: "Edit shop details",
@@ -47,6 +50,9 @@ const copy = {
     readback: "The request was sent, but its server result could not be verified. No success is claimed.",
     refresh: "Verify saved result",
     createDuplicate: "Review the matching shop before creating another.",
+    duplicateTitle: "Potential duplicate shop", duplicateNew: "New shop details",
+    duplicateExisting: "Existing shop", duplicateProceed: "Confirm and create",
+    duplicateOwner: "Owner", duplicateZone: "Zone",
   },
 } as const;
 export type ShopFormMessageKey = keyof typeof copy.en;
