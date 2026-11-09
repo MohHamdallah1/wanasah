@@ -429,6 +429,45 @@ describe("Shop order confirm feedback", () => {
     },
   );
 
+  it.each(["ar", "en"] as const)(
+    "PUT200 GET401 retains the canonical GET reference in %s and through reauthentication",
+    async language => {
+      await setAppLanguage(language);
+      const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+      const send = vi.fn().mockResolvedValue({});
+      const read = vi.fn().mockRejectedValueOnce(Object.assign(new Error("hidden-session-error"), {
+        status: 401, code: "AUTH_SESSION_EXPIRED",
+        context: { private: "do-not-leak" }, requestId: "req-get401-safe",
+      }));
+      const props = {
+        draft, baseline: { current: snapshot() }, zoneId: "A", language,
+        recoveryScope: "4:55", setZoneId: vi.fn(), saving: false,
+        setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+      };
+      const first = renderHook(() => useShopOrderCommit(props));
+      await act(async () => { expect(await first.result.current.save()).toBe(false); });
+      expect(first.result.current.needsReconciliation).toBe(true);
+      expect(loadShopOrderRecovery("4:55")?.requestId).toBe("req-get401-safe");
+      const rendered = String(toast.error.mock.calls.at(-1)?.[0]);
+      expect(rendered).toContain("req-get401-safe");
+      expect(rendered).not.toContain("hidden-session-error");
+      expect(rendered).not.toContain("do-not-leak");
+      expect(rendered).not.toContain("AUTH_SESSION_EXPIRED");
+      first.unmount(); // production forceLogout unmounts DispatchSession on exhausted 401
+
+      const newProps = {
+        ...props, draft: snapshot(), read: vi.fn().mockResolvedValue(draft),
+        setShops: vi.fn(), setZoneId: vi.fn(), setEditMode: vi.fn(),
+      };
+      const nextSession = renderHook(() => useShopOrderCommit(newProps));
+      await waitFor(() => expect(nextSession.result.current.needsReconciliation).toBe(true));
+      expect(newProps.setShops).toHaveBeenCalledWith(draft);
+      expect(loadShopOrderRecovery("4:55")?.requestId).toBe("req-get401-safe");
+      expect(send).toHaveBeenCalledOnce(); // no automatic replay after re-login
+    },
+  );
+
   it.each([403, 409])("definitely rejected PUT %s does not create an uncertain pending command", async status => {
     const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
     const send = vi.fn().mockRejectedValue(Object.assign(new Error("denied"), { status }));
