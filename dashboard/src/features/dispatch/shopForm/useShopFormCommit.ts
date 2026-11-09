@@ -162,9 +162,12 @@ export function useShopFormCommit({
       return await finish(token, pending); // GET only: never replay a possibly committed POST/PUT.
     } finally {
       inFlight.current = false;
-      if (current(token)) setBusy(false);
+      // The verified success closes the modal and invalidates generation.
+      // inFlight serializes this hook, so release its shared busy flag even
+      // after this form closes; never update an unmounted or logged-out session.
+      if (mounted.current && isDashboardSessionCurrent(session)) setBusy(false);
     }
-  }, [pending, busy, setBusy, finish, current]);
+  }, [pending, busy, setBusy, finish, current, session]);
 
   const submit = useCallback(async (forcePayload?: ShopCreatePayload): Promise<boolean> => {
     if (busy || inFlight.current || pending || !open) return false;
@@ -261,10 +264,13 @@ export function useShopFormCommit({
       return false;
     } finally {
       inFlight.current = false;
-      if (current(token)) setBusy(false);
+      // The verified success closes the modal and invalidates generation.
+      // inFlight serializes this hook, so release its shared busy flag even
+      // after this form closes; never update an unmounted or logged-out session.
+      if (mounted.current && isDashboardSessionCurrent(session)) setBusy(false);
     }
   }, [busy, pending, open, form, editId, fetch, current, language,
-    setBusy, finish, refreshAfterConflict]);
+    setBusy, finish, refreshAfterConflict, session]);
 
   const save = useCallback(() => submit(), [submit]);
   const confirmDuplicate = useCallback(async (): Promise<boolean> => {
