@@ -26,7 +26,7 @@ from models import (
     Permission, Role, Shop, ShortageRequest, SystemAuditLog, UserLocationAccess,
     Visit, Zone, role_permissions,
 )
-from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.test_inbound_no_lot_frozen_postgres import pg, checked_urls  # noqa: F401
 from tests.canonical_actor_fixtures import FieldFixture
 from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
 from tests.test_live_stock_v1_route_sale_unload_postgres import (
@@ -44,6 +44,15 @@ pytestmark = [
 
 @asynccontextmanager
 async def _client():
+    # Fail before ANY HTTP request: the FastAPI engine is independent of the
+    # fixture URLs and may otherwise point to a non-test database via .env.
+    expected_runtime, _ = checked_urls()
+    actual_runtime = http_runtime_engine.url
+    identity = lambda u: (u.drivername, u.host, u.port, u.database, u.username)
+    if identity(actual_runtime) != identity(expected_runtime):
+        raise RuntimeError(
+            "Refusing real HTTP: FastAPI engine != disposable PG16 restricted-role target"
+        )
     assert not app.dependency_overrides, "Must exercise actual authentication/routers"
     try:
         async with httpx.AsyncClient(
