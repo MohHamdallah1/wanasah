@@ -208,6 +208,11 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
         assert len(ids) == 1
         before = await _snapshot(pg, tenant, shop)
 
+        # A real /login requires at least one persisted Backoffice grant.
+        # Grant only shortage.read first; it must NOT authorize group writes.
+        await _grant_company_dispatch_capability(
+            pg, tenant, tenant.ordinary, "shortage.read",
+        )
         ordinary = await _token(
             client, pg, tenant, tenant.ordinary, "SyntheticFixture123",
         )
@@ -217,9 +222,6 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
             "/dispatch/shortages/group", headers=ordinary, json=payload,
         )).status_code == 403
 
-        await _grant_company_dispatch_capability(
-            pg, tenant, tenant.ordinary, "shortage.read",
-        )
         await _grant_company_dispatch_capability(
             pg, tenant, tenant.ordinary, "shortage.cancel",
         )
