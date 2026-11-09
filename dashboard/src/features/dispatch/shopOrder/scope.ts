@@ -89,6 +89,26 @@ export function sameSelectedZoneState(
   });
 }
 
+/** The exact selected-zone snapshot surrounding a write with unknown outcome. */
+export interface UncertainShopOrderCommand {
+  zoneId: string;
+  before: Shop[];
+  intended: Shop[];
+}
+
+/**
+ * An unknown PUT may have applied all of its changes or none. Never replay
+ * a revised draft over a third state: it could contain another operator's
+ * edits, including rows absent from the earlier PUT.
+ */
+export function canReconcileUncertainShopOrder(
+  pending: UncertainShopOrderCommand, fresh: readonly Shop[], zoneId: string,
+): boolean {
+  return !!zoneId && pending.zoneId === zoneId &&
+    (sameSelectedZoneState(pending.before, fresh, zoneId) ||
+      sameSelectedZoneState(pending.intended, fresh, zoneId));
+}
+
 /** HTTP 200 is not enough: require a NEW authorized snapshot with every write reflected. */
 export function verifyShopOrderReadback(
   changes: readonly ShopOrderChange[], readback: readonly Shop[], selectedZoneId: string,
