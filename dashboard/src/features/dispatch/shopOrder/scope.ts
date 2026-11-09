@@ -98,6 +98,8 @@ export interface UncertainShopOrderCommand {
   before: ShopOrderRow[];
   intended: ShopOrderRow[];
   outcome: ShopOrderWriteOutcome;
+  /** Safe correlation token only; never persist raw error context or messages. */
+  requestId?: string;
 }
 
 /**
