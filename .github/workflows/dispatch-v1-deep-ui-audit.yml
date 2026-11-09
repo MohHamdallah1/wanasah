@@ -1,0 +1,16 @@
+name: Dispatch V1 #838 isolated real UI audit
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/dispatch-v1-deep-ui-audit.yml'
+      - 'dashboard/e2e/dispatch-v1-deep-audit.*'
+      - 'wa_backend/tests/dispatch_v1_browser_audit_fixture.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-dashboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
