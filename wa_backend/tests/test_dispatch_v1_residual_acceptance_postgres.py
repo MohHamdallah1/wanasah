@@ -217,7 +217,7 @@ async def test_f12_active_route_tax_jurisdiction_change_uses_published_rule_or_b
                     company_id=tenant.company_id,
                     tax_rule_set_version_id=version.id,
                     component_code="TEN", name="Synthetic 10%",
-                    sequence=1, rate=Decimal("0.10"), basis_mode="TAXABLE_BASE",
+                    sequence=1, rate=Decimal("10"), basis_mode="TAXABLE_BASE",
                 ),
                 TaxRuleScope(
                     company_id=tenant.company_id,
