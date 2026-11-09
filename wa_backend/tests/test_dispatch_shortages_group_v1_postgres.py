@@ -172,7 +172,9 @@ async def test_http_group_edit_delete_replay_atomic_and_other_shop(pg):
         # A stale selected ID can never partially destroy the new group.
         stale = {**edited, "request_id": str(uuid4())}
         outdated = await client.put("/dispatch/shortages/group", headers=owner, json=stale)
-        assert outdated.status_code == 409, outdated.text
+        # These IDs were deleted during the successful replace; not-found is the
+        # expected fail-closed response (processed but extant IDs use 409).
+        assert outdated.status_code == 404, outdated.text
         assert await _snapshot(pg, tenant, shop) == saved
 
         current_ids = response.json()["shortage_ids"]
