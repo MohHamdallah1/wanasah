@@ -177,7 +177,7 @@ export function ShopTable({
                   </td>
                 )}
               </tr>;
-            }))}
+            })
           )}
         </tbody>
       </table>
