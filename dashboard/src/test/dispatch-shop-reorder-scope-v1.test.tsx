@@ -12,7 +12,7 @@ import {
 } from "@/features/dispatch/shopOrder/scope";
 import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
-import { loadShopOrderRecovery, storeShopOrderRecovery } from "@/features/dispatch/shopOrder/useShopOrderDraft";
+import { loadShopOrderRecovery, loadShopOrderRecoveryRecord, storeShopOrderRecovery, useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -551,6 +551,66 @@ describe("Shop order confirm feedback", () => {
     expect(send).not.toHaveBeenCalled(); // no silent replay after restoring
     expect(result.current.needsReconciliation).toBe(true); // verify on next click
     expect(loadShopOrderRecovery("1:22")).not.toBeNull();
+  });
+
+
+  it("a revised draft survives forced logout DURING the reconciliation GET, not only the first readback", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn()
+      .mockRejectedValueOnce(new Error("lost first readback"))
+      .mockRejectedValueOnce(Object.assign(new Error("GET forces logout"), { status: 401 }));
+    const props = {
+      baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      recoveryScope: "5:19", setZoneId: vi.fn(), saving: false,
+      setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const initial = renderHook(
+      ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+      { initialProps: { draft: first } },
+    );
+    await act(async () => { expect(await initial.result.current.save()).toBe(false); });
+    expect(loadShopOrderRecoveryRecord("5:19")?.command.intended.map(x => x.sequence))
+      .toEqual(first.filter(x => x.zoneId === "A").map(x => x.sequence));
+    initial.rerender({ draft: revised });
+    await act(async () => { expect(await initial.result.current.save()).toBe(false); });
+    const saved = loadShopOrderRecoveryRecord("5:19");
+    expect(saved?.command.outcome).toBe("put_confirmed");
+    expect(saved?.command.intended.map(x => x.sequence))
+      .toEqual(first.filter(x => x.zoneId === "A").map(x => x.sequence)); // immutable attempt
+    expect(saved?.latestDraft.map(x => x.sequence))
+      .toEqual(revised.filter(x => x.zoneId === "A").map(x => x.sequence)); // updated intent
+    expect(send).toHaveBeenCalledOnce(); // failed GET must not submit revised payload
+    initial.unmount();
+
+    const recovered = { ...props, draft: snapshot(), setShops: vi.fn(),
+      setZoneId: vi.fn(), setEditMode: vi.fn(), read: vi.fn().mockResolvedValue(first) };
+    const nextSession = renderHook(() => useShopOrderCommit(recovered));
+    await waitFor(() => expect(recovered.setShops).toHaveBeenCalledWith(revised));
+    expect(nextSession.result.current.needsReconciliation).toBe(true);
+    expect(send).toHaveBeenCalledOnce(); // restored, not replayed
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("each uncertain keyboard reorder persists latest visual intent without rewriting original PUT evidence", () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    const onlyRows = (rows: Shop[]) => rows.filter(x => x.zoneId === "A")
+      .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived }));
+    storeShopOrderRecovery("5:20", {
+      zoneId: "A", outcome: "put_confirmed",
+      before: onlyRows(snapshot()), intended: onlyRows(first),
+    });
+    const setShops = vi.fn(), setDirty = vi.fn();
+    const props = { shops: first, zoneId: "A", baseline: { current: snapshot() },
+      setShops, setDirty, saving: false, recoveryScope: "5:20", uncertain: true };
+    const { result } = renderHook(() => useShopOrderDraft(props));
+    act(() => result.current.changeSequence("A3", 2));
+    expect(setShops).toHaveBeenCalledWith(revised);
+    expect(loadShopOrderRecoveryRecord("5:20")?.latestDraft).toEqual(onlyRows(revised));
+    expect(loadShopOrderRecoveryRecord("5:20")?.command.intended).toEqual(onlyRows(first));
   });
 
   it("stores only selected-zone identifiers, ranks and archive flags, with no customer or authentication data", () => {
