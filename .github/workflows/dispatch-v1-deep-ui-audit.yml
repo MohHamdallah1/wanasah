@@ -84,3 +84,84 @@ jobs:
           done
           docker logs dispatch-838-postgres
           exit 1
+      - name: Create NOBYPASSRLS runtime account
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(url,autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate disposable schema and grant restricted DML
+        run: |
+          (cd wa_backend && alembic upgrade head && alembic check)
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          url = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(url,autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Seed restricted real two-tenant bearer and physical stock fixture
+        working-directory: wa_backend
+        run: |
+          python -B -m pytest -p no:cacheprovider -q -s \
+            tests/dispatch_v1_browser_audit_fixture.py::test_seed_real_dispatch_v1_dashboard \
+            --junitxml=dispatch-v1-deep-seed.xml
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          cases=list(ET.parse("dispatch-v1-deep-seed.xml").getroot().iter("testcase"))
+          assert len(cases)==1 and not any(
+              case.find(x) is not None for case in cases for x in ("error","failure","skipped")
+          ), f"Seed tests failed/skipped/missing: {len(cases)}"
+          print("DISPATCH_838_SEED=PASS one real authorized case")
+          PY
+      - name: Start authentic FastAPI on isolated PostgreSQL
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-838-api.log 2>&1 &
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:4174/ready > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-838-api.log
+          exit 1
+      - name: Install pinned Dashboard and Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build actual Wanasah React Dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: npm run build
+      - name: Run real Vite production preview
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-838-ui.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/dispatch > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-838-ui.log
+          exit 1
+      - name: AR EN Chromium six viewports - leave business regressions RED
+        working-directory: dashboard
+        run: npx playwright test --config e2e/dispatch-v1-deep-audit.config.ts
+      - name: Preserve actual HTTP trace screenshots JSON CI and server evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-v1-deep-ui-audit-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            dashboard/node_modules/.cache/dispatch-v1-deep-audit
+            wa_backend/dispatch-v1-deep-seed.xml
+            /tmp/dispatch-838-api.log
+            /tmp/dispatch-838-ui.log
+          if-no-files-found: warn
