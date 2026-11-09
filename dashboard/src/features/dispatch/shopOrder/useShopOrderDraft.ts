@@ -20,7 +20,8 @@ export function useShopOrderDraft({ shops, zoneId, baseline, setShops, setDirty,
   }, [shops, baseline, zoneId, setShops, setDirty]);
 
   const changeSequence = useCallback((id: string, sequence: number) => {
-    if (saving || !canReorderShop(shops.find(s => s.id === id) || ({} as Shop), zoneId)) return;
+    const row = shops.find(s => s.id === id);
+    if (saving || !row || !canReorderShop(row, zoneId)) return;
     apply(moveShopInSelectedZone(shops, zoneId, id, sequence - 1));
   }, [saving, shops, zoneId, apply]);
 
