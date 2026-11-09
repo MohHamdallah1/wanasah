@@ -464,6 +464,95 @@ describe("Shop order confirm feedback", () => {
     expect(loadShopOrderRecovery("1:23")).toBeNull();
   });
 
+  it.each(["ar", "en"] as const)(
+    "failed authorized recovery GET in %s keeps the prior command and blocks all new writes",
+    async language => {
+      await setAppLanguage(language);
+      const intended = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+      storeShopOrderRecovery("1:22", {
+        zoneId: "A", outcome: "put_confirmed",
+        before: snapshot().filter(s => s.zoneId === "A")
+          .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+        intended: intended.filter(s => s.zoneId === "A")
+          .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+      });
+      const send = vi.fn();
+      const read = vi.fn()
+        .mockRejectedValueOnce(Object.assign(new Error("expired session"), { status: 401 }))
+        .mockRejectedValueOnce(Object.assign(new Error("access revoked"), { status: 403 }));
+      const props = {
+        draft: snapshot(), baseline: { current: snapshot() }, zoneId: "A", language,
+        recoveryScope: "1:22", setZoneId: vi.fn(), saving: false,
+        setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+      };
+      const { result } = renderHook(() => useShopOrderCommit(props));
+      await waitFor(() => expect(read).toHaveBeenCalledOnce());
+      expect(result.current.needsReconciliation).toBe(true);
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      await act(async () => { expect(await result.current.cancel()).toBe(false); });
+      expect(send).not.toHaveBeenCalled();
+      expect(props.setShops).not.toHaveBeenCalled();
+      expect(loadShopOrderRecovery("1:22")?.outcome).toBe("put_confirmed");
+      expect(toast.success).not.toHaveBeenCalled();
+    },
+  );
+
+  it("a failed membership recovery cannot replace the pending command with another PUT", async () => {
+    const intended = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    storeShopOrderRecovery("1:44", {
+      zoneId: "A", outcome: "transport_unknown",
+      before: snapshot().filter(s => s.zoneId === "A")
+        .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+      intended: intended.filter(s => s.zoneId === "A")
+        .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+    });
+    const altered = snapshot().filter(s => s.id !== "A2");
+    const read = vi.fn().mockResolvedValue(altered);
+    const send = vi.fn();
+    const props = {
+      draft: snapshot(), baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      recoveryScope: "1:44", setZoneId: vi.fn(), saving: false,
+      setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    expect(result.current.needsReconciliation).toBe(true);
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(send).not.toHaveBeenCalled();
+    expect(props.setShops).not.toHaveBeenCalled();
+    expect(loadShopOrderRecovery("1:44")?.outcome).toBe("transport_unknown");
+  });
+
+  it("successful recovery after a failed GET restores draft without sending in the same click", async () => {
+    const intended = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    storeShopOrderRecovery("1:22", {
+      zoneId: "A", outcome: "put_confirmed",
+      before: snapshot().filter(s => s.zoneId === "A")
+        .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+      intended: intended.filter(s => s.zoneId === "A")
+        .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+    });
+    const send = vi.fn();
+    const read = vi.fn().mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(snapshot());
+    const props = {
+      draft: snapshot(), baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      recoveryScope: "1:22", setZoneId: vi.fn(), saving: false,
+      setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(props.setShops).toHaveBeenCalledWith(intended);
+    expect(props.setEditMode).toHaveBeenCalledWith(true);
+    expect(send).not.toHaveBeenCalled(); // no silent replay after restoring
+    expect(result.current.needsReconciliation).toBe(true); // verify on next click
+    expect(loadShopOrderRecovery("1:22")).not.toBeNull();
+  });
+
   it("stores only selected-zone identifiers, ranks and archive flags, with no customer or authentication data", () => {
     const command = {
       zoneId: "A", outcome: "put_confirmed" as const,
