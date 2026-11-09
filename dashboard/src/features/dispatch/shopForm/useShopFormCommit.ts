@@ -174,7 +174,7 @@ export function useShopFormCommit({
       // after this form closes; never update an unmounted or logged-out session.
       if (mounted.current && isDashboardSessionCurrent(session)) setBusy(false);
     }
-  }, [pending, busy, setBusy, finish, current, session]);
+  }, [pending, busy, setBusy, finish, session]);
 
   const submit = useCallback(async (forcePayload?: ShopCreatePayload): Promise<boolean> => {
     if (busy || inFlight.current || pending || !open) return false;
