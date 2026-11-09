@@ -29,6 +29,9 @@ export function ShopFormModal({
   financeLoading, feedback,
 }: ShopFormModalProps) {
   const edit = editingShopId !== null;
+  const update = (next: ShopFormState): void => {
+    if (!saving && !needsVerification) onShopFormChange(next);
+  };
   const t = (key: Parameters<typeof shopFormText>[1]) => shopFormText(language, key);
   const money = (raw: string): string => new Intl.NumberFormat(
     language.toLowerCase().startsWith("ar") ? "ar-QA" : "en-QA",
@@ -57,32 +60,32 @@ export function ShopFormModal({
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("name")}</span>
           <input type="text" required minLength={2} maxLength={150} value={shopForm.name}
-            onChange={event => onShopFormChange({ ...shopForm, name: event.target.value })}
+            onChange={event => update({ ...shopForm, name: event.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
         </label>
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("owner")}</span>
           <input type="text" maxLength={100} value={shopForm.owner}
-            onChange={event => onShopFormChange({ ...shopForm, owner: event.target.value })}
+            onChange={event => update({ ...shopForm, owner: event.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
         </label>
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("phone")}</span>
           <input type="tel" maxLength={20} value={shopForm.phone} dir="ltr"
-            onChange={event => onShopFormChange({ ...shopForm, phone: event.target.value.replace(/[^\d+]/g, "") })}
+            onChange={event => update({ ...shopForm, phone: event.target.value.replace(/[^\d+]/g, "") })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
         </label>
         <div className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("zone")}</span>
           <CustomSelect label={t("zone")} options={zones.map(z => ({ id: z.id, label: z.name }))}
-            value={shopForm.zoneId} onChange={id => onShopFormChange({ ...shopForm, zoneId: id })}/>
+            value={shopForm.zoneId} onChange={id => update({ ...shopForm, zoneId: id })}/>
         </div>
         <label className="space-y-1 sm:col-span-2">
           <span className="text-xs font-bold text-slate-500">{t("map")}</span>
           <span className="relative block">
             <MapPin className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
             <input type="text" maxLength={500} value={shopForm.mapLink}
-              onChange={event => onShopFormChange({ ...shopForm, mapLink: event.target.value })}
+              onChange={event => update({ ...shopForm, mapLink: event.target.value })}
               className="w-full rounded-xl border border-slate-200 py-2.5 ps-9 pe-4 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
           </span>
         </label>
@@ -114,14 +117,14 @@ export function ShopFormModal({
               <span className="relative block">
                 <CircleDollarSign className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
                 <input type="text" inputMode="decimal" required value={shopForm.maxDebtLimit}
-                  onChange={event => onShopFormChange({ ...shopForm, maxDebtLimit: event.target.value })}
+                  onChange={event => update({ ...shopForm, maxDebtLimit: event.target.value })}
                   className="w-full rounded-xl border border-slate-200 py-2.5 ps-9 pe-4 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
               </span>
             </label>
             <label className="space-y-1">
               <span className="text-xs font-bold text-slate-500">{t("openingDebt")}</span>
               <input type="text" inputMode="decimal" required value={shopForm.initialDebt}
-                onChange={event => onShopFormChange({ ...shopForm, initialDebt: event.target.value })}
+                onChange={event => update({ ...shopForm, initialDebt: event.target.value })}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
             </label>
           </>
