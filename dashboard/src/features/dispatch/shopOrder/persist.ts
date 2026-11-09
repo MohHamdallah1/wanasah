@@ -1,7 +1,7 @@
 import type { Shop } from "@/types/dispatch";
 import {
   buildShopOrderChanges, verifyShopOrderReadback,
-  type ShopOrderChange, type UncertainShopOrderCommand,
+  type ShopOrderChange, type ShopOrderWriteOutcome, type UncertainShopOrderCommand,
 } from "./scope";
 
 /** One mutation followed by one authoritative, no-store, authorized read. */
@@ -11,6 +11,10 @@ export interface ShopOrderCommitArgs {
   selectedZoneId: string;
   send: (changes: readonly ShopOrderChange[]) => Promise<unknown>;
   read: () => Promise<Shop[]>;
+  /** Durable draft before any transport is attempted (must throw on failure). */
+  beforeSend?: (command: UncertainShopOrderCommand) => void;
+  /** Durable completion of PUT before even attempting readback. */
+  putConfirmed?: (command: UncertainShopOrderCommand) => void;
 }
 
 export class ShopOrderVerificationError extends Error {
@@ -25,33 +29,52 @@ const definitelyRejectedBeforeMutation = (error: unknown): boolean => {
   return typeof status === "number" && [400, 401, 403, 404, 409, 422].includes(status);
 };
 
+const attemptedCommand = (
+  zoneId: string, before: readonly Shop[], intended: readonly Shop[],
+  outcome: ShopOrderWriteOutcome,
+): UncertainShopOrderCommand => {
+  const inZone = (shops: readonly Shop[]) =>
+    shops.filter(row => row.zoneId === zoneId).map(({ id, zoneId, sequence, archived }) =>
+      ({ id, zoneId, sequence, archived }));
+  return { zoneId, before: inZone(before), intended: inZone(intended), outcome };
+};
+
 /**
- * A lost response, a successful PUT with failed GET, or mismatched full readback
- * leaves the write outcome UNKNOWN. The caller must reconcile before any retry.
+ * Transport timeout does NOT imply server completion. Only a confirmed PUT
+ * response makes a later readback reconciliation safe to use for new writes.
  */
 export class ShopOrderUncertainError extends ShopOrderVerificationError {
   readonly command: UncertainShopOrderCommand;
-  constructor(zoneId: string, before: readonly Shop[], intended: readonly Shop[]) {
+  constructor(command: UncertainShopOrderCommand) {
     super();
     this.name = "ShopOrderUncertainError";
-    const inZone = (shops: readonly Shop[]) =>
-      shops.filter(row => row.zoneId === zoneId).map(row => ({ ...row }));
-    this.command = { zoneId, before: inZone(before), intended: inZone(intended) };
+    this.command = command;
   }
 }
 
 export async function commitShopOrder({
-  original, draft, selectedZoneId, send, read,
+  original, draft, selectedZoneId, send, read, beforeSend, putConfirmed,
 }: ShopOrderCommitArgs): Promise<{ kind: "no_changes" } | { kind: "confirmed"; shops: Shop[] }> {
   const changes = buildShopOrderChanges(original, draft, selectedZoneId);
   if (!changes.length) return { kind: "no_changes" };
+  const unknown = attemptedCommand(selectedZoneId, original, draft, "transport_unknown");
+  const completed = attemptedCommand(selectedZoneId, original, draft, "put_confirmed");
 
+  // If the browser cannot safely retain recovery evidence, make NO mutation.
+  beforeSend?.(unknown);
   try {
     await send(changes);
   } catch (error) {
     if (definitelyRejectedBeforeMutation(error)) throw error;
-    // Timeout/abort/5xx may have persisted the command despite lost response.
-    throw new ShopOrderUncertainError(selectedZoneId, original, draft);
+    // A timed-out PUT can STILL be running: never allow a later stale-diff PUT.
+    throw new ShopOrderUncertainError(unknown);
+  }
+
+  try {
+    // Called before GET: logout caused by a failed read must not lose the draft.
+    putConfirmed?.(completed);
+  } catch {
+    throw new ShopOrderUncertainError(unknown); // durable completion marker failed
   }
 
   try {
@@ -61,7 +84,7 @@ export async function commitShopOrder({
     }
     return { kind: "confirmed", shops: latest };
   } catch {
-    // Even a 401/403 from GET does not roll back an already successful PUT.
-    throw new ShopOrderUncertainError(selectedZoneId, original, draft);
+    // A GET 401/403 cannot undo a PUT that already returned success.
+    throw new ShopOrderUncertainError(completed);
   }
 }
