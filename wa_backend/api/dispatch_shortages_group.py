@@ -85,5 +85,3 @@ async def replace_shortages_group(
             "code": "SHORTAGE_GROUP_FAILED",
             "message": "تعذر حفظ مجموعة النواقص.",
         }) from exc
-
-
