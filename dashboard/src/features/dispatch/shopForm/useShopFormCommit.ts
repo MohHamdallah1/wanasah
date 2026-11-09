@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { toast } from "sonner";
-import { apiErrorCode, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
+import { apiErrorCode, apiErrorMessage, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStorage";
 import {
   createPayload, createdShopVerified, financeReadback, findCreatedShopAfterUnknownWrite,
@@ -246,14 +246,21 @@ export function useShopFormCommit({
         const key = code === "SHOP_FINANCIAL_STALE_FORM" ? "financialStale"
           : code === "SHOP_FINANCIAL_ACTION_REQUIRES_AUTHORITY" ? "financialAuthority"
             : "conflict";
-        const message = withSafeReference(shopFormText(language, key), apiErrorRequestId(error), language);
+        const fallback = shopFormText(language, key);
+        const reason = code === "SHOP_FINANCIAL_STALE_FORM" ||
+          code === "SHOP_FINANCIAL_ACTION_REQUIRES_AUTHORITY"
+          ? fallback : apiErrorMessage(error, fallback);
+        const message = withSafeReference(reason, apiErrorRequestId(error), language);
         setFeedback(message);
         toast.error(message);
         await refreshAfterConflict(token, editId);
       } else if (status === 409 || status === 400 || status === 404 || status === 422) {
         // Definitive rejection: do not strand the form behind an unknown-write guard.
         const key = status === 400 || status === 422 ? "invalidMetadata" : "conflict";
-        const message = withSafeReference(shopFormText(language, key), apiErrorRequestId(error), language);
+        // Safe, deterministic 4xx business reasons include archived Zone and
+        // phone-unique rejections. Do not flatten them to a generic status.
+        const reason = apiErrorMessage(error, shopFormText(language, key));
+        const message = withSafeReference(reason, apiErrorRequestId(error), language);
         setFeedback(message);
         toast.error(message);
       } else if (status === 401 || status === 403) {
