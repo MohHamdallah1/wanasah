@@ -21,7 +21,7 @@ export async function commitShopOrder({
   if (!changes.length) return { kind: "no_changes" };
   await send(changes);
   const latest = await read();
-  if (!Array.isArray(latest) || !verifyShopOrderReadback(changes, latest, selectedZoneId)) {
+  if (!Array.isArray(latest) || !verifyShopOrderReadback(changes, latest, selectedZoneId, draft)) {
     throw new ShopOrderVerificationError();
   }
   return { kind: "confirmed", shops: latest };
