@@ -1,10 +1,11 @@
-import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { toast } from "sonner";
 import type { Shop } from "@/types/dispatch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { shopOrderText } from "./messages";
 import { commitShopOrder, ShopOrderVerificationError } from "./persist";
 import type { ShopOrderChange } from "./scope";
+import { sameSelectedZoneMembership } from "./scope";
 
 interface Params {
   draft: Shop[];
@@ -27,9 +28,11 @@ export function useShopOrderCommit({
   setDirty, setEditMode, clearSelection, send, read,
 }: Params) {
   const inFlight = useRef(false);
+  const [needsReconciliation, setNeedsReconciliation] = useState(false);
   const reset = useCallback((latest: Shop[]) => {
     setShops(latest);
     baseline.current = latest;
+    setNeedsReconciliation(false);
     setDirty(false);
     setEditMode(false);
     clearSelection();
@@ -40,6 +43,16 @@ export function useShopOrderCommit({
     inFlight.current = true;
     setSaving(true);
     try {
+      // An earlier PUT may have committed despite a lost/failed readback.
+      // First reconcile against a fresh authorized snapshot, THEN diff again.
+      let reconciled: Shop[] | null = null;
+      if (needsReconciliation) {
+        reconciled = await read();
+        if (!sameSelectedZoneMembership(draft, reconciled, zoneId)) {
+          throw new ShopOrderVerificationError();
+        }
+        baseline.current = reconciled;
+      }
       const outcome = await commitShopOrder({
         original: baseline.current, draft, selectedZoneId: zoneId, send, read,
       });
@@ -48,13 +61,19 @@ export function useShopOrderCommit({
         toast.success(shopOrderText(language, "saved"));
       } else {
         // No HTTP call, no success toast for a no-op.
-        setDirty(false);
-        setEditMode(false);
-        clearSelection();
-        toast.info(shopOrderText(language, "nothingChanged"));
+        if (reconciled) reset(reconciled);
+        else {
+          setDirty(false);
+          setEditMode(false);
+          clearSelection();
+        }
+        toast.info(shopOrderText(language, reconciled ? "verifiedNoChange" : "nothingChanged"));
       }
       return true;
     } catch (error: unknown) {
+      // Even network/timeout after PUT can mean committed; the next Save
+      // must read current server order before deriving any new delta.
+      setNeedsReconciliation(true);
       toast.error(error instanceof ShopOrderVerificationError
         ? shopOrderText(language, "readbackFailed")
         : apiErrorMessage(error, shopOrderText(language, "saveFailed")));
@@ -64,7 +83,7 @@ export function useShopOrderCommit({
       setSaving(false);
     }
   }, [saving, setSaving, baseline, draft, zoneId, send, read,
-    reset, language, setDirty, setEditMode, clearSelection]);
+    needsReconciliation, reset, language, setDirty, setEditMode, clearSelection]);
 
   const cancel = useCallback(async (): Promise<boolean> => {
     if (saving) return false;
@@ -80,5 +99,5 @@ export function useShopOrderCommit({
     }
   }, [saving, setSaving, read, reset, language]);
 
-  return { save, cancel };
+  return { save, cancel, needsReconciliation };
 }
