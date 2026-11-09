@@ -871,7 +871,37 @@ LEDGER_825_VISUAL_EXACT = frozenset({
     "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
 })
 
+# #847: #846 is Dispatch ShopOrder ownership, not a grant to modify
+# Live Stock, inventory, auth/session, or unrelated Dispatch files. Freeze
+# all nine actual PR paths, including the shared DispatchBoard consumer.
+SHOP_ORDER_843_EXACT = frozenset({
+    "dashboard/src/components/dispatch/ShopTable.tsx",
+    "dashboard/src/features/dispatch/shopOrder/ShopOrderScopeNotice.tsx",
+    "dashboard/src/features/dispatch/shopOrder/messages.ts",
+    "dashboard/src/features/dispatch/shopOrder/persist.ts",
+    "dashboard/src/features/dispatch/shopOrder/scope.ts",
+    "dashboard/src/features/dispatch/shopOrder/useShopOrderCommit.ts",
+    "dashboard/src/features/dispatch/shopOrder/useShopOrderDraft.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-shop-reorder-scope-v1.test.tsx",
+})
+SHOP_ORDER_843_NEW = SHOP_ORDER_843_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
+assert len(SHOP_ORDER_843_EXACT) == 9 and len(SHOP_ORDER_843_NEW) == 8
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    # Exact #846 ShopOrder change is outside Live Stock owner scope.
+    # A partial set, even with the shared DispatchBoard, or any hitchhiker
+    # is REJECTED whenever one of its eight newly extracted files appears.
+    if changed & SHOP_ORDER_843_NEW:
+        if changed != SHOP_ORDER_843_EXACT:
+            return "fail", [
+                f"SHOP_ORDER_843_EXACT=FAIL missing={sorted(SHOP_ORDER_843_EXACT - changed)} "
+                f"extra={sorted(changed - SHOP_ORDER_843_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "shop-order-843-exact", []
+        return "not-applicable", []
+
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
     if changed == STOCKTAKE_FINAL_CI_782_EXACT:
@@ -1015,6 +1045,39 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    # #847: real #846 payload passes only as its literal nine-file set.
+    # Every partial-with-new-file and every foreign/mixed-domain path fails.
+    shop_order_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(SHOP_ORDER_843_EXACT), shop_order_sem) == (
+            "shop-order-843-exact", []
+        )
+    assert classify("r3", set(SHOP_ORDER_843_EXACT), shop_order_sem) == (
+        "not-applicable", []
+    )
+    for missing in SHOP_ORDER_843_EXACT:
+        partial = set(SHOP_ORDER_843_EXACT) - {missing}
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, partial, shop_order_sem)
+    for foreign in (
+        HELPER,
+        ".github/workflows/dispatch-p0-route-stock-safety.yml",
+        "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+        "dashboard/src/hooks/useAuthFetch.ts",
+        "dashboard/src/lib/authStorage.ts",
+        SHARED_RESOURCES,
+        "wa_backend/api/dispatch.py",
+        "wa_backend/api/driver.py",
+        "wa_backend/models.py",
+        "wa_backend/domains/inventory/services.py",
+        "dashboard/src/features/dispatch/shopOrder/extra.ts",
+        "wanasah_frontend/lib/main.dart",
+    ):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(SHOP_ORDER_843_EXACT) | {foreign}, shop_order_sem)
+    assert classify("ux", {"dashboard/src/pages/DispatchBoard.tsx"}, shop_order_sem)[0] != "shop-order-843-exact"
+    print("SHOP_ORDER_843_LIVE_STOCK_SELFTEST=PASS exact=9 partial=9 foreign=12")
+
     ledger_818_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
     assert len(LEDGER_818_STAGE_A_EXACT) == 6
     assert len(LEDGER_818_STAGE_B_EXACT) == 10
