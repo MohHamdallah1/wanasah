@@ -162,7 +162,10 @@ export function ShopTable({
                       <div className="relative group/btn flex items-center">
                         <button
                           onClick={() => onArchiveShop(shop.id)}
-                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shadow-sm border border-transparent hover:border-red-100"
+                          disabled={isEditMode && shop.zoneId !== selectedZoneIdForZones}
+                          aria-label={shopOrderText(language, "archiveShop", { shop: shop.name })}
+                          title={isEditMode && shop.zoneId !== selectedZoneIdForZones ? shopOrderText(language, "outsideZone") : undefined}
+                          className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all shadow-sm border border-transparent hover:border-red-100 disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           <Archive className="w-4 h-4" />
                         </button>
