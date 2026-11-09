@@ -2,8 +2,10 @@ import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-li
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ShopFormModal } from "@/components/dispatch/ShopFormModal";
 import {
-  createPayload, createdShopVerified, emptyShopForm, existingShopForm, financeReadback,
-  metadataPayload, metadataVerified, ShopFormInputError, type ShopFormState,
+  canCloseShopForm, canOpenShopForm, createPayload, createdShopVerified,
+  emptyShopForm, existingShopForm, financeReadback, findCreatedShopAfterUnknownWrite,
+  metadataPayload, metadataVerified, preserveUnsavedShopOrder, ShopFormInputError,
+  type ShopFormState,
 } from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { shopFormText } from "@/features/dispatch/shopForm/messages";
@@ -101,6 +103,120 @@ describe("Shop metadata-only allowlist and create financial truth", () => {
       { ...metadataPayload(form), name: "Updated Grocery" })).toBe(true);
     expect(metadataVerified([wire()], "77", { ...metadataPayload(form), name: "Changed" }))
       .toBe(false);
+  });
+});
+
+describe("Codex P2: Shop form closure, lost POST identity and order draft", () => {
+  it("rejects any close while saving or post-write verification remains open", () => {
+    expect(canCloseShopForm(true, false)).toBe(false);
+    expect(canCloseShopForm(false, true)).toBe(false);
+    expect(canCloseShopForm(true, true)).toBe(false);
+    expect(canCloseShopForm(false, false)).toBe(true);
+  });
+
+  it.each(["ar", "en"] as const)("header close/backdrop/Escape in %s cannot close in-flight form", async language => {
+    await setAppLanguage(language);
+    const onClose = vi.fn();
+    const modal = render(
+      <ShopFormModal isOpen
+        onClose={() => { if (canCloseShopForm(true, false)) onClose(); }}
+        editingShopId="77" shopForm={form} onShopFormChange={vi.fn()}
+        zones={[zone]} onSave={vi.fn()} onVerify={vi.fn()} language={language}
+        saving needsVerification={false} canViewFinances={false} finance={null}
+        financeLoading={false} feedback={null}/>,
+    );
+    const closeX = document.querySelector(".app-modal-header button") as HTMLButtonElement;
+    const backdrop = document.querySelector(".app-modal-backdrop") as HTMLElement;
+    expect(closeX).toBeTruthy();
+    expect(backdrop).toBeTruthy();
+    fireEvent.click(closeX);
+    fireEvent.click(backdrop);
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    modal.unmount();
+  });
+
+  it("blocks creation/metadata edit while reordered Shops require save, preserves fresh authorized IDs", () => {
+    expect(canOpenShopForm(true, false)).toBe(false);
+    expect(canOpenShopForm(false, true)).toBe(false);
+    expect(canOpenShopForm(false, false)).toBe(true);
+    const old = [shop, { ...shop, id: "78", sequence: 2 }];
+    const draft = [{ ...old[0], sequence: 2 }, { ...old[1], sequence: 1 }];
+    const fresh = [
+      { ...old[0], sequence: 1, name: "Authorized Updated Name", initialDebt: 80 },
+      { ...old[1], sequence: 2 },
+      { ...shop, id: "79", sequence: 999 },
+    ];
+    expect(preserveUnsavedShopOrder(draft, fresh)).toEqual([
+      { ...fresh[0], sequence: 2 },
+      { ...fresh[1], sequence: 1 },
+      fresh[2],
+    ]);
+    expect(preserveUnsavedShopOrder(draft, fresh.slice(1)).map(s => s.id))
+      .toEqual(["78", "79"]); // never keep a row no longer in authorized GET
+  });
+
+  it("reconciles lost create response only to unique authorized NEW ID after pre-POST snapshot", () => {
+    const sent = createPayload(form);
+    const latest = [wire({ id: "77", initialDebt: "100.125", maxDebtLimit: "150.500" })];
+    expect(findCreatedShopAfterUnknownWrite(latest, [], sent)).toBe("77");
+    expect(findCreatedShopAfterUnknownWrite(latest, ["77"], sent)).toBeNull();
+    expect(findCreatedShopAfterUnknownWrite([...latest, { ...latest[0], id: "78" }], [], sent)).toBeNull();
+    expect(findCreatedShopAfterUnknownWrite(latest, [], { ...sent, maxDebtLimit: "150.501" })).toBeNull();
+  });
+
+  it.each(["ar", "en"] as const)(
+    "a lost POST response in %s reuses the single new authorized Shop identity; no second POST",
+    async language => {
+      await setAppLanguage(language);
+      let reads = 0;
+      const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+        if (opts?.method === "POST") throw fakeError(500, "INTERNAL_SERVER_ERROR", "req-lost-create");
+        reads++;
+        return reads === 1 ? [] : [wire({ initialDebt: "100.125", maxDebtLimit: "150.500" })];
+      });
+      const props = args(fetch, { editId: null, language });
+      const hooked = renderHook(() => useShopFormCommit(props));
+      await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+      expect(hooked.result.current.needsVerification).toBe(true);
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+      expect(props.onVerified).not.toHaveBeenCalled();
+      await act(async () => { expect(await hooked.result.current.verify()).toBe(true); });
+      expect(props.onVerified).toHaveBeenCalledWith(expect.any(Array), true, "3");
+      expect(toast.success).toHaveBeenCalledOnce();
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+      expect(reads).toBe(2);
+    },
+  );
+
+  it("ambiguous lost POST with two new matching Shops fails closed, never claims success or resends", async () => {
+    const candidate = wire({ initialDebt: "100.125", maxDebtLimit: "150.500" });
+    let reads = 0;
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw fakeError(500, "INTERNAL_SERVER_ERROR");
+      reads++;
+      return reads === 1 ? [] : [candidate, { ...candidate, id: "78" }];
+    });
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+    expect(hooked.result.current.needsVerification).toBe(true);
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "createNotFound"));
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("offline authorized preflight fails before any POST and never creates impossible pending record", async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error("offline before request"));
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.needsVerification).toBe(false);
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "beforeCreateFailed"));
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(0);
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });
 
