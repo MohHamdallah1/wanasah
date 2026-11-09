@@ -5229,25 +5229,6 @@ async def edit_shop_details(
                     ),
                 )
 
-        if payload.name is not None:
-            shop.name = payload.name
-        if payload.owner is not None:
-            shop.contact_person = payload.owner
-
-        # نحافظ على العقد الحالي: إرسال هاتف فارغ لا يمسح الرقم.
-        if new_phone:
-            shop.phone_number = new_phone
-
-        if payload.mapLink is not None:
-            shop.location_link = payload.mapLink
-
-        if payload.zoneId is not None:
-            shop.zone_id = target_zone_id
-            shop.archived_due_to_zone_id = None
-
-        if payload.taxJurisdictionId is not None:
-            shop.tax_jurisdiction_id = int(payload.taxJurisdictionId)
-
         try:
             require_metadata_only_shop_finance(
                 current_balance=shop.current_balance,
@@ -5278,6 +5259,27 @@ async def edit_shop_details(
                     "context": {"fields": list(exc.fields)},
                 },
             ) from exc
+
+
+        if payload.name is not None:
+            shop.name = payload.name
+        if payload.owner is not None:
+            shop.contact_person = payload.owner
+
+        # نحافظ على العقد الحالي: إرسال هاتف فارغ لا يمسح الرقم.
+        if new_phone:
+            shop.phone_number = new_phone
+
+        if payload.mapLink is not None:
+            shop.location_link = payload.mapLink
+
+        if payload.zoneId is not None:
+            shop.zone_id = target_zone_id
+            shop.archived_due_to_zone_id = None
+
+        if payload.taxJurisdictionId is not None:
+            shop.tax_jurisdiction_id = int(payload.taxJurisdictionId)
+
 
         await db.commit()
         return {"message": "تم التعديل بنجاح"}
