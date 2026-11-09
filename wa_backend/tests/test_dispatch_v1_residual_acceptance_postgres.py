@@ -24,9 +24,10 @@ from domains.taxation.models import (
 )
 from domains.taxation.publishing import publish_version as publish_tax_version
 from models import (
-    Company, DispatchRoute, ImportLog, InventoryBalance, InventoryCostEvent, InventoryMovement,
-    Permission, Role, RouteCommercialContext, Shop, ShortageRequest, SystemAuditLog,
-    UserLocationAccess, UserRole, Visit, VisitItem, WorkSession, Zone, role_permissions,
+    Company, DispatchRoute, ImportLog, InventoryBalance, InventoryCostEvent, InventoryLocation,
+    InventoryMovement, Permission, Role, RouteCommercialContext, Shop, ShortageRequest,
+    SystemAuditLog, UserLocationAccess, UserRole, Vehicle, Visit, VisitItem,
+    WorkSession, Zone, role_permissions,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_v1_deep_acceptance_postgres import (
@@ -464,6 +465,9 @@ async def test_f11_cross_tenant_mutations_and_read_only_backoffice_field_fail_cl
                                      "SyntheticFixture123")
         original = await _business_state(pg, tenant)
         original_b = await _tenant_business_state(pg, foreign, party=1)
+        assert original_b["shops"] >= 1 and original_b["zones"] >= 1, (
+            "Cross-tenant fingerprint must not be a vacuous all-zero read"
+        )
         checks = [
             ("ordinary-shop", await client.put(
                 f"/dispatch/shops/{shop_a}", headers=ordinary,
@@ -532,8 +536,9 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
     total_shops = 0
     total_routes = 0
     # Synthetic *READ-MODEL PERF FIXTURE ONLY*: 1/10/100 waiting routes
-    # with distinct zones and explicitly unassigned drivers/vehicles; these
-    # are NOT a proof of real route-launch/Vehicle/Field custody. Attach one
+    # with distinct Zones AND Vehicle/active InventoryLocation identities;
+    # driver is intentionally unassigned. These are NOT proof of actual route
+    # launch, vehicle movement, or FIELD custody. Attach one
     # valid pending shortage per Shop via synthetic fixtures; these do NOT
     # claim executable emergency Visits. Actual HTTP and RLS reads are real.
     route_targets = {100: 1, 500: 10, 2000: 100}
@@ -569,12 +574,34 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
                     ]
                 )).scalars().all()
                 assert len(route_zone_ids) == new_routes
+                # Security route_filter() requires real, unique active vehicle
+                # custody locations. NULL vehicle would be correctly filtered
+                # out by Backoffice authorization, yielding a *vacuous* scale.
+                vehicle_ids = (await db.execute(
+                    insert(Vehicle).returning(Vehicle.id), [
+                        dict(
+                            company_id=tenant.company_id,
+                            plate_number=f"R841-{target}-{i}-{uuid4().hex[:5]}",
+                            vehicle_type="Van", maintenance_status="Active",
+                            is_active=True, current_mileage=0,
+                        ) for i in range(new_routes)
+                    ]
+                )).scalars().all()
+                assert len(vehicle_ids) == new_routes
+                await db.execute(insert(InventoryLocation), [
+                    dict(
+                        company_id=tenant.company_id, vehicle_id=int(vid),
+                        location_type="VEHICLE", is_active=True,
+                        name=f"841 performance vehicle {vid}",
+                        code=f"841-V-{vid}",
+                    ) for vid in vehicle_ids
+                ])
                 await db.execute(insert(DispatchRoute), [
                     dict(
                         company_id=tenant.company_id, zone_id=int(zid),
                         source_location_id=tenant.location_id,
-                        status="waiting", driver_id=None, vehicle_id=None,
-                    ) for zid in route_zone_ids
+                        status="waiting", driver_id=None, vehicle_id=int(vid),
+                    ) for zid, vid in zip(route_zone_ids, vehicle_ids)
                 ])
                 await db.commit()
             total_shops = target
@@ -631,7 +658,8 @@ async def test_f13_query_scale_progressive_100_500_2000_real_http(pg):
                 }
             print(f"F13 MEASURED_PG16_HTTP_SCALE={observations} "
                   "latencies single CI machine, n=5; synthetic waiting "
-                  "unassigned routes + pending shortages; severity UNPROVEN")
+                  "routes with valid vehicle custody + pending shortages; "
+                  "FIELD launch status UNPROVEN")
 
 
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
