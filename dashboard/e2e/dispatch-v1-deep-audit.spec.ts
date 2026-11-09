@@ -116,3 +116,135 @@ test("N1: postponed representative selection abandoned on close preserves commit
   await expect(page.getByRole("dialog").locator("select").first()).toHaveValue(String(data.driverId));
   await finish();
 });
+
+test("N2: cross-zone searched shop reorder sends the selected shop in real PUT",async({page},info)=>{
+  await login(page,info);
+  const tag=unique(), aName=tag+" A", bName=tag+" B", sa=tag+" Shop A", sb=tag+" Shop B";
+  const a=await addZone(page,aName), b=await addZone(page,bName);
+  await addShop(page,a,sa);
+  const target=await addShop(page,b,sb);
+  await page.reload();
+  await selectTab(page,"zones");
+  await page.getByText(aName,{exact:true}).first().click();
+  await page.locator('input[placeholder="بحث..."]').fill(sb);
+  const row=page.locator(".dispatch-shop-table tbody tr").filter({hasText:sb});
+  await expect(row).toHaveCount(1);
+  await page.getByRole("button",{name:"تعديل",exact:true}).click();
+  const sequence=row.locator('input[type="number"]').first();
+  await expect(sequence).toBeVisible();
+  await sequence.fill("1");
+  await sequence.press("Enter");
+  const pending=page.waitForResponse(r=>new URL(r.url()).pathname==="/dispatch/shops/bulk_update"&&r.request().method()==="PUT");
+  await page.getByRole("button",{name:/حفظ/,exact:false}).first().click();
+  const answer=await pending;
+  const payload=answer.request().postDataJSON();
+  await info.attach("N2-bulk-update.json",{body:Buffer.from(JSON.stringify({status:answer.status(),payload,target,db:dbProbe("snapshot")},null,2)),contentType:"application/json"});
+  expect(answer.status()).toBe(200);
+  expect(payload.some((item:{id:string})=>String(item.id)===target),
+    "A searched Zone B shop must not cause a success toast with only Zone A saved").toBe(true);
+});
+
+test("N5: Shop map link must be http(s) before browser receives an active anchor",async({page},info)=>{
+  await login(page,info);
+  const name=unique()+" Unsafe link",zoneName=unique()+" Map zone";
+  const zone=await addZone(page,zoneName);
+  const response=await api(page,"POST","/dispatch/shops",{
+    name,owner:"Synthetic test",phone:"",mapLink:"javascript:alert(838)",
+    zoneId:zone,initialDebt:0,maxDebtLimit:0,
+  });
+  await info.attach("N5-server-map-url.json",{body:Buffer.from(JSON.stringify(response)),contentType:"application/json"});
+  if(response.status===422) return; // Server correctly rejects unsafe scheme.
+  expect(response.status).toBe(201);
+  await page.reload();
+  await selectTab(page,"zones");
+  await page.locator('input[placeholder="بحث..."]').fill(name);
+  const row=page.locator(".dispatch-shop-table tbody tr").filter({hasText:name});
+  const link=row.getByRole("link",{name:"عرض الموقع"});
+  await expect(link).toBeVisible();
+  const href=await link.getAttribute("href");
+  expect(href).toMatch(/^https?:\/\//i); // Do not click unsafe link: CSP may block navigation.
+  await expect(link).toHaveAttribute("rel",/noreferrer/);
+});
+
+test("P1 finance: metadata-only UI save must preserve concurrent PG16 receivable",async({page},info)=>{
+  await login(page,info);
+  const zoneName=unique()+" Finance zone", original=unique()+" Finance shop";
+  const zone=await addZone(page,zoneName);
+  const shopId=await addShop(page,zone,original,100);
+  await page.reload();
+  await selectTab(page,"zones");
+  await page.locator('input[placeholder="بحث..."]').fill(original);
+  await page.getByRole("button",{name:"تعديل",exact:true}).click();
+  const row=page.locator(".dispatch-shop-table tbody tr").filter({hasText:original});
+  await row.locator("button").first().click();
+  const modal=page.getByRole("dialog").last();
+  await expect(modal).toBeVisible();
+  await expect(modal.locator('input[type="number"]').last()).toHaveValue("100");
+  dbProbe("balance80",shopId); // DISPOSABLE PG16 only, not a real collection journey.
+  await modal.locator('input[type="text"]').first().fill(original+" Updated");
+  const pending=page.waitForResponse(r=>new URL(r.url()).pathname==="/dispatch/shops/"+shopId&&r.request().method()==="PUT");
+  await modal.getByRole("button",{name:"حفظ البيانات"}).click();
+  const response=await pending;
+  const after=dbProbe("snapshot");
+  const balance=after.shops.find((s:any)=>s.id===shopId)?.currentBalance;
+  await info.attach("P1-finance-wire-db.json",{body:Buffer.from(JSON.stringify({status:response.status(),body:response.request().postDataJSON(),balance},null,2)),contentType:"application/json"});
+  expect(response.status()).toBe(200);
+  expect(Number(balance),"An unrelated name change must never undo the concurrent balance change 100→80").toBe(80);
+});
+
+async function makeShortage(page:Page){
+  const tag=unique(),zone=await addZone(page,tag+" shortage zone");
+  const shopName=tag+" shortage shop", shop=await addShop(page,zone,shopName);
+  const response=await api(page,"POST","/dispatch/shortages",[{
+    zoneId:zone,shopId:shop,driverId:String(data.driverId),
+    productId:String(data.variantId),quantity:2,
+  }]);
+  expect(response.status,JSON.stringify(response)).toBe(201);
+  return {shopName,shop};
+}
+test("P1 shortage: group Edit uses registered transactional backend API",async({page},info)=>{
+  await login(page,info);
+  const group=await makeShortage(page);
+  await page.reload();
+  await page.getByRole("button",{name:/طلبات ونواقص/}).click();
+  const modal=page.getByRole("dialog").first();
+  const card=modal.locator(".rounded-2xl.border.overflow-hidden").filter({hasText:group.shopName}).first();
+  await expect(card).toBeVisible();
+  await card.getByRole("button",{name:"تعديل",exact:true}).click();
+  const pending=page.waitForResponse(r=>new URL(r.url()).pathname==="/dispatch/shortages/group"&&r.request().method()==="PUT");
+  await modal.getByRole("button",{name:/حفظ التعديلات \(/}).click();
+  const response=await pending;
+  await info.attach("P1-shortage-edit-http.json",{body:Buffer.from(JSON.stringify({
+    status:response.status(),payload:response.request().postDataJSON(),server:await response.text(),db:dbProbe("snapshot"),
+  },null,2)),contentType:"application/json"});
+  expect(response.status(),"The visible Edit workflow requires a real registered atomic endpoint").toBe(200);
+});
+
+test("P1 shortage: Delete All must be atomic and actually delete pending rows",async({page},info)=>{
+  await login(page,info);
+  const group=await makeShortage(page);
+  await page.reload();
+  await page.getByRole("button",{name:/طلبات ونواقص/}).click();
+  const modal=page.getByRole("dialog").first();
+  const card=modal.locator(".rounded-2xl.border.overflow-hidden").filter({hasText:group.shopName}).first();
+  await expect(card).toBeVisible();
+  await card.getByRole("button",{name:/حذف الكل/}).click();
+  const confirmation=page.getByRole("dialog").last();
+  await expect(confirmation).toBeVisible();
+  const pending=page.waitForResponse(r=>new URL(r.url()).pathname==="/dispatch/shortages/group"&&r.request().method()==="PUT");
+  await confirmation.getByRole("button",{name:"تأكيد",exact:true}).click();
+  const result=await pending;
+  const raw=await api(page,"GET","/dispatch/shortages");
+  await info.attach("P1-shortage-delete-all.json",{body:Buffer.from(JSON.stringify({
+    status:result.status(),payload:result.request().postDataJSON(),pending:raw.body,
+  },null,2)),contentType:"application/json"});
+  expect(result.status(),"Delete All must be a real single atomic server command").toBe(200);
+  expect(raw.body.some((s:any)=>String(s.shopId)===group.shop)).toBe(false);
+});
+
+test.afterEach(async({page},info)=>{
+  // All failures stay red; preserve actual screenshots even when an assertion
+  // throws before the explicit per-test witness can run.
+  try{await page.screenshot({path:info.outputPath("final-"+info.project.name+".png"),fullPage:true,timeout:8_000})}
+  catch(error){await info.attach("screenshot-unavailable",{body:Buffer.from(String(error)),contentType:"text/plain"})}
+});
