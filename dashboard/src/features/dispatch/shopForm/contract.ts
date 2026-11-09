@@ -125,3 +125,20 @@ export function createdShopVerified(rows: unknown, id: string, submitted: ShopCr
     actual?.initialDebt === submitted.initialDebt &&
     actual?.maxDebtLimit === submitted.maxDebtLimit;
 }
+
+/** Resolve a lost create response only using a pre-POST authorized ID snapshot.
+ * No id or multiple matching NEW ids means outcome is still uncertain.
+ */
+export function findCreatedShopAfterUnknownWrite(
+  rows: unknown, knownIds: readonly string[], submitted: ShopCreatePayload,
+): string | null {
+  if (!Array.isArray(rows)) return null;
+  const existing = new Set(knownIds);
+  const candidates = rows.filter(row => {
+    if (!row || typeof row !== "object") return false;
+    const id = String((row as { id?: unknown }).id ?? "");
+    return /^\d+$/.test(id) && !existing.has(id) &&
+      createdShopVerified(rows, id, submitted);
+  }).map(row => String((row as { id: unknown }).id));
+  return candidates.length === 1 ? candidates[0] : null;
+}
