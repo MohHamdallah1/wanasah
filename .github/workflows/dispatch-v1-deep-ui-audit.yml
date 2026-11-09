@@ -1,16 +1,86 @@
-name: Dispatch V1 #838 isolated real UI audit
+name: Dispatch V1 #838 isolated real Dashboard browser audit
+
 on:
   pull_request:
     branches: [main]
     paths:
-      - '.github/workflows/dispatch-v1-deep-ui-audit.yml'
-      - 'dashboard/e2e/dispatch-v1-deep-audit.*'
-      - 'wa_backend/tests/dispatch_v1_browser_audit_fixture.py'
+      - ".github/workflows/dispatch-v1-deep-ui-audit.yml"
+      - "dashboard/e2e/dispatch-v1-deep-audit.config.ts"
+      - "dashboard/e2e/dispatch-v1-deep-audit.spec.ts"
+      - "dashboard/src/test/dispatch-v1-deep-*.test.tsx"
+      - "wa_backend/tests/dispatch_v1_browser_audit_fixture.py"
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   real-dashboard:
+    name: PG16 real FastAPI Chromium AR EN 1440 700 390
     runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Dispatch838StrictPG16ChromiumTestFixtureOnly2026
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://dispatch_838_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_WIRE_GATE: "1"
+      WANASAH_DISPATCH_V1_DEEP_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://dispatch_838_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_DISPATCH_P0_WIRE_STATE: /tmp/dispatch-v1-deep-state.json
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+      PYTHON: python
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify EXACT immutable base and test-only ownership
+        shell: bash
+        run: |
+          base=c71121dabdd7566806f29a768d4fb0af4b5ee78e
+          git cat-file -e "$base^{commit}"
+          git diff --check "$base" HEAD
+          BASE="$base" python - <<'PY'
+          import subprocess, os
+          base = os.environ["BASE"]
+          files = set(subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines())
+          allowed = {
+            ".github/workflows/dispatch-v1-deep-ui-audit.yml",
+            "dashboard/e2e/dispatch-v1-deep-audit.config.ts",
+            "dashboard/e2e/dispatch-v1-deep-audit.spec.ts",
+            "dashboard/src/test/dispatch-v1-deep-ui.test.tsx",
+            "wa_backend/tests/dispatch_v1_browser_audit_fixture.py",
+          }
+          assert files <= allowed, f"Forbidden code change(s): {sorted(files-allowed)}"
+          assert files, "Refuse empty test-only PR"
+          print("DISPATCH_838_OWNER_SCOPE=PASS",sorted(files))
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install backend dependencies and compile test fixture
+        run: |
+          python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+          python -m py_compile wa_backend/tests/dispatch_v1_browser_audit_fixture.py
+      - name: Disposable localhost PostgreSQL 16
+        run: |
+          docker run -d --name dispatch-838-postgres \
+            -e POSTGRES_USER=dispatch_838_admin \
+            -e POSTGRES_DB=wanasah_no_lot_contract_test \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-838-postgres pg_isready -U dispatch_838_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-838-postgres
+          exit 1
