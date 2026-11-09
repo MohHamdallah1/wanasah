@@ -8,9 +8,9 @@ import { ShopOrderScopeNotice } from "@/features/dispatch/shopOrder/ShopOrderSco
 import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import {
   buildShopOrderChanges, canReorderShop, hasShopOrderChanges, moveShopBeforeInSelectedZone,
-  moveShopInSelectedZone, verifyShopOrderReadback,
+  moveShopInSelectedZone, verifyShopOrderReadback, canReconcileUncertainShopOrder,
 } from "@/features/dispatch/shopOrder/scope";
-import { commitShopOrder, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
+import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
@@ -274,6 +274,130 @@ describe("Shop order confirm feedback", () => {
     expect(send).toHaveBeenCalledOnce();
     expect(result.current.needsReconciliation).toBe(true);
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+
+  it.each(["ar", "en"] as const)(
+    "PUT 200 plus GET 401 in %s blocks replay on a concurrent untouched row",
+    async language => {
+      await setAppLanguage(language);
+      const first = moveShopInSelectedZone(snapshot(), "A", "A3", 1);
+      const revised = moveShopInSelectedZone(first, "A", "A3", 0);
+      const thirdParty = first.map(s => s.id === "A1" ? { ...s, sequence: 3 } : s);
+      const send = vi.fn().mockResolvedValue({});
+      const read = vi.fn()
+        .mockRejectedValueOnce(Object.assign(new Error("unauthorized readback"), { status: 401 }))
+        .mockResolvedValue(thirdParty);
+      const props = {
+        baseline: { current: snapshot() }, zoneId: "A", language,
+        saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+      };
+      const { result, rerender } = renderHook(
+        ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+        { initialProps: { draft: first } },
+      );
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      expect(result.current.needsReconciliation).toBe(true);
+      expect(toast.success).not.toHaveBeenCalled();
+      rerender({ draft: revised });
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      expect(send).toHaveBeenCalledOnce(); // no stale-diff resend or duplicate rank
+      expect(props.setShops).not.toHaveBeenCalled();
+      expect(props.baseline.current).toEqual(snapshot());
+      expect(result.current.needsReconciliation).toBe(true);
+      expect(toast.error).toHaveBeenLastCalledWith(shopOrderText(language, "reconcileConflict"));
+      const attempted = {
+        zoneId: "A", before: snapshot().filter(s => s.zoneId === "A"),
+        intended: first.filter(s => s.zoneId === "A"),
+      };
+      expect(canReconcileUncertainShopOrder(attempted, thirdParty, "A")).toBe(false);
+      expect(canReconcileUncertainShopOrder(attempted, first, "B")).toBe(false);
+      await act(async () => { expect(await result.current.save()).toBe(false); });
+      expect(send).toHaveBeenCalledOnce(); // repeated explicit Save stays fail-closed
+    },
+  );
+
+  it("unknown PUT timeout first reconciles a definitely unchanged server before a revised retry", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    const send = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("lost PUT response"), { name: "AbortError" }))
+      .mockResolvedValueOnce({});
+    const read = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(revised);
+    const props = {
+      baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result, rerender } = renderHook(
+      ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+      { initialProps: { draft: first } },
+    );
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    rerender({ draft: revised });
+    await act(async () => { expect(await result.current.save()).toBe(true); });
+    expect(read).toHaveBeenCalledTimes(2); // pre-retry reconciliation + verification
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].map((x: { id: string }) => x.id)).toEqual(["A2", "A3"]);
+    expect(new Set(revised.filter(s => s.zoneId === "A" && !s.archived).map(s => s.sequence)).size).toBe(3);
+    expect(toast.success).toHaveBeenCalledOnce();
+  });
+
+  it.each([403, 409])("definitely rejected PUT %s does not create an uncertain pending command", async status => {
+    const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockRejectedValue(Object.assign(new Error("denied"), { status }));
+    const read = vi.fn();
+    const props = {
+      draft, baseline: { current: snapshot() }, zoneId: "A", language: "ar",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(false);
+    expect(read).not.toHaveBeenCalled();
+    expect(props.setDirty).not.toHaveBeenCalledWith(false);
+    expect(toast.success).not.toHaveBeenCalled();
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(send).toHaveBeenCalledTimes(2); // rejected commands need no old-write reconciliation
+  });
+
+  it("PUT 200 plus failed GET keeps the command pending after cancel GET fails", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockRejectedValueOnce(new Error("read timeout"))
+      .mockRejectedValueOnce(Object.assign(new Error("access revoked"), { status: 403 }));
+    const props = {
+      draft: first, baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    await act(async () => { expect(await result.current.cancel()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    expect(props.setShops).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("a mismatched complete readback is uncertain; nothing can confirm only changed-row ranks", async () => {
+    const before = snapshot();
+    const intended = moveShopInSelectedZone(before, "A", "A3", 1);
+    const otherOperator = intended.map(s => s.id === "A1" ? { ...s, sequence: 3 } : s);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockResolvedValue(otherOperator);
+    await expect(commitShopOrder({
+      original: before, draft: intended, selectedZoneId: "A", send, read,
+    })).rejects.toBeInstanceOf(ShopOrderUncertainError);
+    expect(send).toHaveBeenCalledOnce();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(canReconcileUncertainShopOrder({
+      zoneId: "A", before, intended,
+    }, otherOperator, "A")).toBe(false);
   });
 
   it("hook confirms saved order ONLY on matching authorized readback and permits clean cancel", async () => {
