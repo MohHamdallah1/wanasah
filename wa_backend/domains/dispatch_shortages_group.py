@@ -99,7 +99,9 @@ async def _valid_driver_ids(db: AsyncSession, company_id: int, driver_ids: set[i
             Driver,
             has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id),
         ).where(Driver.company_id == company_id, Driver.id.in_(sorted(driver_ids)))
-        .order_by(Driver.id.asc()).with_for_update()
+        # Fail closed rather than wait while a concurrent writer holds zone/Visit
+        # locks in the opposite legacy POST path: no driver↔zone deadlock.
+        .order_by(Driver.id.asc()).with_for_update(nowait=True)
     )).all()
     valid = {int(driver.id) for driver, has_identity in rows if driver.is_active and has_identity}
     if valid != driver_ids:
@@ -113,7 +115,7 @@ async def _auto_driver_id(db: AsyncSession, company_id: int, zone_id: int):
             DispatchRoute.zone_id == zone_id,
             DispatchRoute.status == "active",
             DispatchRoute.driver_id.is_not(None),
-        ).order_by(DispatchRoute.id.asc()).with_for_update()
+        ).order_by(DispatchRoute.id.asc()).with_for_update(nowait=True)
     )).scalars().all()
     ids = {int(route.driver_id) for route in routes}
     if len(ids) > 1:
@@ -130,7 +132,7 @@ async def _auto_driver_id(db: AsyncSession, company_id: int, zone_id: int):
             has_canonical_field_identity(
                 company_id=company_id, legacy_driver_id=Driver.id,
             ),
-        ).with_for_update(read=True)
+        ).with_for_update(read=True, nowait=True)
     )).scalar_one_or_none()
     return driver_id if valid is not None else None
 
@@ -215,7 +217,9 @@ async def replace_shortage_group(
 
     zone = (await db.execute(
         select(Zone).where(Zone.company_id == company_id, Zone.id == zone_id)
-        .order_by(Zone.id.asc()).with_for_update()
+        # Another transaction may already own this zone while waiting on a
+        # driver locked earlier here; NOWAIT converts the cycle to safe 409.
+        .order_by(Zone.id.asc()).with_for_update(nowait=True)
     )).scalar_one_or_none()
     if zone is None or not zone.is_active:
         _reject(404, "SHORTAGE_ZONE_UNAVAILABLE", "المنطقة غير موجودة أو مؤرشفة.")
