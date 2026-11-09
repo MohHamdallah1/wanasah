@@ -13,10 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 9c8f1ff8825d5069710f9f8e96c1af09811b03df
+          ref: c9ecdf90e357fa99c90c2bd6bf0093a9e1e7746b
           persist-credentials: false
       - name: Prove isolated candidate HEAD
-        run: test "$(git rev-parse HEAD)" = "9c8f1ff8825d5069710f9f8e96c1af09811b03df"
+        run: test "$(git rev-parse HEAD)" = "c9ecdf90e357fa99c90c2bd6bf0093a9e1e7746b"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -62,7 +62,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: dispatch-843-dedicated-vitest-9c8f1ff
+          name: dispatch-843-dedicated-vitest-c9ecdf9
           path: dashboard/node_modules/.cache/dispatch-843-junit.xml
           if-no-files-found: warn
           retention-days: 3
