@@ -13,6 +13,10 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.dispatch_shop_finance_fence import (
+    ShopFinancialEditConflict,
+    require_metadata_only_shop_finance,
+)
 from domains.vehicles import (
     VehicleError,
     resolve_vehicle_custody_location_id,
@@ -5244,22 +5248,36 @@ async def edit_shop_details(
         if payload.taxJurisdictionId is not None:
             shop.tax_jurisdiction_id = int(payload.taxJurisdictionId)
 
-        if payload.max_debt_limit is not None:
-            shop.max_debt_limit = payload.max_debt_limit
-
-        if payload.initial_debt is not None:
-            new_balance = payload.initial_debt
-            old_balance = shop.current_balance or Decimal("0.000")
-            if new_balance != old_balance:
-                shop.current_balance = new_balance
-                db.add(SystemAuditLog(
-                    company_id=company_id,
-                    admin_id=legacy_actor.id,
-                    target_id=f"Shop_{shop.id}",
-                    action_type="SHOP_BALANCE_MANUAL_EDIT",
-                    old_value=str(old_balance),
-                    new_value=f"الرصيد الجديد: {new_balance} (تعديل يدوي من لوحة التحكم)",
-                ))
+        try:
+            require_metadata_only_shop_finance(
+                current_balance=shop.current_balance,
+                current_credit_cap=shop.max_debt_limit,
+                submitted_balance=payload.initial_debt,
+                submitted_credit_cap=payload.max_debt_limit,
+                includes_metadata=any(
+                    value is not None
+                    for value in (
+                        payload.name, payload.owner, payload.phone, payload.mapLink,
+                        payload.zoneId, payload.taxJurisdictionId,
+                    )
+                ),
+            )
+        except ShopFinancialEditConflict as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "SHOP_FINANCIAL_STALE_FORM" if exc.stale
+                            else "SHOP_FINANCIAL_ACTION_REQUIRES_AUTHORITY",
+                    "message": (
+                        "تغير الرصيد أو سقف المديونية. حدّث الصفحة وأعد إدخال "
+                        "تعديل بيانات المحل دون قيم مالية قديمة."
+                        if exc.stale else
+                        "تعديل الرصيد أو سقف المديونية يحتاج إجراء مالياً مخولاً "
+                        "ومستقلاً؛ لم يتم تغيير أي قيمة."
+                    ),
+                    "context": {"fields": list(exc.fields)},
+                },
+            ) from exc
 
         await db.commit()
         return {"message": "تم التعديل بنجاح"}
