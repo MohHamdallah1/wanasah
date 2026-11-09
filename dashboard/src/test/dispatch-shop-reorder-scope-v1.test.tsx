@@ -13,7 +13,10 @@ import {
 } from "@/features/dispatch/shopOrder/scope";
 import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
-import { loadShopOrderRecovery, loadShopOrderRecoveryRecord, storeShopOrderRecovery, useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
+import {
+  clearShopOrderRecoveryIfAttempt, loadShopOrderRecovery, loadShopOrderRecoveryRecord,
+  stageShopOrderRecoveryDraft, storeShopOrderRecovery, updateShopOrderRecoveryIfAttempt, useShopOrderDraft,
+} from "@/features/dispatch/shopOrder/useShopOrderDraft";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -745,6 +748,123 @@ describe("Shop order confirm feedback", () => {
     expect(setShops).toHaveBeenCalledWith(revised);
     expect(loadShopOrderRecoveryRecord("5:20")?.latestDraft).toEqual(onlyRows(revised));
     expect(loadShopOrderRecoveryRecord("5:20")?.command.intended).toEqual(onlyRows(first));
+  });
+
+  it.each(["ar", "en"] as const)(
+    "late prior-login GET in %s cannot recreate cleared recovery or overwrite a newer attempt",
+    async language => {
+      await setAppLanguage(language);
+      const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+      const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+      const scope = "71:32";
+      let rejectOldRead: ((error: unknown) => void) | undefined;
+      const oldRead = vi.fn().mockImplementation(() => new Promise<Shop[]>((_resolve, reject) => {
+        rejectOldRead = reject;
+      }));
+      const firstSend = vi.fn().mockResolvedValue({});
+      const oldProps = {
+        draft: first, baseline: { current: snapshot() }, zoneId: "A", language,
+        recoveryScope: scope, setZoneId: vi.fn(), saving: false,
+        setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+        setEditMode: vi.fn(), clearSelection: vi.fn(), send: firstSend, read: oldRead,
+      };
+      const oldSession = renderHook(() => useShopOrderCommit(oldProps));
+      let oldSave: Promise<boolean> | undefined;
+      await act(async () => {
+        oldSave = oldSession.result.current.save();
+        await Promise.resolve();
+      });
+      await waitFor(() => expect(oldRead).toHaveBeenCalledOnce());
+      const originalRecord = loadShopOrderRecoveryRecord(scope);
+      expect(originalRecord?.command.outcome).toBe("put_confirmed");
+      expect(originalRecord?.command.attemptId).toBeTruthy();
+      expect(firstSend).toHaveBeenCalledOnce();
+
+      // The original fetch is STILL pending when the old DispatchSession unmounts.
+      oldSession.unmount();
+      const freshRead = vi.fn().mockResolvedValue(first);
+      const replacementSend = vi.fn().mockRejectedValue(Object.assign(
+        new Error("server response unknown"), { status: 500, requestId: "req-NEW-attempt" },
+      ));
+      const newProps = {
+        ...oldProps, draft: snapshot(), setZoneId: vi.fn(), setShops: vi.fn(),
+        setDirty: vi.fn(), setEditMode: vi.fn(), setSaving: vi.fn(),
+        read: freshRead, send: replacementSend,
+      };
+      const active = renderHook(
+        ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...newProps, draft }),
+        { initialProps: { draft: snapshot() } },
+      );
+      await waitFor(() => expect(newProps.setShops).toHaveBeenCalledWith(first));
+      expect(active.result.current.needsReconciliation).toBe(true);
+      expect(replacementSend).not.toHaveBeenCalled();
+
+      // New session resolves the confirmed earlier write. In one case it
+      // clears old recovery; in the other it creates a NEW pending command.
+      const replaceWithNewCommand = language === "en";
+      active.rerender({ draft: replaceWithNewCommand ? revised : first });
+      await act(async () => {
+        expect(await active.result.current.save()).toBe(!replaceWithNewCommand);
+      });
+      const latestBeforeOldResponse = loadShopOrderRecoveryRecord(scope);
+      if (replaceWithNewCommand) {
+        expect(replacementSend).toHaveBeenCalledOnce();
+        expect(latestBeforeOldResponse?.command.outcome).toBe("transport_unknown");
+        expect(latestBeforeOldResponse?.command.attemptId)
+          .not.toBe(originalRecord?.command.attemptId);
+        expect(latestBeforeOldResponse?.latestDraft.map(x => x.sequence))
+          .toEqual(revised.filter(s => s.zoneId === "A").map(s => s.sequence));
+      } else {
+        expect(latestBeforeOldResponse).toBeNull();
+        expect(replacementSend).not.toHaveBeenCalled();
+      }
+      const newSessionShopsCount = newProps.setShops.mock.calls.length;
+      const newSessionDirtyCount = newProps.setDirty.mock.calls.length;
+
+      // useAuthFetch rejects the obsolete 401 AFTER new session's work.
+      await act(async () => {
+        rejectOldRead?.(Object.assign(new Error("obsolete old session GET"), {
+          status: 401, code: "SESSION_EXPIRED", requestId: "req-OLD-attempt",
+        }));
+        expect(await oldSave).toBe(false);
+      });
+      expect(loadShopOrderRecoveryRecord(scope)).toEqual(latestBeforeOldResponse);
+      expect(newProps.setShops).toHaveBeenCalledTimes(newSessionShopsCount);
+      expect(newProps.setDirty).toHaveBeenCalledTimes(newSessionDirtyCount);
+      expect(firstSend).toHaveBeenCalledOnce(); // no auto-replay of old PUT
+      expect(toast.success).not.toHaveBeenCalled();
+    },
+  );
+
+  it("attempt-owned metadata updates preserve newer visual intent and never revive or erase a replaced command", () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    const rows = (shops: Shop[]) => shops.filter(s => s.zoneId === "A")
+      .map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived }));
+    const scope = "71:33";
+    const attempt = {
+      attemptId: "prior-generation", zoneId: "A", outcome: "transport_unknown" as const,
+      before: rows(snapshot()), intended: rows(first),
+    };
+    storeShopOrderRecovery(scope, attempt);
+    stageShopOrderRecoveryDraft(scope, revised, attempt.attemptId);
+    expect(updateShopOrderRecoveryIfAttempt(scope, {
+      ...attempt, outcome: "put_confirmed", requestId: "req-prior",
+    })).toBe(true);
+    expect(loadShopOrderRecoveryRecord(scope)?.latestDraft).toEqual(rows(revised));
+    expect(loadShopOrderRecoveryRecord(scope)?.command.outcome).toBe("put_confirmed");
+    expect(updateShopOrderRecoveryIfAttempt(scope, attempt)).toBe(false);
+    expect(loadShopOrderRecoveryRecord(scope)?.command.outcome).toBe("put_confirmed");
+    expect(clearShopOrderRecoveryIfAttempt(scope, "wrong-generation")).toBe(false);
+    expect(clearShopOrderRecoveryIfAttempt(scope, attempt.attemptId)).toBe(true);
+    expect(updateShopOrderRecoveryIfAttempt(scope, attempt)).toBe(false);
+    expect(loadShopOrderRecoveryRecord(scope)).toBeNull();
+
+    storeShopOrderRecovery(scope, { ...attempt, attemptId: "new-generation", intended: rows(revised) });
+    expect(updateShopOrderRecoveryIfAttempt(scope, attempt)).toBe(false);
+    expect(clearShopOrderRecoveryIfAttempt(scope, attempt.attemptId)).toBe(false);
+    expect(loadShopOrderRecoveryRecord(scope)?.command.attemptId).toBe("new-generation");
+    expect(loadShopOrderRecoveryRecord(scope)?.latestDraft).toEqual(rows(revised));
   });
 
   it("stores only selected-zone identifiers, ranks and archive flags, with no customer or authentication data", () => {
