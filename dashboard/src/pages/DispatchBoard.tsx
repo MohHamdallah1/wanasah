@@ -1679,7 +1679,9 @@ function DispatchSession() {
       <ShopFormModal isOpen={isShopModalOpen} onClose={() => {
         if (canCloseShopForm(isSaving, shopNeedsVerification)) setIsShopModalOpen(false);
       }}
-        editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones}
+        editingShopId={editingShopId} shopForm={shopForm}
+        onShopFormChange={next => { if (!isSaving && !shopNeedsVerification) setShopForm(next); }}
+        zones={zones}
         onSave={handleSaveShop} onVerify={verifyShopSave} language={i18n.language}
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
