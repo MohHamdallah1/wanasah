@@ -45,17 +45,34 @@ export function useShopOrderCommit({
   const inFlight = useRef(false);
   const restoredScope = useRef<string | null>(null);
   const [pendingCommand, setPendingCommand] = useState<UncertainShopOrderCommand | null>(null);
-  const needsReconciliation = pendingCommand !== null;
+  // While a prior authorized GET cannot restore the draft, no new mutation
+  // may overwrite the durable recovery command, even after login.
+  const [recoveryBlocked, setRecoveryBlocked] = useState(false);
+  const needsReconciliation = pendingCommand !== null || recoveryBlocked;
 
   const reset = useCallback((latest: Shop[]) => {
     setShops(latest);
     baseline.current = latest;
     setPendingCommand(null);
+    setRecoveryBlocked(false);
     if (recoveryScope) clearShopOrderRecovery(recoveryScope);
     setDirty(false);
     setEditMode(false);
     clearSelection();
   }, [baseline, setShops, setDirty, setEditMode, clearSelection, recoveryScope]);
+
+  const applyRecoveredDraft = useCallback((fresh: Shop[], pending: UncertainShopOrderCommand): boolean => {
+    const restored = restoreShopOrderDraft(fresh, pending);
+    if (!restored) return false;
+    baseline.current = fresh;
+    setZoneId?.(pending.zoneId);
+    setShops(restored);
+    setPendingCommand(pending);
+    setRecoveryBlocked(false);
+    setDirty(true);
+    setEditMode(true);
+    return true;
+  }, [baseline, setZoneId, setShops, setDirty, setEditMode]);
 
   useEffect(() => {
     // A prior GET 401 may have caused forceLogout/unmount. Restore intent
@@ -65,22 +82,19 @@ export function useShopOrderCommit({
     restoredScope.current = recoveryScope;
     const pending = loadShopOrderRecovery(recoveryScope);
     if (!pending) return;
+    // Install the guard BEFORE the asynchronous GET. On a 401, timeout, or
+    // membership conflict it must remain until an authorized restoration.
+    setPendingCommand(pending);
+    setRecoveryBlocked(true);
     let active = true;
     let settled = false;
     setSaving(true);
     void read().then(fresh => {
       if (!active) return;
-      const restored = Array.isArray(fresh) ? restoreShopOrderDraft(fresh, pending) : null;
-      if (!restored) {
+      if (!Array.isArray(fresh) || !applyRecoveredDraft(fresh, pending)) {
         toast.error(shopOrderText(language, "reconcileConflict"));
-        return; // Keep durable draft; never apply an unauthorized/stale snapshot.
+        return; // Keep pending guard AND stored draft on uncertain membership.
       }
-      baseline.current = fresh;
-      setZoneId(pending.zoneId);
-      setShops(restored);
-      setPendingCommand(pending);
-      setDirty(true);
-      setEditMode(true);
       toast.info(shopOrderText(language, "recoveredDraft"));
     }).catch(() => {
       if (active) toast.error(shopOrderText(language, "recoveryFailed"));
@@ -97,8 +111,8 @@ export function useShopOrderCommit({
         setSaving(false);
       }
     };
-  }, [recoveryScope, setZoneId, draft.length, baseline, read, language,
-    setSaving, setShops, setDirty, setEditMode]);
+  }, [recoveryScope, setZoneId, draft.length, read, language,
+    setSaving, applyRecoveredDraft]);
 
   const save = useCallback(async (): Promise<boolean> => {
     if (saving || inFlight.current) return false;
@@ -109,6 +123,17 @@ export function useShopOrderCommit({
     inFlight.current = true;
     setSaving(true);
     try {
+      if (recoveryBlocked) {
+        // Reauth recovery failed earlier. A click may reattempt the authorized
+        // GET and restore the draft, but NEVER send a PUT in the same click.
+        if (!pendingCommand) throw new ShopOrderReconciliationConflictError();
+        const fresh = await read();
+        if (!Array.isArray(fresh) || !applyRecoveredDraft(fresh, pendingCommand)) {
+          throw new ShopOrderReconciliationConflictError();
+        }
+        toast.info(shopOrderText(language, "recoveredDraft"));
+        return false; // require user to inspect and explicitly save again
+      }
       let reconciled: Shop[] | null = null;
       if (pendingCommand) {
         // A transport timeout can hide an IN-FLIGHT server transaction. Even
@@ -181,10 +206,15 @@ export function useShopOrderCommit({
       setSaving(false);
     }
   }, [saving, setSaving, baseline, draft, zoneId, send, read, pendingCommand,
-    reset, language, setDirty, setEditMode, clearSelection, recoveryScope]);
+    reset, language, setDirty, setEditMode, clearSelection, recoveryScope,
+    recoveryBlocked, applyRecoveredDraft]);
 
   const cancel = useCallback(async (): Promise<boolean> => {
     if (saving || inFlight.current) return false;
+    if (recoveryBlocked) {
+      toast.error(shopOrderText(language, "recoveryFailed"));
+      return false; // missing authorized snapshot must not discard recovery
+    }
     if (pendingCommand?.outcome === "transport_unknown") {
       toast.error(shopOrderText(language, "unresolvedTransport"));
       return false; // A later server commit could still overwrite this GET.
@@ -201,7 +231,7 @@ export function useShopOrderCommit({
       inFlight.current = false;
       setSaving(false);
     }
-  }, [saving, setSaving, read, reset, language, pendingCommand]);
+  }, [saving, setSaving, read, reset, language, pendingCommand, recoveryBlocked]);
 
   return { save, cancel, needsReconciliation };
 }
