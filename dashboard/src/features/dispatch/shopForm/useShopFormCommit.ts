@@ -62,15 +62,24 @@ export function useShopFormCommit({
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; generation.current++; };
+    const reference = generation;
+    return () => { mounted.current = false; reference.current++; };
   }, []);
 
+  // The pending write must survive language and finance-visibility changes.
+  // Reset only when the form identity or login session actually changes.
   useEffect(() => {
-    const token = ++generation.current;
+    generation.current++;
     setFinance(null);
     setFeedback(null);
     setDuplicate(null);
     setPending(null);
+  }, [open, editId, session]);
+
+  useEffect(() => {
+    const token = generation.current;
+    let active = true;
+    setFinance(null);
     if (!open || !editId || !canViewFinances) {
       setFinanceLoading(false);
       return;
@@ -79,17 +88,18 @@ export function useShopFormCommit({
     setFinanceLoading(true);
     void fetch("/dispatch/shops", { cache: "no-store", signal: controller.signal })
       .then(rows => {
-        if (!current(token)) return;
+        if (!active || !current(token)) return;
         const fresh = financeReadback(rows, editId);
         if (fresh) setFinance(fresh);
         else setFeedback(shopFormText(language, "financeRefreshFailed"));
       }).catch(() => {
-        if (current(token)) setFeedback(shopFormText(language, "financeRefreshFailed"));
+        if (active && current(token)) setFeedback(shopFormText(language, "financeRefreshFailed"));
       }).finally(() => {
-        if (current(token)) setFinanceLoading(false);
+        if (active && current(token)) setFinanceLoading(false);
       });
-    return () => { controller.abort(); };
-  }, [open, editId, canViewFinances, session, fetch, current, language]);
+    return () => { active = false; controller.abort(); };
+    // Locale changes do not invalidate the pending request or trigger another GET.
+  }, [open, editId, canViewFinances, session, fetch, current]);
 
   const refreshAfterConflict = useCallback(async (token: number, id: string): Promise<void> => {
     // A rejected 409 is NOT success; refresh current finance without replacing
@@ -196,6 +206,12 @@ export function useShopFormCommit({
         setFeedback(message);
         toast.error(message);
         await refreshAfterConflict(token, editId);
+      } else if (status === 409 || status === 400 || status === 404 || status === 422) {
+        // Definitive rejection: do not strand the form behind an unknown-write guard.
+        const key = status === 400 || status === 422 ? "invalidMetadata" : "conflict";
+        const message = withSafeReference(shopFormText(language, key), apiErrorRequestId(error), language);
+        setFeedback(message);
+        toast.error(message);
       } else if (status === 401 || status === 403) {
         setFinance(null);
         const message = withSafeReference(shopFormText(language, "denied"), apiErrorRequestId(error), language);
