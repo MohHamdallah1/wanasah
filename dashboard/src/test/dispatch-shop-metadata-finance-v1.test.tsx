@@ -170,7 +170,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
   });
 
   it.each(["ar", "en"] as const)(
-    "a lost POST response in %s reuses the single new authorized Shop identity; no second POST",
+    "a lost POST response in %s remains unknown even when exactly one matching Shop appears; no false success",
     async language => {
       await setAppLanguage(language);
       let reads = 0;
@@ -185,13 +185,37 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
       expect(hooked.result.current.needsVerification).toBe(true);
       expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
       expect(props.onVerified).not.toHaveBeenCalled();
-      await act(async () => { expect(await hooked.result.current.verify()).toBe(true); });
-      expect(props.onVerified).toHaveBeenCalledWith(expect.any(Array), true, "3");
-      expect(toast.success).toHaveBeenCalledOnce();
+      await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+      expect(hooked.result.current.needsVerification).toBe(true);
+      expect(hooked.result.current.feedback).toBe(shopFormText(language, "createUncorrelated"));
+      expect(props.onVerified).not.toHaveBeenCalled();
+      expect(toast.success).not.toHaveBeenCalled();
       expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
       expect(reads).toBe(2);
     },
   );
+
+  it("concurrent identical Shop created by another principal cannot falsely confirm our lost POST", async () => {
+    let reads = 0;
+    const otherPrincipalCreation = wire({
+      id: "88", initialDebt: "5.000", maxDebtLimit: "42.000",
+    });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw fakeError(500, "INTERNAL_SERVER_ERROR", "req-lost");
+      reads++;
+      return reads === 1 ? [] : [otherPrincipalCreation];
+    });
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+    expect(hooked.result.current.needsVerification).toBe(true);
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "createUncorrelated"));
+    expect(props.onVerified).not.toHaveBeenCalled();
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+  });
 
   it("ambiguous lost POST with two new matching Shops fails closed, never claims success or resends", async () => {
     const candidate = wire({ initialDebt: "100.125", maxDebtLimit: "150.500" });
@@ -227,11 +251,12 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     const hooked = renderHook(() => useShopFormCommit(props));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(true);
-    await act(async () => { expect(await hooked.result.current.verify()).toBe(true); });
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
     expect(createdShopVerified([live], "77", postPayload)).toBe(true);
-    expect(props.onVerified).toHaveBeenCalledWith([live], true, "3");
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "createUncorrelated"));
+    expect(props.onVerified).not.toHaveBeenCalled(); // no server operation identity
     expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
-    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it.each(["ar", "en"] as const)(
