@@ -1,4 +1,5 @@
 import type { Shop } from "@/types/dispatch";
+import { apiErrorCode, apiErrorContext, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import {
   buildShopOrderChanges, verifyShopOrderReadback,
   type ShopOrderChange, type ShopOrderWriteOutcome, type UncertainShopOrderCommand,
@@ -43,12 +44,26 @@ const attemptedCommand = (
  * Transport timeout does NOT imply server completion. Only a confirmed PUT
  * response makes a later readback reconciliation safe to use for new writes.
  */
+/** Safe error metadata survives wrapping; never render raw 5xx data. */
 export class ShopOrderUncertainError extends ShopOrderVerificationError {
   readonly command: UncertainShopOrderCommand;
-  constructor(command: UncertainShopOrderCommand) {
+  readonly status?: number;
+  readonly code?: string;
+  readonly context?: Record<string, unknown>;
+  readonly requestId?: string;
+  readonly cause?: unknown;
+  constructor(command: UncertainShopOrderCommand, source?: unknown) {
     super();
     this.name = "ShopOrderUncertainError";
-    this.command = command;
+    this.status = apiErrorStatus(source);
+    this.code = apiErrorCode(source);
+    this.context = apiErrorContext(source);
+    this.requestId = apiErrorRequestId(source);
+    this.cause = source;
+    // Only a short correlation token is safe to persist with the draft.
+    const safeReference = this.requestId && /^[A-Za-z0-9._:-]{1,100}$/.test(this.requestId)
+      ? this.requestId : undefined;
+    this.command = safeReference ? { ...command, requestId: safeReference } : command;
   }
 }
 
@@ -67,14 +82,14 @@ export async function commitShopOrder({
   } catch (error) {
     if (definitelyRejectedBeforeMutation(error)) throw error;
     // A timed-out PUT can STILL be running: never allow a later stale-diff PUT.
-    throw new ShopOrderUncertainError(unknown);
+    throw new ShopOrderUncertainError(unknown, error);
   }
 
   try {
     // Called before GET: logout caused by a failed read must not lose the draft.
     putConfirmed?.(completed);
-  } catch {
-    throw new ShopOrderUncertainError(unknown); // durable completion marker failed
+  } catch (error) {
+    throw new ShopOrderUncertainError(unknown, error); // durable completion marker failed
   }
 
   try {
@@ -83,8 +98,8 @@ export async function commitShopOrder({
       throw new ShopOrderVerificationError();
     }
     return { kind: "confirmed", shops: latest };
-  } catch {
+  } catch (error) {
     // A GET 401/403 cannot undo a PUT that already returned success.
-    throw new ShopOrderUncertainError(completed);
+    throw new ShopOrderUncertainError(completed, error);
   }
 }
