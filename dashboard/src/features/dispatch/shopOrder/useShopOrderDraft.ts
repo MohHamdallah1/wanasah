@@ -43,7 +43,7 @@ export function useShopOrderDraft({ shops, zoneId, baseline, setShops, setDirty,
  * This records a draft, not a queued browser command: no automatic replay.
  */
 const recoveryKey = (scope: string): string => {
-  if (!/^\\d+:\\d+$/.test(scope)) throw new Error("SHOP_ORDER_RECOVERY_SCOPE_REQUIRED");
+  if (!/^\d+:\d+$/.test(scope)) throw new Error("SHOP_ORDER_RECOVERY_SCOPE_REQUIRED");
   return `wanasah:dispatch:shop-order-recovery:v1:${scope}`;
 };
 
