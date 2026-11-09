@@ -12,10 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e66a6e3d8df1dd752268264950a0f84763342d7e
+          ref: 248b102f7b1f986b4d21acbeae0112b247ba11c7
           persist-credentials: false
       - name: Assert exact candidate HEAD
-        run: test "$(git rev-parse HEAD)" = "e66a6e3d8df1dd752268264950a0f84763342d7e"
+        run: test "$(git rev-parse HEAD)" = "248b102f7b1f986b4d21acbeae0112b247ba11c7"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -77,10 +77,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: e66a6e3d8df1dd752268264950a0f84763342d7e
+          ref: 248b102f7b1f986b4d21acbeae0112b247ba11c7
           persist-credentials: false
       - name: Assert exact candidate HEAD
-        run: test "$(git rev-parse HEAD)" = "e66a6e3d8df1dd752268264950a0f84763342d7e"
+        run: test "$(git rev-parse HEAD)" = "248b102f7b1f986b4d21acbeae0112b247ba11c7"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
