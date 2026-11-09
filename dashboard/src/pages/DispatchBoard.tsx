@@ -198,7 +198,7 @@ function DispatchSession() {
   const { isCompanyOwner, data: discoveryAccess } = useInventoryAccess();
   // Match existing /dispatch/shops authorized read authority; no new finance grant.
   const canReadShopFinances = isCompanyOwner ||
-    Boolean(discoveryAccess?.any_permissions.includes("dispatch.read"));
+    Boolean(discoveryAccess?.any_permissions?.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   useEffect(() => {
     if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
