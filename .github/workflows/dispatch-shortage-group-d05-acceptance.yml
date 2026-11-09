@@ -175,7 +175,7 @@ jobs:
               else:
                   passed += 1
           print(f"PG16_CASES={len(cases)} PASS={passed} FAIL={failed} ERROR={errors} SKIP={skipped}")
-          assert len(cases) >= 19, "Expected all real group tests and existing physical safety cases"
+          assert len(cases) >= 21, "Expected all real group tests and existing physical safety cases"
           assert skipped == 0, "A skip is UNPROVEN, not an accepted PG16 PASS"
           assert failed == errors == 0, "Group D05 and preserved physical safety must PASS"
           PY
