@@ -3,9 +3,11 @@ import { toast } from "sonner";
 import type { Shop } from "@/types/dispatch";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { shopOrderText } from "./messages";
-import { commitShopOrder, ShopOrderVerificationError } from "./persist";
-import type { ShopOrderChange } from "./scope";
-import { sameSelectedZoneMembership, sameSelectedZoneState } from "./scope";
+import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "./persist";
+import {
+  canReconcileUncertainShopOrder, hasShopOrderChanges, sameSelectedZoneState,
+  type ShopOrderChange, type UncertainShopOrderCommand,
+} from "./scope";
 
 interface Params {
   draft: Shop[];
@@ -22,17 +24,23 @@ interface Params {
   read: () => Promise<Shop[]>;
 }
 
+class ShopOrderReconciliationConflictError extends Error {
+  constructor() { super("SHOP_ORDER_CONCURRENT_CHANGE"); this.name = "ShopOrderReconciliationConflictError"; }
+}
+
 /** One ordering workflow UI coordinator; data diff and transport remain separate. */
 export function useShopOrderCommit({
   draft, baseline, zoneId, language, saving, setSaving, setShops,
   setDirty, setEditMode, clearSelection, send, read,
 }: Params) {
   const inFlight = useRef(false);
-  const [needsReconciliation, setNeedsReconciliation] = useState(false);
+  const [pendingCommand, setPendingCommand] = useState<UncertainShopOrderCommand | null>(null);
+  const needsReconciliation = pendingCommand !== null;
+
   const reset = useCallback((latest: Shop[]) => {
     setShops(latest);
     baseline.current = latest;
-    setNeedsReconciliation(false);
+    setPendingCommand(null);
     setDirty(false);
     setEditMode(false);
     clearSelection();
@@ -43,16 +51,22 @@ export function useShopOrderCommit({
     inFlight.current = true;
     setSaving(true);
     try {
-      // An earlier PUT may have committed despite a lost/failed readback.
-      // First reconcile against a fresh authorized snapshot, THEN diff again.
       let reconciled: Shop[] | null = null;
-      if (needsReconciliation) {
+      if (pendingCommand) {
+        // An earlier command might have committed. Never diff against its
+        // pre-write baseline, and never overwrite another operator's order.
         reconciled = await read();
-        if (!sameSelectedZoneMembership(draft, reconciled, zoneId)) {
-          throw new ShopOrderVerificationError();
+        if (!Array.isArray(reconciled) ||
+          !canReconcileUncertainShopOrder(pendingCommand, reconciled, zoneId)) {
+          throw new ShopOrderReconciliationConflictError();
         }
+        // Only the two safe outcomes (all applied / none applied) permit
+        // rebasing the still-intended local draft and one explicit retry.
         baseline.current = reconciled;
+        setPendingCommand(null);
+        setDirty(hasShopOrderChanges(reconciled, draft, zoneId));
       }
+
       const outcome = await commitShopOrder({
         original: baseline.current, draft, selectedZoneId: zoneId, send, read,
       });
@@ -60,9 +74,9 @@ export function useShopOrderCommit({
         reset(outcome.shops);
         toast.success(shopOrderText(language, "saved"));
       } else {
-        // No HTTP call, no success toast for a no-op.
+        // A no-op after reconciliation is verified, not evidence of a new PUT.
         if (reconciled && !sameSelectedZoneState(draft, reconciled, zoneId)) {
-          throw new ShopOrderVerificationError();
+          throw new ShopOrderReconciliationConflictError();
         }
         if (reconciled) reset(reconciled);
         else {
@@ -74,30 +88,38 @@ export function useShopOrderCommit({
       }
       return true;
     } catch (error: unknown) {
-      // Even network/timeout after PUT can mean committed; the next Save
-      // must read current server order before deriving any new delta.
-      setNeedsReconciliation(true);
-      toast.error(error instanceof ShopOrderVerificationError
-        ? shopOrderText(language, "readbackFailed")
-        : apiErrorMessage(error, shopOrderText(language, "saveFailed")));
-      return false; // retain draft as dirty, including ambiguous 200 + GET failure
+      if (error instanceof ShopOrderUncertainError) {
+        // Covers PUT timeout and PUT 200 + failed/unauthorized/mismatched GET.
+        // Keep the exact attempted snapshot until an authorized reconciliation.
+        setPendingCommand(error.command);
+      }
+      // Definitive PUT 403/409 must not be mislabeled as committed or unknown.
+      // A failed recovery GET leaves pendingCommand and the draft untouched.
+      toast.error(error instanceof ShopOrderReconciliationConflictError
+        ? shopOrderText(language, "reconcileConflict")
+        : error instanceof ShopOrderVerificationError
+          ? shopOrderText(language, "readbackFailed")
+          : apiErrorMessage(error, shopOrderText(language, "saveFailed")));
+      return false;
     } finally {
       inFlight.current = false;
       setSaving(false);
     }
   }, [saving, setSaving, baseline, draft, zoneId, send, read,
-    needsReconciliation, reset, language, setDirty, setEditMode, clearSelection]);
+    pendingCommand, reset, language, setDirty, setEditMode, clearSelection]);
 
   const cancel = useCallback(async (): Promise<boolean> => {
-    if (saving) return false;
+    if (saving || inFlight.current) return false;
+    inFlight.current = true;
     setSaving(true);
     try {
-      reset(await read()); // authorized GET, never restore stale local snapshot
+      reset(await read()); // authorized GET; never resurrect stale local snapshot
       return true;
     } catch {
       toast.error(shopOrderText(language, "cancelFailed"));
-      return false;
+      return false; // retain the draft AND its pending uncertain command
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   }, [saving, setSaving, read, reset, language]);
