@@ -12,6 +12,7 @@ import {
 } from "@/features/dispatch/shopOrder/scope";
 import { commitShopOrder, ShopOrderUncertainError, ShopOrderVerificationError } from "@/features/dispatch/shopOrder/persist";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
+import { loadShopOrderRecovery, storeShopOrderRecovery } from "@/features/dispatch/shopOrder/useShopOrderDraft";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 vi.mock("sonner", () => ({ toast }));
@@ -32,6 +33,7 @@ const zoneList = [zone("A"), zone("B")];
 
 beforeEach(async () => {
   toast.success.mockReset(); toast.error.mockReset(); toast.info.mockReset();
+  sessionStorage.clear();
   await setAppLanguage("ar");
 });
 
@@ -115,7 +117,7 @@ describe("Dispatch #843 selected-zone Shop order: immutable scope", () => {
       .rejects.toBeInstanceOf(ShopOrderVerificationError);
   });
 
-  it.each([403, 409, 500])("a rejected HTTP %s retains unsaved state, does not read/announce success", async status => {
+  it.each([403, 409])("a rejected HTTP %s retains unsaved state, does not read/announce success", async status => {
     const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
     const send = vi.fn().mockRejectedValue(Object.assign(new Error("request failed"), { status }));
     const read = vi.fn();
@@ -308,7 +310,7 @@ describe("Shop order confirm feedback", () => {
       expect(result.current.needsReconciliation).toBe(true);
       expect(toast.error).toHaveBeenLastCalledWith(shopOrderText(language, "reconcileConflict"));
       const attempted = {
-        zoneId: "A", before: snapshot().filter(s => s.zoneId === "A"),
+        zoneId: "A", outcome: "put_confirmed" as const, before: snapshot().filter(s => s.zoneId === "A"),
         intended: first.filter(s => s.zoneId === "A"),
       };
       expect(canReconcileUncertainShopOrder(attempted, thirdParty, "A")).toBe(false);
@@ -318,13 +320,13 @@ describe("Shop order confirm feedback", () => {
     },
   );
 
-  it("unknown PUT timeout first reconciles a definitely unchanged server before a revised retry", async () => {
+  it("a timed-out PUT cannot rebase on old GET while the first server transaction may still finish", async () => {
     const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
     const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    let server = snapshot();
     const send = vi.fn()
-      .mockRejectedValueOnce(Object.assign(new Error("lost PUT response"), { name: "AbortError" }))
-      .mockResolvedValueOnce({});
-    const read = vi.fn().mockResolvedValueOnce(snapshot()).mockResolvedValueOnce(revised);
+      .mockRejectedValueOnce(Object.assign(new Error("PUT transport timed out"), { status: 408 }));
+    const read = vi.fn().mockImplementation(async () => server);
     const props = {
       baseline: { current: snapshot() }, zoneId: "A", language: "en",
       saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
@@ -337,12 +339,38 @@ describe("Shop order confirm feedback", () => {
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.needsReconciliation).toBe(true);
     rerender({ draft: revised });
-    await act(async () => { expect(await result.current.save()).toBe(true); });
-    expect(read).toHaveBeenCalledTimes(2); // pre-retry reconciliation + verification
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[1][0].map((x: { id: string }) => x.id)).toEqual(["A2", "A3"]);
-    expect(new Set(revised.filter(s => s.zoneId === "A" && !s.archived).map(s => s.sequence)).size).toBe(3);
-    expect(toast.success).toHaveBeenCalledOnce();
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(read).toHaveBeenCalledOnce(); // old GET is NOT a completion fence
+    expect(send).toHaveBeenCalledOnce();
+    server = first; // the original timed-out PUT finishes *after* the old GET
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    await act(async () => { expect(await result.current.cancel()).toBe(false); });
+    expect(send).toHaveBeenCalledOnce(); // never send a competing partial update
+    expect(result.current.needsReconciliation).toBe(true);
+    expect(props.setShops).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenLastCalledWith(shopOrderText("en", "unresolvedTransport"));
+  });
+
+  it("a PUT 500 lost-response keeps its command UNKNOWN instead of retaining status as a definite rejection", async () => {
+    const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockRejectedValue(Object.assign(new Error("server may have committed"), { status: 500 }));
+    const read = vi.fn().mockResolvedValue(snapshot());
+    const props = {
+      draft, baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    await expect(commitShopOrder({
+      original, draft, selectedZoneId: "A", send, read,
+    })).rejects.toMatchObject({ command: { outcome: "transport_unknown", zoneId: "A" } });
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(send).toHaveBeenCalledTimes(2); // one direct function call + one hook call only
+    expect(read).toHaveBeenCalledOnce();
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it.each([403, 409])("definitely rejected PUT %s does not create an uncertain pending command", async status => {
@@ -396,8 +424,62 @@ describe("Shop order confirm feedback", () => {
     expect(send).toHaveBeenCalledOnce();
     expect(toast.success).not.toHaveBeenCalled();
     expect(canReconcileUncertainShopOrder({
-      zoneId: "A", before, intended,
+      zoneId: "A", outcome: "put_confirmed", before, intended,
     }, otherOperator, "A")).toBe(false);
+  });
+
+  it("PUT 200 + GET 401 preserves a scoped draft across simulated auth logout and restores only after an authorized login GET", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockRejectedValueOnce(Object.assign(new Error("session expired"), { status: 401 }));
+    const originalProps = {
+      draft: first, baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      recoveryScope: "1:22", setZoneId: vi.fn(), saving: false,
+      setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const initial = renderHook(() => useShopOrderCommit(originalProps));
+    await act(async () => { expect(await initial.result.current.save()).toBe(false); });
+    expect(loadShopOrderRecovery("1:22")?.outcome).toBe("put_confirmed");
+    expect(toast.success).not.toHaveBeenCalled();
+    initial.unmount(); // useAuthFetch forceLogout unmounts DispatchSession
+
+    const restoredProps = {
+      ...originalProps, draft: snapshot(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), setZoneId: vi.fn(),
+      read: vi.fn().mockResolvedValue(first),
+    };
+    const restored = renderHook(() => useShopOrderCommit(restoredProps));
+    await waitFor(() => expect(restored.result.current.needsReconciliation).toBe(true));
+    expect(restoredProps.setZoneId).toHaveBeenCalledWith("A");
+    expect(restoredProps.setEditMode).toHaveBeenCalledWith(true);
+    expect(restoredProps.setShops).toHaveBeenCalledWith(first);
+    expect(send).toHaveBeenCalledOnce(); // never automatically replay on login
+
+    restored.unmount();
+    const otherUser = { ...restoredProps, recoveryScope: "1:23", setShops: vi.fn() };
+    renderHook(() => useShopOrderCommit(otherUser));
+    expect(otherUser.setShops).not.toHaveBeenCalled(); // principal isolation
+    expect(loadShopOrderRecovery("1:22")).not.toBeNull();
+    expect(loadShopOrderRecovery("1:23")).toBeNull();
+  });
+
+  it("stores only selected-zone identifiers, ranks and archive flags, with no customer or authentication data", () => {
+    const command = {
+      zoneId: "A", outcome: "put_confirmed" as const,
+      before: snapshot().filter(s => s.zoneId === "A"),
+      intended: moveShopInSelectedZone(snapshot(), "A", "A3", 0).filter(s => s.zoneId === "A"),
+    };
+    storeShopOrderRecovery("2:44", {
+      ...command,
+      before: command.before.map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+      intended: command.intended.map(({ id, zoneId, sequence, archived }) => ({ id, zoneId, sequence, archived })),
+    });
+    const raw = sessionStorage.getItem("wanasah:dispatch:shop-order-recovery:v1:2:44") || "";
+    expect(raw).not.toContain("Owner");
+    expect(raw).not.toContain("Shop A1");
+    expect(raw).toContain("put_confirmed");
+    expect(loadShopOrderRecovery("2:44")?.zoneId).toBe("A");
   });
 
   it("hook confirms saved order ONLY on matching authorized readback and permits clean cancel", async () => {
