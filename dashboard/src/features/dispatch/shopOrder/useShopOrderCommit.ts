@@ -1,7 +1,7 @@
-import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { toast } from "sonner";
 import type { Shop } from "@/types/dispatch";
-import { getErrorMessage as formatError } from "./errors";
+import { apiErrorMessage } from "@/lib/apiErrors";
 import { shopOrderText } from "./messages";
 import { commitShopOrder, ShopOrderVerificationError } from "./persist";
 import type { ShopOrderChange } from "./scope";
@@ -26,6 +26,7 @@ export function useShopOrderCommit({
   draft, baseline, zoneId, language, saving, setSaving, setShops,
   setDirty, setEditMode, clearSelection, send, read,
 }: Params) {
+  const inFlight = useRef(false);
   const reset = useCallback((latest: Shop[]) => {
     setShops(latest);
     baseline.current = latest;
@@ -35,7 +36,8 @@ export function useShopOrderCommit({
   }, [baseline, setShops, setDirty, setEditMode, clearSelection]);
 
   const save = useCallback(async (): Promise<boolean> => {
-    if (saving) return false;
+    if (saving || inFlight.current) return false;
+    inFlight.current = true;
     setSaving(true);
     try {
       const outcome = await commitShopOrder({
@@ -55,9 +57,10 @@ export function useShopOrderCommit({
     } catch (error: unknown) {
       toast.error(error instanceof ShopOrderVerificationError
         ? shopOrderText(language, "readbackFailed")
-        : shopOrderText(language, "saveFailed") + " " + formatError(error));
+        : apiErrorMessage(error, shopOrderText(language, "saveFailed")));
       return false; // retain draft as dirty, including ambiguous 200 + GET failure
     } finally {
+      inFlight.current = false;
       setSaving(false);
     }
   }, [saving, setSaving, baseline, draft, zoneId, send, read,
