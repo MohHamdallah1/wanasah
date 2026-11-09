@@ -1,0 +1,153 @@
+name: Dispatch 850 isolated exact UI and Finance PG16 evidence
+on:
+  push:
+    branches: [ci/dispatch-850-isolated-v1]
+permissions:
+  contents: read
+jobs:
+  shop-form-frontend:
+    name: shop-form-vitest-types-lint-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a73df1afb7fe9dbcf5b78ee384dd65d686c3a7f0
+          persist-credentials: false
+      - name: Assert exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "a73df1afb7fe9dbcf5b78ee384dd65d686c3a7f0"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install pinned UI dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Run both Shop form finance and merged Shop order real Vitest specs
+        working-directory: dashboard
+        run: |
+          mkdir -p node_modules/.cache
+          npx vitest run src/test/dispatch-shop-metadata-finance-v1.test.tsx src/test/dispatch-shop-reorder-scope-v1.test.tsx --reporter=default --reporter=junit --outputFile=node_modules/.cache/dispatch-850-ui.xml
+      - name: Prove case count, no failed or skipped tests
+        if: always()
+        working-directory: dashboard
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("node_modules/.cache/dispatch-850-ui.xml").getroot()
+          cases = list(root.iter("testcase"))
+          bad = [c for c in cases if c.find("failure") is not None or c.find("error") is not None]
+          skip = [c for c in cases if c.find("skipped") is not None]
+          print(f"DISPATCH_850_UI total={len(cases)} failed={len(bad)} skipped={len(skip)}")
+          for c in bad:
+              print("CASE_FAILED", c.attrib.get("classname"), c.attrib.get("name"),
+                    (c.findtext("failure") or c.findtext("error") or "")[:1500])
+          assert len(cases) >= 60 and not bad and not skip
+          PY
+      - name: Check full Dashboard TypeScript
+        working-directory: dashboard
+        run: npx tsc --noEmit
+      - name: Lint only owned changed Shop files
+        working-directory: dashboard
+        run: npx eslint src/components/dispatch/ShopFormModal.tsx src/features/dispatch/shopForm src/test/dispatch-shop-metadata-finance-v1.test.tsx src/pages/DispatchBoard.tsx
+      - name: Build full production Dashboard
+        working-directory: dashboard
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dispatch-850-ui-junit
+          path: dashboard/node_modules/.cache/dispatch-850-ui.xml
+          if-no-files-found: warn
+  shop-finance-real-pg16:
+    name: shop-finance-real-bearer-pg16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Dispatch842FinanceDedicatedTestKey01234567890123456
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: a73df1afb7fe9dbcf5b78ee384dd65d686c3a7f0
+          persist-credentials: false
+      - name: Assert exact candidate HEAD
+        run: test "$(git rev-parse HEAD)" = "a73df1afb7fe9dbcf5b78ee384dd65d686c3a7f0"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend testing dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Start disposable PG16 and create restricted role
+        run: |
+          docker run --detach --name dispatch-850-pg16 --env POSTGRES_USER=p0_dispatch_admin --env POSTGRES_DB=wanasah_no_lot_contract_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-850-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then break; fi
+            sleep 1
+          done
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Fresh Alembic and restricted DML
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Assert PostgreSQL16 NOBYPASSRLS
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as db:
+              version, superuser, bypass = db.execute("SELECT current_setting('server_version_num')::int, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
+              assert 160000 <= version < 170000 and not superuser and not bypass
+              print("DISPATCH850_REAL_PG16_RESTRICTED_ROLE_PASS")
+          PY
+      - name: Real authenticated Backoffice + FIELD debt collection + Shop fence and physical stock safety
+        working-directory: wa_backend
+        run: |
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short tests/test_dispatch_shop_finance_edit_v1_postgres.py tests/test_dispatch_p0_route_stock_safety_postgres.py --junitxml=dispatch-850-pg16.xml
+      - name: No skipped or failed PG16 cases
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root=ET.parse("dispatch-850-pg16.xml").getroot()
+          cases=list(root.iter("testcase"))
+          bad=[c for c in cases if c.find("failure") is not None or c.find("error") is not None]
+          skipped=[c for c in cases if c.find("skipped") is not None]
+          print(f"DISPATCH_850_PG16 total={len(cases)} failed={len(bad)} skipped={len(skipped)}")
+          for c in bad:
+              print("CASE_FAILED", c.attrib.get("classname"), c.attrib.get("name"), (c.findtext("failure") or c.findtext("error") or "")[:1500])
+          assert len(cases)>=19 and not bad and not skipped
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dispatch-850-pg16-junit
+          path: wa_backend/dispatch-850-pg16.xml
+          if-no-files-found: warn
