@@ -13,13 +13,9 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
-from domains.dispatch_shortages_group import (
-    GroupShortageMutation, ShortageGroupRejected, replace_shortage_group,
-)
 from domains.dispatch_shortage_visits import (
     ensure_shortage_pending_visit, settle_shortage_pending_visit,
 )
-from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
 from domains.dispatch_shop_finance_fence import (
     ShopFinancialEditConflict,
     require_metadata_only_shop_finance,
@@ -159,6 +155,7 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
+from api.dispatch_shortages_group import router as shortages_group_router
 from api.dispatch_products import router as product_discovery_router
 from api.dispatch_product_schemas import DispatchProductPageResponse
 from domains.dispatch_product_discovery import dispatch_product_page
@@ -166,6 +163,7 @@ from domains.dispatch_product_cursor import DispatchProductCursorError
 
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 router.include_router(product_discovery_router)
+router.include_router(shortages_group_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
@@ -5590,69 +5588,6 @@ async def add_shortages(
 # =========================================
 # 25. حذف الطلب العاجل (وعملية تنظيف الأشباح) - DELETE
 # =========================================
-@router.put("/dispatch/shortages/group", status_code=200)
-async def replace_shortages_group(
-    payload: GroupShortageMutation,
-    db: AsyncSession = Depends(get_db),
-    access: BackofficeCapabilityAccess = Depends(_shortage_read),
-    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
-):
-    """Thin transport adapter: action-specific capability gates and one domain command."""
-    # Reading the group never implies authority to cancel or create shortages.
-    try:
-        await access.require("shortage.cancel")
-        if payload.items:
-            await access.require("shortage.create")
-    except BackofficeCapabilityAccessRejected:
-        await db.rollback()
-        raise HTTPException(status_code=403, detail={
-            "code": "SHORTAGE_GROUP_PERMISSION_DENIED",
-            "message": "لا تملك الصلاحيات المطلوبة لتعديل هذه النواقص.",
-        }) from None
-
-    try:
-        result, mutated = await replace_shortage_group(
-            db, company_id=access.company_id, actor_id=int(legacy_actor.id),
-            command=payload,
-        )
-        if mutated:
-            asyncio.create_task(dispatch_manager.broadcast(
-                {
-                    "event": "SHORTAGE_DELETED" if not payload.items else "SHORTAGE_ADDED",
-                    "message": result["message"],
-                },
-                company_id=access.company_id,
-            ))
-        return result
-    except ShortageGroupRejected as exc:
-        await db.rollback()
-        raise HTTPException(status_code=exc.status_code, detail={
-            "code": exc.code, "message": exc.message,
-        }) from exc
-    except OperationIdempotencyError as exc:
-        await db.rollback()
-        raise HTTPException(status_code=409, detail={
-            "code": exc.code, "message": str(exc),
-        }) from exc
-    except HTTPException:
-        await db.rollback()
-        raise
-    except IntegrityError as exc:
-        await db.rollback()
-        logger.warning("Atomic shortage group database conflict", exc_info=True)
-        raise HTTPException(status_code=409, detail={
-            "code": "SHORTAGE_GROUP_CONCURRENT_CONFLICT",
-            "message": "حصل تعارض متزامن، حدّث القائمة وأعد المحاولة.",
-        }) from exc
-    except Exception as exc:
-        await db.rollback()
-        logger.exception("Atomic shortage group failed")
-        raise HTTPException(status_code=500, detail={
-            "code": "SHORTAGE_GROUP_FAILED",
-            "message": "تعذر حفظ مجموعة النواقص.",
-        }) from exc
-
-
 @router.delete("/dispatch/shortages/{shortage_id}", status_code=200)
 async def delete_shortage(
     shortage_id: int,
