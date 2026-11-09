@@ -205,6 +205,77 @@ describe("Shop order confirm feedback", () => {
     expect(toast.error).toHaveBeenCalledTimes(2);
   });
 
+  it("ambiguous committed PUT + failed GET reconciles before a changed retry (not against stale baseline)", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const revised = moveShopInSelectedZone(first, "A", "A3", 1);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockRejectedValueOnce(new Error("lost readback"))
+      .mockResolvedValueOnce(first).mockResolvedValueOnce(revised);
+    const props = {
+      baseline: { current: snapshot() }, zoneId: "A", language: "ar",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result, rerender } = renderHook(
+      ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+      { initialProps: { draft: first } },
+    );
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(props.baseline.current).toEqual(snapshot());
+    rerender({ draft: revised });
+    await act(async () => { expect(await result.current.save()).toBe(true); });
+    expect(result.current.needsReconciliation).toBe(false);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].map((row: { id: string }) => row.id)).toEqual(["A1", "A3"]);
+    expect(read).toHaveBeenCalledTimes(3); // first lost, recovery GET, final confirm GET
+    expect(props.baseline.current).toEqual(revised);
+    expect(toast.success).toHaveBeenCalledOnce();
+  });
+
+  it("after an ambiguous save, undoing the draft still reconciles and compensates the server", async () => {
+    const first = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockRejectedValueOnce(new Error("lost readback"))
+      .mockResolvedValueOnce(first).mockResolvedValueOnce(snapshot());
+    const props = {
+      baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result, rerender } = renderHook(
+      ({ draft }: { draft: Shop[] }) => useShopOrderCommit({ ...props, draft }),
+      { initialProps: { draft: first } },
+    );
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(result.current.needsReconciliation).toBe(true);
+    rerender({ draft: snapshot() }); // UI's ordinary dirty comparator is now false
+    await act(async () => { expect(await result.current.save()).toBe(true); });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].map((row: { id: string }) => row.id))
+      .toEqual(["A1", "A2", "A3"]);
+    expect(result.current.needsReconciliation).toBe(false);
+  });
+
+  it("denied recovery GET never retries the write or claims saved", async () => {
+    const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
+    const send = vi.fn().mockResolvedValue({});
+    const read = vi.fn().mockRejectedValueOnce(new Error("first failed GET"))
+      .mockRejectedValueOnce(Object.assign(new Error("revoked"), { status: 403 }));
+    const props = {
+      draft, baseline: { current: snapshot() }, zoneId: "A", language: "en",
+      saving: false, setSaving: vi.fn(), setShops: vi.fn(), setDirty: vi.fn(),
+      setEditMode: vi.fn(), clearSelection: vi.fn(), send, read,
+    };
+    const { result } = renderHook(() => useShopOrderCommit(props));
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    await act(async () => { expect(await result.current.save()).toBe(false); });
+    expect(send).toHaveBeenCalledOnce();
+    expect(result.current.needsReconciliation).toBe(true);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
   it("hook confirms saved order ONLY on matching authorized readback and permits clean cancel", async () => {
     const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 0);
     const send = vi.fn().mockResolvedValue({ message: "OK" });
