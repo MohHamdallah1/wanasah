@@ -52,6 +52,27 @@ describe("Dispatch #843 selected-zone Shop order: immutable scope", () => {
     ]);
   });
 
+  it("normalizes noncontiguous legacy 999 ranks when first row receives rank 1", () => {
+    const before = [shop("A1", "A", 999), shop("A2", "A", 1000), shop("B1", "B", 1)];
+    const after = moveShopInSelectedZone(before, "A", "A1", 0);
+    expect(after).not.toBe(before);
+    expect(after.map(s => s.sequence)).toEqual([1, 2, 1]);
+    expect(buildShopOrderChanges(before, after, "A"))
+      .toEqual([{ id: "A1", sequence: 1 }, { id: "A2", sequence: 2 }]);
+  });
+
+  it("does not confirm a concurrent update of an unsubmitted row", async () => {
+    const draft = moveShopInSelectedZone(snapshot(), "A", "A3", 1);
+    const changes = buildShopOrderChanges(original, draft, "A");
+    expect(changes.map(c => c.id)).toEqual(["A2", "A3"]);
+    const concurrent = draft.map(s => s.id === "A1" ? { ...s, sequence: 3 } : s);
+    expect(verifyShopOrderReadback(changes, concurrent, "A", draft)).toBe(false);
+    await expect(commitShopOrder({
+      original, draft, selectedZoneId: "A",
+      send: vi.fn().mockResolvedValue({}), read: vi.fn().mockResolvedValue(concurrent),
+    })).rejects.toBeInstanceOf(ShopOrderVerificationError);
+  });
+
   it("an explicit B switch enables reordering B only, never mutating selected Zone A", () => {
     const before = snapshot();
     const after = moveShopInSelectedZone(before, "B", "B2", 0);
@@ -75,8 +96,8 @@ describe("Dispatch #843 selected-zone Shop order: immutable scope", () => {
     const after = snapshot().map(s => s.id === "A2" ? { ...s, archived: true } : s);
     expect(buildShopOrderChanges(original, after, "A")).toEqual([{ id: "A2", archived: true }]);
     const read = snapshot().map(s => s.id === "A2" ? { ...s, archived: true } : s);
-    expect(verifyShopOrderReadback([{ id: "A2", archived: true }], read, "A")).toBe(true);
-    expect(verifyShopOrderReadback([{ id: "A2", archived: true }], snapshot(), "A")).toBe(false);
+    expect(verifyShopOrderReadback([{ id: "A2", archived: true }], read, "A", after)).toBe(true);
+    expect(verifyShopOrderReadback([{ id: "A2", archived: true }], snapshot(), "A", after)).toBe(false);
   });
 
   it("commits ONLY exact changed selected-zone IDs and verifies fresh GET; no false success for 200 mismatch", async () => {
