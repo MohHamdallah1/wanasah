@@ -167,6 +167,9 @@ test("N5: Shop map link must be http(s) before browser receives an active anchor
   await selectTab(page,"zones");
   await page.locator('input[placeholder="بحث..."]').fill(name);
   const row=page.locator(".dispatch-shop-table tbody tr").filter({hasText:name});
+  // A missing unsafe link is safe only when the actual seeded shop row has
+  // finished loading. Otherwise an empty/asynchronous table could fake PASS.
+  await expect(row).toBeVisible();
   const link=row.getByRole("link",{name:"عرض الموقع"});
   if(await link.count()===0) {
     // Removing unsafe clickable content entirely is a safe outcome.
