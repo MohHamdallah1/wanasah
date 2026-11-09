@@ -12,10 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 26f12c00508e726a4c0c1bdc56d43a1aad45912f
+          ref: 1830ef8f414406d50d10467b04ac631f3b7dbc3b
           persist-credentials: false
       - name: Assert exact candidate HEAD
-        run: test "$(git rev-parse HEAD)" = "26f12c00508e726a4c0c1bdc56d43a1aad45912f"
+        run: test "$(git rev-parse HEAD)" = "1830ef8f414406d50d10467b04ac631f3b7dbc3b"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -28,7 +28,7 @@ jobs:
         working-directory: dashboard
         run: |
           mkdir -p node_modules/.cache
-          npx vitest run src/test/dispatch-shop-metadata-finance-v1.test.tsx src/test/dispatch-shop-reorder-scope-v1.test.tsx --reporter=default --reporter=junit --outputFile=node_modules/.cache/dispatch-850-ui.xml
+          npx vitest run src/test/auth-session-consumer-isolation.test.tsx src/test/dispatch-shop-metadata-finance-v1.test.tsx src/test/dispatch-shop-reorder-scope-v1.test.tsx --reporter=default --reporter=junit --outputFile=node_modules/.cache/dispatch-850-ui.xml
       - name: Prove case count, no failed or skipped tests
         if: always()
         working-directory: dashboard
@@ -77,10 +77,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 26f12c00508e726a4c0c1bdc56d43a1aad45912f
+          ref: 1830ef8f414406d50d10467b04ac631f3b7dbc3b
           persist-credentials: false
       - name: Assert exact candidate HEAD
-        run: test "$(git rev-parse HEAD)" = "26f12c00508e726a4c0c1bdc56d43a1aad45912f"
+        run: test "$(git rev-parse HEAD)" = "1830ef8f414406d50d10467b04ac631f3b7dbc3b"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
