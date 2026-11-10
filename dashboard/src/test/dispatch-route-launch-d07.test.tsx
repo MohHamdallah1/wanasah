@@ -156,7 +156,7 @@ describe("D07 original route launch command / fail-closed recovery", () => {
       actor: { ...actor, warehouseId: 21 },
       current: () => true, authorized: () => true, fetch: api.fetch,
     }).recover()).kind).toBe("idle");
-    expect((await command.launch({ ...draft(), vehicle_id: 32 })).kind).toBe("conflict");
+    expect((await command.launch({ ...draft(), vehicle_id: 32 })).kind).toBe("blocked");
     // Retry commits only the original UUID. A later forged GET cannot turn
     // an unrelated or altered response into verified business success.
     expect((await command.retryOriginal()).kind).toBe("committed");
@@ -225,7 +225,7 @@ describe("D07 original route launch command / fail-closed recovery", () => {
       actor, session, authorized: allowed, language: "ar",
       fetch: api.fetch, onCommitted: notifications,
     }), { initialProps: { allowed: true } });
-    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    await waitFor(() => expect(hook.result.current.restoring).toBe(false));
     await act(async () => {
       expect((await hook.result.current.launch(draft())).kind).toBe("unknown");
     });
@@ -235,6 +235,16 @@ describe("D07 original route launch command / fail-closed recovery", () => {
     await waitFor(() => expect(hook.result.current.result.kind).toBe("blocked"));
     expect((await hook.result.current.retryOriginal()).kind).toBe("blocked");
     expect(api.posts).toHaveLength(1);
+    // The same canonical session cannot impersonate another company even if
+    // its numeric Warehouse/Vehicle IDs happen to match.
+    const spoof = renderHook(() => useRouteLaunchRecovery({
+      actor: { ...actor, actorScope: "2:11:110" }, session,
+      authorized: true, language: "en", fetch: api.fetch,
+    }));
+    expect(spoof.result.current.result.kind).toBe("blocked");
+    expect((await spoof.result.current.launch(draft())).kind).toBe("blocked");
+    expect(api.posts).toHaveLength(1);
+    spoof.unmount();
     hook.unmount();
     // The durable command is deliberately not cleared by revoked UI state.
     expect(await record()).not.toBeNull();
