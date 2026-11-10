@@ -306,6 +306,7 @@ function DispatchSession() {
   const [isShowPostponedModalOpen, setIsShowPostponedModalOpen] = useState(false);
   const consumeOwnerFocus = useCallback(() => setDispatchFocus(null), []);
   const openRouteOwner = useCallback((route: PendingRoute, intent: Exclude<DispatchNavigationIntent, { kind: "shortage-owner" }>) => {
+    if (accessState !== "ready" || !grants.routes) return;
     setActiveTab("routes");
     if (intent.kind === "reservation-owner") {
       setRadarRoute(route);
@@ -323,7 +324,7 @@ function DispatchSession() {
     setArchiveRouteFocus(route.id);
     setPendingRoutes((rows) => [...rows.filter((row) => row.id !== route.id), route]);
     if (route.status === "postponed") setIsShowPostponedModalOpen(true);
-  }, []);
+  }, [accessState, grants.routes]);
   const openShortageOwner = useCallback((rows: Shortage[], shortage: Shortage) => {
     if (accessState !== "ready" || !grants.shortages) return;
     setShortages((previous) => [...rows, ...previous.filter((row) => !rows.some((fresh) => fresh.id === row.id))]);
@@ -684,6 +685,7 @@ function DispatchSession() {
 
   // +++ المحرك الصاروخي O(1): حساب النواقص لكل مندوب مرة واحدة فقط بدل حسابها داخل الـ Loop +++
   const driverShortagesMap = useMemo(() => {
+    if (accessState !== "ready" || !grants.shortages) return {};
     const map: Record<string, Set<string>> = {};
     shortages.forEach(s => {
       if (s.status === "pending" && s.driverId) {
@@ -696,7 +698,7 @@ function DispatchSession() {
       countMap[driverId] = map[driverId].size;
     }
     return countMap;
-  }, [shortages]);
+  }, [shortages, accessState, grants.shortages]);
 
   // Shop order is a cohesive page-owned feature, not a new DispatchBoard workflow.
   const readShopOrderSnapshot = useCallback(
@@ -1078,9 +1080,11 @@ function DispatchSession() {
   }, [archivedZones, zoneRecycleSearchQuery]);
 
   const refreshShortages = useCallback(async () => {
-    const data = await authenticatedFetch("/dispatch/shortages");
+    const snapshot = captureDashboardSession();
+    const data = await authenticatedFetch("/dispatch/shortages", { cache: "no-store" });
+    if (!isDashboardSessionCurrent(snapshot) || !grants.shortages) return;
     setShortages(Array.isArray(data) ? data : []);
-  }, [authenticatedFetch]);
+  }, [authenticatedFetch, grants.shortages]);
 
   // The immutable original command, cross-tab locking and exact-key
   // recovery live outside DispatchBoard; only canonical readback updates UI.
@@ -1090,6 +1094,7 @@ function DispatchSession() {
     language: i18n.language,
     fetch: authenticatedFetch,
     onVerified: rows => {
+      if (accessState !== "ready" || !grants.shortages || !isDashboardSessionCurrent(session!)) return;
       setShortages(rows);
       setEditingShortageIds([]);
       setShortageDraft([]);
@@ -1098,11 +1103,13 @@ function DispatchSession() {
     // A second tab may have completed the immutable request. Refresh only:
     // no success toast or inferred local idempotency result in this tab.
     onRefreshed: rows => {
+      if (accessState !== "ready" || !grants.shortages || !isDashboardSessionCurrent(session!)) return;
       setShortages(rows);
       setEditingShortageIds([]);
       setShortageDraft([]);
     },
     onReconciled: rows => {
+      if (accessState !== "ready" || !grants.shortages || !isDashboardSessionCurrent(session!)) return;
       setShortages(rows);
       setEditingShortageIds([]);
       setShortageDraft([]);
