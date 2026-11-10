@@ -350,11 +350,10 @@ function DispatchSession() {
     activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
     driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
   };
-  // One generation covers role, source Warehouse, route, zone and selected Vehicle.
-  // A -> B -> A must never re-admit an old Promise with the same numeric ID.
+  // One generation fences role, actual source Warehouse and active route.
+  // Zone/vehicle-specific reads also use their own abort/context identity.
   asyncEpochRef.current.update(JSON.stringify([
     actorScope, accessState, dispatchReadState, selectedSourceWarehouseId,
-    selectedZoneId, selectedZoneIdForZones, selectedDriverId, selectedVehicleId,
     activeRoute?.id, grants,
   ]));
   const captureUiRead = () => asyncEpochRef.current.capture();
@@ -518,12 +517,14 @@ function DispatchSession() {
     }
 
     const controller = new AbortController();
+    const admitted = captureUiRead();
     setIsWarehouseStatusLoading(true);
     authenticatedFetch(
       `/warehouse/status?location_id=${encodeURIComponent(selectedSourceWarehouseId)}`,
       { signal: controller.signal }
     )
       .then((data) => {
+        if (controller.signal.aborted || !admitted()) return;
         const status =
           typeof data === "object" && data !== null && "status" in data
             ? String((data as { status: unknown }).status)
@@ -531,16 +532,17 @@ function DispatchSession() {
         setIsWarehouseLocked(status === "AUDIT_LOCK");
       })
       .catch((err: unknown) => {
-        if (!(err instanceof Error && err.name === "AbortError")) {
-          console.error(err);
-        }
+        if (controller.signal.aborted || !admitted()) return;
+        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
+        // A failed audit-status read is never evidence that the Warehouse is unlocked.
+        setIsWarehouseLocked(true);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setIsWarehouseStatusLoading(false);
+        if (!controller.signal.aborted && admitted()) setIsWarehouseStatusLoading(false);
       });
 
     return () => controller.abort();
-  }, [selectedSourceWarehouseId, authenticatedFetch]);
+  }, [selectedSourceWarehouseId, authenticatedFetch, actorScope, accessState, dispatchReadState]);
 
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
@@ -742,6 +744,8 @@ function DispatchSession() {
     setRouteLoadUnits({});
     setRouteLoadNames({});
     const requestedVehicleId = selectedVehicleId;
+    const requestedZoneId = selectedZoneId;
+    const requestedDriverId = selectedDriverId;
     const controller = new AbortController();
     setVehicleInventoryLoadedForContext(null);
 
@@ -750,7 +754,10 @@ function DispatchSession() {
       signal: controller.signal,
     })
       .then((data) => {
-        if (controller.signal.aborted || !admitted()) return;
+        if (controller.signal.aborted || !admitted() ||
+            choicesRef.current.vehicle !== requestedVehicleId ||
+            choicesRef.current.launchZone !== requestedZoneId ||
+            choicesRef.current.driver !== requestedDriverId) return;
         if (!Array.isArray(data)) {
           throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
