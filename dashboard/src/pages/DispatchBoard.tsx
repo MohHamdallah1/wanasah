@@ -1075,6 +1075,13 @@ function DispatchSession() {
       setShortageDraft([]);
       setNewShortage({ quantity: 1 });
     },
+    // A second tab may have completed the immutable request. Refresh only:
+    // no success toast or inferred local idempotency result in this tab.
+    onRefreshed: rows => {
+      setShortages(rows);
+      setEditingShortageIds([]);
+      setShortageDraft([]);
+    },
     onRestored: command => {
       if (command.action === "edit") {
         const first = command.items[0];
