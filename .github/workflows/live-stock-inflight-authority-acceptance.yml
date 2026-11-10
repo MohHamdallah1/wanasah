@@ -409,8 +409,16 @@ jobs:
               "wa_backend/schemas.py",
               "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
           }
-          d07_unique = d07_complete_exact - owned - dispatch_d10_872_exact - dispatch_d09_867_exact
-          assert len(d07_complete_exact) == 14 and len(d07_unique) >= 7
+          d07_unique = {
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
+          assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
               if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
               if candidate & d07_unique:
