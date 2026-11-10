@@ -1214,6 +1214,9 @@ class AdminAddShopRequest(RequestModel):
     maxDebtLimit: MoneyInput = Decimal("0.000")
     sequence: Annotated[int, BeforeValidator(safe_int_input)] = 999
     force_save: bool = False
+    # Optional for legacy callers; new clients must persist this UUID until
+    # the authoritative result is recovered. No promise for legacy POST.
+    request_id: Optional[UUID] = None
 
     @field_validator("name", mode="before")
     @classmethod
