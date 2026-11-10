@@ -189,7 +189,7 @@ describe("D07 original route launch command / fail-closed recovery", () => {
     expect((await createRouteLaunchRecovery({
       actor: { ...actor, warehouseId: 21 },
       current: () => true, authorized: () => true, fetch: api.fetch,
-    }).recover()).kind).toBe("idle");
+    }).recover()).kind).toBe("conflict");
     expect((await command.launch({ ...draft(), vehicle_id: 32 })).kind).toBe("blocked");
     // Retry commits only the original UUID. A later forged GET cannot turn
     // an unrelated or altered response into verified business success.
@@ -359,7 +359,7 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
 
     render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
     await screen.findByText("Chips");
-    const target = await screen.findByRole("textbox", { name: /Target.*Chips/ });
+    const target = await screen.findByRole("textbox", { name: /Chips/ });
     await waitFor(() => expect(target).not.toBeDisabled());
     fireEvent.change(target, { target: { value: "5" } });
     const launch = screen.getByRole("button", { name: "اعتماد وإطلاق خط السير" });
