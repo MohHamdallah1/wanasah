@@ -1,4 +1,8 @@
 import { useState } from "react";
+// D13: render this component with the company currency returned by the verified tenant endpoint.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
 import { webcrypto } from "node:crypto";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
