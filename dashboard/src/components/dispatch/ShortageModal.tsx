@@ -14,6 +14,9 @@ import { Zone, Shop, Shortage } from "@/types/dispatch";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface ShortageModalProps {
+  canCreate: boolean;
+  canCancel: boolean;
+  canEdit: boolean;
   focusShortageId?: string | null;
   isOpen: boolean;
   onClose: () => void;
@@ -189,6 +192,8 @@ function ShopCard({
   group,
   isBeingEdited,
   isEditModeActive,
+  canEdit,
+  canCancel,
   onEdit,
   onDeleteAll,
   onDeleteOne,
@@ -197,6 +202,8 @@ function ShopCard({
   group: ReturnType<typeof groupByShop>[number];
   isBeingEdited: boolean;
   isEditModeActive: boolean;
+  canEdit: boolean;
+  canCancel: boolean;
   onEdit: () => void;
   onDeleteAll: () => void;
   onDeleteOne: (id: string) => void;
@@ -264,7 +271,7 @@ function ShopCard({
 
         {/* Right: action buttons */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {!isBeingEdited && (
+          {canEdit && !isBeingEdited && (
             <button
               onClick={e => { e.stopPropagation(); onEdit(); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 text-xs font-bold transition-all"
@@ -273,7 +280,7 @@ function ShopCard({
             </button>
           )}
           {/* Rule #5: hide Delete All when in edit mode */}
-          {!isEditModeActive && (
+          {canCancel && !isEditModeActive && (
             <button
               onClick={e => { e.stopPropagation(); onDeleteAll(); }}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-600 text-xs font-bold transition-all"
@@ -306,13 +313,13 @@ function ShopCard({
               <span className="flex-shrink-0 min-w-[52px] text-center px-3 py-1 rounded-xl bg-[#1e87bb]/10 text-[#1e87bb] text-sm font-bold border border-[#1e87bb]/20">
                 {item.quantity}
               </span>
-              <button
+              {canCancel && <button
                 onClick={() => onDeleteOne(item.id)}
                 className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
                 title="حذف هذا المنتج فقط"
               >
                 <Minus className="w-3.5 h-3.5" />
-              </button>
+              </button>}
             </div>
           ))}
         </div>
@@ -323,6 +330,9 @@ function ShopCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function ShortageModal({
+  canCreate,
+  canCancel,
+  canEdit,
   focusShortageId,
   isOpen,
   onClose,
@@ -365,7 +375,7 @@ export function ShortageModal({
       maxWidth="max-w-5xl"
     >
       <div className="space-y-6">
-        {(groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
+        {canCancel && (groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
           <section role="status" data-testid="shortage-group-recovery"
             dir={i18n.dir()}
             className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 space-y-2">
@@ -404,7 +414,7 @@ export function ShortageModal({
         {/* ═══════════════════════════════════════════════════
             INPUT / EDIT SECTION — visually separated (#1)
         ═══════════════════════════════════════════════════ */}
-        <fieldset disabled={Boolean(groupRecovery.pending || groupRecovery.blocked ||
+        {canCreate && <fieldset disabled={Boolean(groupRecovery.pending || groupRecovery.blocked ||
           groupRecovery.busy || groupRecovery.restoring)}
           className={`rounded-2xl border shadow-sm ${isEditMode
           ? "bg-amber-50 border-amber-200 shadow-amber-100"
@@ -536,7 +546,7 @@ export function ShortageModal({
               )}
             </div>
           </div>
-        </fieldset>
+        </fieldset>}
 
         {/* ═══════════════════════════════════════════════════
             PENDING LIST — visually distinct from input section
@@ -570,6 +580,8 @@ export function ShortageModal({
               {grouped.map(group => (
                 <ShopCard
                   focusShortageId={focusShortageId}
+                  canEdit={canEdit}
+                  canCancel={canCancel}
                   key={group.shopId}
                   group={group}
                   isBeingEdited={group.items.some(it => editingShortageIds.includes(it.id))}
