@@ -447,6 +447,13 @@ function DispatchSession() {
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
     if (accessState !== "ready" || !actorScope) {
       admission.abort();
+      if (accessState === "ready" && !actorScope) {
+        // Permission payload and authenticated principal disagree: no UI, stream or old drafts.
+        dispatchDeniedRef.current = true;
+        dispatchFenceRef.current.revoke();
+        clearDispatchPrivateState();
+        setDispatchReadState("denied");
+      }
       return admission;
     }
     void loadDispatchRead({
@@ -547,7 +554,7 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (accessState !== "ready" || dispatchDeniedRef.current) return;
+    if (accessState !== "ready" || !actorScope || dispatchDeniedRef.current) return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -725,7 +732,7 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner, accessState]);
+  }, [fetchInitialData, isCompanyOwner, accessState, actorScope]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
