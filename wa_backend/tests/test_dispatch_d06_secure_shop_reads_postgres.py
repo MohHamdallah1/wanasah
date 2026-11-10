@@ -242,8 +242,6 @@ async def test_d06_shortage_search_unassigned_shop_direct_id_and_no_finance_esca
         await _grant_company_dispatch_capability(pg, home, home.ordinary, "shortage.read")
         # settlement.read cannot imply Shop finance or company-wide Shop directory.
         await _grant_company_dispatch_capability(pg, home, home.ordinary, "settlement.read")
-        async with _real_http() as _unused:
-            pass
         ordinary = await _token(client, pg, home, home.ordinary, "NoLotSyntheticFixture123")
         for path in ("/dispatch/shortages", f"/dispatch/shortages?shortage_id={requests[1]}"):
             response = await client.get(path, headers=ordinary)
