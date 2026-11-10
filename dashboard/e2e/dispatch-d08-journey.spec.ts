@@ -91,8 +91,11 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   await page.getByRole("button", { name: "Save", exact: true }).click();
   expect((await reorderResponse).status()).toBe(200);
 
+  // Re-select the Shop's exact Zone after an authoritative reorder refresh.
+  await page.locator(".dispatch-zones-workbench").getByText(browserZone, { exact: true }).first().click();
   // Shop archiving in edit mode is a draft until the explicit Save confirmation.
   shopRow = page.locator(".dispatch-shop-table tbody tr").filter({ hasText: uiShopEdited });
+  await expect(shopRow.getByRole("button", { name: "Archive " + uiShopEdited })).toBeEnabled();
   await shopRow.getByRole("button", { name: "Archive " + uiShopEdited }).click();
   const hideConfirm = page.getByRole("dialog", { name: "تأكيد الإخفاء" });
   await hideConfirm.getByRole("button", { name: "تأكيد" }).click();
