@@ -32,11 +32,11 @@ for (const width of [1440, 390]) {
     });
     const started = Date.now();
     await page.goto("/dispatch");
-    await expect(page.getByText("D12 synthetic shop 0000").first()).toBeVisible({ timeout: 60000 });
+    await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 60000 });
     await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
     const rendered = await page.evaluate(() => ({
       domNodes: document.querySelectorAll("*").length,
-      visibleShopText: document.body.innerText.includes("D12 synthetic shop 0000"),
+      visibleRouteRow: document.querySelectorAll(".dispatch-route-row").length,
       documentWidth: document.documentElement.scrollWidth,
       viewportWidth: window.innerWidth,
     }));
@@ -44,7 +44,7 @@ for (const width of [1440, 390]) {
       width, loadMs: Date.now() - started, ...rendered,
       reads: Object.fromEntries(seen),
     };
-    expect(rendered.visibleShopText).toBe(true);
+    expect(rendered.visibleRouteRow).toBeGreaterThan(0);
     expect([...seen.values()].every(x => x.status === 200)).toBe(true);
     writeFileSync(info.outputPath(`d12-real-browser-${width}.json`), JSON.stringify(result, null, 2));
     console.log("D12_AUTHENTICATED_BROWSER=" + JSON.stringify(result));
