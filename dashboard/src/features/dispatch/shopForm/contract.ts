@@ -298,3 +298,40 @@ export function readShopAttemptCanonicalId(scope: string, localId: string): stri
 export function clearShopAttemptCanonicalId(scope: string): void {
   try { localStorage.removeItem(`${scope}:canonical-id`); } catch { /* Remain conservative. */ }
 }
+
+/** Edit metadata is independently durable from Shop creation. This record
+ * never contains a financial PUT payload or proves a server operation.
+ */
+export type ShopEditAttempt = {
+  kind: "SHOP_METADATA_EDIT_UNCERTAIN_V1";
+  clientAttemptNonce: string;
+  shopId: string;
+  submitted: ShopMetadataPayload;
+  draft: ShopFormState;
+};
+
+export function shopEditAttemptScope(shopId: string): string | null {
+  const parent = shopCreateAttemptScope();
+  return parent && /^\d{1,16}$/.test(shopId) && shopId !== "0"
+    ? `${parent}:metadata-edit:${shopId}` : null;
+}
+
+export function isShopEditAttempt(value: unknown, shopId: string): value is ShopEditAttempt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const attempt = value as Partial<ShopEditAttempt>;
+  if (attempt.kind !== "SHOP_METADATA_EDIT_UNCERTAIN_V1" ||
+    attempt.shopId !== shopId ||
+    typeof attempt.clientAttemptNonce !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(attempt.clientAttemptNonce) ||
+    !attempt.draft || typeof attempt.draft !== "object" ||
+    !attempt.submitted || typeof attempt.submitted !== "object") return false;
+  try {
+    const expected = metadataPayload(attempt.draft as ShopFormState);
+    const actual = attempt.submitted as unknown as Record<string, unknown>;
+    return Object.keys(actual).length === Object.keys(expected).length &&
+      (Object.keys(expected) as Array<keyof ShopMetadataPayload>)
+        .every(key => actual[key] === expected[key]);
+  } catch {
+    return false;
+  }
+}
