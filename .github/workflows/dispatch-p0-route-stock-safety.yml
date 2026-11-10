@@ -363,12 +363,37 @@ jobs:
               ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
           }
+          # #856: approve only the exact six audited ShopForm #850 paths;
+          # the pre-existing DispatchBoard alone retains historical P0 scope.
+          shop_form_850_exact = {
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopForm/contract.ts",
+              "dashboard/src/features/dispatch/shopForm/messages.ts",
+              "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
+          }
+          # Four policy files constitute an independent #856 maintenance PR,
+          # NOT a general CI extension or a superset of old #847 approval.
+          ci_policy_856_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+          }
+          assert len(shop_form_850_exact) == 6
+          assert len(ci_policy_856_exact) == 4
+          assert ci_policy_847_exact < ci_policy_856_exact
           finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
           shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
+          shop_form_850_unique = shop_form_850_exact - p0_allowed - auth_session_allowed
           assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
+          assert len(shop_form_850_unique) == 5
           def ownership_mode(candidate):
               if candidate == ci_policy_847_exact:
                   return "CI_POLICY_847_EXACT"
+              if candidate == ci_policy_856_exact:
+                  return "CI_POLICY_856_EXACT"
               # Existing owner-visual and Live Stock Worker1 bounded scopes
               # also legitimately include all three shared CI files.
               # Never treat a CI-policy subset as a general exclusion.
@@ -386,6 +411,13 @@ jobs:
                       f"extra={sorted(candidate - shop_order_843_exact)}"
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & shop_form_850_unique:
+                  assert candidate == shop_form_850_exact, (
+                      f"Forbidden P0/ShopForm #850 exact scope: "
+                      f"missing={sorted(shop_form_850_exact - candidate)} "
+                      f"extra={sorted(candidate - shop_form_850_exact)}"
+                  )
+                  return "SHOP_FORM_850_EXACT"
               if cp2_product_gate_required <= candidate:
                   return assert_cp2_product_gate(candidate)
               if owner_visual_required <= candidate:
@@ -411,6 +443,7 @@ jobs:
           for label, exact, unique in (
               ("FINANCE_842_EXACT", finance_842_exact, finance_842_unique),
               ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
+              ("SHOP_FORM_850_EXACT", shop_form_850_exact, shop_form_850_unique),
           ):
               assert ownership_mode(exact) == label
               for missing in exact:
@@ -444,6 +477,10 @@ jobs:
               finance_842_exact | shop_order_843_exact,
               finance_842_exact | ci_policy_847_exact,
               shop_order_843_exact | ci_policy_847_exact,
+              shop_form_850_exact | finance_842_exact,
+              shop_form_850_exact | shop_order_843_exact,
+              shop_form_850_exact | ci_policy_847_exact,
+              shop_form_850_exact | ci_policy_856_exact,
           ):
               try:
                   ownership_mode(mixed)
@@ -467,6 +504,42 @@ jobs:
               else:
                   raise AssertionError(f"CI_POLICY_847_EXACT: foreign file accepted: {foreign}")
           print("DISPATCH_847_POLICY_SELFTEST=PASS finance=4 shop_order=9 ci_policy=3 negative=PASS")
+
+          # #856 four-file governance admission, independent of #847.
+          # Missing G04 file falls back ONLY to the older EXACT #847 mode;
+          # no three-of-four subset with the new G04 file is acceptable.
+          assert ownership_mode(ci_policy_856_exact) == "CI_POLICY_856_EXACT"
+          for missing in ci_policy_856_exact:
+              partial = ci_policy_856_exact - {missing}
+              if missing == ".github/workflows/live-stock-g04-outage-recovery.yml":
+                  assert ownership_mode(partial) == "CI_POLICY_847_EXACT"
+              else:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Partial CI_POLICY_856_EXACT accepted: {missing}")
+          for foreign in (
+              "wa_backend/main.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/models.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/shopOrder/messages.ts",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(ci_policy_856_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"CI_POLICY_856_EXACT foreign path accepted: {foreign}")
+          assert ownership_mode({"dashboard/src/pages/DispatchBoard.tsx"}) == "P0_STRICT"
+          assert ownership_mode(shop_form_850_exact) == "SHOP_FORM_850_EXACT"
+          print("DISPATCH_856_POLICY_SELFTEST=PASS shop_form=6 ci_policy=4 old847=PASS negative=PASS")
 
           # Exact-scope positive + adversarial controls, including a partial
           # CP2 contract and tempting Dispatch/auth/runtime hitchhikers.
