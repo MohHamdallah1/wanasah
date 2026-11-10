@@ -496,7 +496,29 @@ jobs:
           assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_unique) == 4
           assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
           assert len(shop_form_850_unique) == 5
+          dispatch_d11_881_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d11-commercial-preflight.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+          }
+          assert len(dispatch_d11_881_exact) == 16
+
           def ownership_mode(candidate):
+              if candidate == dispatch_d11_881_exact:
+                  return "DISPATCH_D11_881_EXACT"
               if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
               if candidate & d07_unique:
                   assert candidate == d07_complete_exact, (
@@ -705,6 +727,25 @@ jobs:
 
           # #861: exhaustive F06 exact admission and every partial involving a
           # NEW path. Shared legacy router/schema alone retain old P0 semantics.
+          # Positive and adversarial D11 ownership proof; prior tests retained.
+          assert ownership_mode(dispatch_d11_881_exact) == "DISPATCH_D11_881_EXACT"
+          for missing in dispatch_d11_881_exact:
+              subset = dispatch_d11_881_exact - {missing}
+              try:
+                  result = ownership_mode(subset)
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "DISPATCH_D11_881_EXACT"
+          for foreign in ("dashboard/src/lib/authStorage.ts", "wa_backend/models.py",
+                          "wa_backend/api/dispatch.py", "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(dispatch_d11_881_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D11 foreign file admitted: {foreign}")
+          print("P0_D11_OWNER=PASS exact=16 missing=16 foreign=4")
           assert ownership_mode(d07_complete_exact) == "D07_COMPLETE_EXACT"
           for missing in d07_complete_exact:
               partial = d07_complete_exact - {missing}
