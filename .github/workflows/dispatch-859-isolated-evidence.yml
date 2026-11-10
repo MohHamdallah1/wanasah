@@ -38,7 +38,7 @@ jobs:
           src/test/dispatch-shortage-group-recovery-v1.test.tsx
           src/test/dispatch-shop-reorder-scope-v1.test.tsx
           src/test/dispatch-shop-metadata-finance-v1.test.tsx
-          --reporter=junit --outputFile=node_modules/.cache/dispatch-859-ui.xml
+          --reporter=default --reporter=junit --outputFile.junit=node_modules/.cache/dispatch-859-ui.xml
       - name: Prove mandatory case identities all executed, no failures or skips
         working-directory: dashboard
         run: |
