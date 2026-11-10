@@ -27,7 +27,7 @@ const zone: Zone = { id: "3", name: "Al Rayyan", scheduleStatus: "null",
   frequency: "", visitDay: "", startDate: "", intervalDays: null };
 const shop: Shop = { id: "11", name: "Corner Shop", owner: "Amal",
   phone: "55511122", mapLink: "", zoneId: "3",
-  initialDebt: 12.5, maxDebtLimit: 100, sequence: 1, archived: false };
+  initialDebt: 12.5, maxDebtLimit: 100, financeRedacted: false, sequence: 1, archived: false };
 const shortage: Shortage = { id: "501", productId: "8", productName: "Lolo Chips", quantity: 3,
   status: "pending", zoneId: "3", zoneName: "Al Rayyan", shopId: "11",
   shopName: "Corner Shop", createdAt: "2026-11-09T12:00:00Z" };

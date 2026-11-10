@@ -145,10 +145,12 @@ export function ShopTable({
                   {zonesMap.get(shop.zoneId) || label("shopNoZone")}
                 </td>
                 <td className="p-3 text-center">
-                  <span className={`px-2 py-1 rounded-lg text-xs font-bold ${shop.initialDebt > 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
-                    {tenantCurrency
-                      ? formatLocaleMoney(String(shop.initialDebt), tenantCurrency, language)
-                      : label("currencyUnavailable")}
+                  <span className={`px-2 py-1 rounded-lg text-xs font-bold ${shop.initialDebt !== null && shop.initialDebt > 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {shop.initialDebt === null || shop.financeRedacted !== false
+                      ? label("shopFinanceUnavailable")
+                      : tenantCurrency
+                        ? formatLocaleMoney(String(shop.initialDebt), tenantCurrency, language)
+                        : label("currencyUnavailable")}
                   </span>
                 </td>
                 {isEditMode && (

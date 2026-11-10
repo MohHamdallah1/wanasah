@@ -124,9 +124,12 @@ jobs:
               )
               print("D11_D07_CROSS_OWNER=PASS authored_exact=16 upstream_D12_ignored")
           else:
-              assert files == d07_complete_exact, (
-                  f"D07 complete scope denied missing={sorted(d07_complete_exact - files)} "
-                  f"extra={sorted(files - d07_complete_exact)}"
+              # D06 is independently approved and frozen to exact security paths.
+              # D07/F06 historical scope is unchanged for all other PRs.
+              assert files == d07_complete_exact or __import__("runpy").run_path(
+                  ".github/scripts/dispatch_d06_ci_scope.py"
+              )["d06_mode"](files), (
+                  f"D07/D06 exact scope denied files={sorted(files)}"
               )
           for absent in d07_complete_exact:
               assert d07_complete_exact - {absent} != files

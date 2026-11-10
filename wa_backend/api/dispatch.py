@@ -13,6 +13,10 @@ from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.dispatch_shop_read_scope import (
+    company_shop_directory, can_read_shop_financials,
+    visible_shop_filter, visible_zone_filter, project_shop,
+)
 from domains.dispatch_shop_finance_fence import (
     ShopFinancialEditConflict,
     require_metadata_only_shop_finance,
@@ -1191,14 +1195,26 @@ async def dispatch_init(
 ):
 
     company_id = access.company_id
+    company_directory = await company_shop_directory(access)
+    zone_predicate = visible_zone_filter(access, company_directory=company_directory)
+    shop_predicate = visible_shop_filter(access, company_directory=company_directory)
     zones = (await db.execute(
-        select(Zone).filter_by(company_id=company_id, is_active=True).order_by(Zone.id.asc())
+        select(Zone).where(Zone.is_active.is_(True), zone_predicate)
+        .order_by(Zone.id.asc())
     )).scalars().all()
-    drivers = (await db.execute(
-        select(Driver).filter_by(company_id=company_id, is_active=True).filter(
-            has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id)
-        ).order_by(Driver.id.asc())
-    )).scalars().all()
+    drivers_stmt = select(Driver).filter_by(company_id=company_id, is_active=True).filter(
+        has_canonical_field_identity(company_id=company_id, legacy_driver_id=Driver.id)
+    )
+    if not company_directory:
+        # A warehouse-only grant must not enumerate unrelated representatives.
+        drivers_stmt = drivers_stmt.where(Driver.id.in_(
+            select(DispatchRoute.driver_id).where(
+                DispatchRoute.company_id == company_id,
+                DispatchRoute.status == "active",
+                route_filter(access, "dispatch.read"),
+            )
+        ))
+    drivers = (await db.execute(drivers_stmt.order_by(Driver.id.asc()))).scalars().all()
     vehicles = (await db.execute(
         select(Vehicle).filter_by(company_id=company_id).filter(vehicle_operational_predicate(Vehicle), vehicle_custody_ready_predicate(Vehicle), vehicle_filter(access, 'dispatch.read', Vehicle.id)).order_by(Vehicle.id.asc())
     )).scalars().all()
@@ -1218,7 +1234,7 @@ async def dispatch_init(
     ))).all())
     shop_counts = (await db.execute(
         select(Shop.zone_id, func.count(Shop.id)).filter(
-            Shop.company_id == company_id,
+            shop_predicate,
             Shop.is_archived.is_(False),
             Shop.is_active.is_(True),
         ).group_by(Shop.zone_id)
@@ -1256,6 +1272,7 @@ async def dispatch_init(
                       "can_execute": v.id in executable_vehicles} for v in vehicles],
         "warehouses": [{"id": str(w.id), "label": f"{w.name} ({w.code})",
                         "can_execute": w.id in executable_warehouses} for w in warehouses],
+        "shopScope": "company" if company_directory else "authorized_routes",
     }
 
 
@@ -3382,36 +3399,15 @@ async def get_dispatch_shops(
     access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
 ):
     
-    # تحذير هندسي: تم إزالة  ـ limit(2000) الكارثي لأن يسبب اختلاف المحلات (Data Truncation)
-    # ملاحظة: يجب تطبيق Pagination 진ية لاحقاً، ولكن حالياً نجلب المحلات النشطة لoids كوارث التوزيع
-
-    stmt = select(Shop).filter(
-    Shop.company_id == access.company_id,
-    Shop.is_active == True,
-).order_by(nullslast(Shop.sequence.asc()), Shop.id.asc())
-    shops = (await db.execute(stmt)).scalars().all()
-    
-    result = []
-    for s in shops:
-        result.append({
-            "id": str(s.id),
-            "name": s.name,
-            "owner": s.contact_person.strip() if s.contact_person else "", # +++ تنظيف المالك +++
-            "phone": s.phone_number or "",
-            "mapLink": s.location_link or "",
-            "zoneId": str(s.zone_id) if s.zone_id else "",
-            "taxJurisdictionId": (
-                int(s.tax_jurisdiction_id)
-                if s.tax_jurisdiction_id is not None
-                else None
-            ),
-            "initialDebt": float(s.current_balance or 0.0),
-            "maxDebtLimit": float(s.max_debt_limit or 0.0),
-            "sequence": s.sequence if s.sequence is not None else 999, # +++ حماية Pydantic من كراش الـ None +++
-            "archived": getattr(s, 'is_archived', False)
-        })
-
-    return result
+    company_directory = await company_shop_directory(access)
+    finance_allowed = await can_read_shop_financials(access)
+    shops = (await db.scalars(
+        select(Shop).where(
+            Shop.is_active.is_(True),
+            visible_shop_filter(access, company_directory=company_directory),
+        ).order_by(nullslast(Shop.sequence.asc()), Shop.id.asc())
+    )).all()
+    return [project_shop(row, finances=finance_allowed) for row in shops]
 
 
 # PATCH: DISPATCH_CONCURRENCY_EMERGENCY_INTEGRITY
@@ -3812,6 +3808,10 @@ async def get_active_routes(
     }
     
     # +++ تدمير N+1 باستخدام القواميس (Dictionaries) مع تنظيف التكرار عبر Set لحماية السيرفر +++
+    company_shop_scope = await company_shop_directory(access)
+    authorized_shop_predicate = visible_shop_filter(
+        access, company_directory=company_shop_scope,
+    )
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
     driver_ids = list({r.driver_id for r in routes if r.driver_id})
     session_ids = list({r.work_session_id for r in routes if r.work_session_id})
@@ -3845,7 +3845,7 @@ async def get_active_routes(
                 Shop, Visit.shop_id == Shop.id
             ).filter(
                 Visit.company_id == access.company_id,
-                Shop.company_id == access.company_id,
+                authorized_shop_predicate,
                 Visit.driver_id.in_(driver_ids),
                 Visit.status == 'Pending',
                 or_(Shop.zone_id.in_(active_zone_ids), Visit.is_emergency == True)
@@ -3869,7 +3869,7 @@ async def get_active_routes(
     stmt_shop_counts = select(Shop.zone_id, func.count(Visit.id)).join(
         Visit, Shop.id == Visit.shop_id
     ).filter(
-        Shop.company_id == access.company_id,
+        authorized_shop_predicate,
         Visit.company_id == access.company_id,
         Shop.is_active == True,
         Shop.is_archived == False,
@@ -5278,6 +5278,15 @@ async def get_shortages(
         status='pending'
     ).order_by(ShortageRequest.created_at.asc())
     
+    # Shortage names can identify a Shop: shortage.read must not silently
+    # elevate a warehouse-only dispatch viewer into a company directory.
+    company_directory = await company_shop_directory(access)
+    stmt = stmt.where(
+        select(1).select_from(Shop).where(
+            Shop.id == ShortageRequest.shop_id,
+            visible_shop_filter(access, company_directory=company_directory),
+        ).exists()
+    )
     if shortage_id is not None:
         stmt = stmt.where(ShortageRequest.id == shortage_id)
     shortages = (await db.execute(stmt)).scalars().all()

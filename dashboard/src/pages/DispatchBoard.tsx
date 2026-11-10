@@ -15,6 +15,7 @@ import { CustomSelect } from "@/components/ui/custom-select";
 import { ShopTable } from "@/components/dispatch/ShopTable";
 import { ShopOrderScopeNotice } from "@/features/dispatch/shopOrder/ShopOrderScopeNotice";
 import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
+import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
 import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
@@ -78,6 +79,7 @@ interface WarehouseOption {
 }
 
 interface DispatchInitPayload {
+  shopScope?: "company" | "authorized_routes";
   zones?: Zone[];
   drivers?: { id: string; name: string }[];
   vehicles?: { id: string; label: string; can_execute: boolean }[];
@@ -100,8 +102,9 @@ interface WorkerRealtimeEvent {
 }
 
 type ShopWire = Omit<Shop, "initialDebt" | "maxDebtLimit"> & {
-  initialDebt: number | string;
-  maxDebtLimit: number | string;
+  initialDebt: number | string | null;
+  maxDebtLimit: number | string | null;
+  financeRedacted?: boolean;
 };
 
 const getErrorMessage = (error: unknown): string =>
@@ -111,10 +114,18 @@ const normalizeShops = (data: unknown): Shop[] => {
   if (!Array.isArray(data)) return [];
   return data.map((raw) => {
     const shop = raw as ShopWire;
+    const validMoney = (value: number | string | null): number | null => {
+      if (value === null || (typeof value !== "number" && typeof value !== "string") ||
+          (typeof value === "string" && value.trim() === "")) return null;
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
+    const authorised = shop.financeRedacted === false;
     return {
       ...shop,
-      initialDebt: Number(shop.initialDebt) || 0,
-      maxDebtLimit: Number(shop.maxDebtLimit) || 0,
+      financeRedacted: !authorised,
+      initialDebt: authorised ? validMoney(shop.initialDebt) : null,
+      maxDebtLimit: authorised ? validMoney(shop.maxDebtLimit) : null,
     };
   });
 };
@@ -214,8 +225,10 @@ function DispatchSession() {
   const { state: accessState, grants, retry: retryAccess } = useDispatchAccessGate(inventoryAccess);
   const isCompanyOwner = accessState === "ready" && inventoryAccess.isCompanyOwner;
   const discoveryAccess = accessState === "ready" ? inventoryAccess.data : undefined;
-  // Current server Shop financial visibility is unchanged; D03 remains policy-owned.
-  const canReadShopFinances = grants.routes;
+  // D03/D06: company-only financial permission, never dispatch or settlement read.
+  // Server still enforces shop.financial.read + authorized Shop visibility.
+  const canReadShopFinances = Boolean(isCompanyOwner ||
+    discoveryAccess?.permissions.includes("shop.financial.read"));
   const canReadZoneArchive = grants.zones && Boolean(discoveryAccess?.permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   const actorScope = accessState === "ready" ? dispatchActorScope(session, discoveryAccess) : null;
@@ -231,6 +244,7 @@ function DispatchSession() {
     setActiveTab(grants.routes ? "routes" : grants.zones ? "zones" : grants.launch ? "launch" : "routes");
   }, [accessState, activeTab, grants]);
 
+  const [shopScope, setShopScope] = useState<"company" | "authorized_routes">("authorized_routes");
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
   const [vehicles, setVehicles] = useState<{ id: string; label: string; can_execute: boolean }[]>([]);
@@ -536,6 +550,7 @@ function DispatchSession() {
         const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
         const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
         setZones(sorted);
+        setShopScope(data.shopScope === "company" ? "company" : "authorized_routes");
         setDrivers(nextDrivers); setVehicles(nextVehicles); setWarehouses(nextWarehouses);
         setShops(grants.routes ? normalizeShops(freshShops) : []);
         setPendingRoutes(grants.routes && Array.isArray(routes) ? routes : []);
@@ -585,6 +600,35 @@ function DispatchSession() {
     clearDispatchPrivateState();
     setDispatchReadState(accessState);
   }, [accessState, clearDispatchPrivateState]);
+
+  // D06: refresh a returning tab after it was actually hidden/unfocused.
+  // A synthetic visibilitychange while visible must not issue duplicate reads
+  // or re-admit stale cross-account WebSocket activity (D10).
+  useEffect(() => {
+    if (accessState !== "ready" || !actorScope) return;
+    let wasAway = document.visibilityState === "hidden";
+    const revalidate = () => {
+      if (!wasAway || document.visibilityState === "hidden" ||
+          !isDashboardSessionCurrent(session!)) return;
+      wasAway = false;
+      setShops([]);
+      setShortages([]);
+      fetchInitialData();
+    };
+    const blur = () => { wasAway = true; };
+    const visibility = () => {
+      if (document.visibilityState === "hidden") wasAway = true;
+      else revalidate();
+    };
+    window.addEventListener("blur", blur);
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      window.removeEventListener("blur", blur);
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", visibility);
+    };
+  }, [accessState, actorScope, fetchInitialData, session]);
 
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
@@ -1855,6 +1899,11 @@ function DispatchSession() {
                         {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>}
                       </div>
                     </div>
+                    {shopScope === "authorized_routes" && (
+                      <p role="status" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                        {dispatchUiText(i18n.language, "shopRestrictedScope")}
+                      </p>
+                    )}
                     <div className="relative">
                       <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <input type="search" value={zoneSearchQueryMain} onChange={e => setZoneSearchQueryMain(e.target.value)} placeholder="بحث عن منطقة..." className="w-full rounded-xl border border-slate-200 bg-slate-50 pr-9 pl-4 py-2 text-xs focus:ring-2 focus:ring-[#1e87bb]/20 outline-none" />

@@ -33,7 +33,8 @@ export const existingShopForm = (shop: Shop): ShopFormState => ({
   name: shop.name, owner: shop.owner, phone: shop.phone, mapLink: shop.mapLink,
   zoneId: shop.zoneId,
   // These are never sent in EDIT, even if stale.
-  initialDebt: String(shop.initialDebt), maxDebtLimit: String(shop.maxDebtLimit),
+  initialDebt: shop.initialDebt === null ? "" : String(shop.initialDebt),
+  maxDebtLimit: shop.maxDebtLimit === null ? "" : String(shop.maxDebtLimit),
   originalPhone: shop.phone,
 });
 
@@ -98,7 +99,8 @@ export function financeReadback(rows: unknown, id: string): ShopFinanceReadback 
   if (!Array.isArray(rows)) return null;
   const shop = rows.find(row => row && typeof row === "object" &&
     String((row as { id?: unknown }).id) === id) as Record<string, unknown> | undefined;
-  if (!shop || !["string", "number"].includes(typeof shop.initialDebt) ||
+  if (!shop || shop.financeRedacted !== false ||
+    !["string", "number"].includes(typeof shop.initialDebt) ||
     !["string", "number"].includes(typeof shop.maxDebtLimit)) return null;
   try {
     return { initialDebt: readMoney(shop.initialDebt),

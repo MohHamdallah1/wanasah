@@ -1058,6 +1058,11 @@ DISPATCH_D07_NEW = frozenset({
 assert len(DISPATCH_D07_COMPLETE_EXACT) == 14 and len(DISPATCH_D07_NEW) == 6
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    # D06 is an exact audited crossover. Do not weaken older D09/D10/F06
+    # ownership rules or permit partial D06 or unrelated Flutter/source paths.
+    d06 = __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"]
+    if d06(changed):
+        return ("dispatch-d06-889-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
     if changed == DISPATCH_D11_881_EXACT:
         return ("dispatch-d11-881-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
     # Exact D13 only; no partial/mixed crossover can steal the old owners.
