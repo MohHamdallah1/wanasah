@@ -16,6 +16,7 @@ interface ShopFormModalProps {
   onVerify: () => void;
   onLeaveUncertain: () => void;
   needsManualReconciliation: boolean;
+  needsEditReview?: boolean;
   restoring: boolean;
   recoveryUnreadable: boolean;
   localTrackingId: string | null;
@@ -31,7 +32,7 @@ interface ShopFormModalProps {
 
 export function ShopFormModal({
   isOpen, onClose, editingShopId, shopForm, onShopFormChange, zones, onSave,
-  onVerify, onLeaveUncertain, needsManualReconciliation,
+  onVerify, onLeaveUncertain, needsManualReconciliation, needsEditReview = false,
   restoring, recoveryUnreadable, localTrackingId, serverReference,
   language, saving, needsVerification, canViewFinances, finance,
   financeLoading, feedback,
@@ -50,14 +51,14 @@ export function ShopFormModal({
     <Modal isOpen={isOpen} onClose={onClose} title={t(edit ? "titleEdit" : "titleCreate")}
       footer={
         <div className="flex w-full flex-col gap-2 sm:flex-row">
-          {!needsManualReconciliation && <button type="button" disabled={saving || needsVerification} onClick={onClose}
+          {!needsManualReconciliation && !needsEditReview && <button type="button" disabled={saving || needsVerification} onClick={onClose}
             className="rounded-xl px-4 py-2 font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50">
             {t("cancel")}
           </button>}
-          {needsManualReconciliation && <button type="button"
+          {(needsManualReconciliation || needsEditReview) && <button type="button"
             disabled={saving || restoring} onClick={onLeaveUncertain}
             className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
-            {t("createLeaveSafely")}
+            {t(needsEditReview ? "editLeaveSafely" : "createLeaveSafely")}
           </button>}
           <button type="submit" form="shop-form" disabled={saving || restoring || recoveryUnreadable}
             className="flex-1 rounded-xl bg-[#1e87bb] px-4 py-2 font-bold text-white hover:bg-[#0f766e] disabled:opacity-50">
@@ -149,11 +150,11 @@ export function ShopFormModal({
         {recoveryUnreadable && <p role="alert" className="text-sm font-semibold text-red-700 sm:col-span-2">
           {t("createRecoveryBlocked")}
         </p>}
-        {needsManualReconciliation && (
+        {(needsManualReconciliation || needsEditReview) && (
           <section className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 sm:col-span-2"
-            role="status" data-testid="shop-uncertain-create">
-            <p className="font-bold">{t("createUncertain")}</p>
-            <p>{t("createManualInstructions")}</p>
+            role="status" data-testid={needsEditReview ? "shop-uncertain-edit" : "shop-uncertain-create"}>
+            <p className="font-bold">{t(needsEditReview ? "editRecovered" : "createUncertain")}</p>
+            <p>{t(needsEditReview ? "editManualInstructions" : "createManualInstructions")}</p>
             {localTrackingId && <p className="break-all" dir="auto">
               {t("createPendingRecord")}: <code>{localTrackingId}</code>
             </p>}
