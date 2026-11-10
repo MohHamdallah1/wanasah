@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+import { dispatchUiText, type DispatchUiKey } from "@/features/dispatch/dispatchUiText";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Shop, Zone } from "@/types/dispatch";
@@ -137,6 +140,10 @@ export function ShopBulkImportModal({
   onSuccess,
 }: ShopBulkImportModalProps) {
   const authenticatedFetch = useAuthFetch();
+  const { i18n } = useTranslation();
+  const currency = useTenantIdentity().data?.currency_code;
+  const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
+    dispatchUiText(i18n.language, key, values);
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedZoneId, setSelectedZoneId] = useState("");
   const [pasteText, setPasteText] = useState("");
@@ -581,7 +588,7 @@ export function ShopBulkImportModal({
       <Modal
         isOpen={isOpen}
         onClose={handleClose}
-        title="📥 استيراد المحلات الذكي"
+        title={text("importTitle")}
         maxWidth={step === 1 ? "max-w-4xl" : "max-w-6xl"}
       >
         {step === 1 && (
@@ -590,10 +597,10 @@ export function ShopBulkImportModal({
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between mb-4">
                 <div>
                   <h3 className="font-bold text-amber-800 text-sm">
-                    يوجد مسودة غير محفوظة!
+                    {text("importHasDraft")}
                   </h3>
                   <p className="text-xs text-amber-700 mt-1">
-                    لديك بيانات سابقة لم تقم برفعها، هل تريد استكمال العمل عليها؟
+                    {text("importDraftDescription")}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -603,7 +610,8 @@ export function ShopBulkImportModal({
                       toast.info("تم إتلاف المسودة");
                     }}
                     className="px-3 py-2 bg-white text-red-500 font-bold text-sm rounded-lg hover:bg-red-50 shadow-sm transition-colors"
-                    title="حذف المسودة"
+                    title={text("importDeleteDraft")}
+                    aria-label={text("importDeleteDraft")}
                   >
                     🗑️
                   </button>
@@ -611,7 +619,7 @@ export function ShopBulkImportModal({
                     onClick={loadDraft}
                     className="px-4 py-2 bg-amber-500 text-white font-bold text-sm rounded-lg hover:bg-amber-600 shadow-sm transition-colors"
                   >
-                    استعادة المسودة 📝
+                    {text("importRestoreDraft")} 📝
                   </button>
                 </div>
               </div>
@@ -619,32 +627,33 @@ export function ShopBulkImportModal({
 
             <div className="bg-slate-50 p-5 rounded-xl border border-slate-200">
               <CustomSelect
-                label="1. اختر المنطقة التي سيتم إضافة المحلات إليها:"
+                label={text("importZone")}
                 options={zones.map((zone) => ({
                   id: zone.id,
                   label: zone.name,
                 }))}
                 value={selectedZoneId}
                 onChange={(value) => { if (value === selectedZoneId) return; readerRef.current?.abort(); readerRef.current = null; setSelectedZoneId(value); setGridData([]); setStep(1); setFileName(""); }}
-                placeholder="-- اضغط لاختيار المنطقة --"
+                placeholder={text("importZonePlaceholder")}
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
               <div className="border border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center gap-4 bg-white hover:border-[#1e87bb] transition-colors">
                 <div className="text-center">
                   <h3 className="font-bold text-slate-800 text-lg">
-                    رفع ملف (Excel / CSV)
+                    {text("importFile")}
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    النموذج الرسمي المعتمد للإدخال
+                    {text("importFileHelp")}
                   </p>
                 </div>
                 <button
+                  type="button"
                   onClick={handleDownloadTemplate}
                   className="text-[#1e87bb] text-xs font-bold flex items-center gap-1 hover:underline bg-blue-50 px-3 py-1.5 rounded-lg"
                 >
-                  <FileDown className="w-4 h-4" /> تنزيل النموذج المعتمد
+                  <FileDown className="w-4 h-4" /> {text("importDownload")}
                 </button>
                 <input
                   type="file"
@@ -654,34 +663,37 @@ export function ShopBulkImportModal({
                   accept=".xlsx,.xls,.csv"
                 />
                 <button
+                  type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full mt-2 py-3 rounded-xl bg-emerald-50 text-emerald-600 font-bold border border-emerald-200 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
+                  className="w-full mt-2 min-h-11 py-3 rounded-xl bg-emerald-50 text-emerald-600 font-bold border border-emerald-200 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
                 >
-                  <Upload className="w-5 h-5" /> اختيار ورفع الملف
+                  <Upload className="w-5 h-5" /> {text("importUpload")}
                 </button>
               </div>
 
               <div className="border border-slate-200 rounded-xl p-6 flex flex-col gap-3 bg-white hover:border-[#1e87bb] transition-colors">
                 <div className="text-center">
                   <h3 className="font-bold text-slate-800 text-lg">
-                    اللصق السريع (Quick Paste)
+                    {text("importPaste")}
                   </h3>
                   <p className="text-xs text-slate-500 mt-1">
-                    انسخ الخلايا من إكسل والصقها مباشرة هنا
+                    {text("importPasteHelp")}
                   </p>
                 </div>
                 <textarea
                   value={pasteText}
                   onChange={(event) => setPasteText(event.target.value)}
-                  placeholder="الصق البيانات هنا..."
+                  placeholder={text("importPastePlaceholder")}
+                  aria-label={text("importPaste")}
                   className="w-full h-24 rounded-xl border border-slate-200 p-3 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none resize-none"
-                  dir="rtl"
+                  dir={i18n.dir()}
                 />
                 <button
+                  type="button"
                   onClick={handlePasteSubmit}
                   className="w-full py-2.5 rounded-xl bg-[#1e87bb] text-white font-bold hover:bg-[#156a94] transition-colors flex items-center justify-center gap-2"
                 >
-                  <ClipboardPaste className="w-5 h-5" /> قراءة النص المنسوخ
+                  <ClipboardPaste className="w-5 h-5" /> {text("importReadPaste")}
                 </button>
               </div>
             </div>
@@ -690,17 +702,17 @@ export function ShopBulkImportModal({
 
         {step === 2 && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200">
               <div className="flex gap-4">
                 <div className="flex flex-col">
-                  <span className="text-xs text-slate-500">إجمالي المحلات</span>
+                  <span className="text-xs text-slate-500">{text("importTotal")}</span>
                   <span className="font-bold text-slate-800">
                     {stats.total}
                   </span>
                 </div>
                 <div className="w-px h-8 bg-slate-200" />
                 <div className="flex flex-col">
-                  <span className="text-xs text-slate-500">جاهز للرفع</span>
+                  <span className="text-xs text-slate-500">{text("importReady")}</span>
                   <span className="font-bold text-emerald-600 flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5" />
                     {stats.valid}
@@ -708,7 +720,7 @@ export function ShopBulkImportModal({
                 </div>
                 <div className="w-px h-8 bg-slate-200" />
                 <div className="flex flex-col">
-                  <span className="text-xs text-slate-500">يحتاج تصحيح</span>
+                  <span className="text-xs text-slate-500">{text("importInvalid")}</span>
                   <span
                     className={`font-bold flex items-center gap-1 ${
                       stats.invalid > 0
@@ -724,42 +736,44 @@ export function ShopBulkImportModal({
 
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setStep(1)}
                   className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50"
                 >
-                  تراجع
+                  {text("importBack")}
                 </button>
                 <button
-                  disabled={stats.invalid > 0 || stats.total === 0}
+                  disabled={stats.invalid > 0 || stats.total === 0 || !currency}
+                  type="button"
                   onClick={handleBulkImport}
                   className="px-6 py-2 bg-[#1e87bb] text-white rounded-lg text-sm font-bold hover:bg-[#156a94] flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
-                  اعتماد ورفع البيانات <Save className="w-4 h-4" />
+                  {text("importSubmit")} <Save className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[50vh] overflow-y-auto">
-              <table className="w-full text-sm text-right">
+            <div className="max-h-[50vh] overflow-auto rounded-xl border border-slate-200">
+              <table className="w-full min-w-[920px] text-sm text-start">
                 <thead className="bg-slate-100 sticky top-0 z-10 shadow-sm">
                   <tr>
                     <th className="p-3 text-slate-600 font-bold w-12 text-center">
                       #
                     </th>
                     <th className="p-3 text-slate-600 font-bold w-1/4">
-                      اسم المحل <span className="text-red-500">*</span>
+                      {text("importName")} <span className="text-red-500">*</span>
                     </th>
                     <th className="p-3 text-slate-600 font-bold w-1/5">
-                      رقم الهاتف
+                      {text("importPhone")}
                     </th>
                     <th className="p-3 text-slate-600 font-bold">
-                      رابط الخريطة
+                      {text("importMap")}
                     </th>
                     <th className="p-3 text-slate-600 font-bold">
-                      اسم المالك
+                      {text("importOwner")}
                     </th>
                     <th className="p-3 text-slate-600 font-bold w-24">
-                      الذمة
+                      {text("importOpeningDebt")}
                     </th>
                     <th className="p-3 w-12" />
                   </tr>
@@ -810,7 +824,7 @@ export function ShopBulkImportModal({
                             onChange={(event) =>
                               updateCell(row._id, "name", event.target.value)
                             }
-                            placeholder="مطلوب"
+                            placeholder={text("importRequired")}
                             className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                             disabled={Boolean(dbConflict)}
                           />
@@ -827,7 +841,7 @@ export function ShopBulkImportModal({
                                 event.target.value
                               )
                             }
-                            placeholder="اختياري"
+                            placeholder={text("importOptional")}
                             className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                             dir="ltr"
                             disabled={Boolean(dbConflict)}
@@ -845,7 +859,7 @@ export function ShopBulkImportModal({
                                 event.target.value
                               )
                             }
-                            placeholder="اختياري"
+                            placeholder={text("importOptional")}
                             className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                             disabled={Boolean(dbConflict)}
                           />
@@ -905,7 +919,7 @@ export function ShopBulkImportModal({
 
               {gridData.length === 0 && (
                 <div className="p-8 text-center text-slate-400">
-                  لا توجد بيانات للعرض
+                  {text("importNoRows")}
                 </div>
               )}
             </div>
@@ -917,61 +931,61 @@ export function ShopBulkImportModal({
         <Modal
           isOpen
           onClose={() => setConflictRow(null)}
-          title="⚠️ تعارض مع محل موجود"
+          title={text("importConflictTitle")}
         >
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                 <h4 className="font-bold text-slate-400 text-xs mb-3">
-                  المحل الموجود بالنظام
+                  {text("importExisting")}
                 </h4>
                 <p className="font-bold text-lg text-slate-800">
                   {conflictRow.duplicateCandidate.shop.name}
                 </p>
                 <p className="text-sm text-slate-600 mt-1">
-                  المالك:{" "}
+                  {text("importOwner")}:{" "}
                   <span className="font-bold">
-                    {conflictRow.duplicateCandidate.shop.owner || "غير مسجل"}
+                    {conflictRow.duplicateCandidate.shop.owner || text("importNoOwner")}
                   </span>
                 </p>
                 <p className="text-xs font-bold text-[#1e87bb] mt-2 bg-blue-50 w-fit px-2 py-1 rounded-md">
-                  المنطقة:{" "}
+                  {text("zone")}:{" "}
                   {zones.find(
                     (zone) =>
                       zone.id ===
                       conflictRow.duplicateCandidate?.shop?.zoneId
-                  )?.name || "غير محدد"}
+                  )?.name || text("shopNoZone")}
                 </p>
                 <p
                   className="text-sm mt-3 text-slate-500 font-medium"
                   dir="ltr"
                 >
-                  {conflictRow.duplicateCandidate.shop.phone || "بدون هاتف"}
+                  {conflictRow.duplicateCandidate.shop.phone || text("importNoPhone")}
                 </p>
               </div>
 
               <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm">
                 <h4 className="font-bold text-amber-500 text-xs mb-3">
-                  البيانات الجديدة
+                  {text("importIncoming")}
                 </h4>
                 <p className="font-bold text-lg text-slate-800">
                   {conflictRow.name}
                 </p>
                 <p className="text-sm text-slate-600 mt-1">
-                  المالك:{" "}
+                  {text("importOwner")}:{" "}
                   <span className="font-bold">
-                    {conflictRow.owner || "غير مسجل"}
+                    {conflictRow.owner || text("importNoOwner")}
                   </span>
                 </p>
                 <p className="text-xs font-bold text-amber-600 mt-2 bg-amber-50 w-fit px-2 py-1 rounded-md">
-                  المنطقة المستهدفة:{" "}
+                  {text("importTargetZone")}:{" "}
                   {zones.find((zone) => zone.id === selectedZoneId)?.name || ""}
                 </p>
                 <p
                   className="text-sm mt-3 text-slate-500 font-medium"
                   dir="ltr"
                 >
-                  {conflictRow.phone || "بدون هاتف"}
+                  {conflictRow.phone || text("importNoPhone")}
                 </p>
               </div>
             </div>
@@ -990,7 +1004,7 @@ export function ShopBulkImportModal({
               }}
               className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold hover:bg-slate-200 transition-colors border border-slate-300"
             >
-              تجاهل المحل وحذفه من الملف 🗑️
+              {text("importConflictRemove")} 🗑️
             </button>
           </div>
         </Modal>
