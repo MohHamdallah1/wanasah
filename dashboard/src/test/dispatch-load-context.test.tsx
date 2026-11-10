@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { setAppLanguage } from "@/i18n";
 import DispatchBoard from "@/pages/DispatchBoard";
+import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
@@ -42,7 +43,10 @@ beforeEach(async () => {
   localStorage.setItem("admin_token", "synthetic-load-context-only");
   localStorage.setItem("company_id", "1"); localStorage.setItem("principal_id", "3");
   localStorage.setItem("backoffice_user_id", "13");
-  localStorage.setItem("activeTab", "launch"); localStorage.setItem("wanasah_route_vehicle", "17");
+  writeDispatchPreferences("1:3:13", {
+    activeTab: "launch", zoneForShops: "", launchZone: "", driver: "",
+    vehicle: "17", sourceWarehouse: "21",
+  });
   await setAppLanguage("en"); fake.fetch.mockReset();
 });
 
@@ -57,7 +61,7 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
     ], warehouses: [{ id: "21", label: "Warehouse one", can_execute: true }, { id: "22", label: "Warehouse two", can_execute: true }] };
     if (url.startsWith("/dispatch/inventory/")) {
       custodyReads += 1;
-      if (custodyReads === 3) return new Promise((resolve) => { finishOld = resolve; });
+      if (custodyReads === 2) return new Promise((resolve) => { finishOld = resolve; });
       return [custody(url.endsWith("/18") ? "800" : "521", url.endsWith("/18") ? "Current vehicle two" : "Current A, zero source stock")];
     }
     if (url.startsWith("/dispatch/products?")) return url.includes("warehouse_id=21")
@@ -75,13 +79,18 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "filter" } });
   await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=filter"))).toBe(true));
 
+  // A second in-flight A custody read is deliberately delayed; changing
+  // source Warehouse must clear the old Vehicle selection and reject that result.
+  fireEvent.change(screen.getByRole("combobox", { name: "السيارة" }), { target: { value: "18" } });
+  await waitFor(() => expect(custodyReads).toBe(2));
   fireEvent.change(screen.getByRole("combobox", { name: "مستودع المصدر" }), { target: { value: "22" } });
+  expect(screen.getByRole("combobox", { name: "السيارة" })).toHaveValue("");
   expect(screen.getByRole("textbox", { name: "Search products" })).toHaveValue("");
   expect(screen.queryByText("Eligible source B")).not.toBeInTheDocument();
   expect(screen.queryByText("Current A, zero source stock")).not.toBeInTheDocument();
   await screen.findByText("New Warehouse stock");
   expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).toBeDisabled();
-  await waitFor(() => expect(custodyReads).toBe(3));
+  await waitFor(() => expect(custodyReads).toBe(2));
 
   fireEvent.change(screen.getByRole("combobox", { name: "السيارة" }), { target: { value: "18" } });
   await screen.findByText("Current vehicle two");
@@ -92,5 +101,5 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   const requests = fake.fetch.mock.calls.filter(([url]) => url.startsWith("/dispatch/products?")).map(([url]) => url);
   expect(requests.some((url) => url.includes("vehicle_id=18&warehouse_id=22&search=&limit=80"))).toBe(true);
   expect(requests.filter((url) => url.includes("warehouse_id=22")).every((url) => !url.includes("cursor="))).toBe(true);
-  expect(custodyReads).toBe(4);
+  expect(custodyReads).toBe(3);
 });
