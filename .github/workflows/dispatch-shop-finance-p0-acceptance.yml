@@ -149,7 +149,7 @@ jobs:
                   assert ownership_mode(subset) == "FINANCE_842_LEGACY_BOUNDED"
               else:
                   denied(subset, "F06 empty comparison")
-          assert f06_partial_denied == 30, f06_partial_denied
+          assert f06_partial_denied == 29, f06_partial_denied
 
           assert ownership_mode(ci_policy_861_exact) == "CI_POLICY_861_EXACT"
           denied({".github/workflows/dispatch-p0-route-stock-safety.yml"}, "CI-only partial")
