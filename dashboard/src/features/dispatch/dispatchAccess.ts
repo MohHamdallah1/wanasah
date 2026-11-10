@@ -26,7 +26,7 @@ export function dispatchPrivileges(access: InventoryCapabilities | undefined): D
     routes: anyLocation.has("dispatch.read"),
     zones: anyLocation.has("dispatch.read"),
     zoneManage: company.has("dispatch.execute"),
-    launch: anyLocation.has("dispatch.execute"),
+    launch: anyLocation.has("dispatch.read") && anyLocation.has("dispatch.execute"),
     shortages: company.has("shortage.read"),
     shortageCreate,
     shortageCancel,
@@ -46,6 +46,7 @@ export function createDispatchReadFence() {
       const ownRevision = ++revision;
       return {
         signal: active.signal,
+        abort: () => active.abort(),
         isCurrent: () => !active.signal.aborted &&
           revision === ownRevision && isSessionCurrent(),
       };
