@@ -276,7 +276,10 @@ export function useShortageGroupCommit({
             setPending(null);
             setHttpReference(null);
             setFeedback(null);
-            onVerifiedRef.current(rows, original.payload);
+            // groupReadbackVerdict already validated every authorized row
+            // before returning "exact"; TypeScript cannot infer that through
+            // a multi-valued verdict.
+            onVerifiedRef.current(rows as Shortage[], original.payload);
             toast.success(groupText(language,
               original.payload.action === "delete" ? "successDelete" : "successEdit"));
             return true;
