@@ -163,3 +163,79 @@ export function preserveUnsavedShopOrder(
     return draft ? { ...row, sequence: draft.sequence, archived: draft.archived } : row;
   });
 }
+
+/** Persists across the canonical logout storage clear, but never belongs to
+ * another company/principal. This is an operator reminder, NOT a backend receipt.
+ */
+export type ShopCreateAttempt = {
+  kind: "SHOP_CREATE_UNCERTAIN_V1";
+  submitted: ShopCreatePayload;
+  draft: ShopFormState;
+  baselineIds: string[];
+};
+
+const SHOP_CREATE_RECOVERY_PREFIX = "wanasah:backoffice-identity:shop-create-attempt:v1";
+const safeIdentityPart = (value: string | null): string | null =>
+  value && /^(?:0|[1-9]\d{0,15})$/.test(value) && value !== "0" ? value : null;
+
+/** Requires all three authoritative backoffice identity fields; never use a
+ * global/shared key, company-only fallback or a login-generation-only key.
+ */
+export function shopCreateAttemptScope(): string | null {
+  try {
+    const parts = ["company_id", "principal_id", "backoffice_user_id"]
+      .map(key => safeIdentityPart(localStorage.getItem(key)));
+    return parts.every((part): part is string => part !== null)
+      ? `${SHOP_CREATE_RECOVERY_PREFIX}:${parts.join(":")}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A durable command is untrusted local state: validate it before showing
+ * money or rehydrating a form. GET/POST still require real authorized Bearer.
+ */
+export function isShopCreateAttempt(value: unknown): value is ShopCreateAttempt {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const attempt = value as Partial<ShopCreateAttempt>;
+  if (attempt.kind !== "SHOP_CREATE_UNCERTAIN_V1" || !Array.isArray(attempt.baselineIds) ||
+    !attempt.baselineIds.every(id => typeof id === "string" && /^\d+$/.test(id)) ||
+    !attempt.draft || typeof attempt.draft !== "object" ||
+    !attempt.submitted || typeof attempt.submitted !== "object") return false;
+  try {
+    const expected = createPayload(attempt.draft as ShopFormState,
+      attempt.submitted.force_save);
+    return JSON.stringify(expected) === JSON.stringify(attempt.submitted);
+  } catch {
+    return false;
+  }
+}
+
+const safeTrackingId = (value: string): boolean => /^[A-Za-z0-9._:-]{1,100}$/.test(value);
+
+/** A server request ID can help an administrator search logs. It is never
+ * operation confirmation. Keep it separate from immutable durable payload.
+ */
+export function saveShopAttemptServerReference(scope: string, localId: string, reference?: string): void {
+  if (!reference || !safeTrackingId(reference)) return;
+  try {
+    localStorage.setItem(`${scope}:server-ref`, JSON.stringify({ localId, reference }));
+  } catch { /* The immutable pending command stays authoritative. */ }
+}
+
+export function readShopAttemptServerReference(scope: string, localId: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${scope}:server-ref`);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as { localId?: unknown; reference?: unknown };
+    return value.localId === localId && typeof value.reference === "string" &&
+      safeTrackingId(value.reference) ? value.reference : null;
+  } catch {
+    return null;
+  }
+}
+export function clearShopAttemptServerReference(scope: string): void {
+  try { localStorage.removeItem(`${scope}:server-ref`); } catch { /* No claim of success. */ }
+}
