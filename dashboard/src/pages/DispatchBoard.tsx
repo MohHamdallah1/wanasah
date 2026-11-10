@@ -18,6 +18,12 @@ import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import { useShopOrderDraft } from "@/features/dispatch/shopOrder/useShopOrderDraft";
 import { compareShopSequence } from "@/features/dispatch/shopOrder/scope";
 import { useShopOrderCommit } from "@/features/dispatch/shopOrder/useShopOrderCommit";
+import {
+  canCloseShopForm, canOpenShopForm, emptyShopForm, existingShopForm, preserveUnsavedShopOrder,
+  type ShopFormState,
+} from "@/features/dispatch/shopForm/contract";
+import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
+import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
@@ -71,41 +77,6 @@ interface WorkerRealtimeEvent {
   message?: string;
 }
 
-interface DuplicateShopPayload {
-  name: string;
-  owner?: string | null;
-  phone?: string | null;
-  zone_name?: string | null;
-}
-
-interface ShopMutationPayload {
-  name: string;
-  owner: string;
-  phone: string;
-  initialDebt: number;
-  maxDebtLimit: number;
-  mapLink: string;
-  zoneId: number;
-  force_save?: boolean;
-}
-
-interface LocalShopState {
-  name: string;
-  owner: string;
-  phone: string;
-  initialDebt: number;
-  maxDebtLimit: number;
-  mapLink: string;
-  zoneId: string;
-}
-
-interface DuplicateWarningState {
-  show: boolean;
-  shopData: DuplicateShopPayload;
-  apiPayload: ShopMutationPayload;
-  localState: LocalShopState;
-}
-
 type ShopWire = Omit<Shop, "initialDebt" | "maxDebtLimit"> & {
   initialDebt: number | string;
   maxDebtLimit: number | string;
@@ -113,47 +84,6 @@ type ShopWire = Omit<Shop, "initialDebt" | "maxDebtLimit"> & {
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "حدث خطأ غير متوقع";
-
-const getHttpErrorStatus = (error: unknown): number | undefined => {
-  if (typeof error !== "object" || error === null || !("status" in error)) {
-    return undefined;
-  }
-  const status = (error as { status?: unknown }).status;
-  return typeof status === "number" ? status : undefined;
-};
-
-const getHttpErrorData = (error: unknown): unknown => {
-  if (typeof error !== "object" || error === null || !("data" in error)) {
-    return undefined;
-  }
-  return (error as { data?: unknown }).data;
-};
-
-const isDuplicateShopResponse = (
-  data: unknown
-): data is { is_duplicate: true; existing_shop: DuplicateShopPayload } => {
-  if (typeof data !== "object" || data === null) return false;
-  const record = data as Record<string, unknown>;
-  return (
-    record.is_duplicate === true &&
-    typeof record.existing_shop === "object" &&
-    record.existing_shop !== null
-  );
-};
-
-const parseCreatedShopId = (data: unknown): string => {
-  if (typeof data !== "object" || data === null) {
-    throw new Error("استجابة إنشاء المحل غير صالحة.");
-  }
-  const shopId = (data as Record<string, unknown>).shop_id;
-  if (
-    (typeof shopId !== "string" && typeof shopId !== "number") ||
-    String(shopId).trim() === ""
-  ) {
-    throw new Error("استجابة إنشاء المحل لا تحتوي معرفاً صالحاً.");
-  }
-  return String(shopId);
-};
 
 const normalizeShops = (data: unknown): Shop[] => {
   if (!Array.isArray(data)) return [];
@@ -228,6 +158,7 @@ export default function DispatchBoard() {
 
 function DispatchSession() {
   const { t, i18n } = useTranslation();
+  const session = useDashboardSession();
   const routeLocation = useLocation();
   const routeNavigate = useNavigate();
   const initialDispatchFocusRef = useRef(
@@ -265,6 +196,9 @@ function DispatchSession() {
 
   const authenticatedFetch = useAuthFetch();
   const { isCompanyOwner, data: discoveryAccess } = useInventoryAccess();
+  // Match existing /dispatch/shops authorized read authority; no new finance grant.
+  const canReadShopFinances = isCompanyOwner ||
+    Boolean(discoveryAccess?.any_permissions?.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   useEffect(() => {
     if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
@@ -337,7 +271,7 @@ function DispatchSession() {
 
   const [isShopModalOpen, setIsShopModalOpen] = useState(false);
   const [editingShopId, setEditingShopId] = useState<string | null>(null);
-  const [shopForm, setShopForm] = useState({ name: "", owner: "", phone: "", mapLink: "", zoneId: "", initialDebt: 0, maxDebtLimit: 0 });
+  const [shopForm, setShopForm] = useState<ShopFormState>(() => emptyShopForm(""));
 
   const [showRecycleBin, setShowRecycleBin] = useState(false);
   const [recycleSearchQuery, setRecycleSearchQuery] = useState("");
@@ -382,7 +316,6 @@ function DispatchSession() {
   }, []);
   useDispatchOwnerNavigation({ focus: dispatchFocus, onRoute: openRouteOwner, onShortage: openShortageOwner, onConsumed: consumeOwnerFocus });
   // +++ الدرع المعماري: فصل حالة السيرفر عن حالة الواجهة لمنع التلوث +++
-  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningState | null>(null);
   const [restorePromptShop, setRestorePromptShop] = useState<Shop | null>(null);
 
   // Snapshot of shops taken when entering edit mode — used for Cancel/revert
@@ -1071,110 +1004,38 @@ function DispatchSession() {
   }
 };
 
-  const handleSaveShop = async () => {
-    if (isSaving) return; // +++ درع الحماية: منع النقر المزدوج وازدواجية البيانات +++
-    if (!shopForm.name.trim() || !shopForm.zoneId) {
-      toast.error("⚠️ اسم المحل والمنطقة مطلوبان");
-      return;
-    }
-    setIsSaving(true);
-
-    // +++ الكي الجراحي: مطابقة أسماء المتغيرات بدقة مع Pydantic Schemas لنسف خطأ 422 +++
-    const apiPayload: ShopMutationPayload = {
-      name: shopForm.name,
-      owner: shopForm.owner,
-      phone: shopForm.phone,
-      initialDebt: Number(shopForm.initialDebt) || 0,
-      maxDebtLimit: Number(shopForm.maxDebtLimit) || 0,
-      mapLink: shopForm.mapLink,
-      zoneId: Number(shopForm.zoneId) // تحويل المنطقة لرقم صريح
-    };
-
-    const localShopState: LocalShopState = {
-      name: shopForm.name,
-      owner: shopForm.owner,
-      phone: shopForm.phone,
-      initialDebt: Number(shopForm.initialDebt) || 0,
-      maxDebtLimit: Number(shopForm.maxDebtLimit) || 0,
-      mapLink: shopForm.mapLink,
-      zoneId: shopForm.zoneId
-    };
-
-    try {
-      if (editingShopId) {
-        await authenticatedFetch(`/dispatch/shops/${editingShopId}`, {
-          method: "PUT",
-          body: JSON.stringify(apiPayload)
-        });
-        const [shopsRaw, initRaw] = await Promise.all([
-          authenticatedFetch("/dispatch/shops"),
-          authenticatedFetch("/dispatch/init"),
-        ]);
-        setShops(normalizeShops(shopsRaw));
-        const initData = initRaw as DispatchInitPayload;
-        setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
-        setIsShopModalOpen(false);
-        toast.success("تم تحديث بيانات المحل ✅");
-      } else {
-        // +++ استخدام الهوك المطور لاصطياد الـ 409 دون التفاف +++
-        const data = await authenticatedFetch("/dispatch/shops", {
-          method: "POST",
-          body: JSON.stringify({ ...apiPayload, force_save: false })
-        });
-        const newShop = { ...localShopState, id: parseCreatedShopId(data), sequence: 999, archived: false };
-        setShops(prev => [...prev, newShop]);
-        setZones(prev => sortZones(prev.map(z => z.id === localShopState.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
-        setIsShopModalOpen(false);
-        toast.success("تم الإضافة بنجاح");
-      }
-    } catch (error: unknown) {
-      const status = getHttpErrorStatus(error);
-      const data = getHttpErrorData(error);
-      if (status === 409 && isDuplicateShopResponse(data)) {
-        setDuplicateWarning({
-          show: true,
-          shopData: data.existing_shop,
-          apiPayload: { ...apiPayload, force_save: true },
-          localState: localShopState,
-        });
-      } else {
-        toast.error(`❌ خطأ: ${getErrorMessage(error)}`);
-      }
-    } finally {
-      setIsSaving(false); // +++ تحرير الدرع بعد انتهاء العملية +++
-    }
-  };
-
-  const forceSaveShop = async () => {
-    if (!duplicateWarning) return;
-
-    const payload = { ...duplicateWarning.apiPayload, force_save: true };
-
-    try {
-      // نعود للهوك لأن فرض الحفظ لا يرجع 409 أبداً
-      const data = await authenticatedFetch("/dispatch/shops", {
-        method: "POST",
-        body: JSON.stringify(payload)
-      });
-
-      // +++ استخدام الكائن المحلي النظيف (Camel Case) المحفوظ في التحذير +++
-      const newShop = {
-        ...duplicateWarning.localState,
-        id: parseCreatedShopId(data),
-        sequence: 999,
-        archived: false
-      };
-
-      setShops(prev => [...prev, newShop]);
-      setZones(prev => sortZones(prev.map(z => z.id === duplicateWarning.localState.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
-
-      toast.success("تم فرض الحفظ بنجاح");
-      setIsShopModalOpen(false);
-      setDuplicateWarning(null);
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error));
-    }
-  };
+  const {
+    save: handleSaveShop, verify: verifyShopSave,
+    confirmDuplicate: confirmDuplicateShop, duplicate: duplicateWarning,
+    clearDuplicate: clearDuplicateWarning, finance: shopFinance,
+    financeLoading: shopFinanceLoading, feedback: shopFormFeedback,
+    needsVerification: shopNeedsVerification, restoring: shopCreateRestoring,
+    recoveryUnreadable: shopCreateUnreadable, leaveUncertain: leaveUncertainShopCreate,
+    needsManualReconciliation: shopCreateNeedsReview,
+    needsEditReview: shopEditNeedsReview,
+    localTrackingId: shopCreateTrackingId, serverReference: shopCreateServerRef,
+  } = useShopFormCommit({
+    open: isShopModalOpen, editId: editingShopId, form: shopForm,
+    language: i18n.language, session: session!, canViewFinances: canReadShopFinances,
+    busy: isSaving, setBusy: setIsSaving, fetch: authenticatedFetch,
+    onVerified: (rows, isCreate, zoneId) => {
+      if (!isDashboardSessionCurrent(session!)) return;
+      const authorized = normalizeShops(rows);
+      setShops(previous => canOpenShopForm(hasUnsavedChanges, needsReconciliation)
+        ? authorized : preserveUnsavedShopOrder(previous, authorized));
+      if (isCreate) setZones(prev => sortZones(prev.map(z => z.id === zoneId
+        ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
+      // Zone totals and names are server-owned; refreshed independently.
+      void authenticatedFetch("/dispatch/init", { cache: "no-store" })
+        .then(value => {
+          if (!isDashboardSessionCurrent(session!)) return;
+          const fresh = value as DispatchInitPayload;
+          if (Array.isArray(fresh.zones)) setZones(sortZones(fresh.zones));
+        }).catch(() => { /* A verified Shop edit remains saved. */ });
+    },
+    onClose: () => setIsShopModalOpen(false),
+    onRestoreForm: restored => setShopForm(restored),
+  });
 
   const activeShops = useMemo(() => shops.filter(s => !s.archived), [shops]);
   const archivedShops = useMemo(() => shops.filter(s => s.archived), [shops]);
@@ -1699,13 +1560,25 @@ function DispatchSession() {
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
                     <Archive className="w-5 h-5" />
-                  </button><button onClick={() => { setEditingShopId(null); setShopForm({ name: "", owner: "", phone: "", mapLink: "", zoneId: selectedZoneIdForZones, initialDebt: 0, maxDebtLimit: 0 }); setIsShopModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
+                  </button><button onClick={() => {
+                    if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                      toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                      return;
+                    }
+                    setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
+                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
                   <ShopOrderScopeNotice language={i18n.language}
                     selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
                     hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={isEditMode} />
                   <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode && !recoveryBlocked}
-                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => { setShopForm({ ...s }); setEditingShopId(s.id); setIsShopModalOpen(true); }} onArchiveShop={id => {
+                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
+                       if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                         toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                         return;
+                       }
+                       setShopForm(existingShopForm(s)); setEditingShopId(s.id); setIsShopModalOpen(true);
+                     }} onArchiveShop={id => {
                     if (isEditMode) {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
@@ -1808,7 +1681,19 @@ function DispatchSession() {
         onConfirmAction={handleConfirmRouteAction}
       />
       )}
-      <ShopFormModal isOpen={isShopModalOpen} onClose={() => setIsShopModalOpen(false)} editingShopId={editingShopId} shopForm={shopForm} onShopFormChange={setShopForm} zones={zones} onSave={handleSaveShop} />
+      <ShopFormModal isOpen={isShopModalOpen} onClose={() => {
+        if (canCloseShopForm(isSaving, shopNeedsVerification)) setIsShopModalOpen(false);
+      }}
+        editingShopId={editingShopId} shopForm={shopForm}
+        onShopFormChange={next => { if (!isSaving && !shopNeedsVerification) setShopForm(next); }}
+        zones={zones}
+        onSave={handleSaveShop} onVerify={verifyShopSave}
+        onLeaveUncertain={leaveUncertainShopCreate} needsManualReconciliation={shopCreateNeedsReview}
+        needsEditReview={shopEditNeedsReview} restoring={shopCreateRestoring} recoveryUnreadable={shopCreateUnreadable}
+        localTrackingId={shopCreateTrackingId} serverReference={shopCreateServerRef}
+        language={i18n.language}
+        saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
+        finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
         isOpen={showRecycleBin}
         onClose={() => setShowRecycleBin(false)}
@@ -1895,31 +1780,31 @@ function DispatchSession() {
         </Modal>
       )}
 
-      {duplicateWarning?.show && (
+      {duplicateWarning && (
         <Modal
-          isOpen={duplicateWarning.show}
-          onClose={() => setDuplicateWarning(null)}
-          title="⚠️ تحذير: اكتشاف تطابق"
+          isOpen={Boolean(duplicateWarning)}
+          onClose={() => clearDuplicateWarning()}
+          title={shopFormText(i18n.language, "duplicateTitle")}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setDuplicateWarning(null)} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
-              <button onClick={forceSaveShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg">تخطي التحذير والحفظ</button>
+              <button onClick={() => clearDuplicateWarning()} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">{shopFormText(i18n.language, "cancel")}</button>
+              <button onClick={confirmDuplicateShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg">{shopFormText(i18n.language, "duplicateProceed")}</button>
             </div>
           }
         >
           <div className="space-y-4">
-            <p className="text-sm text-slate-600">تم العثور على محل ببيانات مشابهة. يرجى مراجعة التطابق قبل الحفظ.</p>
-            <div className="grid grid-cols-2 gap-4">
+            <p className="text-sm text-slate-600">{shopFormText(i18n.language, "createDuplicate")}</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="bg-red-50 p-4 rounded-xl border border-red-200">
-                <h4 className="text-sm font-bold text-red-700 mb-2 border-b border-red-200 pb-2">البيانات المدخلة حديثاً</h4>
-                <p className="font-bold text-slate-800 text-sm">{duplicateWarning.localState.name}</p>
-                <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.localState.phone}</p>
+                <h4 className="text-sm font-bold text-red-700 mb-2 border-b border-red-200 pb-2">{shopFormText(i18n.language, "duplicateNew")}</h4>
+                <p className="font-bold text-slate-800 text-sm">{duplicateWarning.payload.name}</p>
+                <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.payload.phone}</p>
               </div>
               <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
-                <h4 className="text-sm font-bold text-emerald-700 mb-2 border-b border-emerald-200 pb-2">المحل الموجود مسبقاً</h4>
+                <h4 className="text-sm font-bold text-emerald-700 mb-2 border-b border-emerald-200 pb-2">{shopFormText(i18n.language, "duplicateExisting")}</h4>
                 <p className="font-bold text-slate-800 text-sm">{duplicateWarning.shopData.name}</p>
-                <p className="text-xs text-slate-600 mt-1">المالك: {duplicateWarning.shopData.owner}</p>
-                <p className="text-xs text-slate-600 mt-1">المنطقة: <span className="font-bold text-[#1e87bb]">{duplicateWarning.shopData.zone_name}</span></p>
+                <p className="text-xs text-slate-600 mt-1">{shopFormText(i18n.language, "duplicateOwner")}: {duplicateWarning.shopData.owner}</p>
+                <p className="text-xs text-slate-600 mt-1">{shopFormText(i18n.language, "duplicateZone")}: <span className="font-bold text-[#1e87bb]">{duplicateWarning.shopData.zone_name}</span></p>
                 <p className="text-xs text-slate-500 mt-1" dir="ltr">{duplicateWarning.shopData.phone}</p>
               </div>
             </div>

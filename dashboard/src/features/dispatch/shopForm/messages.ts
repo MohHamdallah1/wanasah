@@ -1,0 +1,111 @@
+/** The Shop form owns its AR/EN copy; backend codes are never shown verbatim. */
+const copy = {
+  ar: {
+    titleCreate: "إضافة محل جديد", titleEdit: "تعديل بيانات المحل",
+    cancel: "إلغاء", save: "حفظ البيانات", saving: "جاري الحفظ...",
+    name: "اسم المحل", owner: "اسم المالك", phone: "رقم الهاتف",
+    zone: "المنطقة", map: "رابط الخريطة",
+    maxDebt: "سقف المديونية", openingDebt: "الرصيد الافتتاحي", currentDebt: "الرصيد الحالي",
+    financeReadOnly: "هذه القيم للعرض فقط. تعديل الرصيد أو سقف المديونية يتطلب إجراءً مالياً مخولاً ومنفصلاً.",
+    financeUnavailable: "البيانات المالية غير متاحة لصلاحيات الحساب الحالي.",
+    financeLoading: "جاري جلب الأرصدة المصرح بها...",
+    financeRefreshFailed: "تعذر جلب الأرصدة الحالية. لم يتم عرض قيم قديمة.",
+    invalidMoney: "أدخل قيمة صحيحة وغير سالبة حتى ثلاث منازل عشرية (بحد أقصى 999999999.999).",
+    invalidMetadata: "أدخل اسم المحل والمنطقة وراجع طول البيانات.",
+    phoneCannotClear: "لا يمكن إفراغ رقم الهاتف من هذه الشاشة حالياً؛ أبقِ الرقم أو استبدله برقم صحيح.",
+    added: "تم إنشاء المحل والتحقق من بياناته.",
+    edited: "تم تحديث بيانات المحل والتحقق منها.",
+    financialStale: "تغير رصيد المحل أو سقفه. لم يُجرَ تعديل مالي. راجع البيانات المحدثة، وتعديلاتك على اسم المحل محفوظة.",
+    financialAuthority: "لا يمكن تعديل الرصيد أو سقف الدين من نموذج المحل؛ يتطلب ذلك إجراءً مالياً مخولاً ومستقلاً.",
+    conflict: "تعارضت بيانات المحل مع تعديل آخر. لم تُفقد تعديلاتك؛ راجع البيانات الحالية قبل إعادة الحفظ.",
+    denied: "ليس للحساب صلاحية تنفيذ هذا التعديل. احتفظنا بالبيانات المدخلة.",
+    unknown: "نتيجة الحفظ غير مؤكدة. لن نعيد إرسال الطلب قبل التحقق من الخادم.",
+    readback: "تم إرسال الطلب، ولكن لم نتمكن من التحقق من بيانات الخادم. لا نعرض نجاحاً غير مؤكد.",
+    createUncertain: "استجابة إنشاء المحل غير مؤكدة. تحقّق من الخادم أولاً؛ لن نعيد إرسال طلب الإنشاء.",
+    createNotFound: "لم يتم العثور على محل جديد واحد يطابق هذا الطلب بعد التحقق. قد يظل الإنشاء جارياً؛ لن نعيد الإرسال.",
+    createUncorrelated: "قد يكون هناك محل جديد مطابق، لكن لا يوجد دليل يربطه بطلب إنشائك. النتيجة غير مؤكدة؛ راجع المسؤول قبل أي إعادة محاولة.",
+    createRecovered: "توجد محاولة إنشاء سابقة نتيجتها غير مؤكدة. بيانات المحل محفوظة ولم يُرسل طلب جديد.",
+    createManualInstructions: "لا تعِد إنشاء هذا المحل حتى يراجع المسؤول سجلات الطلب والأرصدة الافتتاحية. ظهور محل مشابه أو عدم ظهوره لا يثبت نتيجة طلبك.",
+    createLeaveSafely: "الخروج مع حفظ المحاولة للمراجعة",
+    editLeaveSafely: "الخروج مع حفظ التعديل للمراجعة",
+    editRecovered: "توجد محاولة تعديل سابقة لم تتأكد نتيجتها؛ أعدنا بياناتك ولم نُرسل التعديل مرة ثانية.",
+    editManualInstructions: "قد يكون التعديل محفوظاً أو رُفض قبل وصوله. تحقّق من الخادم أو راجع المسؤول، ثم افتح المحل مجدداً. لا تعِد الإرسال تلقائياً.",
+
+    createPendingRecord: "رقم المتابعة المحلي (ليس إثباتاً من الخادم)",
+    createServerRef: "مرجع طلب الخادم (للمراجعة فقط)",
+    createRecoveryLoading: "جاري التحقق من محاولة إنشاء محفوظة لهذا الحساب...",
+    createRecoveryBlocked: "تعذر قراءة سجل المحاولة بأمان أو هوية الحساب غير مكتملة. لم يُرسل طلب إنشاء جديد. راجع المسؤول قبل المتابعة.",
+    createLockUnavailable: "المتصفح لا يدعم قفل إنشاء المحلات بين التبويبات بأمان. لم يُرسل الطلب. استخدم متصفحاً حديثاً أو راجع المسؤول.",
+    createOtherTab: "يوجد تبويب آخر ينفذ إنشاء محل لهذا الحساب. لم يُرسل طلب ثانٍ. راجع المحاولة المحفوظة.",
+    editLockUnavailable: "المتصفح لا يدعم القفل الآمن لتعديل المحلات بين التبويبات. لم يُرسل التعديل. افتح متصفحاً حديثاً أو راجع المسؤول.",
+    editOtherTab: "تبويب آخر يعدل هذا المحل الآن. لم يُرسل تعديل ثانٍ، ولم تُستبدل المحاولة المحفوظة.",
+
+
+    createRecoverySaved: "يمكنك مغادرة النموذج الآن. ستظل المحاولة محفوظة وستظهر عند العودة بنفس الحساب.",
+
+    beforeCreateFailed: "تعذّر التحقق من المحلات قبل الإنشاء. لم يُرسل طلب إنشاء، وبياناتك محفوظة.",
+    refresh: "التحقق من نتيجة الحفظ",
+    createDuplicate: "تأكد من بيانات المحل المتشابه قبل الإضافة.",
+    duplicateTitle: "تنبيه: يوجد محل مشابه", duplicateNew: "البيانات المدخلة حديثاً",
+    duplicateExisting: "المحل الموجود مسبقاً", duplicateProceed: "تخطي التحذير والإضافة",
+    duplicateOwner: "المالك", duplicateZone: "المنطقة",
+  },
+  en: {
+    titleCreate: "Add shop", titleEdit: "Edit shop details",
+    cancel: "Cancel", save: "Save details", saving: "Saving...",
+    name: "Shop name", owner: "Owner", phone: "Phone",
+    zone: "Zone", map: "Map link",
+    maxDebt: "Credit limit", openingDebt: "Opening receivable", currentDebt: "Current receivable",
+    financeReadOnly: "Read-only figures. Changing a receivable or credit limit requires a separate authorized finance process.",
+    financeUnavailable: "Financial figures are not available to this account.",
+    financeLoading: "Loading authorized financial balances...",
+    financeRefreshFailed: "Current financial balances could not be loaded. Old figures are not shown.",
+    invalidMoney: "Enter a valid nonnegative amount with up to 3 decimals (maximum 999999999.999).",
+    invalidMetadata: "Enter a shop name and zone and check the field lengths.",
+    phoneCannotClear: "This screen cannot clear an existing phone number. Keep or replace it with a valid number.",
+    added: "Shop created and verified.",
+    edited: "Shop details updated and verified.",
+    financialStale: "The shop balance or credit limit has changed. No financial value was changed. Your shop details remain in the form.",
+    financialAuthority: "The shop form cannot change balances or credit limits. A separate authorized finance process is required.",
+    conflict: "Another change conflicts with these shop details. Your edits are retained; review the current data before saving again.",
+    denied: "This account is not authorized to make that change. Your edits are retained.",
+    unknown: "Save result is uncertain. The request will not be sent again before server verification.",
+    readback: "The request was sent, but its server result could not be verified. No success is claimed.",
+    createUncertain: "The create response is uncertain. Verify the server before proceeding; the create request will not be resent.",
+    createNotFound: "No single new shop matching this request was verified. Creation may still be in progress; no resend is allowed.",
+    createUncorrelated: "A matching new shop may exist, but no server operation evidence ties it to your request. Result remains uncertain; ask an administrator before retrying.",
+    createRecovered: "A previous shop creation remains uncertain. The draft was restored and no new request was sent.",
+    createManualInstructions: "Do not recreate this shop until an administrator has reviewed the original request and opening balances. A matching shop, or no match, does not prove the outcome.",
+    createLeaveSafely: "Leave and keep attempt for review",
+    editLeaveSafely: "Leave and keep edit for review",
+    editRecovered: "An earlier shop edit remains unverified. Your draft was restored; no edit was resent.",
+    editManualInstructions: "The edit may have been saved or rejected before reaching the server. Verify the server or consult an administrator. It will never be resent automatically.",
+
+    createPendingRecord: "Local tracking number (not server confirmation)",
+    createServerRef: "Server request reference (for investigation only)",
+    createRecoveryLoading: "Checking for a saved shop-creation attempt for this account...",
+    createRecoveryBlocked: "The attempt record could not be safely read or this account's identity is incomplete. No new create request was sent. Contact an administrator.",
+    createLockUnavailable: "This browser cannot safely lock shop creation across tabs. No request was sent. Use a modern browser or contact an administrator.",
+    createOtherTab: "Another tab is already submitting a shop for this account. No second request was sent. Review the saved attempt.",
+    editLockUnavailable: "This browser cannot safely lock a shop edit across tabs. No edit was sent. Use a modern browser or ask an administrator.",
+    editOtherTab: "Another tab is modifying this shop. No second edit was sent, and the saved attempt was not replaced.",
+
+
+    createRecoverySaved: "You can leave this form. This unresolved attempt will be restored when you return with the same account.",
+
+    beforeCreateFailed: "The shop list could not be checked before creating. No create request was sent; your details are kept.",
+    refresh: "Verify saved result",
+    createDuplicate: "Review the matching shop before creating another.",
+    duplicateTitle: "Potential duplicate shop", duplicateNew: "New shop details",
+    duplicateExisting: "Existing shop", duplicateProceed: "Confirm and create",
+    duplicateOwner: "Owner", duplicateZone: "Zone",
+  },
+} as const;
+export type ShopFormMessageKey = keyof typeof copy.en;
+export const shopFormText = (language: string, key: ShopFormMessageKey): string =>
+  copy[language.toLowerCase().startsWith("ar") ? "ar" : "en"][key];
+
+export const withSafeReference = (message: string, reference: string | undefined, language: string): string =>
+  reference && /^[A-Za-z0-9._:-]{1,100}$/.test(reference)
+    ? `${message} ${language.toLowerCase().startsWith("ar") ? "مرجع الطلب" : "Request reference"}: ${reference}.`
+    : message;
