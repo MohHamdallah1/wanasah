@@ -8,6 +8,11 @@ import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
+// D13 Shop children use verified tenant money. This legacy Warehouse fixture has
+// no QueryClient, so provide the exact one-company currency without changing reads.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
 const ownerGrants = {
   company_id: 1, principal_id: 3, backoffice_user_id: 13,
   is_company_owner: true, location_id: null,

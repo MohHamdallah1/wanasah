@@ -1,4 +1,8 @@
 import { MapPin, CircleDollarSign } from "lucide-react";
+import { useRef } from "react";
+import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
+import { formatLocaleMoney } from "@/lib/localeNumbers";
+import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import type { Zone } from "@/types/dispatch";
@@ -38,17 +42,21 @@ export function ShopFormModal({
   financeLoading, feedback,
 }: ShopFormModalProps) {
   const edit = editingShopId !== null;
+  const nameRef = useRef<HTMLInputElement>(null);
+  const currencyCode = useTenantIdentity().data?.currency_code;
   const update = (next: ShopFormState): void => {
     if (!saving && !needsVerification) onShopFormChange(next);
   };
   const t = (key: Parameters<typeof shopFormText>[1]) => shopFormText(language, key);
-  const money = (raw: string): string => new Intl.NumberFormat(
-    language.toLowerCase().startsWith("ar") ? "ar-QA" : "en-QA",
-    { minimumFractionDigits: 3, maximumFractionDigits: 3 },
-  ).format(Number(raw));
+  const money = (raw: string): string => currencyCode
+    ? formatLocaleMoney(raw, currencyCode, language)
+    : dispatchUiText(language, "currencyUnavailable");
+  const currencyText = currencyCode
+    ? dispatchUiText(language, "currencyLabel", { code: currencyCode })
+    : dispatchUiText(language, "currencyUnavailable");
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={t(edit ? "titleEdit" : "titleCreate")}
+    <Modal isOpen={isOpen} onClose={onClose} initialFocusRef={nameRef} title={t(edit ? "titleEdit" : "titleCreate")}
       footer={
         <div className="flex w-full flex-col gap-2 sm:flex-row">
           {!needsManualReconciliation && !needsEditReview && <button type="button" disabled={saving || needsVerification} onClick={onClose}
@@ -73,7 +81,7 @@ export function ShopFormModal({
         <fieldset disabled={saving || needsVerification || restoring || recoveryUnreadable} className="contents">
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("name")}</span>
-          <input type="text" required minLength={2} maxLength={150} value={shopForm.name}
+          <input ref={nameRef} type="text" required minLength={2} maxLength={150} value={shopForm.name}
             onChange={event => update({ ...shopForm, name: event.target.value })}
             className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
         </label>
@@ -103,6 +111,10 @@ export function ShopFormModal({
               className="w-full rounded-xl border border-slate-200 py-2.5 ps-9 pe-4 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"/>
           </span>
         </label>
+        {(canViewFinances || !edit) && (
+          <p className="text-xs font-semibold text-slate-500 sm:col-span-2" role="status"
+            aria-label={currencyText}>{currencyText}</p>
+        )}
         {edit ? (
           <section className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:col-span-2"
             aria-label={t("financeReadOnly")}>

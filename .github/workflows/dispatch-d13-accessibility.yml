@@ -1,0 +1,50 @@
+name: Dispatch D13 focused AR EN accessibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/components/dispatch/ShortageModal.tsx"
+      - "dashboard/src/components/dispatch/ShopTable.tsx"
+      - "dashboard/src/components/dispatch/ShopFormModal.tsx"
+      - "dashboard/src/components/dispatch/ShopBulkImportModal.tsx"
+      - "dashboard/src/components/dispatch/ZoneModal.tsx"
+      - "dashboard/src/features/dispatch/dispatchUiText.ts"
+      - "dashboard/src/test/dispatch-d13-accessibility.test.tsx"
+      - ".github/workflows/dispatch-d13-accessibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Validate complete PR whitespace
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
+      - name: Install pinned frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused D13 bilingual currency keyboard and focus interactions
+        working-directory: dashboard
+        run: npm test -- src/test/dispatch-d13-accessibility.test.tsx
+      - name: Directly affected D05 Shop Order/Form, shortage and D10 Import regressions
+        working-directory: dashboard
+        run: >
+          npm test --
+          src/test/dispatch-shop-reorder-scope-v1.test.tsx
+          src/test/dispatch-shop-metadata-finance-v1.test.tsx
+          src/test/dispatch-shortage-group-recovery-v1.test.tsx
+          src/test/dispatch-d10-import.test.tsx
+      - name: Build changed Dashboard components
+        working-directory: dashboard
+        run: npm run build

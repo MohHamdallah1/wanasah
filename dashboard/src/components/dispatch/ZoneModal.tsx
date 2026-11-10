@@ -1,4 +1,7 @@
+import { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
+import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 
 interface ZoneModalProps {
   isOpen: boolean;
@@ -10,40 +13,36 @@ interface ZoneModalProps {
 }
 
 export function ZoneModal({
-  isOpen,
-  onClose,
-  editingZoneId,
-  zoneFormName,
-  onZoneFormNameChange,
-  onSave,
+  isOpen, onClose, editingZoneId, zoneFormName, onZoneFormNameChange, onSave,
 }: ZoneModalProps) {
+  const { i18n } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const text = (key: Parameters<typeof dispatchUiText>[1]) =>
+    dispatchUiText(i18n.language, key);
+
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title={editingZoneId ? "تعديل اسم المنطقة" : "إضافة منطقة جديدة"}
+    <Modal isOpen={isOpen} onClose={onClose} initialFocusRef={inputRef}
+      title={text(editingZoneId ? "zoneEdit" : "zoneCreate")}
       footer={
-        <div className="flex gap-2 w-full">
-          <button type="button" onClick={onClose} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
-          <button type="submit" form="zone-form" className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#0f766e] transition-colors shadow-lg shadow-[#1e87bb]/20">حفظ البيانات</button>
+        <div className="flex w-full flex-col-reverse gap-2 sm:flex-row" dir={i18n.dir()}>
+          <button type="button" onClick={onClose}
+            className="min-h-11 rounded-xl px-5 py-2 text-slate-600 font-bold hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+            {text("cancel")}
+          </button>
+          <button type="submit" form="zone-form"
+            className="min-h-11 flex-1 rounded-xl bg-[#1e87bb] py-2 font-bold text-white hover:bg-[#0f766e] focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-[#1e87bb]">
+            {text("save")}
+          </button>
         </div>
-      }
-    >
-      <form id="zone-form" onSubmit={(e) => { e.preventDefault(); onSave(); }} className="space-y-4">
-        <div className="space-y-1">
-          <span className="text-xs font-bold text-slate-500">اسم المنطقة</span>
-          <input
-            type="text"
-            minLength={2}
-            maxLength={100}
-            value={zoneFormName}
-            onChange={e => onZoneFormNameChange(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
-            placeholder="مثلاً: عمان الغربية"
-            autoFocus // +++ الكي الجراحي: وضع المؤشر تلقائياً لسرعة الإدخال +++
-            required // +++ الكي الجراحي: منع الإرسال الفارغ من المتصفح مباشرة +++
-          />
-        </div>
+      }>
+      <form id="zone-form" onSubmit={event => { event.preventDefault(); onSave(); }} dir={i18n.dir()}>
+        <label className="block space-y-1">
+          <span className="text-xs font-bold text-slate-600">{text("zoneName")}</span>
+          <input ref={inputRef} type="text" minLength={2} maxLength={100}
+            value={zoneFormName} onChange={event => onZoneFormNameChange(event.target.value)}
+            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]"
+            placeholder={text("zonePlaceholder")} required />
+        </label>
       </form>
     </Modal>
   );

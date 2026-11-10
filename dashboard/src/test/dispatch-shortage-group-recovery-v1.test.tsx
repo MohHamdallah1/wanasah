@@ -753,7 +753,9 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
       );
       fireEvent.click(screen.getByRole("button", { name: groupText(language, "retry") }));
       expect(onRetry).toHaveBeenCalledOnce();
-      expect(screen.getByText(/Chips/)).toBeInTheDocument();
+      // D13 also names its action buttons with the product. Assert the actual
+      // shortage row is present, not that the product appears only once on screen.
+      expect(screen.getAllByText(/Chips/).some(node => Boolean(node.closest("[data-shortage-id]")))).toBe(true);
       view.unmount();
     }
   });

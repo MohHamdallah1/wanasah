@@ -18,10 +18,23 @@ import { durableScope, getOrCreateDurableCommand, readDurableCommand } from "@/l
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 
 const fake = vi.hoisted(() => ({
+  tenantStub: true,
   fetch: vi.fn(), owner: true,
   warning: vi.fn(), error: vi.fn(), success: vi.fn(), dismiss: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
+// Keep SEC-CACHE-01 exercising the REAL tenant hook; only the older socket
+// consumer fixture renders without QueryClient, so stub that context alone.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", async importOriginal => {
+  const original = await importOriginal<typeof import("@/features/tenantIdentity/useTenantIdentity")>();
+  return {
+    ...original,
+    useTenantIdentity: () => fake.tenantStub
+      ? { data: { company_id: Number(localStorage.getItem("company_id")),
+          currency_code: localStorage.getItem("company_id") === "1" ? "QAR" : "OMR" } }
+      : original.useTenantIdentity(),
+  };
+});
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => {
   const company = Number(localStorage.getItem("company_id"));
   const principal = Number(localStorage.getItem("principal_id"));
@@ -106,7 +119,7 @@ function client() {
 }
 beforeEach(async () => {
   localStorage.clear(); install();
-  fake.fetch.mockReset(); fake.owner = true;
+  fake.fetch.mockReset(); fake.owner = true; fake.tenantStub = true;
   for (const fn of [fake.warning, fake.error, fake.success, fake.dismiss]) fn.mockReset();
   Socket.instances = []; vi.stubGlobal("WebSocket", Socket);
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
@@ -119,6 +132,7 @@ afterEach(() => {
 const router = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 
 describe("SEC-CACHE-01 actual tenant hook with a persistent QueryClient", () => {
+  beforeEach(() => { fake.tenantStub = false; });
   function mountCache() {
     const q = client();
     const admissions: Array<{ session: string | null; rendered: number | undefined }> = [];
@@ -486,8 +500,9 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   expect(screen.getByText("A-route")).toBeInTheDocument();
   const oldAction = screen.getByRole("button", { name: /تعديل الحمولة/ });
   fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
-  expect(screen.getByText("A-shop", { selector: "p" })).toBeInTheDocument();
-  fireEvent.click(screen.getByText("A-shop", { selector: "p" }));
+  const shopAccordion = screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) A-shop/ });
+  expect(shopAccordion).toBeInTheDocument();
+  fireEvent.click(shopAccordion);
   expect(screen.getByText("A-shortage")).toBeInTheDocument();
   const oldModal = screen.getByRole("dialog"), oldPage = document.querySelector(".dispatch-board");
   act(() => Socket.instances[0].message("ROUTE_UPDATED"));
@@ -524,7 +539,7 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
   fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
-  expect(screen.getByText("B-shop", { selector: "p" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) B-shop/ })).toBeInTheDocument();
   expect(await readDurableCommand(scope)).toEqual(draft);
 
   // The production auth-expiry logout also emits the existing session event.

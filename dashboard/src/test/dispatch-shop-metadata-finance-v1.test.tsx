@@ -1,4 +1,8 @@
 import { useState } from "react";
+// D13: render this component with the company currency returned by the verified tenant endpoint.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
 import { webcrypto } from "node:crypto";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -613,6 +617,9 @@ describe("Shop authenticated save/readback & financial denial", () => {
     await waitFor(() => expect(result.current.restoring).toBe(false));
     let promise!: Promise<boolean>;
     await act(async () => { promise = result.current.save(); await Promise.resolve(); });
+    // The async save reaches the verification GET after its durable lock;
+    // do not revoke before the test's deliberately delayed response exists.
+    await waitFor(() => expect(late).toBeTypeOf("function"));
     auth.current = false;
     unmount();
     await act(async () => { late([wire({ name: "Changed" })]); expect(await promise).toBe(false); });

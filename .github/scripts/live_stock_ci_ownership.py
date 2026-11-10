@@ -871,6 +871,29 @@ LEDGER_825_VISUAL_EXACT = frozenset({
     "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
 })
 
+# #877: the complete, single-PR D13 AR/EN, currency and keyboard closure.
+# Match the entire literal diff (including both ownership gates). It cannot
+# authorize new DispatchBoard, auth storage, backend, stock, or other work.
+DISPATCH_D13_877_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-d13-accessibility.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/components/dispatch/ShopBulkImportModal.tsx",
+    "dashboard/src/components/dispatch/ShopFormModal.tsx",
+    "dashboard/src/components/dispatch/ShopTable.tsx",
+    "dashboard/src/components/dispatch/ShortageModal.tsx",
+    "dashboard/src/components/dispatch/ZoneModal.tsx",
+    "dashboard/src/features/dispatch/dispatchUiText.ts",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+    "dashboard/src/test/dispatch-d10-import.test.tsx",
+    "dashboard/src/test/dispatch-d13-accessibility.test.tsx",
+    "dashboard/src/test/dispatch-load-context.test.tsx",
+    "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
+    "dashboard/src/test/dispatch-shop-reorder-scope-v1.test.tsx",
+    "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+})
+assert len(DISPATCH_D13_877_EXACT) == 16
+
 # #847: #846 is Dispatch ShopOrder ownership, not a grant to modify
 # Live Stock, inventory, auth/session, or unrelated Dispatch files. Freeze
 # all nine actual PR paths, including the shared DispatchBoard consumer.
@@ -1013,6 +1036,9 @@ DISPATCH_D07_NEW = frozenset({
 assert len(DISPATCH_D07_COMPLETE_EXACT) == 14 and len(DISPATCH_D07_NEW) == 6
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    # Exact D13 only; no partial/mixed crossover can steal the old owners.
+    if changed == DISPATCH_D13_877_EXACT:
+        return ("dispatch-d13-877-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
     if changed == CI_POLICY_847_EXACT:
         return "ci-policy-847-exact", []
     if changed == CI_POLICY_856_EXACT:
@@ -1289,6 +1315,25 @@ def selftest() -> None:
         "ci-policy-847-exact", []
     )
     print("CI_POLICY_856_LIVE_STOCK_SELFTEST=PASS exact=4 partial=4 foreign=8 prior847=PASS")
+
+    # D13 admits exactly its 16 files; old D09/D10/ShopOrder/Form/Shortage
+    # owner checks continue to reject every partial or added unrelated path.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(DISPATCH_D13_877_EXACT), policy_sem) == (
+            "dispatch-d13-877-exact", []
+        )
+    assert classify("r3", set(DISPATCH_D13_877_EXACT), policy_sem) == (
+        "not-applicable", []
+    )
+    for missing in DISPATCH_D13_877_EXACT:
+        partial = set(DISPATCH_D13_877_EXACT) - {missing}
+        for mode in ("ux", "operational"):
+            assert classify(mode, partial, policy_sem)[0] != "dispatch-d13-877-exact"
+    for foreign in ("dashboard/src/pages/DispatchBoard.tsx", "dashboard/src/lib/authStorage.ts",
+                    "wa_backend/api/dispatch.py", "dashboard/src/pages/inventory/Tab1LiveStock.tsx"):
+        for mode in ("ux", "operational"):
+            _expect_fail(mode, set(DISPATCH_D13_877_EXACT) | {foreign}, policy_sem)
+    print("DISPATCH_D13_877_LIVE_STOCK_SELFTEST=PASS exact=16 missing=16 foreign=4")
 
     # Every candidate touching one of the *five new* #855 paths must
     # contain the whole immutable six-file set; no cross-owner combination.
