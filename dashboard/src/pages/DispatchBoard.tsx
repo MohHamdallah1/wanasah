@@ -1068,6 +1068,7 @@ function DispatchSession() {
   };
 
   const handleSaveZone = async () => {
+  const admitted = captureUiRead();
   const cleanZoneName = zoneFormName.trim();
 
   if (cleanZoneName.length < 2) {
@@ -1087,7 +1088,9 @@ function DispatchSession() {
         body: JSON.stringify({ name: cleanZoneName }),
       });
 
+      if (!admitted()) return;
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
 
       setZones(
@@ -1105,6 +1108,7 @@ function DispatchSession() {
         body: JSON.stringify({ name: cleanZoneName }),
       });
 
+      if (!admitted()) return;
       const response =
         typeof raw === "object" && raw !== null
           ? (raw as { zone_id?: unknown })
@@ -1119,7 +1123,9 @@ function DispatchSession() {
 
       const newZoneId = String(response.zone_id);
 
+      if (!admitted()) return;
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
 
       setZones(
@@ -1142,7 +1148,7 @@ function DispatchSession() {
       setIsSchedulingModalOpen(true);
     }
   } catch (err: unknown) {
-    toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
+    if (admitted()) toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
   }
 };
 
@@ -1157,20 +1163,23 @@ function DispatchSession() {
     needsEditReview: shopEditNeedsReview,
     localTrackingId: shopCreateTrackingId, serverReference: shopCreateServerRef,
   } = useShopFormCommit({
-    open: isShopModalOpen, editId: editingShopId, form: shopForm,
+    open: isShopModalOpen && grants.zoneManage && accessState === "ready" &&
+      dispatchReadState === "ready", editId: editingShopId, form: shopForm,
     language: i18n.language, session: session!, canViewFinances: canReadShopFinances,
     busy: isSaving, setBusy: setIsSaving, fetch: authenticatedFetch,
     onVerified: (rows, isCreate, zoneId) => {
-      if (!isDashboardSessionCurrent(session!)) return;
+      if (!isDashboardSessionCurrent(session!) || accessState !== "ready" ||
+          dispatchReadState !== "ready" || !grants.zoneManage) return;
       const authorized = normalizeShops(rows);
       setShops(previous => canOpenShopForm(hasUnsavedChanges, needsReconciliation)
         ? authorized : preserveUnsavedShopOrder(previous, authorized));
       if (isCreate) setZones(prev => sortZones(prev.map(z => z.id === zoneId
         ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
       // Zone totals and names are server-owned; refreshed independently.
+      const admitted = captureUiRead();
       void authenticatedFetch("/dispatch/init", { cache: "no-store" })
         .then(value => {
-          if (!isDashboardSessionCurrent(session!)) return;
+          if (!admitted()) return;
           const fresh = value as DispatchInitPayload;
           if (Array.isArray(fresh.zones)) setZones(sortZones(fresh.zones));
         }).catch(() => { /* A verified Shop edit remains saved. */ });
@@ -1199,8 +1208,9 @@ function DispatchSession() {
 
   const refreshShortages = useCallback(async () => {
     const snapshot = captureDashboardSession();
+    const admitted = captureUiRead();
     const data = await authenticatedFetch("/dispatch/shortages", { cache: "no-store" });
-    if (!isDashboardSessionCurrent(snapshot) || !grants.shortages) return;
+    if (!isDashboardSessionCurrent(snapshot) || !grants.shortages || !admitted()) return;
     setShortages(Array.isArray(data) ? data : []);
   }, [authenticatedFetch, grants.shortages]);
 
