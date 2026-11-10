@@ -733,6 +733,61 @@ describe("Shop unknown-create durable operator escape / relogin / tenant authori
     same.unmount();
   });
 
+  it("reload while POST is still in flight restores the pre-send durable attempt, never makes a second POST", async () => {
+    let resolvePost!: (response: unknown) => void;
+    const stalled = new Promise<unknown>(yes => { resolvePost = yes; });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "POST" ? stalled : [],
+    );
+    const first = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(first.result.current.restoring).toBe(false));
+    let unresolved!: Promise<boolean>;
+    act(() => { unresolved = first.result.current.save(); });
+    await waitFor(() => expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1));
+    const pendingRecord = await readDurableCommand<ShopCreateAttempt>(shopCreateAttemptScope()!);
+    expect(isShopCreateAttempt(pendingRecord?.payload)).toBe(true);
+    first.unmount(); // simulates a real page reload with no server response
+    const second = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(second.result.current.needsManualReconciliation).toBe(true));
+    expect(second.result.current.localTrackingId).toBe(pendingRecord?.requestId);
+    await act(async () => { expect(await second.result.current.save()).toBe(false); });
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    await act(async () => { resolvePost({ shop_id: "77" }); expect(await unresolved).toBe(false); });
+    expect(toast.success).not.toHaveBeenCalled();
+    second.unmount();
+  });
+
+  it("second tab with identical payload cannot POST while first tab has an unresolved durable attempt", async () => {
+    let resolvePost!: (response: unknown) => void;
+    const pending = new Promise<unknown>(yes => { resolvePost = yes; });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "POST" ? pending : [],
+    );
+    const first = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(first.result.current.restoring).toBe(false));
+    let attempt!: Promise<boolean>;
+    act(() => { attempt = first.result.current.save(); });
+    await waitFor(() => expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1));
+    const second = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(second.result.current.needsManualReconciliation).toBe(true));
+    await act(async () => { expect(await second.result.current.save()).toBe(false); });
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    second.unmount();
+    first.unmount();
+    await act(async () => { resolvePost({ shop_id: "77" }); expect(await attempt).toBe(false); });
+  });
+
+  it("missing canonical principal blocks creation without company-only fallback", async () => {
+    localStorage.removeItem("principal_id");
+    expect(shopCreateAttemptScope()).toBeNull();
+    const fetch = vi.fn().mockResolvedValue([]);
+    const hooked = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    expect(hooked.result.current.recoveryUnreadable).toBe(true);
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("a missing/corrupt scoped record blocks any new POST instead of discarding uncertain money", async () => {
     const scope = shopCreateAttemptScope()!;
     localStorage.setItem(scope, "{not valid JSON");
