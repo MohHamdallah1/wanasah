@@ -1079,7 +1079,7 @@ function DispatchSession() {
   // recovery live outside DispatchBoard; only canonical readback updates UI.
   const shortageGroup = useShortageGroupCommit({
     session: session!,
-    authorized: grants.shortageEdit && accessState === "ready",
+    authorized: grants.shortages && grants.shortageCancel && accessState === "ready",
     language: i18n.language,
     fetch: authenticatedFetch,
     onVerified: rows => {
@@ -1637,7 +1637,7 @@ function DispatchSession() {
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
                   <AnimatePresence>{grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
-                  <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
+{grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
                       <div className="text-start">
@@ -1645,7 +1645,7 @@ function DispatchSession() {
                         <p className="text-xs text-slate-500">اضغط هنا لفتح نافذة الاستيراد واختيار المنطقة</p>
                       </div>
                     </button>
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>
@@ -1653,8 +1653,11 @@ function DispatchSession() {
         </>
       </div>
 
-      {isShortageModalOpen && (
+      {grants.shortages && isShortageModalOpen && (
       <ShortageModal
+        canCreate={grants.shortageCreate && grants.routes}
+        canCancel={grants.shortageCancel}
+        canEdit={grants.shortageEdit && grants.routes}
         focusShortageId={archiveShortageFocus}
         isOpen={isShortageModalOpen}
         onClose={() => { setArchiveShortageFocus(null); handleCloseShortageModal(); }}
@@ -1723,7 +1726,7 @@ function DispatchSession() {
         onConfirmAction={handleConfirmRouteAction}
       />
       )}
-      <ShopFormModal isOpen={isShopModalOpen} onClose={() => {
+      <ShopFormModal isOpen={grants.zoneManage && isShopModalOpen} onClose={() => {
         if (canCloseShopForm(isSaving, shopNeedsVerification)) setIsShopModalOpen(false);
       }}
         editingShopId={editingShopId} shopForm={shopForm}
