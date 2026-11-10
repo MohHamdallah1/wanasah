@@ -3808,6 +3808,10 @@ async def get_active_routes(
     }
     
     # +++ تدمير N+1 باستخدام القواميس (Dictionaries) مع تنظيف التكرار عبر Set لحماية السيرفر +++
+    company_shop_scope = await company_shop_directory(access)
+    authorized_shop_predicate = visible_shop_filter(
+        access, company_directory=company_shop_scope,
+    )
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
     driver_ids = list({r.driver_id for r in routes if r.driver_id})
     session_ids = list({r.work_session_id for r in routes if r.work_session_id})
@@ -3841,7 +3845,7 @@ async def get_active_routes(
                 Shop, Visit.shop_id == Shop.id
             ).filter(
                 Visit.company_id == access.company_id,
-                Shop.company_id == access.company_id,
+                authorized_shop_predicate,
                 Visit.driver_id.in_(driver_ids),
                 Visit.status == 'Pending',
                 or_(Shop.zone_id.in_(active_zone_ids), Visit.is_emergency == True)
@@ -3865,7 +3869,7 @@ async def get_active_routes(
     stmt_shop_counts = select(Shop.zone_id, func.count(Visit.id)).join(
         Visit, Shop.id == Visit.shop_id
     ).filter(
-        Shop.company_id == access.company_id,
+        authorized_shop_predicate,
         Visit.company_id == access.company_id,
         Shop.is_active == True,
         Shop.is_archived == False,
