@@ -40,6 +40,10 @@ import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
 import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
+import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
+import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
+import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
+import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
@@ -197,14 +201,21 @@ function DispatchSession() {
   useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
-  const { isCompanyOwner, data: discoveryAccess } = useInventoryAccess();
-  // Match existing /dispatch/shops authorized read authority; no new finance grant.
-  const canReadShopFinances = isCompanyOwner ||
-    Boolean(discoveryAccess?.any_permissions?.includes("dispatch.read"));
+  const inventoryAccess = useInventoryAccess();
+  const { state: accessState, grants, retry: retryAccess } = useDispatchAccessGate(inventoryAccess);
+  const isCompanyOwner = accessState === "ready" && inventoryAccess.isCompanyOwner;
+  const discoveryAccess = accessState === "ready" ? inventoryAccess.data : undefined;
+  // Current server Shop financial visibility is unchanged; D03 remains policy-owned.
+  const canReadShopFinances = grants.routes;
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
+  const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
+  const dispatchFenceRef = useRef(createDispatchReadFence());
+  const tabAllowed = (tab: TabId) =>
+    tab === "routes" ? grants.routes : tab === "zones" ? grants.zones : grants.launch;
   useEffect(() => {
-    if (!isCompanyOwner && activeTab === 'zones') setActiveTab('routes');
-  }, [isCompanyOwner, activeTab]);
+    if (accessState !== "ready" || tabAllowed(activeTab) || (!grants.routes && grants.shortages)) return;
+    setActiveTab(grants.routes ? "routes" : grants.zones ? "zones" : grants.launch ? "launch" : "routes");
+  }, [accessState, activeTab, grants]);
 
   const [zones, setZones] = useState<Zone[]>([]);
   const [drivers, setDrivers] = useState<{ id: string; name: string }[]>([]);
@@ -246,7 +257,7 @@ function DispatchSession() {
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
   const sourceAccess = useInventoryAccess(selectedSourceWarehouseId ? Number(selectedSourceWarehouseId) : null);
-  const canLaunch = Boolean(selectedSourceWarehouseId && sourceAccess.can('dispatch.execute') &&
+  const canLaunch = Boolean(grants.launch && selectedSourceWarehouseId && sourceAccess.can('dispatch.execute') &&
     warehouses.some(w => w.id === selectedSourceWarehouseId && w.can_execute === true) &&
     vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true));
   const [activeRoute, setActiveRoute] = useState<PendingRoute | null>(null);
@@ -312,10 +323,11 @@ function DispatchSession() {
     if (route.status === "postponed") setIsShowPostponedModalOpen(true);
   }, []);
   const openShortageOwner = useCallback((rows: Shortage[], shortage: Shortage) => {
+    if (accessState !== "ready" || !grants.shortages) return;
     setShortages((previous) => [...rows, ...previous.filter((row) => !rows.some((fresh) => fresh.id === row.id))]);
     setArchiveShortageFocus(shortage.id);
     setIsShortageModalOpen(true);
-  }, []);
+  }, [accessState, grants.shortages]);
   useDispatchOwnerNavigation({ focus: dispatchFocus, onRoute: openRouteOwner, onShortage: openShortageOwner, onConsumed: consumeOwnerFocus });
   // +++ الدرع المعماري: فصل حالة السيرفر عن حالة الواجهة لمنع التلوث +++
   const [restorePromptShop, setRestorePromptShop] = useState<Shop | null>(null);
@@ -338,64 +350,64 @@ function DispatchSession() {
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
+  const clearDispatchPrivateState = useCallback(() => {
+    setZones([]); setShops([]); setShortages([]); setPendingRoutes([]);
+    setDrivers([]); setVehicles([]); setWarehouses([]); setArchivedZones([]);
+    savedShopsRef.current = [];
+    setSelectedShopIds([]); setIsEditMode(false); setHasUnsavedChanges(false);
+    setSelectedSourceWarehouseId(""); setVehicleInventoryLoadedForContext(null);
+    setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadNames({}); setRouteLoadUnits({});
+    setShortageDraft([]); setNewShortage({}); setEditingShortageIds([]);
+    setIsShortageModalOpen(false); setIsZoneModalOpen(false); setIsShopModalOpen(false);
+    setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
+    setIsZoneRecycleBinOpen(false); setShowRecycleBin(false); setIsBulkTransferModalOpen(false);
+    setIsRouteModalOpen(false); setIsShowPostponedModalOpen(false);
+    setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: () => {} });
+  }, []);
+
   const fetchInitialData = useCallback(() => {
-    const controller = new AbortController();
-    authenticatedFetch("/dispatch/init", { signal: controller.signal })
-      .then((raw) => {
-        const data = raw as DispatchInitPayload;
+    const snapshot = captureDashboardSession();
+    const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
+    if (accessState !== "ready") {
+      admission.abort();
+      return admission;
+    }
+    void loadDispatchRead({
+      fetch: authenticatedFetch, grants, signal: admission.signal, isCurrent: admission.isCurrent,
+      onData: ({ init, shops: freshShops, routes, shortages: freshShortages }) => {
+        const data = (init ?? {}) as DispatchInitPayload;
         const sorted = sortZones(Array.isArray(data.zones) ? data.zones : []);
         const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
         const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
         const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
-
         setZones(sorted);
-        setDrivers(nextDrivers);
-        setVehicles(nextVehicles);
-        setWarehouses(nextWarehouses);
+        setDrivers(nextDrivers); setVehicles(nextVehicles); setWarehouses(nextWarehouses);
+        setShops(grants.routes ? normalizeShops(freshShops) : []);
+        setPendingRoutes(grants.routes && Array.isArray(routes) ? routes : []);
+        setShortages(grants.shortages && Array.isArray(freshShortages) ? freshShortages : []);
+        setSelectedZoneIdForZones(prev => sorted.some(zone => zone.id === prev) ? prev : sorted[0]?.id || "");
+        setSelectedZoneId(prev => sorted.some(zone => zone.id === prev) ? prev : "");
+        setSelectedDriverId(prev => nextDrivers.some(driver => driver.id === prev) ? prev : "");
+        setSelectedVehicleId(prev => nextVehicles.some(vehicle => vehicle.id === prev) ? prev : "");
+        setSelectedSourceWarehouseId(prev => nextWarehouses.some(warehouse => warehouse.id === prev) ? prev : "");
+        setDispatchReadState("ready");
+      },
+      onError: error => {
+        const status = (error as { status?: number } | null)?.status;
+        dispatchFenceRef.current.revoke();
+        clearDispatchPrivateState();
+        setDispatchReadState(status === 401 || status === 403 ? "denied" : "error");
+      },
+    });
+    return admission;
+  }, [authenticatedFetch, accessState, grants, clearDispatchPrivateState]);
 
-        setSelectedZoneIdForZones((prev) =>
-          sorted.some((zone) => zone.id === prev)
-            ? prev
-            : (sorted[0]?.id || "")
-        );
-        setSelectedZoneId((prev) =>
-          sorted.some((zone) => zone.id === prev) ? prev : ""
-        );
-        setSelectedDriverId((prev) =>
-          nextDrivers.some((driver) => driver.id === prev) ? prev : ""
-        );
-        setSelectedVehicleId((prev) =>
-          nextVehicles.some((vehicle) => vehicle.id === prev) ? prev : ""
-        );
-        setSelectedSourceWarehouseId((prev) =>
-          nextWarehouses.some((warehouse) => warehouse.id === prev) ? prev : ""
-        );
-
-
-      })
-      .catch((err: unknown) => {
-        if (!(err instanceof Error && err.name === "AbortError")) {
-          console.warn("تأخير بسيط في جلب البيانات:", getErrorMessage(err));
-        }
-      });
-
-    // H-02: Pass abort signal to all parallel fetches for clean unmount cleanup
-    // H-03: Add Array.isArray guards to prevent .map is not a function crashes
-    const signal = controller.signal;
-    authenticatedFetch("/dispatch/shops", { signal })
-      .then((data) => setShops(normalizeShops(data)))
-      .catch((err: unknown) => {
-        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
-      });
-    authenticatedFetch("/dispatch/active_routes", { signal })
-      .then(data => setPendingRoutes(Array.isArray(data) ? data : []))
-      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
-    if (isCompanyOwner) authenticatedFetch("/dispatch/shortages", { signal })
-      .then(data => setShortages(Array.isArray(data) ? data : []))
-      .catch(err => { if (err.name !== 'AbortError') console.error(err); });
-
-    return controller;
-  }, [authenticatedFetch, isCompanyOwner]); // +++ E-04: إضافة authenticatedFetch كـ Dependency لتجنب تحذيرات وتسريبات الذاكرة +++
+  useEffect(() => {
+    if (accessState === "ready") return;
+    dispatchFenceRef.current.revoke();
+    clearDispatchPrivateState();
+    setDispatchReadState(accessState);
+  }, [accessState, clearDispatchPrivateState]);
 
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
@@ -433,6 +445,7 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
+    if (accessState !== "ready") return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -610,7 +623,7 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner]);
+  }, [fetchInitialData, isCompanyOwner, accessState]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -1066,7 +1079,7 @@ function DispatchSession() {
   // recovery live outside DispatchBoard; only canonical readback updates UI.
   const shortageGroup = useShortageGroupCommit({
     session: session!,
-    authorized: isCompanyOwner,
+    authorized: grants.shortageEdit && accessState === "ready",
     language: i18n.language,
     fetch: authenticatedFetch,
     onVerified: rows => {
@@ -1278,6 +1291,12 @@ function DispatchSession() {
     setShortageDriverId("");
     setEditingShortageIds([]);
   };
+
+  if (accessState !== "ready" || dispatchReadState !== "ready") {
+    const display = accessState !== "ready" ? accessState : dispatchReadState;
+    return <DispatchAccessNotice state={display === "ready" ? "loading" : display}
+      onRetry={() => { retryAccess(); fetchInitialData(); }} />;
+  }
 
   return (
     <div className="dispatch-board w-full h-full flex flex-col flex-1 min-h-0 animate-in fade-in duration-200">
