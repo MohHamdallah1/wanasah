@@ -6,9 +6,12 @@ import {
   completeDurableOperation, getOrCreateDurableCommand, readDurableCommand,
 } from "@/lib/durableOperations";
 import {
-  clearShopAttemptServerReference, createPayload, createdShopVerified, financeReadback,
+  clearShopAttemptCanonicalId, clearShopAttemptServerReference,
+  createPayload, createdShopVerified, financeReadback,
   findCreatedShopAfterUnknownWrite, isShopCreateAttempt, metadataPayload, metadataVerified,
-  readShopAttemptServerReference, saveShopAttemptServerReference, shopCreateAttemptScope,
+  readShopAttemptCanonicalId, readShopAttemptServerReference,
+  saveShopAttemptCanonicalId, saveShopAttemptServerReference, shopCreateAttemptScope,
+  withExclusiveShopCreateLock,
   ShopFormInputError, type ShopCreateAttempt, type ShopCreatePayload, type ShopFormState,
   type ShopFinanceReadback,
   type ShopMetadataPayload,
@@ -139,11 +142,15 @@ export function useShopFormCommit({
         setRecoveryUnreadable(true);
         return;
       }
-      setPending({
-        id: null, mode: "create", payload: record.payload.submitted,
-        baselineIds: record.payload.baselineIds,
-        durableId: record.requestId, durableScope: scope,
-      });
+      const serverShopId = readShopAttemptCanonicalId(scope, record.requestId);
+      setPending(previous =>
+        previous?.mode === "create" && previous.durableId === record.requestId &&
+        previous.id ? previous : {
+          id: serverShopId, mode: "create", payload: record.payload.submitted,
+          baselineIds: record.payload.baselineIds,
+          durableId: record.requestId, durableScope: scope,
+        },
+      );
       setServerReference(readShopAttemptServerReference(scope, record.requestId));
       restoreFormRef.current?.(record.payload.draft);
       setFeedback(shopFormText(language, "createRecovered"));
@@ -159,6 +166,7 @@ export function useShopFormCommit({
     if (!verification.durableScope || !verification.durableId) return;
     completeDurableOperation(verification.durableScope, verification.durableId);
     clearShopAttemptServerReference(verification.durableScope);
+    clearShopAttemptCanonicalId(verification.durableScope);
   }, []);
 
   const refreshAfterConflict = useCallback(async (token: number, id: string): Promise<void> => {
@@ -260,11 +268,13 @@ export function useShopFormCommit({
     let durableId: string | undefined;
     let durableScope: string | undefined;
     let mutationStarted = false;
+    const attemptScope = !editId ? shopCreateAttemptScope() : null;
     try {
+      const performWrite = async (): Promise<boolean> => {
       if (!editId) {
         // Revalidate pending storage BEFORE network or POST: re-login and
         // concurrent tabs may have created a pending operation already.
-        const scope = shopCreateAttemptScope();
+        const scope = attemptScope;
         if (!scope) {
           setRecoveryUnreadable(true);
           return false; // never POST without a strict company/principal scope
@@ -277,7 +287,8 @@ export function useShopFormCommit({
             return false;
           }
           setPending({
-            id: null, mode: "create", payload: previous.payload.submitted,
+            id: readShopAttemptCanonicalId(scope, previous.requestId),
+            mode: "create", payload: previous.payload.submitted,
             baselineIds: previous.payload.baselineIds,
             durableScope: scope, durableId: previous.requestId,
           });
@@ -314,11 +325,34 @@ export function useShopFormCommit({
       });
       if (!current(token)) return false;
       const id = editId || parseCreatedId(response);
+      if (!editId && durableScope && durableId) {
+        // Only a real POST-201 shop_id is stored as an authoritative receipt.
+        // A similar Shop row, timeout or response-less POST MUST NOT create one.
+        saveShopAttemptCanonicalId(durableScope, durableId, id);
+      }
       const verification: PendingVerification = {
         id, mode, payload, baselineIds, durableId, durableScope,
       };
       setPending(verification); // lock repeat mutation until authorized GET verifies
       return await finish(token, verification);
+      };
+      if (!editId) {
+        if (!attemptScope) {
+          setRecoveryUnreadable(true);
+          return false;
+        }
+        if (typeof navigator === "undefined" || !navigator.locks?.request) {
+          setFeedback(shopFormText(language, "createLockUnavailable"));
+          return false; // never issue POST without cross-tab exclusion
+        }
+        const locked = await withExclusiveShopCreateLock(attemptScope, performWrite);
+        if (!locked.acquired) {
+          if (current(token)) setFeedback(shopFormText(language, "createOtherTab"));
+          return false;
+        }
+        return locked.result ?? false;
+      }
+      return await performWrite();
     } catch (error) {
       if (!current(token)) return false;
       const status = apiErrorStatus(error);
