@@ -49,6 +49,10 @@ import {
   dispatchActorScope, readDispatchPreferences, reconcileDispatchPreferences,
   writeDispatchPreferences,
 } from "@/features/dispatch/sessionScope";
+import {
+  clearRouteLoadDraft, clearShortageDraft, restoreRouteLoadDraft,
+  restoreShortageDraft, saveRouteLoadDraft, saveShortageDraft,
+} from "@/features/dispatch/dispatchDrafts";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
@@ -323,6 +327,8 @@ function DispatchSession() {
   // Snapshot of shops taken when entering edit mode — used for Cancel/revert
   const savedShopsRef = useRef<Shop[]>([]);
   const shortageMutationInFlightRef = useRef(false);
+  const activeShortageEditRef = useRef(false);
+  activeShortageEditRef.current = editingShortageIds.length > 0;
 
   const [isSuicideModalOpen, setIsSuicideModalOpen] = useState(false);
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
@@ -372,6 +378,30 @@ function DispatchSession() {
     selectedZoneId, selectedDriverId, selectedVehicleId, selectedSourceWarehouseId,
     grants, session,
   ]);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" ||
+        !grants.shortages || !grants.shortageCreate || !grants.routes ||
+        !isShortageModalOpen || editingShortageIds.length > 0 || shortageMutationInFlightRef.current ||
+        !shortageZoneId || !shortageShopId || !shortageDraft.length) return;
+    if (!zones.some(zone => zone.id === shortageZoneId) ||
+        !shops.some(shop => shop.id === shortageShopId && shop.zoneId === shortageZoneId && !shop.archived) ||
+        (shortageDriverId && !drivers.some(driver => driver.id === shortageDriverId))) return;
+    saveShortageDraft(actorScope, {
+      zoneId: shortageZoneId, shopId: shortageShopId, driverId: shortageDriverId, rows: shortageDraft,
+    });
+  }, [actorScope, accessState, dispatchReadState, grants, isShortageModalOpen,
+    editingShortageIds, shortageZoneId, shortageShopId, shortageDriverId, shortageDraft, zones, shops, drivers]);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" || !grants.launch ||
+        !vehicleCustodyReady || isRouteModalOpen || !selectedSourceWarehouseId ||
+        !selectedVehicleId || !selectedZoneId || !selectedDriverId) return;
+    saveRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
+      selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets);
+  }, [actorScope, accessState, dispatchReadState, grants.launch, vehicleCustodyReady,
+    isRouteModalOpen, selectedSourceWarehouseId, selectedVehicleId,
+    selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets]);
 
   const changeSourceWarehouse = (warehouseId: string) => {
     if (warehouseId === selectedSourceWarehouseId) return;
@@ -446,6 +476,18 @@ function DispatchSession() {
         setSelectedZoneIdForZones(valid.zoneForShops);
         setSelectedZoneId(valid.launchZone); setSelectedDriverId(valid.driver);
         setSelectedVehicleId(valid.vehicle); setSelectedSourceWarehouseId(valid.sourceWarehouse);
+        if (hydrate && actorScope && grants.shortages && grants.shortageCreate && grants.routes &&
+            !activeShortageEditRef.current) {
+          const recovered = restoreShortageDraft(actorScope, sorted, normalizeShops(freshShops), nextDrivers);
+          if (recovered) {
+            setShortageZoneId(recovered.zoneId);
+            setShortageShopId(recovered.shopId);
+            setShortageDriverId(recovered.driverId);
+            setShortageDraft(recovered.rows);
+          } else {
+            clearShortageDraft(actorScope);
+          }
+        }
         dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
       },
@@ -703,18 +745,23 @@ function DispatchSession() {
     const controller = new AbortController();
     setVehicleInventoryLoadedForContext(null);
 
+    const admitted = captureUiRead();
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
       signal: controller.signal,
     })
       .then((data) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !admitted()) return;
         if (!Array.isArray(data)) {
           throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
         // Only canonical base-unit evidence feeds the explicit Load editor.
         const precise = parseRouteLoadVehicleInventory(data);
         setRouteLoadCurrent(precise.current);
-        setRouteLoadTargets({ ...precise.current });
+        const saved = !isRouteModalOpen && actorScope && grants.launch
+          ? restoreRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
+              selectedZoneId, selectedDriverId, precise.current, Object.keys(precise.units))
+          : null;
+        setRouteLoadTargets(saved ?? { ...precise.current });
         setRouteLoadUnits(precise.units);
         setRouteLoadNames(Object.fromEntries(data.map((raw) => {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
@@ -723,7 +770,7 @@ function DispatchSession() {
         setVehicleInventoryLoadedForContext(vehicleLoadContext);
       })
       .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !admitted()) return;
         setVehicleInventoryLoadedForContext(null);
         toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
@@ -1348,7 +1395,8 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
-    if (shortageGroup.hasUnresolved) return; // retain visible draft until recovery
+    if (shortageGroup.hasUnresolved) return;
+    clearShortageDraft(actorScope); // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
