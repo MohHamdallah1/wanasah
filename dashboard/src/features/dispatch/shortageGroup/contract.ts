@@ -110,28 +110,45 @@ export function parseGroupResponse(raw: unknown, requestId: string): GroupRespon
   return { requestId, shortageIds: r.shortage_ids.map(Number) };
 }
 
-/** A GET without a canonical 200 server receipt MUST NOT prove our operation.
- * Readback is only supporting evidence after the authenticated PUT/replay200.
+/** An authenticated 200 on the ORIGINAL idempotency key is the server's
+ * authoritative commit receipt. An authorized fresh list GET provides current
+ * state, NOT an immutable snapshot of the original replacement rows: later
+ * routing, fulfilment, edit or deletion can legitimately change those rows.
+ *
+ * Never reconcile from GET alone. Old IDs still visible, malformed list, or
+ * mismatched server receipt remain UNKNOWN. A changed readback confirms only
+ * the original commit, and must NOT claim its rows are still pending/current.
  */
-export function verifiedGroupReadback(
+export function groupReadbackVerdict(
   raw: unknown, intent: GroupIntent, receipt: GroupResponse,
-): raw is Shortage[] {
+): "exact" | "subsequently-changed" | null {
   if (!Array.isArray(raw) || receipt.shortageIds.length !== intent.items.length ||
-    raw.some(row => !row || typeof row !== "object" || numberId(row.id) === null)) return false;
+    raw.some(row => !row || typeof row !== "object" || numberId(row.id) === null)) return null;
   const all = raw as Shortage[];
-  if (all.some(r => intent.shortageIds.includes(Number(r.id)))) return false;
-  if (!intent.items.length) return receipt.shortageIds.length === 0;
+  if (new Set(all.map(r => Number(r.id))).size !== all.length ||
+      all.some(r => intent.shortageIds.includes(Number(r.id)))) return null;
+  if (!intent.items.length) return receipt.shortageIds.length === 0 ? "exact" : null;
   const byId = new Map(all.map(row => [Number(row.id), row]));
   const lines = receipt.shortageIds.map(id => byId.get(id));
-  if (lines.some(x => !x || x.status !== "pending")) return false;
+  if (lines.some(x => !x || x.status !== "pending")) return "subsequently-changed";
   const expected = new Map(intent.items.map(x => [x.productId, x]));
-  return lines.every(row => {
+  const matches = lines.every(row => {
     const x = expected.get(Number(row!.productId));
     return Boolean(x && Number(row!.shopId) === x.shopId &&
       Number(row!.zoneId) === x.zoneId &&
       Number(row!.quantity) === x.quantity &&
       (x.driverId === null || Number(row!.driverId) === x.driverId));
   }) && new Set(lines.map(row => row!.productId)).size === intent.items.length;
+  return matches ? "exact" : "subsequently-changed";
+}
+
+/** Compatibility for strict current-row readback comparisons in callers/tests.
+ * True does NOT prove historical commit without the matching server receipt.
+ */
+export function verifiedGroupReadback(
+  raw: unknown, intent: GroupIntent, receipt: GroupResponse,
+): raw is Shortage[] {
+  return groupReadbackVerdict(raw, intent, receipt) === "exact";
 }
 
 export function groupText(language: string, key: keyof typeof messages.en): string {
@@ -156,6 +173,7 @@ const messages = {
     conflict: "تعارض الطلب مع تغييرات أحدث. لم نعد إرسال طلب مختلف.",
     stale: "لم يعتمد الخادم هذا الطلب. راجع المجموعة قبل بدء عملية جديدة.",
     successEdit: "تم التحقق من حفظ تعديل مجموعة النواقص.",
+    successChanged: "أكد الخادم نجاح العملية الأصلية، لكن النواقص تغيرت لاحقاً. هذه القائمة تعرض الحالة الحالية وليست نتيجة التعديل القديمة.",
     successDelete: "تم التحقق من حذف مجموعة النواقص كاملة.",
     reference: "مرجع المتابعة",
     edit: "تعديل",
@@ -179,6 +197,7 @@ const messages = {
     conflict: "This request conflicts with newer data. We did not send a different request.",
     stale: "The server rejected the original selection. Review the group before another action.",
     successEdit: "Verified shortage group changes.",
+    successChanged: "The server confirmed the original operation; shortages changed afterwards. This list reflects the current state, not the old edit result.",
     successDelete: "Verified deletion of the entire shortage group.",
     reference: "Tracking reference",
     edit: "Edit",
