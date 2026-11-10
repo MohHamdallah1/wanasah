@@ -218,6 +218,7 @@ export function useRouteLaunchRecovery({
 }: UseRouteLaunchRecoveryOptions) {
   const [result, setResult] = useState<RouteLaunchOutcome>({ kind: "idle" });
   const [busy, setBusy] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const latest = useRef({ authorized, onCommitted, fetch });
   latest.current = { authorized, onCommitted, fetch };
   const key = actor && routeLaunchActorMatchesSession(actor, session.identity)
@@ -235,18 +236,25 @@ export function useRouteLaunchRecovery({
   useEffect(() => {
     setResult({ kind: authorized && key ? "idle" : "blocked" });
     setBusy(false);
-    if (!controller || !authorized || !key) return () => { controller?.dispose(); };
+    setRestoring(Boolean(controller && authorized && key));
+    if (!controller || !authorized || !key) {
+      setRestoring(false);
+      return () => { controller?.dispose(); };
+    }
     let active = true;
     void controller.recover().then(answer => {
       if (!active || !isDashboardSessionCurrent(session) || !latest.current.authorized) return;
       setResult(answer);
       if (answer.kind === "committed") latest.current.onCommitted?.(answer.receipt);
+    }).finally(() => {
+      if (active && isDashboardSessionCurrent(session)) setRestoring(false);
     });
     return () => { active = false; controller.dispose(); };
   }, [controller, authorized, session, key]);
 
   const run = useCallback(async (operation: "launch" | "recover" | "retry", intent?: RouteLaunchIntent) => {
-    if (!controller || !latest.current.authorized || busy) return { kind: "blocked" } as RouteLaunchOutcome;
+    if (!controller || !latest.current.authorized) return { kind: "blocked" } as RouteLaunchOutcome;
+    if (busy || restoring) return { kind: "busy" } as RouteLaunchOutcome;
     setBusy(true);
     try {
       const answer = operation === "launch" && intent ? await controller.launch(intent)
@@ -259,7 +267,7 @@ export function useRouteLaunchRecovery({
     } finally {
       if (isDashboardSessionCurrent(session)) setBusy(false);
     }
-  }, [controller, busy, session]);
+  }, [controller, busy, restoring, session]);
 
   return {
     launch: (intent: RouteLaunchIntent) => run("launch", intent),
@@ -273,7 +281,8 @@ export function useRouteLaunchRecovery({
     },
     result: authorized && key ? result : ({ kind: "blocked" } as RouteLaunchOutcome),
     message: routeLaunchText(language, authorized && key ? result.kind : "blocked"),
-    busy,
+    busy: busy || restoring,
+    restoring,
     hasUnresolved: result.kind === "unknown" || result.kind === "conflict" || result.kind === "committed",
   };
 }
