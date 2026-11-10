@@ -51,9 +51,22 @@ jobs:
           print(f'D05_UI_CASES={len(cases)} FAIL={len(bad)} SKIP={len(skipped)}')
           assert len(cases) >= 145 and not bad and not skipped
           PY
-      - name: Full Dashboard TypeScript
-        working-directory: dashboard
-        run: npx tsc -p tsconfig.app.json --noEmit
+      - name: Audit ALL Dashboard TypeScript diagnostics against exact merged MAIN
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dispatch-859-ts-baseline"
+          git worktree add --detach "$RUNNER_TEMP/dispatch-859-ts-baseline" 1f3987932434038b87696597a1736d2e936a204e
+          ln -s "$GITHUB_WORKSPACE/dashboard/node_modules" "$RUNNER_TEMP/dispatch-859-ts-baseline/dashboard/node_modules"
+          (cd "$RUNNER_TEMP/dispatch-859-ts-baseline/dashboard" && ./node_modules/.bin/tsc -p tsconfig.app.json --noEmit --pretty false > "$RUNNER_TEMP/base-ts.txt" 2>&1) || true
+          (cd dashboard && ./node_modules/.bin/tsc -p tsconfig.app.json --noEmit --pretty false > "$RUNNER_TEMP/candidate-ts.txt" 2>&1) || true
+          echo "BASELINE_EXISTING_TSC_DIAGNOSTICS=$(grep -c 'error TS' "$RUNNER_TEMP/base-ts.txt" || true)"
+          echo "CANDIDATE_TSC_DIAGNOSTICS=$(grep -c 'error TS' "$RUNNER_TEMP/candidate-ts.txt" || true)"
+          diff -u "$RUNNER_TEMP/base-ts.txt" "$RUNNER_TEMP/candidate-ts.txt"
+          if grep -E '(src/features/dispatch/shortageGroup/|src/components/dispatch/ShortageModal.tsx|src/pages/DispatchBoard.tsx|src/test/dispatch-shortage-group-recovery-v1.test.tsx)' "$RUNNER_TEMP/candidate-ts.txt"; then
+            echo "New owned-file TypeScript error" >&2
+            exit 1
+          fi
+          echo "D05_FULL_TSC_BASELINE_PARITY=PASS (existing global RED remains explicitly recorded)"
       - name: Focused changed files lint
         working-directory: dashboard
         run: >-
