@@ -56,8 +56,29 @@ jobs:
               "wa_backend/domains/dispatch_route_launch_receipt.py",
               "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
           }
-          assert files == owned, f"D07 backend-only exact gate before #868 merged: {sorted(files ^ owned)}"
-          print("D07_BACKEND_OWNERSHIP=PASS five exact paths, no worker2")
+          # Interim D07 milestone #870: these three NEW isolated UI paths
+          # are owned by Worker1; Board/D10 and shared gate files are forbidden.
+          d07_independent_exact = owned | {
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+          }
+          assert len(d07_independent_exact) == 8
+          assert files == d07_independent_exact, (
+              f"D07 isolated Backend + independent UI exact denied: "
+              f"missing={sorted(d07_independent_exact - files)} "
+              f"extra={sorted(files - d07_independent_exact)}"
+          )
+          for absent in d07_independent_exact:
+              assert d07_independent_exact - {absent} != files
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/sessionScope.ts",
+              "wa_backend/models.py",
+          ):
+              assert foreign not in files, f"D07 forbidden D10/Backend path: {foreign}"
+          print("D07_ISOLATED_OWNERSHIP=PASS exact=8 foreign=4")
           PY
           git diff --check "$BASE" HEAD
       - uses: actions/setup-python@v5
@@ -169,3 +190,24 @@ jobs:
       - name: Disposable PG diagnostic on failure only
         if: failure()
         run: docker logs dispatch-d07-pg16 2>/dev/null | tail -n 100 || true
+
+  d07-react-focused:
+    name: d07-independent-client-command-vitest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused D07 immutable original command and React AR/EN acceptance
+        working-directory: dashboard
+        run: npx vitest run src/test/dispatch-route-launch-d07.test.tsx
+      - name: Check Dashboard TypeScript contract
+        working-directory: dashboard
+        run: npx tsc --noEmit
