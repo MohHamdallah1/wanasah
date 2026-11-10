@@ -23,6 +23,8 @@ import {
   type ShopFormState,
 } from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
+import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
+import { groupText } from "@/features/dispatch/shortageGroup/contract";
 import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -1060,52 +1062,47 @@ function DispatchSession() {
     setShortages(Array.isArray(data) ? data : []);
   }, [authenticatedFetch]);
 
-  const replaceShortageGroupAtomic = useCallback(
-    async (
-      shortageIds: string[],
-      items: Array<{
-        zoneId: number;
-        shopId: number;
-        driverId: number | null;
-        productId: number;
-        quantity: number;
-      }>
-    ) => {
-      if (shortageMutationInFlightRef.current) {
-        toast.info("هناك عملية نواقص قيد التنفيذ.");
-        return false;
-      }
-
-      const parsedIds = shortageIds.map(Number);
-      if (
-        parsedIds.length === 0 ||
-        parsedIds.some((id) => !Number.isInteger(id) || id <= 0)
-      ) {
-        toast.error("معرفات طلبات النواقص غير صالحة.");
-        return false;
-      }
-
-      shortageMutationInFlightRef.current = true;
-      try {
-        await authenticatedFetch("/dispatch/shortages/group", {
-          method: "PUT",
-          body: JSON.stringify({
-            request_id: crypto.randomUUID(),
-            shortage_ids: parsedIds,
-            items,
-          }),
-        });
-        await refreshShortages();
-        return true;
-      } catch (err: unknown) {
-        toast.error(getErrorMessage(err));
-        return false;
-      } finally {
-        shortageMutationInFlightRef.current = false;
-      }
+  // The immutable original command, cross-tab locking and exact-key
+  // recovery live outside DispatchBoard; only canonical readback updates UI.
+  const shortageGroup = useShortageGroupCommit({
+    session: session!,
+    authorized: isCompanyOwner,
+    language: i18n.language,
+    fetch: authenticatedFetch,
+    onVerified: rows => {
+      setShortages(rows);
+      setEditingShortageIds([]);
+      setShortageDraft([]);
+      setNewShortage({ quantity: 1 });
     },
-    [authenticatedFetch, refreshShortages]
-  );
+    // A second tab may have completed the immutable request. Refresh only:
+    // no success toast or inferred local idempotency result in this tab.
+    onRefreshed: rows => {
+      setShortages(rows);
+      setEditingShortageIds([]);
+      setShortageDraft([]);
+    },
+    onReconciled: rows => {
+      setShortages(rows);
+      setEditingShortageIds([]);
+      setShortageDraft([]);
+    },
+    onRestored: command => {
+      if (command.action === "edit") {
+        const first = command.items[0];
+        setEditingShortageIds(command.shortageIds.map(String));
+        setShortageDraft(command.draft);
+        if (first) {
+          setShortageZoneId(String(first.zoneId));
+          setShortageShopId(String(first.shopId));
+          setShortageDriverId(first.driverId ? String(first.driverId) : "");
+        }
+      }
+      // A lost successful DELETE has no remaining selected rows to click.
+      // Reentry must expose the exact original recovery action.
+      setIsShortageModalOpen(true);
+    },
+  });
 
   const handleAddShortage = async () => {
     if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) {
@@ -1132,17 +1129,17 @@ function DispatchSession() {
       quantity: Number(item.quantity),
     }));
 
-    if (shortageMutationInFlightRef.current) {
-      toast.info("هناك عملية نواقص قيد التنفيذ.");
+    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+      shortageGroup.hasUnresolved || shortageGroup.blocked) {
+      toast.info(groupText(i18n.language, shortageGroup.hasUnresolved ? "different" : "inProgress"));
       return;
     }
 
     try {
       let saved = false;
       if (editingShortageIds.length > 0) {
-        saved = await replaceShortageGroupAtomic(
-          editingShortageIds,
-          newShortages
+        saved = await shortageGroup.save(
+          editingShortageIds, newShortages, shortageDraft,
         );
       } else {
         shortageMutationInFlightRef.current = true;
@@ -1164,11 +1161,9 @@ function DispatchSession() {
       setEditingShortageIds([]);
       setShortageDraft([]);
       setNewShortage({ quantity: 1 });
-      toast.success(
-        wasEditing
-          ? "تم حفظ تعديلات الطلبات ذرياً"
-          : "تم تسجيل الطلبات بنجاح"
-      );
+      // Verified grouped PUT reports its own single authoritative success.
+      // New standalone POST still uses the existing completion message.
+      if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
       shortageMutationInFlightRef.current = false;
@@ -1221,6 +1216,10 @@ function DispatchSession() {
         (item.driverId || "") === (driverId || "")
     );
     if (shopShortages.length === 0) return;
+    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+      toast.info(groupText(i18n.language, "different"));
+      return;
+    }
 
     const first = shopShortages[0];
     const identityKeys = new Set(
@@ -1251,16 +1250,18 @@ function DispatchSession() {
   };
 
   const handleDeleteShortageGroup = (ids: string[]) => {
+    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+      toast.info(groupText(i18n.language, "different"));
+      return;
+    }
     setConfirmDialog({
       isOpen: true,
       title: "حذف طلبات المحل",
       message: `هل أنت متأكد من حذف المجموعة كاملة (${ids.length} منتجات)؟`,
       onConfirm: async () => {
         try {
-          const deleted = await replaceShortageGroupAtomic(ids, []);
-          if (deleted) {
-            toast.success("تم حذف المجموعة كاملة ذرياً");
-          }
+          await shortageGroup.save(ids, []);
+          // The recovery hook alone announces an authorized verified deletion.
         } finally {
           setConfirmDialog((dialog) => ({ ...dialog, isOpen: false }));
         }
@@ -1270,6 +1271,7 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
+    if (shortageGroup.hasUnresolved) return; // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
@@ -1654,9 +1656,26 @@ function DispatchSession() {
         onDriverChange={setShortageDriverId}
         editingShortageIds={editingShortageIds}
         onCancelEdit={() => { setShortageDraft([]); setEditingShortageIds([]); setShortageZoneId(""); setShortageShopId(""); setShortageDriverId(""); }}
-        onDeleteShortage={id => setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })}
+        onDeleteShortage={id => {
+          if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+            toast.info(groupText(i18n.language, "different")); return;
+          }
+          setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try {
+            if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+              toast.info(groupText(i18n.language, "different")); return;
+            }
+            await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
         onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
+        groupRecovery={{
+          pending: shortageGroup.pending,
+          blocked: shortageGroup.blocked,
+          restoring: shortageGroup.restoring,
+          busy: shortageGroup.busy,
+          feedback: shortageGroup.feedback,
+          httpReference: shortageGroup.httpReference,
+          onRetry: () => { void shortageGroup.retry(); },
+        }}
       />
       )}
       <ScheduleModal isOpen={isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
