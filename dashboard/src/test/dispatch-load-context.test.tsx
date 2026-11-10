@@ -7,8 +7,17 @@ import DispatchBoard from "@/pages/DispatchBoard";
 
 const fake = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
+const ownerGrants = {
+  company_id: 1, principal_id: 3, backoffice_user_id: 13,
+  is_company_owner: true, location_id: null,
+  permissions: ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"],
+  any_permissions: ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"],
+  location_permissions: [],
+};
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  isCompanyOwner: true, data: { company_id: 1, principal_id: 3 }, can: () => true,
+  isCompanyOwner: true, data: ownerGrants, can: () => true,
+  isFetching: false, isError: false, error: null, dataUpdatedAt: 100,
+  refetch: async () => ({ data: ownerGrants }),
 }) }));
 vi.mock("@/components/ui/custom-select", () => ({ CustomSelect: ({ label, value, options, onChange }: {
   label: string; value: string; options: { id: string; label: string }[]; onChange: (value: string) => void;

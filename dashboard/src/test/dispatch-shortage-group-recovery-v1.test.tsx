@@ -727,7 +727,7 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
       const onRetry = vi.fn();
       const intent = buildGroupIntent(ids, lines, draft);
       const view = render(
-        <ShortageModal isOpen onClose={vi.fn()} zones={[]} activeShops={[]}
+        <ShortageModal isOpen canCreate canCancel canEdit onClose={vi.fn()} zones={[]} activeShops={[]}
           shortageZoneId="3" shortageShopId="7" onZoneChange={vi.fn()} onShopChange={vi.fn()}
           productScope="1:11" newShortage={{ quantity: 1 }} onNewShortageChange={vi.fn()}
           shortageDraft={draft} onAddProductToDraft={vi.fn()} onRemoveProductFromDraft={vi.fn()}
