@@ -601,23 +601,32 @@ function DispatchSession() {
     setDispatchReadState(accessState);
   }, [accessState, clearDispatchPrivateState]);
 
-  // D06: permission revocation or switching accounts while this tab is away
-  // must not show a stale financial card on return. Re-read with real Bearer.
-  // The backend alone decides scope; hide prior Shop/Shortage data immediately.
+  // D06: refresh a returning tab after it was actually hidden/unfocused.
+  // A synthetic visibilitychange while visible must not issue duplicate reads
+  // or re-admit stale cross-account WebSocket activity (D10).
   useEffect(() => {
     if (accessState !== "ready" || !actorScope) return;
+    let wasAway = document.visibilityState === "hidden";
     const revalidate = () => {
-      if (document.visibilityState === "hidden" ||
+      if (!wasAway || document.visibilityState === "hidden" ||
           !isDashboardSessionCurrent(session!)) return;
+      wasAway = false;
       setShops([]);
       setShortages([]);
       fetchInitialData();
     };
+    const blur = () => { wasAway = true; };
+    const visibility = () => {
+      if (document.visibilityState === "hidden") wasAway = true;
+      else revalidate();
+    };
+    window.addEventListener("blur", blur);
     window.addEventListener("focus", revalidate);
-    document.addEventListener("visibilitychange", revalidate);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
+      window.removeEventListener("blur", blur);
       window.removeEventListener("focus", revalidate);
-      document.removeEventListener("visibilitychange", revalidate);
+      document.removeEventListener("visibilitychange", visibility);
     };
   }, [accessState, actorScope, fetchInitialData, session]);
 
