@@ -130,6 +130,7 @@ describe("D13 real bilingual, currency, focus and shortage controls", () => {
     }
     render(<ZoneCase />);
     const trigger = screen.getByRole("button", { name: "Open zone" });
+    trigger.focus(); // A real keyboard/mouse activation starts from the triggering control.
     fireEvent.click(trigger);
     const name = screen.getByRole("textbox", { name: "Zone name" });
     await waitFor(() => expect(name).toHaveFocus());
@@ -187,7 +188,7 @@ describe("D13 real bilingual, currency, focus and shortage controls", () => {
     const session = createSession();
     const view = render(<ShopBulkImportModal isOpen actorScope="1:11:110" session={session}
       onClose={vi.fn()} zones={[zone]} existingShops={[]} />);
-    expect(screen.getByRole("dialog", { name: "Import shops" })).toHaveAttribute("dir", "ltr");
+    expect(screen.getByRole("dialog", { name: "Import shops" }).closest("[dir]")).toHaveAttribute("dir", "ltr");
     fireEvent.click(screen.getByRole("button", { name: "Download template" }));
     expect(XLSX.writeFile).toHaveBeenCalled();
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0]?.[0];
