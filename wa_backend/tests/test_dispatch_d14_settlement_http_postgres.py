@@ -19,11 +19,12 @@ from database import engine as runtime_engine
 from domains.identity.models import CompanyPrincipal
 from main import app
 from models import (
-    Company, InventoryCostEvent, InventoryMovement, OperationIdempotency,
+    Company, DispatchRoute, InventoryCostEvent, InventoryMovement, OperationIdempotency,
     SystemAuditLog, Visit, WorkSession,
 )
 from services import apply_inventory_movement
 from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_field_fixture
+from tests.test_cp14c_stocktake_lifecycle_postgres import _grant_company
 from tests.test_representative_settlement_custody_postgres import (
     ACTOR_PASSWORD, _checked_urls, _financial_inventory_fingerprint,
     _runtime_session, _seed, _qty, settlement,
@@ -82,6 +83,20 @@ async def test_signed_backoffice_financial_close_after_field_custody_has_one_eff
             )
             await db.commit()
             field_principal = field.context.principal_id
+            # Make the session truly belong to the separate FIELD representative,
+            # never to the Backoffice operator who receives and closes it.
+            work = await db.get(WorkSession, session_id)
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == company,
+                DispatchRoute.work_session_id == session_id,
+            ))
+            assert work is not None and route is not None
+            work.driver_id = route.driver_id = field.driver.id
+            await _grant_company(
+                db, company_id=company, driver_id=denied.driver_id,
+                code="settlement.read",
+            )
+            await db.commit()
             await db.execute(
                 text("SELECT set_config('app.current_tenant',:c,true)"),
                 {"c": str(foreign_company)},
