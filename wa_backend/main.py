@@ -25,6 +25,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 # +++ استيراد المكونات الداخلية للنظام +++
 from api import field_contracts
+from api.dispatch_shortages_group import router as dispatch_shortages_group_router
 from api import auth, branches, catalog, commercial_policy, driver, dispatch, inventory_stock_policy, offers, pricing, taxation, product_locations, product_tracking, tenant, warehouse, reconciliation, platform_manager, representatives, vehicles, sales_returns, simple_products, representative_settlement
 from config import Config
 from database import engine, get_db, warm_database_pool
@@ -442,6 +443,7 @@ app.include_router(driver.router, tags=["Driver Operations"])
 app.include_router(field_contracts.router)
 app.include_router(sales_returns.router)
 app.include_router(dispatch.router, tags=["Dispatch & Routing"])
+app.include_router(dispatch_shortages_group_router, tags=["Dispatch & Routing"])
 app.include_router(representative_settlement.router)
 app.include_router(warehouse.router, tags=["Warehouse & Inventory"])
 app.include_router(inventory_stock_policy.router, tags=["Warehouse & Inventory"])
