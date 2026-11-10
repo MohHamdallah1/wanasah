@@ -51,7 +51,7 @@ describe("D11 canonical commercial route-launch evidence", () => {
     view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
       evidence={server(["warehouse", "SOURCE_WAREHOUSE_AUDIT_LOCK"])}
       status="blocked" onRefresh={vi.fn()} /></MemoryRouter>);
-    expect(screen.getByText(/الجرد الشامل/)).toBeInTheDocument();
+    expect(screen.getByText(/جرد شامل/)).toBeInTheDocument();
     expect(screen.getByRole("link")).toHaveAttribute("href", "/inventory");
     view.rerender(<MemoryRouter><CommercialPreflightPanel language="en"
       evidence={server(["pricing", "PRICE_NOT_RESOLVED"])}
