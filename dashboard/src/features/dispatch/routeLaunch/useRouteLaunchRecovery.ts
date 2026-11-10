@@ -33,6 +33,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
   let disposed = false;
   let writing = false;
   let revoked = false;
+  let verifiedId: string | null = null;
   let epoch = 0;
   const controllers = new Set<AbortController>();
   const live = (captured: number): boolean => !disposed && epoch === captured && current();
@@ -70,7 +71,10 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
       );
       if (!live(token)) return { kind: "stale" };
       const receipt = routeLaunchReadback(raw, command.requestId);
-      if (receipt) return { kind: "committed", requestId: command.requestId, receipt };
+      if (receipt) {
+        verifiedId = command.requestId;
+        return { kind: "committed", requestId: command.requestId, receipt };
+      }
       return unknown(command.requestId); // UNKNOWN, invalid JSON or wrong operation are NOT success.
     } catch (error) {
       if (!live(token)) return { kind: "stale" };
@@ -85,9 +89,11 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
       const raw = await call("/dispatch/route", { method: "POST", body }, token);
       if (!live(token)) return { kind: "stale" };
       const receipt = originalRouteReceipt(raw, command.requestId);
-      return receipt
-        ? { kind: "committed", requestId: command.requestId, receipt }
-        : unknown(command.requestId);
+      if (receipt) {
+        verifiedId = command.requestId;
+        return { kind: "committed", requestId: command.requestId, receipt };
+      }
+      return unknown(command.requestId);
     } catch (error) {
       if (!live(token)) return { kind: "stale" };
       if (denied(error)) { revoked = true; return { kind: "blocked" }; }
@@ -174,11 +180,13 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
     launch: (intent: RouteLaunchIntent) => perform("launch", intent),
     recover: () => perform("recover"),
     retryOriginal: () => perform("retry"),
-    readPending: requireOriginal,
+    readPending: () => isAllowed(epoch) ? requireOriginal() : Promise.resolve(null),
     acknowledge: (requestId: string): boolean => {
-      if (!current() || disposed || revoked || !authorized() || !isOriginalRouteUuid(requestId)) return false;
+      if (!current() || disposed || revoked || !authorized() ||
+          verifiedId !== requestId || !isOriginalRouteUuid(requestId)) return false;
       try {
         completeDurableOperation(scope, requestId);
+        verifiedId = null;
         return true;
       } catch { return false; }
     },
@@ -221,7 +229,7 @@ export function useRouteLaunchRecovery({
       fetch: (path, options) => latest.current.fetch(path, options),
     });
     // Deliberately reset only on verified actor/scope/login generation.
-  }, [key, session.generation, session.identity]);
+  }, [key, session.generation, session.identity, authorized]);
   useEffect(() => {
     setResult({ kind: authorized ? "idle" : "blocked" });
     setBusy(false);
@@ -256,6 +264,7 @@ export function useRouteLaunchRecovery({
     recover: () => run("recover"),
     retryOriginal: () => run("retry"),
     acknowledge: (id: string) => {
+      if (result.kind !== "committed" || result.requestId !== id) return false;
       const done = controller?.acknowledge(id) ?? false;
       if (done) setResult({ kind: "idle" });
       return done;
