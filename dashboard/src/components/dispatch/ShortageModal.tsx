@@ -98,7 +98,7 @@ function groupByShop(shortages: Shortage[]) {
 function formatTimestamp(isoStr: string | null | undefined, language: string): string {
   const text = (key: DispatchUiKey, count?: number) => dispatchUiText(language, key, count === undefined ? {} : { count });
   if (!isoStr) return text("shortageNow");
-  const safeIso = /(?:Z|[+-]\\d{2}:\\d{2})$/.test(isoStr) ? isoStr : isoStr + "Z";
+  const safeIso = /(?:Z|[+-]\d{2}:\d{2})$/.test(isoStr) ? isoStr : isoStr + "Z";
   const date = new Date(safeIso);
   if (Number.isNaN(date.getTime())) return text("shortageNow");
   const elapsed = Math.max(0, Date.now() - date.getTime());
@@ -354,12 +354,16 @@ export function ShortageModal({
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
   const grouped = useMemo(() => groupByShop(shortages), [shortages]);
   const isEditMode = editingShortageIds.length > 0;
+  const qtyRef = useRef<HTMLInputElement>(null);
+  const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
+    dispatchUiText(i18n.language, key, values);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="📦 طلبات ونواقص المحلات"
+      title={text("shortageTitle")}
+      initialFocusRef={qtyRef}
       maxWidth="max-w-5xl"
     >
       <div className="space-y-6">
@@ -414,7 +418,7 @@ export function ShortageModal({
             <div className="flex items-center justify-between bg-amber-100 border-b border-amber-200 rounded-t-2xl px-5 py-3">
               <div className="flex items-center gap-2 text-amber-800 text-sm font-bold">
                 <Pencil className="w-4 h-4" />
-                وضع التعديل — عدّل المنتجات والكميات ثم اضغط "حفظ التعديلات"
+                {text("shortageEditMode")}
               </div>
             </div>
           )}
@@ -423,21 +427,21 @@ export function ShortageModal({
             {/* Selects */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <CustomSelect
-                label="المنطقة"
+                label={text("shortageZone")}
                 options={zones.map(z => ({ id: z.id, label: z.name }))}
                 value={shortageZoneId}
                 onChange={onZoneChange}
                 disabled={isEditMode}
               />
               <CustomSelect
-                label="المحل"
+                label={text("shortageShop")}
                 options={activeShops.filter(s => s.zoneId === shortageZoneId).map(s => ({ id: s.id, label: s.name }))}
                 value={shortageShopId}
                 onChange={onShopChange}
                 disabled={isEditMode || !shortageZoneId}
               />
               <CustomSelect
-                label="توجيه الطلب للمندوب"
+                label={text("shortageDriver")}
                 options={drivers.map(d => ({ id: d.id, label: d.name }))}
                 value={shortageDriverId}
                 onChange={onDriverChange}
@@ -454,18 +458,21 @@ export function ShortageModal({
                   onSelect={(productId, productName) => onNewShortageChange({ ...newShortage, productId, productName })} />
               </div>
               <div className="sm:col-span-2 flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.quantity")}</span>
+                <label htmlFor="dispatch-shortage-qty" className="text-xs font-semibold text-slate-600">{text("shortageQuantity")}</label>
                 <input
-                  type="number"
+                  id="dispatch-shortage-qty"
+                  ref={qtyRef}
+                  aria-label={text("shortageQtyName")}
+                  type="number" min="1" step="1" inputMode="numeric"
                   value={newShortage.quantity || 0}
                   onChange={e => onNewShortageChange({ ...newShortage, quantity: parseInt(e.target.value) || 0 })}
                   onFocus={e => e.target.select()}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-center outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
                 />
               </div>
-              <button
+              <button type="button"
                 onClick={onAddProductToDraft}
-                disabled={!shortageShopId}
+                disabled={!shortageShopId || !newShortage.productId || !Number.isSafeInteger(newShortage.quantity) || (newShortage.quantity ?? 0) < 1}
                 className="h-[46px] rounded-xl font-bold text-sm bg-[#1e87bb] text-white hover:bg-[#156a94] transition-colors shadow-lg shadow-[#1e87bb]/20 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {t("dispatchProductSearch.add")}
@@ -477,20 +484,20 @@ export function ShortageModal({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
                 {/* Draft table header with "Clear" button (#2) */}
                 <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100">
-                  <span className="text-xs font-bold text-slate-600">قائمة المنتجات ({shortageDraft.length})</span>
-                  <button
+                  <span className="text-xs font-bold text-slate-600">{text("shortageDraftList", { count: shortageDraft.length })}</span>
+                  <button type="button"
                     onClick={onClearDraft}
                     className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-red-500 transition-colors"
-                    title="تصفير كل المنتجات"
+                    title={text("shortageClear")}
                   >
-                    <Eraser className="w-3.5 h-3.5" /> تصفير
+                    <Eraser className="w-3.5 h-3.5" /> {text("shortageClear")}
                   </button>
                 </div>
                 <table className="w-full text-sm">
                   <thead className="border-b border-slate-100">
                     <tr>
-                      <th className="text-start p-3 text-slate-500 font-bold text-xs">المنتج</th>
-                      <th className="text-center p-3 text-slate-500 font-bold text-xs w-36">الكمية</th>
+                      <th className="text-start p-3 text-slate-500 font-bold text-xs">{text("shortageProduct")}</th>
+                      <th className="text-center p-3 text-slate-500 font-bold text-xs w-36">{text("shortageQuantity")}</th>
                       <th className="w-24 p-3"></th>
                     </tr>
                   </thead>
@@ -500,6 +507,7 @@ export function ShortageModal({
                         key={idx}
                         item={item}
                         idx={idx}
+                        language={i18n.language}
                         onQtyChange={onUpdateDraftQty}
                         onRemove={onRemoveProductFromDraft}
                       />
@@ -511,25 +519,23 @@ export function ShortageModal({
 
             {/* Confirm row — confirm button + cancel-edit button (#5) */}
             <div className={`flex items-center gap-3 ${isEditMode ? "flex-row-reverse" : ""}`}>
-              <button
+              <button type="button"
                 onClick={onConfirmShortages}
-                disabled={shortageDraft.length === 0}
+                disabled={shortageDraft.length === 0 || !shortageShopId || !shortageZoneId}
                 className={`flex-1 py-3 rounded-xl font-bold transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-white ${
                   isEditMode
                     ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
                     : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20"
                 }`}
               >
-                {isEditMode
-                  ? `✅ حفظ التعديلات (${shortageDraft.length} منتجات)`
-                  : `تأكيد الطلب وحفظ (${shortageDraft.length})`}
+                {text(isEditMode ? "shortageSaveEdit" : "shortageConfirm", { count: shortageDraft.length })}
               </button>
               {isEditMode && (
-                <button
+                <button type="button"
                   onClick={onCancelEdit}
                   className="flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-300 text-slate-600 text-sm font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
                 >
-                  <X className="w-4 h-4" /> إلغاء التعديل
+                  <X className="w-4 h-4" /> {text("shortageCancelEdit")}
                 </button>
               )}
             </div>
@@ -544,7 +550,7 @@ export function ShortageModal({
             <div className="flex items-center gap-2">
               <div className="w-1 h-5 bg-[#1e87bb] rounded-full" />
               <h3 className="text-sm font-bold text-slate-700">
-                الطلبات المعلقة
+                {text("shortagePending")}
               </h3>
               {grouped.length > 0 && (
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-500 text-white text-[10px] font-bold">
@@ -552,13 +558,13 @@ export function ShortageModal({
                 </span>
               )}
             </div>
-            <span className="text-xs text-slate-400">{shortages.length} منتج إجمالاً</span>
+            <span className="text-xs text-slate-400">{text("shortageTotal", { count: shortages.length })}</span>
           </div>
 
           {grouped.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-14 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/60">
               <Package className="w-10 h-10 text-slate-200" />
-              <p className="text-slate-400 text-sm font-medium">لا توجد طلبات معلقة</p>
+              <p className="text-slate-400 text-sm font-medium">{text("shortageNone")}</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -570,8 +576,9 @@ export function ShortageModal({
                   focusShortageId={focusShortageId}
                   canEdit={canEdit}
                   canCancel={canCancel}
-                  key={group.shopId}
+                  key={`${group.shopId}:${group.driverId}`}
                   group={group}
+                  language={i18n.language}
                   isBeingEdited={group.items.some(it => editingShortageIds.includes(it.id))}
                   isEditModeActive={isEditMode}
                   onEdit={() => onEditShortageGroup(group.shopId, group.driverId)}
