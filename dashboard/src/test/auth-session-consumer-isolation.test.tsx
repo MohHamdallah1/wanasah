@@ -309,6 +309,43 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
   });
 });
 
+describe("D09 actual DispatchBoard effective grants and revoked view", () => {
+  it.each([{ width: 390, locale: "ar" }, { width: 1440, locale: "en" }])(
+    "keeps non-owner scoped Zones visible/read-only then hides private rows at $width in $locale",
+    async ({ width, locale }) => {
+      await setAppLanguage(locale);
+      fake.owner = false;
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      fake.fetch.mockImplementation(async (path: string) => {
+        if (path === "/dispatch/init") return {
+          zones: [{ id: "41", name: "Scoped Zone", intervalDays: null, startDate: "",
+            scheduleStatus: "null", shopsCount: 1 }],
+          drivers: [], vehicles: [], warehouses: [],
+        };
+        if (path === "/dispatch/shops") return [{
+          id: "17", name: "Scoped Shop", owner: "Private Owner", phone: "55555555",
+          initialDebt: "130", maxDebtLimit: "300", zoneId: "41", archived: false,
+          sequence: 1,
+        }];
+        return [];
+      });
+      render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
+      const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
+      fireEvent.click(tab);
+      await screen.findByText("Scoped Zone");
+      await screen.findByText("Scoped Shop");
+      expect(screen.queryByText("[+ منطقة جديدة]")).not.toBeInTheDocument();
+      act(() => window.dispatchEvent(new Event("inventory-permission-denied")));
+      expect(screen.queryByText("Scoped Shop")).not.toBeInTheDocument();
+      expect(screen.queryByText("Private Owner")).not.toBeInTheDocument();
+      expect(screen.queryByText("Scoped Zone")).not.toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        locale === "ar" ? "لا تملك صلاحية" : "You do not have access",
+      );
+    },
+  );
+});
+
 describe("adjacent Product Import uses the same captured-session boundary", () => {
   const progress = { status: "IMPORTING", imported_rows: 0, invalid_rows: 0,
     import_failed_rows: 0, default_lot_control_mode: "NONE", default_expiry_control_mode: "NONE" };
