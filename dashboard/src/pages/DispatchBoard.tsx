@@ -601,6 +601,26 @@ function DispatchSession() {
     setDispatchReadState(accessState);
   }, [accessState, clearDispatchPrivateState]);
 
+  // D06: permission revocation or switching accounts while this tab is away
+  // must not show a stale financial card on return. Re-read with real Bearer.
+  // The backend alone decides scope; hide prior Shop/Shortage data immediately.
+  useEffect(() => {
+    if (accessState !== "ready" || !actorScope) return;
+    const revalidate = () => {
+      if (document.visibilityState === "hidden" ||
+          !isDashboardSessionCurrent(session!)) return;
+      setShops([]);
+      setShortages([]);
+      fetchInitialData();
+    };
+    window.addEventListener("focus", revalidate);
+    document.addEventListener("visibilitychange", revalidate);
+    return () => {
+      window.removeEventListener("focus", revalidate);
+      document.removeEventListener("visibilitychange", revalidate);
+    };
+  }, [accessState, actorScope, fetchInitialData, session]);
+
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
     if (!selectedSourceWarehouseId) {
