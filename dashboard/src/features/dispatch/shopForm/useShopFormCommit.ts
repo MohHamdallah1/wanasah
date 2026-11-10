@@ -298,6 +298,7 @@ export function useShopFormCommit({
         // persist is a definitive unsent condition, never a best-effort send.
         const attempt: ShopCreateAttempt = {
           kind: "SHOP_CREATE_UNCERTAIN_V1",
+          clientAttemptNonce: crypto.randomUUID(), // mutex, not a server receipt
           submitted: create!, draft: { ...form }, baselineIds,
         };
         const command = await getOrCreateDurableCommand(scope, attempt);
