@@ -246,7 +246,29 @@ jobs:
           assert len(d05_shortages_new) == 5
           assert len(ci_policy_856_exact) == 4
 
+          dispatch_d11_881_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d11-commercial-preflight.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+          }
+          assert len(dispatch_d11_881_exact) == 16
+
           def ownership_mode(candidate):
+              if candidate == dispatch_d11_881_exact:
+                  return "DISPATCH_D11_881_EXACT"
               if candidate == ci_policy_856_exact:
                   return "CI_POLICY_856_EXACT"
               if candidate & d05_shortages_new:
@@ -270,6 +292,24 @@ jobs:
 
           # Positive and adversarial ownership proofs run AFTER original
           # fixture, real restricted HTTP and Chromium checks. No test skips.
+          assert ownership_mode(dispatch_d11_881_exact) == "DISPATCH_D11_881_EXACT"
+          for missing in dispatch_d11_881_exact:
+              subset = dispatch_d11_881_exact - {missing}
+              try:
+                  actual = ownership_mode(subset)
+              except AssertionError:
+                  pass
+              else:
+                  assert actual != "DISPATCH_D11_881_EXACT"
+          for foreign in ("dashboard/src/lib/authStorage.ts", "wa_backend/models.py",
+                          "wa_backend/api/dispatch.py", "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(dispatch_d11_881_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D11 foreign file admitted: {foreign}")
+          print("G04_D11_OWNER=PASS exact=16 missing=16 foreign=4")
           assert ownership_mode(d05_shortages_849_exact) == "D05_SHORTAGES_849_EXACT"
           for missing in d05_shortages_849_exact:
               subset = d05_shortages_849_exact - {missing}

@@ -286,6 +286,28 @@ jobs:
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
           }
+          # D11 #881: complete commercial-preflight change, exact read-only
+          # Backend plus Board and six narrow owner-gate paths.
+          dispatch_d11_881_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d11-commercial-preflight.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+          }
+          assert len(dispatch_d11_881_exact) == 16
+
           # D13 #877: only the complete reviewed 16-file AR/EN business
           # control closure may overlap these old Dispatch owner surfaces.
           dispatch_d13_877_exact = {
@@ -442,6 +464,8 @@ jobs:
           assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
           assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
+              if candidate == dispatch_d11_881_exact:
+                  return "DISPATCH_D11_881_EXACT"
               if candidate == dispatch_d13_877_exact:
                   return "DISPATCH_D13_877_EXACT"
               if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
@@ -490,6 +514,25 @@ jobs:
                   return "SHOP_FORM_850_EXACT"
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
+
+          assert ownership_mode(dispatch_d11_881_exact) == "DISPATCH_D11_881_EXACT"
+          for missing in dispatch_d11_881_exact:
+              partial = dispatch_d11_881_exact - {missing}
+              try:
+                  result = ownership_mode(partial)
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "DISPATCH_D11_881_EXACT"
+          for foreign in ("dashboard/src/lib/authStorage.ts", "wa_backend/models.py",
+                          "wa_backend/api/dispatch.py", "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(dispatch_d11_881_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D11 foreign path admitted: {foreign}")
+          print("INFLIGHT_D11_881_SELFTEST=PASS exact=16 missing=16 foreign=4")
 
           # In the real in-flight gate, reject any missing D13 file or a
           # foreign DispatchBoard/Inventory/Backend/auth hitchhiker.

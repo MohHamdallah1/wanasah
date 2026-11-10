@@ -39,6 +39,8 @@ jobs:
       - name: D07 backend exact five-path ownership before UI integration
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python - <<'PY'
           import os, subprocess
@@ -81,10 +83,51 @@ jobs:
               "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
           }
           assert len(d07_complete_exact) == 14 and d07_independent_exact <= d07_complete_exact
-          assert files == d07_complete_exact, (
-              f"D07 complete scope denied missing={sorted(d07_complete_exact - files)} "
-              f"extra={sorted(files - d07_complete_exact)}"
-          )
+          # #881: a separate complete D11 preflight PR may legitimately
+          # touch the shared Board without claiming D07's frozen 14-file PR.
+          dispatch_d11_881_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d11-commercial-preflight.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+          }
+          assert len(dispatch_d11_881_exact) == 16
+          if os.environ.get("PR_NUMBER") == "884":
+              # GitHub's pull_request checkout is a synthetic merge commit.
+              # A newer MAIN containing D12 must NOT be charged to D11.
+              # Inspect ONLY the author's PR HEAD against the exact approved
+              # D11 starting MAIN. Neither broad path exceptions nor D07
+              # acceptance are granted to any other PR.
+              d11_original_main = "5417254e71128fcebec6f756e3c8de657307231f"
+              d11_head = os.environ["PR_HEAD"]
+              assert subprocess.check_output(
+                  ["git", "merge-base", d11_original_main, d11_head], text=True
+              ).strip() == d11_original_main, "D11 PR must descend from approved exact MAIN"
+              d11_authored = set(subprocess.check_output(
+                  ["git", "diff", "--name-only", d11_original_main, d11_head], text=True
+              ).splitlines())
+              assert d11_authored == dispatch_d11_881_exact, (
+                  f"D11 exact PR authored scope missing={sorted(dispatch_d11_881_exact - d11_authored)} "
+                  f"extra={sorted(d11_authored - dispatch_d11_881_exact)}"
+              )
+              print("D11_D07_CROSS_OWNER=PASS authored_exact=16 upstream_D12_ignored")
+          else:
+              assert files == d07_complete_exact, (
+                  f"D07 complete scope denied missing={sorted(d07_complete_exact - files)} "
+                  f"extra={sorted(files - d07_complete_exact)}"
+              )
           for absent in d07_complete_exact:
               assert d07_complete_exact - {absent} != files
           for foreign in (
