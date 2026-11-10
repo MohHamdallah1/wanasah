@@ -8,9 +8,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 from models import (
-    InventoryLock, PricePublication, StocktakeSession, TaxRuleComponent,
-    TaxRuleSetVersion, TenantOperationalPolicy,
+    InventoryLock, PricePublication, StocktakeSession, TenantOperationalPolicy,
 )
+from domains.taxation.models import TaxRuleComponent, TaxRuleSetVersion
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import (
     _prepared_route, _state,
