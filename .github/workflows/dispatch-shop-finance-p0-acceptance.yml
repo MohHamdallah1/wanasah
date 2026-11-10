@@ -100,8 +100,16 @@ jobs:
               "wa_backend/schemas.py",
               "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
           }
-          d07_unique = d07_complete_exact - finance_842_allowed - shop_create_f06_exact - ci_policy_861_exact
-          assert len(d07_complete_exact) == 14 and len(d07_unique) >= 7
+          d07_unique = {
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
+          assert len(d07_complete_exact) == 14
           f06_new = shop_create_f06_exact - finance_842_allowed
           ci_new = ci_policy_861_exact - finance_842_allowed
           assert len(finance_842_allowed) == 4
