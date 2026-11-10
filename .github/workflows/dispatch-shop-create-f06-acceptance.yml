@@ -10,6 +10,11 @@ on:
       - "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py"
       - ".github/workflows/dispatch-shop-create-f06-acceptance.yml"
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: "Exact PR base SHA (40 lowercase hex) for strict five-file ownership"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -37,7 +42,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Exact five-file F06 code and test ownership
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
         run: |
           python - <<'PY'
           import os, re, subprocess
@@ -46,8 +51,9 @@ jobs:
           merge_base = subprocess.check_output(
               ["git", "merge-base", base, "HEAD"], text=True,
           ).strip()
+          assert merge_base == base, "F06 base SHA must be an ancestor of checked HEAD"
           changed = set(subprocess.check_output(
-              ["git", "diff", "--name-only", merge_base, "HEAD"],
+              ["git", "diff", "--name-only", base, "HEAD"],
               text=True,
           ).splitlines())
           expected = {
@@ -65,7 +71,7 @@ jobs:
               assert changed - {path} != expected, "F06 must not have partial owner scope"
           print("F06_EXACT_SCOPE PASS files=5")
           PY
-          git diff --check "${{ github.event.pull_request.base.sha || github.sha }}" HEAD --
+          git diff --check "$BASE" HEAD --
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
