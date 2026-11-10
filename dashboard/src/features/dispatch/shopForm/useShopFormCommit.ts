@@ -3,9 +3,14 @@ import { toast } from "sonner";
 import { apiErrorCode, apiErrorMessage, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStorage";
 import {
-  createPayload, createdShopVerified, financeReadback, findCreatedShopAfterUnknownWrite,
-  metadataPayload, metadataVerified,
-  ShopFormInputError, type ShopCreatePayload, type ShopFormState, type ShopFinanceReadback,
+  completeDurableOperation, getOrCreateDurableCommand, readDurableCommand,
+} from "@/lib/durableOperations";
+import {
+  clearShopAttemptServerReference, createPayload, createdShopVerified, financeReadback,
+  findCreatedShopAfterUnknownWrite, isShopCreateAttempt, metadataPayload, metadataVerified,
+  readShopAttemptServerReference, saveShopAttemptServerReference, shopCreateAttemptScope,
+  ShopFormInputError, type ShopCreateAttempt, type ShopCreatePayload, type ShopFormState,
+  type ShopFinanceReadback,
   type ShopMetadataPayload,
 } from "./contract";
 import { shopFormText, withSafeReference } from "./messages";
@@ -28,6 +33,8 @@ type PendingVerification = {
   payload: ShopCreatePayload | ShopMetadataPayload;
   /** Captured from an authorized GET BEFORE POST; never guessed afterwards. */
   baselineIds?: string[];
+  durableId?: string;
+  durableScope?: string;
 };
 
 interface Args {
@@ -42,12 +49,13 @@ interface Args {
   fetch: AuthFetch;
   onVerified: (shops: unknown, isCreate: boolean, zoneId: string) => void;
   onClose: () => void;
+  onRestoreForm?: (draft: ShopFormState) => void;
 }
 
 /** One Shop form commit boundary, never a finance-adjustment workflow. */
 export function useShopFormCommit({
   open, editId, form, language, session, canViewFinances, busy, setBusy,
-  fetch, onVerified, onClose,
+  fetch, onVerified, onClose, onRestoreForm,
 }: Args) {
   const mounted = useRef(true);
   const generation = useRef(0);
@@ -57,6 +65,11 @@ export function useShopFormCommit({
   const [duplicate, setDuplicate] = useState<DuplicateShopWarning | null>(null);
   const [pending, setPending] = useState<PendingVerification | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [recoveryUnreadable, setRecoveryUnreadable] = useState(false);
+  const [serverReference, setServerReference] = useState<string | null>(null);
+  const restoreFormRef = useRef(onRestoreForm);
+  restoreFormRef.current = onRestoreForm;
   const current = useCallback(
     (token: number) => mounted.current && generation.current === token &&
       isDashboardSessionCurrent(session),
@@ -77,6 +90,8 @@ export function useShopFormCommit({
     setFeedback(null);
     setDuplicate(null);
     setPending(null);
+    setRecoveryUnreadable(false);
+    setServerReference(null);
   }, [open, editId, session]);
 
   useEffect(() => {
@@ -103,6 +118,48 @@ export function useShopFormCommit({
     return () => { active = false; controller.abort(); };
     // A language change may re-read finance but never clears a pending mutation.
   }, [open, editId, canViewFinances, session, fetch, current, language]);
+
+
+  // Restore before allowing another CREATE. The durable record remains after
+  // canonical logout, page reload, or safe exit; only the same identity sees it.
+  useEffect(() => {
+    if (!open || editId !== null) { setRestoring(false); return; }
+    const token = generation.current;
+    let active = true;
+    setRestoring(true);
+    const scope = shopCreateAttemptScope();
+    if (!scope) {
+      setRecoveryUnreadable(true);
+      setRestoring(false);
+      return;
+    }
+    void readDurableCommand<ShopCreateAttempt>(scope).then(record => {
+      if (!active || !current(token) || !record) return;
+      if (!isShopCreateAttempt(record.payload)) {
+        setRecoveryUnreadable(true);
+        return;
+      }
+      setPending({
+        id: null, mode: "create", payload: record.payload.submitted,
+        baselineIds: record.payload.baselineIds,
+        durableId: record.requestId, durableScope: scope,
+      });
+      setServerReference(readShopAttemptServerReference(scope, record.requestId));
+      restoreFormRef.current?.(record.payload.draft);
+      setFeedback(shopFormText(language, "createRecovered"));
+    }).catch(() => {
+      if (active && current(token)) setRecoveryUnreadable(true);
+    }).finally(() => {
+      if (active && current(token)) setRestoring(false);
+    });
+    return () => { active = false; };
+  }, [open, editId, session, current]);
+
+  const clearAttempt = useCallback((verification: PendingVerification): void => {
+    if (!verification.durableScope || !verification.durableId) return;
+    completeDurableOperation(verification.durableScope, verification.durableId);
+    clearShopAttemptServerReference(verification.durableScope);
+  }, []);
 
   const refreshAfterConflict = useCallback(async (token: number, id: string): Promise<void> => {
     // A rejected 409 is NOT success; refresh current finance without replacing
@@ -141,6 +198,7 @@ export function useShopFormCommit({
           verification.mode === "create" && !verification.id ? "createNotFound" : "readback"));
         return false;
       }
+      if (verification.mode === "create") clearAttempt(verification);
       setPending(null);
       onVerified(rows, verification.mode === "create", String(verification.payload.zoneId));
       onClose();
@@ -158,10 +216,10 @@ export function useShopFormCommit({
       }
       return false;
     }
-  }, [fetch, current, language, onVerified, onClose]);
+  }, [fetch, current, language, onVerified, onClose, clearAttempt]);
 
   const verify = useCallback(async (): Promise<boolean> => {
-    if (!pending || inFlight.current || busy) return false;
+    if (!pending || inFlight.current || busy || restoring || recoveryUnreadable) return false;
     const token = generation.current;
     inFlight.current = true;
     setBusy(true);
@@ -174,10 +232,10 @@ export function useShopFormCommit({
       // after this form closes; never update an unmounted or logged-out session.
       if (mounted.current && isDashboardSessionCurrent(session)) setBusy(false);
     }
-  }, [pending, busy, setBusy, finish, session]);
+  }, [pending, busy, restoring, recoveryUnreadable, setBusy, finish, session]);
 
   const submit = useCallback(async (forcePayload?: ShopCreatePayload): Promise<boolean> => {
-    if (busy || inFlight.current || pending || !open) return false;
+    if (busy || inFlight.current || pending || !open || restoring || recoveryUnreadable) return false;
     const token = generation.current;
     let create: ShopCreatePayload | undefined;
     let metadata: ShopMetadataPayload;
@@ -199,12 +257,36 @@ export function useShopFormCommit({
     const payload = editId ? metadata : create!;
     const mode: PendingVerification["mode"] = editId ? "edit" : "create";
     let baselineIds: string[] | undefined;
+    let durableId: string | undefined;
+    let durableScope: string | undefined;
     let mutationStarted = false;
     try {
       if (!editId) {
-        // A lost POST response contains no shop_id. A PRE-write authorized
-        // membership snapshot is required to identify exactly one new match.
-        // If offline here, NO mutation is attempted and no unknown guard is set.
+        // Revalidate pending storage BEFORE network or POST: re-login and
+        // concurrent tabs may have created a pending operation already.
+        const scope = shopCreateAttemptScope();
+        if (!scope) {
+          setRecoveryUnreadable(true);
+          return false; // never POST without a strict company/principal scope
+        }
+        const previous = await readDurableCommand<ShopCreateAttempt>(scope);
+        if (!current(token)) return false;
+        if (previous) {
+          if (!isShopCreateAttempt(previous.payload)) {
+            setRecoveryUnreadable(true);
+            return false;
+          }
+          setPending({
+            id: null, mode: "create", payload: previous.payload.submitted,
+            baselineIds: previous.payload.baselineIds,
+            durableScope: scope, durableId: previous.requestId,
+          });
+          restoreFormRef.current?.(previous.payload.draft);
+          setFeedback(shopFormText(language, "createRecovered"));
+          return false; // no duplicate POST even if the clicked draft is different
+        }
+        // If offline here, NO mutation has been attempted, so a normal retry
+        // remains safe and no unknown durable record is installed.
         const before = await fetch("/dispatch/shops", { cache: "no-store" });
         if (!current(token)) return false;
         if (!Array.isArray(before) || !before.every(row =>
@@ -212,6 +294,16 @@ export function useShopFormCommit({
           throw new Error("SHOP_FORM_PRECREATE_SNAPSHOT_INVALID");
         }
         baselineIds = before.map(row => String((row as { id: unknown }).id));
+        // Write the full immutable attempt BEFORE calling POST. Failure to
+        // persist is a definitive unsent condition, never a best-effort send.
+        const attempt: ShopCreateAttempt = {
+          kind: "SHOP_CREATE_UNCERTAIN_V1",
+          submitted: create!, draft: { ...form }, baselineIds,
+        };
+        const command = await getOrCreateDurableCommand(scope, attempt);
+        if (!current(token)) return false;
+        durableId = command.requestId;
+        durableScope = scope;
       }
       mutationStarted = true;
       const response = await fetch(editId ? `/dispatch/shops/${editId}` : "/dispatch/shops", {
@@ -220,13 +312,20 @@ export function useShopFormCommit({
       });
       if (!current(token)) return false;
       const id = editId || parseCreatedId(response);
-      const verification: PendingVerification = { id, mode, payload, baselineIds };
+      const verification: PendingVerification = {
+        id, mode, payload, baselineIds, durableId, durableScope,
+      };
       setPending(verification); // lock repeat mutation until authorized GET verifies
       return await finish(token, verification);
     } catch (error) {
       if (!current(token)) return false;
       const status = apiErrorStatus(error);
       const code = apiErrorCode(error);
+      const reference = apiErrorRequestId(error);
+      if (durableId && durableScope) {
+        saveShopAttemptServerReference(durableScope, durableId, reference);
+        setServerReference(readShopAttemptServerReference(durableScope, durableId));
+      }
       if (!mutationStarted) {
         const denied = status === 401 || status === 403;
         const message = withSafeReference(shopFormText(language,
@@ -238,9 +337,14 @@ export function useShopFormCommit({
       if (!editId && status === 409 && !forcePayload) {
         const existing = readDuplicate(error);
         if (existing) {
+          clearAttempt({ id: null, mode, payload, durableScope, durableId });
           setDuplicate({ shopData: existing, payload: create! });
           return false;
         }
+      }
+      if (!editId && status !== null && [400, 401, 403, 404, 409, 422].includes(status)) {
+        // Definitive server rejection: no write committed, release its scope.
+        clearAttempt({ id: null, mode, payload, durableScope, durableId });
       }
       if (status === 409 && editId) {
         const key = code === "SHOP_FINANCIAL_STALE_FORM" ? "financialStale"
@@ -273,7 +377,7 @@ export function useShopFormCommit({
         const message = withSafeReference(shopFormText(language, "unknown"), apiErrorRequestId(error), language);
         setFeedback(message);
         toast.error(message);
-        setPending({ id: editId, mode, payload, baselineIds });
+        setPending({ id: editId, mode, payload, baselineIds, durableScope, durableId });
       }
       return false;
     } finally {
@@ -283,8 +387,19 @@ export function useShopFormCommit({
       // after this form closes; never update an unmounted or logged-out session.
       if (mounted.current && isDashboardSessionCurrent(session)) setBusy(false);
     }
-  }, [busy, pending, open, form, editId, fetch, current, language,
-    setBusy, finish, refreshAfterConflict, session]);
+  }, [busy, pending, open, restoring, recoveryUnreadable, form, editId, fetch, current, language,
+    setBusy, finish, refreshAfterConflict, session, clearAttempt]);
+
+  /** Only a deliberate operator action may leave an uncertain CREATE.
+   * It keeps the command and original draft durably; returning to Add Shop
+   * restores the same unresolved attempt, never a fresh POST form.
+   */
+  const leaveUncertain = useCallback((): void => {
+    if (!open || busy || inFlight.current || !pending ||
+      pending.mode !== "create" || !pending.durableId ||
+      !pending.durableScope || !isDashboardSessionCurrent(session)) return;
+    onClose(); // intentionally DO NOT clear the durable operation
+  }, [open, busy, pending, session, onClose]);
 
   const save = useCallback(() => submit(), [submit]);
   const confirmDuplicate = useCallback(async (): Promise<boolean> => {
@@ -295,6 +410,10 @@ export function useShopFormCommit({
   return {
     save, verify, confirmDuplicate, duplicate, clearDuplicate: () => setDuplicate(null),
     finance, financeLoading, feedback, needsVerification: pending !== null,
+    restoring, recoveryUnreadable, leaveUncertain,
+    needsManualReconciliation: Boolean(pending?.mode === "create" && pending.durableId),
+    localTrackingId: pending?.mode === "create" ? pending.durableId ?? null : null,
+    serverReference,
   };
 }
 
