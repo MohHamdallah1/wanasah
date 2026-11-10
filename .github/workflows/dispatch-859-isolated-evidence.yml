@@ -14,13 +14,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 34e44fa9891ebdea243ef984d2e5cd2815654a88
+          ref: 00286830fecfd79211d78929ed953c289302f197
           fetch-depth: 0
       - name: Verify exact independent UI and base
         run: |
-          test "$(git rev-parse HEAD)" = "34e44fa9891ebdea243ef984d2e5cd2815654a88"
+          test "$(git rev-parse HEAD)" = "00286830fecfd79211d78929ed953c289302f197"
           git diff --check 1f3987932434038b87696597a1736d2e936a204e HEAD
-          echo "D05_UI_EXACT_HEAD=34e44fa9891ebdea243ef984d2e5cd2815654a88"
+          echo "D05_UI_EXACT_HEAD=00286830fecfd79211d78929ed953c289302f197"
           echo "D05_MAIN_EXACT_BASE=1f3987932434038b87696597a1736d2e936a204e"
           echo "D05_UNMERGED_BACKEND_REF=ef62b01b4633991ada0e4f301d56c2e827f22daa"
       - uses: actions/setup-node@v4
@@ -104,15 +104,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 34e44fa9891ebdea243ef984d2e5cd2815654a88
+          ref: 00286830fecfd79211d78929ed953c289302f197
           fetch-depth: 0
       - name: Isolated staged Backend 851 contract, NEVER main or worker1 branch
         run: |
-          test "$(git rev-parse HEAD)" = "34e44fa9891ebdea243ef984d2e5cd2815654a88"
+          test "$(git rev-parse HEAD)" = "00286830fecfd79211d78929ed953c289302f197"
           git fetch --no-tags origin ef62b01b4633991ada0e4f301d56c2e827f22daa
           git cat-file -e ef62b01b4633991ada0e4f301d56c2e827f22daa^{commit}
           git checkout ef62b01b4633991ada0e4f301d56c2e827f22daa -- wa_backend/main.py wa_backend/api/dispatch_shortages_group.py wa_backend/domains/dispatch_shortages_group.py wa_backend/domains/dispatch_shortage_visits.py wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py
-          echo "D05_UI_EXACT_HEAD=34e44fa9891ebdea243ef984d2e5cd2815654a88"
+          echo "D05_UI_EXACT_HEAD=00286830fecfd79211d78929ed953c289302f197"
           echo "D05_BACKEND851_EXACT_HEAD=ef62b01b4633991ada0e4f301d56c2e827f22daa"
           echo "D05_MAIN_EXACT_BASE=1f3987932434038b87696597a1736d2e936a204e"
           git status --short
