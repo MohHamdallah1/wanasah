@@ -14,6 +14,12 @@ interface ShopFormModalProps {
   zones: Zone[];
   onSave: () => void;
   onVerify: () => void;
+  onLeaveUncertain: () => void;
+  needsManualReconciliation: boolean;
+  restoring: boolean;
+  recoveryUnreadable: boolean;
+  localTrackingId: string | null;
+  serverReference: string | null;
   language: string;
   saving: boolean;
   needsVerification: boolean;
@@ -25,7 +31,9 @@ interface ShopFormModalProps {
 
 export function ShopFormModal({
   isOpen, onClose, editingShopId, shopForm, onShopFormChange, zones, onSave,
-  onVerify, language, saving, needsVerification, canViewFinances, finance,
+  onVerify, onLeaveUncertain, needsManualReconciliation,
+  restoring, recoveryUnreadable, localTrackingId, serverReference,
+  language, saving, needsVerification, canViewFinances, finance,
   financeLoading, feedback,
 }: ShopFormModalProps) {
   const edit = editingShopId !== null;
@@ -41,12 +49,17 @@ export function ShopFormModal({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={t(edit ? "titleEdit" : "titleCreate")}
       footer={
-        <div className="flex w-full gap-2">
-          <button type="button" disabled={saving || needsVerification} onClick={onClose}
+        <div className="flex w-full flex-col gap-2 sm:flex-row">
+          {!needsManualReconciliation && <button type="button" disabled={saving || needsVerification} onClick={onClose}
             className="rounded-xl px-4 py-2 font-bold text-slate-600 hover:bg-slate-100 disabled:opacity-50">
             {t("cancel")}
-          </button>
-          <button type="submit" form="shop-form" disabled={saving}
+          </button>}
+          {needsManualReconciliation && <button type="button"
+            disabled={saving || restoring} onClick={onLeaveUncertain}
+            className="rounded-xl border border-amber-400 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+            {t("createLeaveSafely")}
+          </button>}
+          <button type="submit" form="shop-form" disabled={saving || restoring || recoveryUnreadable}
             className="flex-1 rounded-xl bg-[#1e87bb] px-4 py-2 font-bold text-white hover:bg-[#0f766e] disabled:opacity-50">
             {saving ? t("saving") : needsVerification ? t("refresh") : t("save")}
           </button>
@@ -56,7 +69,7 @@ export function ShopFormModal({
         event.preventDefault();
         if (needsVerification) onVerify(); else onSave();
       }} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <fieldset disabled={saving || needsVerification} className="contents">
+        <fieldset disabled={saving || needsVerification || restoring || recoveryUnreadable} className="contents">
         <label className="space-y-1">
           <span className="text-xs font-bold text-slate-500">{t("name")}</span>
           <input type="text" required minLength={2} maxLength={150} value={shopForm.name}
@@ -130,6 +143,26 @@ export function ShopFormModal({
           </>
         )}
         </fieldset>
+        {restoring && <p role="status" className="text-xs font-semibold text-slate-600 sm:col-span-2">
+          {t("createRecoveryLoading")}
+        </p>}
+        {recoveryUnreadable && <p role="alert" className="text-sm font-semibold text-red-700 sm:col-span-2">
+          {t("createRecoveryBlocked")}
+        </p>}
+        {needsManualReconciliation && (
+          <section className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 sm:col-span-2"
+            role="status" data-testid="shop-uncertain-create">
+            <p className="font-bold">{t("createUncertain")}</p>
+            <p>{t("createManualInstructions")}</p>
+            {localTrackingId && <p className="break-all" dir="auto">
+              {t("createPendingRecord")}: <code>{localTrackingId}</code>
+            </p>}
+            {serverReference && <p className="break-all" dir="auto">
+              {t("createServerRef")}: <code>{serverReference}</code>
+            </p>}
+            <p>{t("createRecoverySaved")}</p>
+          </section>
+        )}
         {feedback && <p role="alert" className="text-sm font-semibold text-amber-700 sm:col-span-2">{feedback}</p>}
       </form>
     </Modal>
