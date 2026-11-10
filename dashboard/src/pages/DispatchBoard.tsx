@@ -1668,6 +1668,7 @@ function DispatchSession() {
           restoring: shortageGroup.restoring,
           busy: shortageGroup.busy,
           feedback: shortageGroup.feedback,
+          httpReference: shortageGroup.httpReference,
           onRetry: () => { void shortageGroup.retry(); },
         }}
       />
