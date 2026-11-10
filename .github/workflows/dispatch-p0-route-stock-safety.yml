@@ -470,6 +470,13 @@ jobs:
                   "wa_backend/main.py", "wa_backend/api/dispatch.py",
                   "wanasah_frontend/lib/main.dart",
               ):
+                  # A listed cross-contract probe may be part of a different
+                  # exact owner set. It cannot be a foreign-file probe for
+                  # the set already containing it (e.g. dispatch.py in
+                  # FINANCE_842_EXACT); every genuinely foreign probe still
+                  # must be denied, including dispatch.py for ShopForm.
+                  if foreign in exact:
+                      continue
                   try:
                       ownership_mode(exact | {foreign})
                   except AssertionError:
