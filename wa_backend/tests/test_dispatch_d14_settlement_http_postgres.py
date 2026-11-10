@@ -91,7 +91,15 @@ async def test_signed_backoffice_financial_close_after_field_custody_has_one_eff
                 DispatchRoute.work_session_id == session_id,
             ))
             assert work is not None and route is not None
-            work.driver_id = route.driver_id = field.driver.id
+            # The route has a composite FK (company, session, driver); detach
+            # the synthetic route before reassigning the FIELD-owned session.
+            route.work_session_id = None
+            await db.flush()
+            work.driver_id = field.driver.id
+            await db.flush()
+            route.driver_id = field.driver.id
+            route.work_session_id = session_id
+            await db.flush()
             await _grant_company(
                 db, company_id=company, driver_id=denied.driver_id,
                 code="settlement.read",
