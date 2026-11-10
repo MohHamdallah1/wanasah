@@ -373,6 +373,14 @@ jobs:
               "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
           }
+          # #859 independent grouped-shortage UI, literal five-file owner set.
+          shortage_group_859_exact = {
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/features/dispatch/shortageGroup/contract.ts",
+              "dashboard/src/features/dispatch/shortageGroup/useShortageGroupCommit.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
           # Four policy files constitute an independent #856 maintenance PR,
           # NOT a general CI extension or a superset of old #847 approval.
           ci_policy_856_exact = {
@@ -387,6 +395,8 @@ jobs:
           finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
           shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
           shop_form_850_unique = shop_form_850_exact - p0_allowed - auth_session_allowed
+          shortage_group_859_unique = shortage_group_859_exact - p0_allowed - auth_session_allowed
+          assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_unique) == 4
           assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
           assert len(shop_form_850_unique) == 5
           def ownership_mode(candidate):
@@ -411,6 +421,13 @@ jobs:
                       f"extra={sorted(candidate - shop_order_843_exact)}"
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & shortage_group_859_unique:
+                  assert candidate == shortage_group_859_exact, (
+                      f"Forbidden P0/ShortageGroup #859 exact scope: "
+                      f"missing={sorted(shortage_group_859_exact - candidate)} "
+                      f"extra={sorted(candidate - shortage_group_859_exact)}"
+                  )
+                  return "SHORTAGE_GROUP_859_EXACT"
               if candidate & shop_form_850_unique:
                   assert candidate == shop_form_850_exact, (
                       f"Forbidden P0/ShopForm #850 exact scope: "
@@ -444,6 +461,7 @@ jobs:
               ("FINANCE_842_EXACT", finance_842_exact, finance_842_unique),
               ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
               ("SHOP_FORM_850_EXACT", shop_form_850_exact, shop_form_850_unique),
+              ("SHORTAGE_GROUP_859_EXACT", shortage_group_859_exact, shortage_group_859_unique),
           ):
               assert ownership_mode(exact) == label
               for missing in exact:
@@ -491,6 +509,11 @@ jobs:
               shop_form_850_exact | shop_order_843_exact,
               shop_form_850_exact | ci_policy_847_exact,
               shop_form_850_exact | ci_policy_856_exact,
+              shortage_group_859_exact | shop_order_843_exact,
+              shortage_group_859_exact | shop_form_850_exact,
+              shortage_group_859_exact | finance_842_exact,
+              shortage_group_859_exact | ci_policy_847_exact,
+              shortage_group_859_exact | ci_policy_856_exact,
           ):
               try:
                   ownership_mode(mixed)
@@ -549,7 +572,9 @@ jobs:
                   raise AssertionError(f"CI_POLICY_856_EXACT foreign path accepted: {foreign}")
           assert ownership_mode({"dashboard/src/pages/DispatchBoard.tsx"}) == "P0_STRICT"
           assert ownership_mode(shop_form_850_exact) == "SHOP_FORM_850_EXACT"
+          assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
           print("DISPATCH_856_POLICY_SELFTEST=PASS shop_form=6 ci_policy=4 old847=PASS negative=PASS")
+          print("DISPATCH_859_SCOPE_SELFTEST=PASS exact=5 partial=5 mixed=5 foreign=PASS")
 
           # Exact-scope positive + adversarial controls, including a partial
           # CP2 contract and tempting Dispatch/auth/runtime hitchhikers.
