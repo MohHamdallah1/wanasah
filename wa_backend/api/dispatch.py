@@ -22,6 +22,11 @@ from domains.dispatch_shop_create import (
     create_shop,
     read_shop_create_receipt,
 )
+from domains.dispatch_route_launch_receipt import (
+    begin_route_launch,
+    complete_route_launch,
+    read_route_launch_receipt,
+)
 from domains.vehicles import (
     VehicleError,
     resolve_vehicle_custody_location_id,
@@ -1492,6 +1497,18 @@ async def dispatch_route(
     company_id = access.company_id
 
     try:
+        if payload.request_id is not None:
+            # The original Warehouse and Vehicle grant must remain valid even
+            # when we are merely replaying a previously committed launch.
+            await require_location(access, 'dispatch.execute', payload.source_location_id)
+        record, original = await begin_route_launch(
+            db, company_id=company_id, actor_id=legacy_actor.id, payload=payload,
+        )
+        if original is not None:
+            await require_route(access, 'dispatch.execute', original["route_id"])
+            await db.rollback()  # release canonical UUID advisory lock; no side effects
+            return original
+
         company_local_date = await get_company_local_date(db, company_id)
 
         # ترتيب أقفال كيانات التوزيع ثابت: driver -> vehicle -> zone -> route/inventory.
@@ -1934,6 +1951,15 @@ async def dispatch_route(
                 elif existing is not None and is_emergency:
                     existing.is_emergency = True
 
+        response = complete_route_launch(
+            record, payload=payload, response={
+                "message": "تم إطلاق خط السير بنجاح",
+                "route_id": int(route.id),
+                "commercial_context": commercial_context_payload(commercial_context),
+            },
+        )
+        # Route, Visits, physical movements, commercial context and UUID receipt
+        # are committed as one transaction; there is no intermediate success.
         await db.commit()
         asyncio.create_task(
             dispatch_manager.broadcast(
@@ -1941,14 +1967,14 @@ async def dispatch_route(
                 company_id=company_id,
             )
         )
-        return {
-            "message": "تم إطلاق خط السير بنجاح",
-            "route_id": int(route.id),
-            "commercial_context": commercial_context_payload(
-                commercial_context
-            ),
-        }
+        return response
 
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=inventory_business_error(
+            "DISPATCH_ROUTE_LAUNCH_" + exc.code, str(exc),
+            context={"request_id": str(payload.request_id)},
+        )) from exc
     except HTTPException:
         await db.rollback()
         raise
@@ -1974,6 +2000,26 @@ async def dispatch_route(
         await db.rollback()
         logger.error(f"خطأ في إطلاق خط السير: {str(exc)}", exc_info=True)
         raise HTTPException(status_code=500, detail="خطأ داخلي في الخادم أثناء إطلاق خط السير.") from exc
+
+@router.get("/dispatch/route/create-operations/{request_id}", status_code=200)
+async def get_route_launch_operation(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    """Exact caller-only committed launch receipt; UNKNOWN is never success."""
+    try:
+        return await read_route_launch_receipt(
+            db, company_id=access.company_id,
+            actor_id=legacy_actor.id, request_id=request_id,
+            require_authorized_route=lambda route_id: require_route(
+                access, "dispatch.execute", route_id,
+            ),
+        )
+    finally:
+        await db.rollback()
+
 
 # =========================================
 # 7. جلب الحمولة الفعلية للسيارة من InventoryBalance
