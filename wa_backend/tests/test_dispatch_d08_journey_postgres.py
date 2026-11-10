@@ -129,6 +129,14 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
             f"/dispatch/route/create-operations/{request_id}", headers=owner),
             200, "authoritative route recovery")
         assert recovered is not None
+        # The Dashboard's real waiting-route activation control is exercised by Chromium.
+        waiting = success(await http.put(
+            f"/dispatch/route/{route_id}/status", headers=owner,
+            json={"status": "waiting"}), 200, "route to waiting")
+        waiting_state = await _state(pg, tenant, request_id, vehicle_location)
+        assert waiting_state["balances"] == post_launch["balances"]
+        assert waiting_state["movements"] == post_launch["movements"]
+        assert waiting_state["cost_events"] == post_launch["cost_events"]
 
         denied = await http.delete(f"/dispatch/zones/{target_zone}", headers=owner)
         assert denied.status_code == 409, (denied.status_code, denied.text)
