@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,9 +21,25 @@ const fake = vi.hoisted(() => ({
   warning: vi.fn(), error: vi.fn(), success: vi.fn(), dismiss: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
-vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  isCompanyOwner: fake.owner, data: { company_id: Number(localStorage.getItem("company_id")), principal_id: Number(localStorage.getItem("principal_id")) }, can: () => true,
-}) }));
+vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => {
+  const company = Number(localStorage.getItem("company_id"));
+  const principal = Number(localStorage.getItem("principal_id"));
+  const owner = fake.owner;
+  // D09 requires real effective grants. Keep stable objects across React rerenders,
+  // as the production capability query does; do not grant a non-owner shortage.read.
+  const data = useMemo(() => ({
+    company_id: company, principal_id: principal, backoffice_user_id: principal * 10,
+    is_company_owner: owner, location_id: null,
+    permissions: owner ? ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"] : [],
+    any_permissions: owner ? ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"] : ["dispatch.read"],
+    location_permissions: [],
+  }), [company, principal, owner]);
+  return {
+    isCompanyOwner: owner, data, can: () => true,
+    isFetching: false, isError: false, error: null, dataUpdatedAt: 100,
+    refetch: async () => ({ data }),
+  };
+} }));
 vi.mock("sonner", () => ({ toast: {
   warning: fake.warning, error: fake.error, success: fake.success, dismiss: fake.dismiss,
 } }));
