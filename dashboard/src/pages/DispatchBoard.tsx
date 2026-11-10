@@ -336,6 +336,14 @@ function DispatchSession() {
   const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  const choicesRef = useRef({
+    activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+    driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
+  });
+  choicesRef.current = {
+    activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+    driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
+  };
   // One generation covers role, source Warehouse, route, zone and selected Vehicle.
   // A -> B -> A must never re-admit an old Promise with the same numeric ID.
   asyncEpochRef.current.update(JSON.stringify([
@@ -408,7 +416,7 @@ function DispatchSession() {
   const fetchInitialData = useCallback(() => {
     const snapshot = captureDashboardSession();
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
-    if (accessState !== "ready") {
+    if (accessState !== "ready" || !actorScope) {
       admission.abort();
       return admission;
     }
@@ -427,10 +435,7 @@ function DispatchSession() {
         setShortages(grants.shortages && Array.isArray(freshShortages) ? freshShortages : []);
         const hydrate = Boolean(actorScope && hydratedScopeRef.current !== actorScope);
         if (hydrate) clearLegacyDispatchPreferences();
-        const prefs = hydrate ? readDispatchPreferences(actorScope) : {
-          activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
-          driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
-        };
+        const prefs = hydrate ? readDispatchPreferences(actorScope) : choicesRef.current;
         const valid = reconcileDispatchPreferences(prefs, {
           zones: sorted, drivers: nextDrivers, vehicles: nextVehicles, warehouses: nextWarehouses,
         }, grants.launch);
@@ -453,11 +458,7 @@ function DispatchSession() {
       },
     });
     return admission;
-  }, [
-    authenticatedFetch, accessState, grants, clearDispatchPrivateState, actorScope,
-    activeTab, selectedZoneIdForZones, selectedZoneId, selectedDriverId,
-    selectedVehicleId, selectedSourceWarehouseId,
-  ]);
+  }, [authenticatedFetch, accessState, grants, clearDispatchPrivateState, actorScope]);
 
   useEffect(() => {
     if (accessState === "ready") return;
