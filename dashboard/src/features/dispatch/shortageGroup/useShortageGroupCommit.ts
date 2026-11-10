@@ -167,6 +167,7 @@ export function useShortageGroupCommit({
               const status = apiErrorStatus(error);
               if (status === 401 || status === 403) {
                 setFeedback(groupText(language, "denied"));
+                setBlocked(true); // no replay until fresh authenticated session
               } else if (status === 404 || status === 400 || status === 422) {
                 // Canonical server rejection AFTER the idempotency replay
                 // check: no commit for this exact key. No inferred success.
@@ -203,8 +204,11 @@ export function useShortageGroupCommit({
               original.payload.action === "delete" ? "successDelete" : "successEdit"));
             return true;
           } catch (error) {
-            if (live()) setFeedback(groupText(language,
-              [401, 403].includes(apiErrorStatus(error) ?? 0) ? "denied" : "readback"));
+            if (live()) {
+              const denied = [401, 403].includes(apiErrorStatus(error) ?? 0);
+              setFeedback(groupText(language, denied ? "denied" : "readback"));
+              if (denied) setBlocked(true); // GET may lose its read grant
+            }
             return false;
           }
         },
