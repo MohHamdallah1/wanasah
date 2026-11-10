@@ -10,6 +10,7 @@ on:
       - "dashboard/src/features/dispatch/dispatchDrafts.ts"
       - "dashboard/src/lib/authStorage.ts"
       - "dashboard/src/test/dispatch-d10-*.test.ts"
+      - "dashboard/src/test/dispatch-d10-*.test.tsx"
       - "dashboard/src/test/auth-session-consumer-isolation.test.tsx"
       - "dashboard/src/test/dispatch-load-context.test.tsx"
       - ".github/workflows/dispatch-d10-session-acceptance.yml"
@@ -41,5 +42,6 @@ jobs:
           npm test --
           src/test/dispatch-d10-session-scope.test.ts
           src/test/dispatch-d10-drafts.test.ts
+          src/test/dispatch-d10-import.test.tsx
           src/test/auth-session-consumer-isolation.test.tsx
           src/test/dispatch-load-context.test.tsx
