@@ -871,6 +871,28 @@ LEDGER_825_VISUAL_EXACT = frozenset({
     "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
 })
 
+# #881: one commercial-preflight implementation plus its precise strict CI
+# owner gates; never a wildcard for new Dispatch, Inventory or Backend files.
+DISPATCH_D11_881_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-d11-commercial-preflight.yml",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+    ".github/workflows/live-stock-g04-outage-recovery.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+    "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+    "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+    "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+    "wa_backend/api/dispatch_commercial_preflight.py",
+    "wa_backend/main.py",
+    "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+})
+assert len(DISPATCH_D11_881_EXACT) == 16
+
 # #877: the complete, single-PR D13 AR/EN, currency and keyboard closure.
 # Match the entire literal diff (including both ownership gates). It cannot
 # authorize new DispatchBoard, auth storage, backend, stock, or other work.
@@ -1036,6 +1058,8 @@ DISPATCH_D07_NEW = frozenset({
 assert len(DISPATCH_D07_COMPLETE_EXACT) == 14 and len(DISPATCH_D07_NEW) == 6
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == DISPATCH_D11_881_EXACT:
+        return ("dispatch-d11-881-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
     # Exact D13 only; no partial/mixed crossover can steal the old owners.
     if changed == DISPATCH_D13_877_EXACT:
         return ("dispatch-d13-877-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
@@ -1315,6 +1339,20 @@ def selftest() -> None:
         "ci-policy-847-exact", []
     )
     print("CI_POLICY_856_LIVE_STOCK_SELFTEST=PASS exact=4 partial=4 foreign=8 prior847=PASS")
+
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(DISPATCH_D11_881_EXACT), policy_sem) == (
+            "dispatch-d11-881-exact", [])
+    assert classify("r3", set(DISPATCH_D11_881_EXACT), policy_sem) == (
+        "not-applicable", [])
+    for missing in DISPATCH_D11_881_EXACT:
+        for mode in ("ux", "operational"):
+            assert classify(mode, set(DISPATCH_D11_881_EXACT) - {missing}, policy_sem)[0] != "dispatch-d11-881-exact"
+    for foreign in ("dashboard/src/lib/authStorage.ts", "wa_backend/models.py",
+                    "wa_backend/api/dispatch.py", "wanasah_frontend/lib/main.dart"):
+        for mode in ("ux", "operational"):
+            _expect_fail(mode, set(DISPATCH_D11_881_EXACT) | {foreign}, policy_sem)
+    print("DISPATCH_D11_881_LIVE_STOCK_SELFTEST=PASS exact=16 missing=16 foreign=4")
 
     # D13 admits exactly its 16 files; old D09/D10/ShopOrder/Form/Shortage
     # owner checks continue to reject every partial or added unrelated path.
