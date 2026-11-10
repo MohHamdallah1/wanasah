@@ -1,0 +1,181 @@
+name: Dispatch F06 Shop create idempotency real PG16 Bearer
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/domains/dispatch_shop_create.py"
+      - "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py"
+      - ".github/workflows/dispatch-shop-create-f06-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shop-create-f06-pg16:
+    name: f06-shop-create-real-pg16-bearer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Dispatch858F06ShopCreatePG16OnlyTestKey123456789
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_SHOP_CREATE_F06_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exact five-file F06 code and test ownership
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import os, re, subprocess
+          base = os.environ["BASE"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          merge_base = subprocess.check_output(
+              ["git", "merge-base", base, "HEAD"], text=True,
+          ).strip()
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", merge_base, "HEAD"],
+              text=True,
+          ).splitlines())
+          expected = {
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+          }
+          assert changed == expected, (
+              f"F06 exact ownership denied: missing={sorted(expected - changed)} "
+              f"extra={sorted(changed - expected)}"
+          )
+          for path in expected:
+              assert changed - {path} != expected, "F06 must not have partial owner scope"
+          print("F06_EXACT_SCOPE PASS files=5")
+          PY
+          git diff --check "${{ github.event.pull_request.base.sha || github.sha }}" HEAD --
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install focused Backend test requirements
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile exact Shop create and canonical permissioned route
+        working-directory: wa_backend
+        run: |
+          python -m py_compile api/dispatch.py schemas.py domains/dispatch_shop_create.py tests/test_dispatch_shop_create_f06_postgres.py
+      - name: Start disposable PostgreSQL 16 only
+        run: |
+          docker run --detach --name dispatch-f06-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 40); do
+            if docker exec dispatch-f06-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dispatch-f06-pg16
+          exit 1
+      - name: Create restricted runtime identity (NOBYPASSRLS)
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql",
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Full schema migrations, unchanged production data model
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant disposable schema DML to restricted role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql",
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Prove real PG16, FORCE RLS and NOBYPASSRLS
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL"]).set(
+              drivername="postgresql",
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri) as db:
+              row = db.execute(
+                  "SELECT current_user, current_setting('server_version_num')::int, rolsuper, rolbypassrls "
+                  "FROM pg_roles WHERE rolname=current_user"
+              ).fetchone()
+              assert row[0] == "wanasah_app" and 160000 <= row[1] < 170000
+              assert row[2:] == (False, False)
+              for table in ("shops", "operation_idempotency", "system_audit_logs"):
+                  flags = db.execute(
+                      "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                      "WHERE oid=to_regclass(%s)", (table,),
+                  ).fetchone()
+                  assert flags == (True, True), (table, flags)
+          print("F06_PG16_NOBYPASSRLS_FORCE PASS")
+          PY
+      - name: Actual Bearer F06, finance F01 and Dispatch physical regressions
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_shop_create_f06_postgres.py
+          tests/test_dispatch_shop_finance_edit_v1_postgres.py
+          tests/test_dispatch_p0_route_stock_safety_postgres.py
+          --junitxml=f06-shop-create-pg16.xml
+      - name: Full no-skip F06 plus prior finance/physical acceptance
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          path = "f06-shop-create-pg16.xml"
+          assert os.path.exists(path), "F06_JUNIT_MISSING"
+          cases = list(ET.parse(path).getroot().iter("testcase"))
+          f06 = [case for case in cases if "test_dispatch_shop_create_f06_postgres" in case.attrib.get("classname", "")]
+          failures = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
+          skipped = [case for case in cases if case.find("skipped") is not None]
+          assert len(f06) == 9, f"F06 case manifest mismatch: {len(f06)}"
+          assert len(cases) >= 28, f"Missing earlier finance/physical cases: {len(cases)}"
+          assert not failures and not skipped, f"F06 FAIL={len(failures)} SKIP={len(skipped)}"
+          print(f"F06_PG16_CASES PASS total={len(cases)} f06={len(f06)} failures=0 skips=0")
+          PY
+      - name: Publish real audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f06-shop-create-real-pg16-${{ github.run_id }}
+          path: wa_backend/f06-shop-create-pg16.xml
+          if-no-files-found: warn
+      - name: Show only disposable database logs on failure
+        if: failure()
+        run: docker logs dispatch-f06-pg16 2>/dev/null | tail -n 120 || true
