@@ -116,9 +116,20 @@ export const isRouteLaunchIntent = (candidate: unknown, actor: RouteLaunchActor)
   try {
     const raw = candidate as RouteLaunchIntent;
     const normalized = routeLaunchIntent(raw);
+    const fields = Object.keys(raw).sort();
+    if (JSON.stringify(fields) !== JSON.stringify([
+      "driver_id", "expected_inventory_base", "inventory_base",
+      "source_location_id", "vehicle_id", "zone_id",
+    ])) return false;
+    const quantityEqual = (a: Record<string, Quantity>, b: Record<string, Quantity>) =>
+      Object.keys(a).length === Object.keys(b).length &&
+      Object.entries(a).every(([id, quantity]) => b[id] === quantity);
     return normalized.source_location_id === actor.warehouseId &&
       normalized.vehicle_id === actor.vehicleId &&
-      JSON.stringify(normalized) === JSON.stringify(raw);
+      normalized.zone_id === raw.zone_id &&
+      normalized.driver_id === raw.driver_id &&
+      quantityEqual(normalized.inventory_base, raw.inventory_base) &&
+      quantityEqual(normalized.expected_inventory_base, raw.expected_inventory_base);
   } catch { return false; }
 };
 
