@@ -211,6 +211,7 @@ function DispatchSession() {
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
   const dispatchFenceRef = useRef(createDispatchReadFence());
+  const dispatchDeniedRef = useRef(false);
   const tabAllowed = (tab: TabId) =>
     tab === "routes" ? grants.routes : tab === "zones" ? grants.zones : grants.launch;
   useEffect(() => {
@@ -394,10 +395,12 @@ function DispatchSession() {
         setSelectedDriverId(prev => nextDrivers.some(driver => driver.id === prev) ? prev : "");
         setSelectedVehicleId(prev => nextVehicles.some(vehicle => vehicle.id === prev) ? prev : "");
         setSelectedSourceWarehouseId(prev => nextWarehouses.some(warehouse => warehouse.id === prev) ? prev : "");
+        dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
       },
       onError: error => {
         const status = (error as { status?: number } | null)?.status;
+        dispatchDeniedRef.current = true;
         dispatchFenceRef.current.revoke();
         clearDispatchPrivateState();
         setDispatchReadState(status === 401 || status === 403 ? "denied" : "error");
@@ -449,7 +452,7 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (accessState !== "ready" || dispatchReadState === "denied" || dispatchReadState === "error") return;
+    if (accessState !== "ready" || dispatchDeniedRef.current) return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -627,7 +630,7 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner, accessState, dispatchReadState]);
+  }, [fetchInitialData, isCompanyOwner, accessState]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -1299,7 +1302,7 @@ function DispatchSession() {
   if (accessState !== "ready" || dispatchReadState !== "ready") {
     const display = accessState !== "ready" ? accessState : dispatchReadState;
     return <DispatchAccessNotice state={display === "ready" ? "loading" : display}
-      onRetry={() => { setDispatchReadState("loading"); retryAccess(); }} />;
+      onRetry={() => { dispatchDeniedRef.current = false; setDispatchReadState("loading"); retryAccess(); }} />;
   }
 
   return (
