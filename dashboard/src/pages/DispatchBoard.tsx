@@ -26,6 +26,9 @@ import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommi
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
 import { groupText } from "@/features/dispatch/shortageGroup/contract";
 import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
+import { useCommercialPreflight } from "@/features/dispatch/commercialPreflight/useCommercialPreflight";
+import { CommercialPreflightPanel } from "@/features/dispatch/commercialPreflight/CommercialPreflightPanel";
+import { preflightCopy } from "@/features/dispatch/commercialPreflight/contract";
 import {
   readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchText,
 } from "@/features/dispatch/routeLaunch/contract";
@@ -380,6 +383,23 @@ function DispatchSession() {
     activeRoute?.id, grants,
   ]));
   const captureUiRead = () => asyncEpochRef.current.capture();
+  // D11: read authoritative published rules for the exact selected route.
+  // No local Pricing/Tax/Rounding inference and no UUID until fresh READY.
+  const commercialPreflight = useCommercialPreflight({
+    actorScope,
+    selection: {
+      zoneId: selectedZoneId,
+      driverId: selectedDriverId,
+      vehicleId: selectedVehicleId,
+      warehouseId: selectedSourceWarehouseId,
+    },
+    authorized: Boolean(activeTab === "launch" && accessState === "ready" &&
+      dispatchReadState === "ready" && grants.launch && selectedSourceWarehouseId &&
+      sourceAccess.can("dispatch.execute") && !routeLaunchPendingOwner && !routeLaunch.hasUnresolved),
+    current: () => Boolean(isDashboardSessionCurrent(session!) && accessState === "ready" &&
+      dispatchReadState === "ready" && grants.launch && !dispatchDeniedRef.current),
+    fetch: authenticatedFetch,
+  });
   // A verified original UUID receipt is business truth, even when its first
   // HTTP 201 disappeared. Clear ONLY the original D10 route-load draft.
   useEffect(() => {
@@ -959,7 +979,7 @@ function DispatchSession() {
       return;
     }
     if (!canLaunch) {
-      toast.error('لا تملك صلاحية إطلاق خطوط السير.');
+      toast.error(preflightCopy(i18n.language, "denied"));
       return;
     }
     if (
@@ -997,6 +1017,16 @@ function DispatchSession() {
       return;
     }
 
+    // Fresh authorized read IMMEDIATELY before the immutable D07 intent.
+    // If a publication, permission or audit lock changed after the displayed
+    // preview, abort before persisting/generating ANY launch UUID.
+    const livePreflight = await commercialPreflight.verifyBeforeLaunch();
+    if (!admitted()) return;
+    if (!livePreflight?.ready) {
+      toast.error(preflightCopy(i18n.language, "unavailable"));
+      return;
+    }
+
     try {
       const intent = routeLaunchIntent({
         zone_id: selectedZoneId,
@@ -1011,6 +1041,10 @@ function DispatchSession() {
       if (outcome.kind === "unknown" || outcome.kind === "conflict" ||
           outcome.kind === "blocked" || outcome.kind === "busy") {
         toast.info(routeLaunchText(i18n.language, outcome.kind));
+        // A real 409/422 after the advisory can indicate a publication or
+        // physical change; refresh the displayed authoritative reason only.
+        // D07 original UUID and immutable retry body remain untouched.
+        if (outcome.kind === "conflict" || outcome.kind === "blocked") commercialPreflight.refresh();
       }
       // Only the verified original receipt effect may show success, clear
       // D10 drafts or alter route rows. UNKNOWN never fabricates a success.
@@ -1773,6 +1807,11 @@ function DispatchSession() {
                 />
               </div>
 
+              <CommercialPreflightPanel language={i18n.language}
+                status={commercialPreflight.status}
+                evidence={commercialPreflight.evidence}
+                onRefresh={commercialPreflight.refresh} />
+
               <RouteLoadProductTable vehicleId={selectedVehicleId} warehouseId={selectedSourceWarehouseId} scope={productScope}
                 current={vehicleCustodyReady ? routeLoadCurrent : {}} targets={vehicleCustodyReady ? routeLoadTargets : {}}
                 units={vehicleCustodyReady ? routeLoadUnits : {}} names={vehicleCustodyReady ? routeLoadNames : {}} custodyReady={vehicleCustodyReady}
@@ -1788,11 +1827,12 @@ function DispatchSession() {
                 <p className="mb-2 text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
                 <div className="flex justify-end">
                   <button
-                    disabled={!canLaunch || routeLaunch.busy || routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
+                    disabled={!canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
+                      routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                   >
-                    <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير
+                    <Rocket className="w-5 h-5" /> {preflightCopy(i18n.language, "launch")}
                   </button>
                 </div>
               </div>
