@@ -1553,15 +1553,17 @@ function DispatchSession() {
                       setIsRouteModalOpen(true);
                     }}
                     onPostponeRoute={async (id) => {
+                      const admitted = captureUiRead();
                       try {
                         await authenticatedFetch(`/dispatch/route/${id}/status`, {
                           method: "PUT",
                           body: JSON.stringify({ status: "postponed" })
                         });
+                        if (!admitted()) return;
                         setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
                         toast.info("تم تأجيل المنطقة");
                       } catch (e: unknown) {
-                        toast.error(getErrorMessage(e));
+                        if (admitted()) toast.error(getErrorMessage(e));
                       }
                     }}
                     onCloseZone={route => {
@@ -1575,18 +1577,20 @@ function DispatchSession() {
                         title: "تأكيد إغلاق خط السير",
                         message: message,
                         onConfirm: async () => {
+                          const admitted = captureUiRead();
                           try {
                             await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
                               method: "PUT",
                               body: JSON.stringify({ status: "closed" })
                             });
+                            if (!admitted()) return;
                             setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
                             fetchInitialData();
                             toast.success("تم إغلاق خط السير. عهدة السيارة لم تُصفّر.");
                           } catch (e: unknown) {
-                            toast.error(getErrorMessage(e));
+                            if (admitted()) toast.error(getErrorMessage(e));
                           } finally {
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
+                            if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
                         }
                       })
@@ -1891,13 +1895,14 @@ function DispatchSession() {
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
-        isOpen={showRecycleBin}
+        isOpen={grants.zoneManage && showRecycleBin}
         onClose={() => setShowRecycleBin(false)}
         recycleSearchQuery={recycleSearchQuery}
         onRecycleSearchQueryChange={setRecycleSearchQuery}
         filteredRecycleBin={filteredRecycleBin}
         zones={[...zones, ...archivedZones]}
         onRestoreShop={async (id) => {
+          const admitted = captureUiRead();
           const shopToRestore = shops.find(s => s.id === id);
           const isZoneActive = zones.some(z => z.id === shopToRestore?.zoneId);
 
@@ -1911,14 +1916,15 @@ function DispatchSession() {
               method: "PUT",
               body: JSON.stringify([{ id, archived: false }])
             });
+            if (!admitted()) return;
             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: false } : s));
             setZones(prev => sortZones(prev.map(z => z.id === archivedShops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
             fetchInitialData();
             toast.success("تم استعادة المحل بنجاح");
-          } catch (err: unknown) { toast.error(getErrorMessage(err)); }
+          } catch (err: unknown) { if (admitted()) toast.error(getErrorMessage(err)); }
         }}
       />
-      <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
+      <BulkTransferModal isOpen={grants.zoneManage && isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
         companyId={sourceAccess.data?.company_id}
