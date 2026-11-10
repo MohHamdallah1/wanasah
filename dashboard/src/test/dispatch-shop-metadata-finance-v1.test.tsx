@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { webcrypto } from "node:crypto";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShopFormModal } from "@/components/dispatch/ShopFormModal";
 import {
   canCloseShopForm, canOpenShopForm, createPayload, createdShopVerified,
@@ -46,8 +47,15 @@ const fakeError = (status: number, code?: string, requestId = "req-finance-409")
 beforeEach(async () => {
   toast.success.mockReset(); toast.error.mockReset(); toast.info.mockReset();
   auth.current = true;
+  localStorage.clear();
+  localStorage.setItem("company_id", "1");
+  localStorage.setItem("principal_id", "11");
+  localStorage.setItem("backoffice_user_id", "110");
+  vi.stubGlobal("crypto", webcrypto);
   await setAppLanguage("ar");
 });
+
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("Shop metadata-only allowlist and create financial truth", () => {
   it("never sends money, aliases or unrelated fields in metadata PUT even with stale high draft", () => {
@@ -123,7 +131,9 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
       <ShopFormModal isOpen
         onClose={() => { if (canCloseShopForm(true, false)) onClose(); }}
         editingShopId="77" shopForm={form} onShopFormChange={vi.fn()}
-        zones={[zone]} onSave={vi.fn()} onVerify={vi.fn()} language={language}
+        zones={[zone]} onSave={vi.fn()} onVerify={vi.fn()} onLeaveUncertain={vi.fn()}
+          needsManualReconciliation={false} restoring={false} recoveryUnreadable={false}
+          localTrackingId={null} serverReference={null} language={language}
         saving needsVerification={false} canViewFinances={false} finance={null}
         financeLoading={false} feedback={null}/>,
     );
@@ -266,7 +276,9 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
       const modal = render(
         <ShopFormModal isOpen onClose={vi.fn()} editingShopId="77"
           shopForm={form} onShopFormChange={changes} zones={[zone]} onSave={vi.fn()}
-          onVerify={vi.fn()} language={language} saving={false}
+          onVerify={vi.fn()} onLeaveUncertain={vi.fn()}
+          needsManualReconciliation={false} restoring={false} recoveryUnreadable={false}
+          localTrackingId={null} serverReference={null} language={language} saving={false}
           needsVerification canViewFinances={false} finance={null}
           financeLoading={false} feedback={null}/>,
       );
@@ -303,7 +315,9 @@ describe.each(["ar", "en"] as const)("Shop form %s UI, finance isolation", langu
     const renderModal = (edit: boolean) => render(
       <ShopFormModal isOpen onClose={vi.fn()} editingShopId={edit ? "77" : null}
         shopForm={form} onShopFormChange={vi.fn()} zones={[zone]}
-        onSave={onSave} onVerify={vi.fn()} language={language}
+        onSave={onSave} onVerify={vi.fn()} onLeaveUncertain={vi.fn()}
+          needsManualReconciliation={false} restoring={false} recoveryUnreadable={false}
+          localTrackingId={null} serverReference={null} language={language}
         saving={false} needsVerification={false} canViewFinances
         finance={{ initialDebt: "80.000", maxDebtLimit: "75.125" }}
         financeLoading={false} feedback={null}/>,
@@ -328,7 +342,9 @@ describe.each(["ar", "en"] as const)("Shop form %s UI, finance isolation", langu
     render(
       <ShopFormModal isOpen onClose={vi.fn()} editingShopId="77"
         shopForm={form} onShopFormChange={vi.fn()} zones={[zone]}
-        onSave={vi.fn()} onVerify={vi.fn()} language={language}
+        onSave={vi.fn()} onVerify={vi.fn()} onLeaveUncertain={vi.fn()}
+          needsManualReconciliation={false} restoring={false} recoveryUnreadable={false}
+          localTrackingId={null} serverReference={null} language={language}
         saving={false} needsVerification={false} canViewFinances={false}
         finance={null} financeLoading={false} feedback={null}/>,
     );
