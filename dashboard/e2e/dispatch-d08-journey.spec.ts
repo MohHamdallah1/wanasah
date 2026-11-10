@@ -43,6 +43,15 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   await zoneDialog.locator('button[type="submit"]').click();
   expect((await created).status()).toBe(201);
   await expect(page.getByText(browserZone).first()).toBeVisible();
+  // Successful Zone creation opens the mandatory scheduling dialog.
+  const schedule = page.getByRole("dialog", { name: "إعدادات الجدولة" });
+  await expect(schedule).toBeVisible();
+  await schedule.locator('input[type="date"]').fill("2026-11-13");
+  const scheduled = page.waitForResponse(r => new URL(r.url()).pathname.startsWith("/dispatch/zones/")
+    && r.request().method() === "PUT");
+  await schedule.getByRole("button", { name: "تأكيد الجدولة" }).click();
+  expect((await scheduled).status()).toBe(200);
+  await expect(schedule).not.toBeVisible();
 
   await page.getByRole("tab", { name: /الخطوط النشطة/ }).click();
   const row = page.locator(".dispatch-route-row").first();
