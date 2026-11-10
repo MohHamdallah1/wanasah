@@ -910,6 +910,18 @@ SHOP_FORM_850_EXACT = frozenset({
 SHOP_FORM_850_NEW = SHOP_FORM_850_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
 assert len(SHOP_FORM_850_EXACT) == 6 and len(SHOP_FORM_850_NEW) == 5
 
+# #859: minimum isolated grouped-shortage recovery UI scope, exact file set.
+# This is NOT a wildcard for Dispatch, authentication, inventory or Backend.
+SHORTAGE_GROUP_859_EXACT = frozenset({
+    "dashboard/src/components/dispatch/ShortageModal.tsx",
+    "dashboard/src/features/dispatch/shortageGroup/contract.ts",
+    "dashboard/src/features/dispatch/shortageGroup/useShortageGroupCommit.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+})
+SHORTAGE_GROUP_859_NEW = SHORTAGE_GROUP_859_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
+assert len(SHORTAGE_GROUP_859_EXACT) == 5 and len(SHORTAGE_GROUP_859_NEW) == 4
+
 # Independent four-file CI maintenance: #847 three-file mode remains accepted.
 CI_POLICY_856_EXACT = frozenset({
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
@@ -944,6 +956,18 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             ]
         if mode in {"ux", "operational"}:
             return "shop-order-843-exact", []
+        return "not-applicable", []
+
+    # #859 independent UI-only group-shortage operation. Reject every
+    # partial, mixed or hitchhiking edit touching one of its four NEW files.
+    if changed & SHORTAGE_GROUP_859_NEW:
+        if changed != SHORTAGE_GROUP_859_EXACT:
+            return "fail", [
+                f"SHORTAGE_GROUP_859_EXACT=FAIL missing={sorted(SHORTAGE_GROUP_859_EXACT - changed)} "
+                f"extra={sorted(changed - SHORTAGE_GROUP_859_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "shortage-group-859-exact", []
         return "not-applicable", []
 
     # New ShopForm sources are not covered by existing generic Dispatch/Auth
@@ -1196,6 +1220,45 @@ def selftest() -> None:
         "shop-form-850-exact"
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
+
+    # #859 exact five-file acceptance and negative regression probes.
+    # Never admit a subset, a backend path, an auth/session path, a finance
+    # path, a ShopForm/ShopOrder change or any CI policy path alongside it.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(SHORTAGE_GROUP_859_EXACT), policy_sem) == (
+            "shortage-group-859-exact", []
+        )
+    assert classify("r3", set(SHORTAGE_GROUP_859_EXACT), policy_sem) == (
+        "not-applicable", []
+    )
+    for missing in SHORTAGE_GROUP_859_EXACT:
+        partial = set(SHORTAGE_GROUP_859_EXACT) - {missing}
+        if partial & SHORTAGE_GROUP_859_NEW:
+            for mode in ("ux", "r3", "operational"):
+                _expect_fail(mode, partial, policy_sem)
+        else:
+            assert classify("ux", partial, policy_sem)[0] != "shortage-group-859-exact"
+    for foreign in (
+        HELPER, "wa_backend/main.py", "wa_backend/api/dispatch_shortages_group.py",
+        "wa_backend/api/dispatch.py", "dashboard/src/lib/authStorage.ts",
+        "dashboard/src/features/dispatch/shopOrder/scope.ts",
+        "dashboard/src/features/dispatch/shopForm/contract.ts",
+        "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+        ".github/workflows/dispatch-p0-route-stock-safety.yml",
+        ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+        "wanasah_frontend/lib/main.dart",
+    ):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(SHORTAGE_GROUP_859_EXACT) | {foreign}, policy_sem)
+    for mixed in (
+        set(SHORTAGE_GROUP_859_EXACT) | SHOP_FORM_850_EXACT,
+        set(SHORTAGE_GROUP_859_EXACT) | SHOP_ORDER_843_EXACT,
+        set(SHORTAGE_GROUP_859_EXACT) | CI_POLICY_847_EXACT,
+        set(SHORTAGE_GROUP_859_EXACT) | CI_POLICY_856_EXACT,
+    ):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, mixed, policy_sem)
+    print("SHORTAGE_GROUP_859_LIVE_STOCK_SELFTEST=PASS exact=5 partial=5 foreign=11 mixed=4")
 
     # #847: real #846 payload passes only as its literal nine-file set.
     # Every partial-with-new-file and every foreign/mixed-domain path fails.
