@@ -79,7 +79,20 @@ export function isGroupIntent(value: unknown): value is GroupIntent {
     const expected = buildGroupIntent(
       x.shortageIds.map(String), x.items as GroupLine[], x.draft as GroupDraftLine[],
     );
-    return x.action === expected.action && JSON.stringify(x) === JSON.stringify(expected);
+    const sameFields = (left: Record<string, unknown>, right: Record<string, unknown>): boolean =>
+      Object.keys(left).length === Object.keys(right).length &&
+      Object.entries(right).every(([key, val]) => left[key] === val);
+    return x.action === expected.action &&
+      Object.keys(x).length === Object.keys(expected).length &&
+      x.shortageIds.every((id, i) => id === expected.shortageIds[i]) &&
+      x.items.every((item, i) =>
+        item && typeof item === "object" &&
+        sameFields(item as unknown as Record<string, unknown>,
+          expected.items[i] as unknown as Record<string, unknown>)) &&
+      x.draft.every((item, i) =>
+        item && typeof item === "object" &&
+        sameFields(item as unknown as Record<string, unknown>,
+          expected.draft[i] as unknown as Record<string, unknown>));
   } catch { return false; }
 }
 
