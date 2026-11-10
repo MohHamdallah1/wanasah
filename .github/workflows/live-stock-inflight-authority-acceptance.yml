@@ -286,6 +286,28 @@ jobs:
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
               "wa_backend/tests/test_cp7_live_stock_postgres.py",
           }
+          # D13 #877: only the complete reviewed 16-file AR/EN business
+          # control closure may overlap these old Dispatch owner surfaces.
+          dispatch_d13_877_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d13-accessibility.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShopBulkImportModal.tsx",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/components/dispatch/ShopTable.tsx",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/components/dispatch/ZoneModal.tsx",
+              "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-d10-import.test.tsx",
+              "dashboard/src/test/dispatch-d13-accessibility.test.tsx",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
+              "dashboard/src/test/dispatch-shop-reorder-scope-v1.test.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
+          assert len(dispatch_d13_877_exact) == 16
+
           # #847: never grant Live Stock/auth ownership to a partial or
           # mixed ShopOrder edit. Only the literal nine #846 files may cross
           # this shared DispatchBoard trigger, without any extra path.
@@ -394,6 +416,8 @@ jobs:
           assert len(shop_form_850_exact) == 6 and len(shop_form_850_new) == 5
           assert len(ci_policy_856_exact) == 4
           def ownership_mode(candidate):
+              if candidate == dispatch_d13_877_exact:
+                  return "DISPATCH_D13_877_EXACT"
               if candidate == ci_policy_856_exact:
                   return "CI_POLICY_856_EXACT"
               if candidate & shop_order_843_new:
@@ -433,6 +457,32 @@ jobs:
                   return "SHOP_FORM_850_EXACT"
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
+
+          # In the real in-flight gate, reject any missing D13 file or a
+          # foreign DispatchBoard/Inventory/Backend/auth hitchhiker.
+          assert ownership_mode(dispatch_d13_877_exact) == "DISPATCH_D13_877_EXACT"
+          for missing in dispatch_d13_877_exact:
+              partial = dispatch_d13_877_exact - {missing}
+              try:
+                  assert ownership_mode(partial) != "DISPATCH_D13_877_EXACT"
+              except AssertionError:
+                  pass
+              else:
+                  # The value is not the complete approved D13 scope.
+                  assert ownership_mode(partial) != "DISPATCH_D13_877_EXACT"
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/lib/authStorage.ts",
+              "wa_backend/api/dispatch.py",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+          ):
+              try:
+                  ownership_mode(dispatch_d13_877_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign D13 path admitted: {foreign}")
+          print("INFLIGHT_D13_877_SELFTEST=PASS exact=16 missing=16 foreign=4")
 
           assert ownership_mode(shop_order_843_exact) == "SHOP_ORDER_843_EXACT"
           for missing in shop_order_843_exact:
