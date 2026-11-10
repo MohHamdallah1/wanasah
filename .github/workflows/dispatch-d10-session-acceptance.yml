@@ -22,6 +22,10 @@ jobs:
   session-safety:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      # The accepted Socket regression constructs the WebSocket URL from this
+      # test-only origin. All HTTP is mocked; no server is contacted.
+      VITE_API_URL: http://127.0.0.1:4174
     steps:
       - uses: actions/checkout@v4
         with:
