@@ -8,6 +8,11 @@ const PERSISTENT_LOCAL_STORAGE_PREFIXES =
     "wanasah:products:display:v",
     "wanasah:layout:",
     "wanasah:backoffice-identity:",
+    // D10: per-company/principal/Backoffice keys only. Never retain legacy
+    // "activeTab", "wanasah_route_vehicle" or company-only Shop drafts.
+    "wanasah:dispatch:session:v1:",
+    "wanasah:dispatch:shop-import:v2:",
+    "wanasah:dispatch:d10:",
   ] as const;
 
 const LEGACY_BACKOFFICE_IDENTITY_PREFIXES = [
