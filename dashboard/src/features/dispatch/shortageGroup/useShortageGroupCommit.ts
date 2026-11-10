@@ -143,6 +143,7 @@ export function useShortageGroupCommit({
               }
               onRefreshedRef.current(snapshot as Shortage[]);
               setPending(null);
+              setHttpReference(null);
               setFeedback(groupText(language, "otherTabResolved"));
             } catch (error) {
               if (live()) {
