@@ -1,4 +1,8 @@
 import "@testing-library/jest-dom/vitest";
+// D13: render this component with the company currency returned by the verified tenant endpoint.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
 import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
