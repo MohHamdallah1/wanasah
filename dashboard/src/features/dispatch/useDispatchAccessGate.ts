@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { dispatchPrivileges } from "./dispatchAccess";
 
@@ -24,7 +24,7 @@ export function useDispatchAccessGate(access: AccessQuery) {
   const revoked = deniedAtVersion !== null && deniedAtVersion === dataUpdatedAt;
   // A permission refetch in flight is NOT an authorization grant.
   const trusted = Boolean(access.data && !access.isError && !access.isFetching && !revoked);
-  const grants = dispatchPrivileges(trusted ? access.data : undefined);
+  const grants = useMemo(() => dispatchPrivileges(trusted ? access.data : undefined), [trusted, access.data]);
   const allowed = grants.routes || grants.shortages;
 
   let state: DispatchGateStatus = "ready";
