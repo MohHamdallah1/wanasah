@@ -1149,11 +1149,9 @@ function DispatchSession() {
       setEditingShortageIds([]);
       setShortageDraft([]);
       setNewShortage({ quantity: 1 });
-      toast.success(
-        wasEditing
-          ? "تم حفظ تعديلات الطلبات ذرياً"
-          : "تم تسجيل الطلبات بنجاح"
-      );
+      // Verified grouped PUT reports its own single authoritative success.
+      // New standalone POST still uses the existing completion message.
+      if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
     } catch (err: unknown) {
       toast.error(getErrorMessage(err));
       shortageMutationInFlightRef.current = false;
@@ -1250,10 +1248,8 @@ function DispatchSession() {
       message: `هل أنت متأكد من حذف المجموعة كاملة (${ids.length} منتجات)؟`,
       onConfirm: async () => {
         try {
-          const deleted = await shortageGroup.save(ids, []);
-          if (deleted) {
-            toast.success("تم حذف المجموعة كاملة ذرياً");
-          }
+          await shortageGroup.save(ids, []);
+          // The recovery hook alone announces an authorized verified deletion.
         } finally {
           setConfirmDialog((dialog) => ({ ...dialog, isOpen: false }));
         }
@@ -1263,6 +1259,7 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
+    if (shortageGroup.hasUnresolved) return; // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
@@ -1651,7 +1648,11 @@ function DispatchSession() {
           if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
             toast.info(groupText(i18n.language, "different")); return;
           }
-          setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try { await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
+          setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try {
+            if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+              toast.info(groupText(i18n.language, "different")); return;
+            }
+            await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
         onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
         groupRecovery={{
