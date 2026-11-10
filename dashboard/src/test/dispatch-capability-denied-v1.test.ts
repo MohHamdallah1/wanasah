@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { InventoryCapabilities } from "@/hooks/useInventoryAccess";
 import { createDispatchReadFence, dispatchPrivileges } from "@/features/dispatch/dispatchAccess";
+import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 
 const grants = (permissions: string[], any_permissions = permissions, owner = false): InventoryCapabilities => ({
   company_id: 12, principal_id: 8, backoffice_user_id: 9,
@@ -70,5 +71,65 @@ describe("Dispatch D09 late-response fence", () => {
     const request = fence.start(() => current);
     current = false;
     expect(request.isCurrent()).toBe(false);
+  });
+});
+
+describe("Dispatch D09 scoped HTTP refresh", () => {
+  it("requests only existing effective grants, never a denied shortage endpoint", async () => {
+    const fetch = vi.fn(async (path: string) => path);
+    const onData = vi.fn();
+    await loadDispatchRead({
+      fetch, grants: dispatchPrivileges(grants([], ["dispatch.read"])),
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData, onError: vi.fn(),
+    });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual([
+      "/dispatch/init", "/dispatch/shops", "/dispatch/active_routes",
+    ]);
+    expect(onData).toHaveBeenCalledWith({
+      init: "/dispatch/init", shops: "/dispatch/shops",
+      routes: "/dispatch/active_routes", shortages: null,
+    });
+  });
+
+  it("allows an independent shortage reader without implicitly fetching Shops or Zones", async () => {
+    const fetch = vi.fn(async (path: string) => path);
+    await loadDispatchRead({
+      fetch, grants: dispatchPrivileges(grants(["shortage.read"])),
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData: vi.fn(), onError: vi.fn(),
+    });
+    expect(fetch.mock.calls.map(([path]) => path)).toEqual(["/dispatch/shortages"]);
+  });
+
+  it("does not admit old rows if a 403 revokes access while an HTTP read completes late", async () => {
+    let finish!: (rows: unknown) => void;
+    const pending = new Promise<unknown>(resolve => { finish = resolve; });
+    const onData = vi.fn(), onError = vi.fn();
+    const fence = createDispatchReadFence();
+    const request = fence.start(() => true);
+    const loading = loadDispatchRead({
+      fetch: () => pending, grants: dispatchPrivileges(grants([], ["dispatch.read"])),
+      signal: request.signal, isCurrent: request.isCurrent,
+      onData, onError,
+    });
+    fence.revoke();
+    finish([{ name: "PRIVATE SHOP", initialDebt: 200 }]);
+    await loading;
+    expect(onData).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("fails the entire refresh when the backend denies one HTTP request", async () => {
+    const onData = vi.fn(), onError = vi.fn();
+    const denied = Object.assign(new Error("Forbidden"), { status: 403 });
+    await loadDispatchRead({
+      fetch: path => path === "/dispatch/shops" ? Promise.reject(denied) : Promise.resolve([]),
+      grants: dispatchPrivileges(grants([], ["dispatch.read"])),
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData, onError,
+    });
+    expect(onData).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(denied);
   });
 });
