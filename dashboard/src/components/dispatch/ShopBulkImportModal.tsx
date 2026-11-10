@@ -71,17 +71,6 @@ const normalizePhone = (value: string): string =>
 const pairKey = (a: string, b: string): string =>
   a && b ? `${a}\u001f${b}` : "";
 
-const getErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : "حدث خطأ غير متوقع";
-
-const getResponseMessage = (value: unknown): string | undefined => {
-  if (typeof value !== "object" || value === null || !("message" in value)) {
-    return undefined;
-  }
-  const message = (value as { message?: unknown }).message;
-  return typeof message === "string" ? message : undefined;
-};
-
 const hasValidMoney = (value: string): boolean => {
   const normalized = value.trim().replace(",", ".");
   if (!/^\d+(?:\.\d{1,3})?$/.test(normalized)) return false;
@@ -259,11 +248,11 @@ export function ShopBulkImportModal({
 
   const handleDownloadTemplate = () => {
     const headers = [
-      "اسم المحل (إجباري)",
-      "رقم الهاتف (اختياري)",
-      "رابط الخريطة (اختياري)",
-      "اسم المالك (اختياري)",
-      "الذمة الافتتاحية",
+      `${text("importName")} ${text("importHeaderRequired")}`,
+      `${text("importPhone")} ${text("importHeaderOptional")}`,
+      `${text("importMap")} ${text("importHeaderOptional")}`,
+      `${text("importOwner")} ${text("importHeaderOptional")}`,
+      text("importOpeningDebt"),
     ];
     const worksheet = XLSX.utils.aoa_to_sheet([headers]);
     worksheet["!cols"] = [
@@ -520,6 +509,7 @@ export function ShopBulkImportModal({
   };
 
   const handleBulkImport = async () => {
+    if (!currency) { toast.error(text("importCurrencyPending")); return; }
     if (!actorScope || !admitted()) {
       toast.error(text("importBadScope"));
       return;
@@ -542,7 +532,7 @@ export function ShopBulkImportModal({
 
     const payload = {
       zoneId: Number(selectedZoneId),
-      fileName: (fileName || "لصق سريع").slice(0, 255),
+      fileName: (fileName || text("importPaste")).slice(0, 255),
       shops: validatedRows.map((row, index) => ({
         name: row.name.trim(),
         phone: row.phone,
@@ -592,7 +582,7 @@ export function ShopBulkImportModal({
         maxWidth={step === 1 ? "max-w-4xl" : "max-w-6xl"}
       >
         {step === 1 && (
-          <div className="space-y-6">
+          <div className="space-y-6" dir={i18n.dir()}>
             {hasDraft && (
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-xl flex items-center justify-between mb-4">
                 <div>
@@ -703,7 +693,7 @@ export function ShopBulkImportModal({
         {step === 2 && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200">
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <div className="flex flex-col">
                   <span className="text-xs text-slate-500">{text("importTotal")}</span>
                   <span className="font-bold text-slate-800">
@@ -802,8 +792,20 @@ export function ShopBulkImportModal({
                         }`}
                         title={tooltip}
                       >
-                        <td className="p-2 text-center text-slate-400 font-bold relative group">
+                        <td className="p-2 text-center text-slate-500 font-bold relative group">
                           {index + 1}
+                          {row.errors.length > 0 && (
+                            <span id={`import-errors-${row._id}`} role="alert" className="sr-only">
+                              {row.errors.join(". ")}
+                            </span>
+                          )}
+                          {dbConflict && (
+                            <button type="button" onClick={() => setConflictRow(row)}
+                              aria-label={text("importConflictTitle")}
+                              className="min-h-9 rounded-lg border border-amber-400 px-2 text-xs text-amber-900 focus-visible:ring-2">
+                              <AlertCircle aria-hidden="true" className="h-4 w-4" />
+                            </button>
+                          )}
                           {row.errors.length > 0 && (
                             <>
                               <AlertCircle
@@ -822,6 +824,9 @@ export function ShopBulkImportModal({
 
                         <td className="p-2">
                           <input
+                            aria-label={`${text("importName")} ${index + 1}`}
+                            aria-invalid={row.errors.length > 0}
+                            aria-describedby={row.errors.length ? `import-errors-${row._id}` : undefined}
                             value={row.name}
                             maxLength={150}
                             onChange={(event) =>
@@ -835,6 +840,7 @@ export function ShopBulkImportModal({
 
                         <td className="p-2">
                           <input
+                            aria-label={`${text("importPhone")} ${index + 1}`}
                             value={row.phone}
                             maxLength={20}
                             onChange={(event) =>
@@ -853,6 +859,7 @@ export function ShopBulkImportModal({
 
                         <td className="p-2">
                           <input
+                            aria-label={`${text("importMap")} ${index + 1}`}
                             value={row.mapLink}
                             maxLength={500}
                             onChange={(event) =>
@@ -870,6 +877,7 @@ export function ShopBulkImportModal({
 
                         <td className="p-2">
                           <input
+                            aria-label={`${text("importOwner")} ${index + 1}`}
                             value={row.owner}
                             maxLength={100}
                             onChange={(event) =>
@@ -886,6 +894,8 @@ export function ShopBulkImportModal({
 
                         <td className="p-2">
                           <input
+                            aria-label={`${text("importOpeningDebt")} ${index + 1}`}
+                            aria-invalid={row.errors.length > 0}
                             type="number"
                             min="0"
                             max={MAX_MONEY}
@@ -905,6 +915,8 @@ export function ShopBulkImportModal({
 
                         <td className="p-2 text-center">
                           <button
+                            type="button"
+                            aria-label={text("importDeleteRow", { count: index + 1 })}
                             onClick={(event) => {
                               event.stopPropagation();
                               removeRow(row._id);
@@ -995,12 +1007,11 @@ export function ShopBulkImportModal({
 
             <div className="bg-red-50 border border-red-200 rounded-xl p-3">
               <p className="text-xs text-red-700 font-bold">
-                🛑 هذا السطر يطابق قاعدة التكرار المعتمدة في السيرفر، لذلك يجب
-                حذفه أو تعديل الملف قبل الاستيراد.
+                {text("importConflictReason")}
               </p>
             </div>
 
-            <button
+            <button type="button"
               onClick={() => {
                 removeRow(conflictRow._id);
                 setConflictRow(null);
