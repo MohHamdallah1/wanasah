@@ -381,6 +381,34 @@ jobs:
               "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
           }
+          # D10 #872 exact 11 delivery paths + three required strict CI policy paths.
+          dispatch_d10_872_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d10-session-acceptance.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShopBulkImportModal.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/sessionScope.ts",
+              "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-d10-import.test.tsx",
+              "dashboard/src/test/dispatch-d10-session-scope.test.ts",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+          }
+          dispatch_d10_872_new = {
+              ".github/workflows/dispatch-d10-session-acceptance.yml",
+              "dashboard/src/components/dispatch/ShopBulkImportModal.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/sessionScope.ts",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-d10-import.test.tsx",
+              "dashboard/src/test/dispatch-d10-session-scope.test.ts",
+          }
+          assert len(dispatch_d10_872_exact) == 14 and len(dispatch_d10_872_new) == 7
+
           # D09 #867: one exact twelve-file capability/navigation diff; no wildcard.
           dispatch_d09_867_exact = {
               "dashboard/src/components/dispatch/ShortageModal.tsx",
@@ -473,6 +501,12 @@ jobs:
                       f"extra={sorted(candidate - shop_order_843_exact)}"
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & dispatch_d10_872_new:
+                  assert candidate == dispatch_d10_872_exact, (
+                      f"DISPATCH_D10_872_EXACT=FAIL missing={sorted(dispatch_d10_872_exact - candidate)} "
+                      f"extra={sorted(candidate - dispatch_d10_872_exact)}"
+                  )
+                  return "DISPATCH_D10_872_EXACT"
               if candidate & dispatch_d09_867_new:
                   assert candidate == dispatch_d09_867_exact, (
                       f"DISPATCH_D09_867_EXACT=FAIL missing={sorted(dispatch_d09_867_exact - candidate)} "
@@ -520,6 +554,7 @@ jobs:
               ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
               ("SHOP_FORM_850_EXACT", shop_form_850_exact, shop_form_850_unique),
               ("SHORTAGE_GROUP_859_EXACT", shortage_group_859_exact, shortage_group_859_unique),
+              ("DISPATCH_D10_872_EXACT", dispatch_d10_872_exact, dispatch_d10_872_new),
               ("DISPATCH_D09_867_EXACT", dispatch_d09_867_exact, dispatch_d09_867_new),
           ):
               assert ownership_mode(exact) == label

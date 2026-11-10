@@ -888,6 +888,34 @@ SHOP_ORDER_843_EXACT = frozenset({
 SHOP_ORDER_843_NEW = SHOP_ORDER_843_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
 assert len(SHOP_ORDER_843_EXACT) == 9 and len(SHOP_ORDER_843_NEW) == 8
 
+# #872: exact all eleven D10 business/test paths + three shared CI gates.
+DISPATCH_D10_872_EXACT = frozenset({
+    '.github/scripts/live_stock_ci_ownership.py',
+    '.github/workflows/dispatch-d10-session-acceptance.yml',
+    '.github/workflows/dispatch-p0-route-stock-safety.yml',
+    '.github/workflows/live-stock-inflight-authority-acceptance.yml',
+    'dashboard/src/components/dispatch/ShopBulkImportModal.tsx',
+    'dashboard/src/features/dispatch/dispatchDrafts.ts',
+    'dashboard/src/features/dispatch/sessionScope.ts',
+    'dashboard/src/lib/authStorage.ts',
+    'dashboard/src/pages/DispatchBoard.tsx',
+    'dashboard/src/test/auth-session-consumer-isolation.test.tsx',
+    'dashboard/src/test/dispatch-d10-drafts.test.ts',
+    'dashboard/src/test/dispatch-d10-import.test.tsx',
+    'dashboard/src/test/dispatch-d10-session-scope.test.ts',
+    'dashboard/src/test/dispatch-load-context.test.tsx',
+})
+DISPATCH_D10_872_NEW = frozenset({
+    '.github/workflows/dispatch-d10-session-acceptance.yml',
+    'dashboard/src/components/dispatch/ShopBulkImportModal.tsx',
+    'dashboard/src/features/dispatch/dispatchDrafts.ts',
+    'dashboard/src/features/dispatch/sessionScope.ts',
+    'dashboard/src/test/dispatch-d10-drafts.test.ts',
+    'dashboard/src/test/dispatch-d10-import.test.tsx',
+    'dashboard/src/test/dispatch-d10-session-scope.test.ts',
+})
+assert len(DISPATCH_D10_872_EXACT) == 14 and len(DISPATCH_D10_872_NEW) == 7
+
 # #867: only complete D09 capability/navigation UI may cross shared DispatchBoard.
 DISPATCH_D09_867_EXACT = frozenset({
     "dashboard/src/components/dispatch/ShortageModal.tsx",
@@ -970,6 +998,16 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             f"CI_POLICY_856_EXACT=FAIL missing={sorted(CI_POLICY_856_EXACT - changed)} "
             f"extra={sorted(changed - CI_POLICY_856_EXACT)}"
         ]
+    if changed & DISPATCH_D10_872_NEW:
+        if changed != DISPATCH_D10_872_EXACT:
+            return "fail", [
+                f"DISPATCH_D10_872_EXACT=FAIL missing={sorted(DISPATCH_D10_872_EXACT - changed)} "
+                f"extra={sorted(changed - DISPATCH_D10_872_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "dispatch-d10-872-exact", []
+        return "not-applicable", []
+
     if changed & DISPATCH_D09_867_NEW:
         if changed != DISPATCH_D09_867_EXACT:
             return "fail", [
@@ -1256,6 +1294,24 @@ def selftest() -> None:
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
 
+    # Strict D10 acceptance: both supported owner modes, every missing file,
+    # unrelated/Backend file denied, original D09 policy unchanged.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(DISPATCH_D10_872_EXACT), policy_sem) == ("dispatch-d10-872-exact", [])
+    assert classify("r3", set(DISPATCH_D10_872_EXACT), policy_sem) == ("not-applicable", [])
+    for missing in DISPATCH_D10_872_EXACT:
+        partial = set(DISPATCH_D10_872_EXACT) - {missing}
+        if partial & DISPATCH_D10_872_NEW:
+            for mode in ("ux", "r3", "operational"):
+                _expect_fail(mode, partial, policy_sem)
+        else:
+            assert classify("ux", partial, policy_sem)[0] != "dispatch-d10-872-exact"
+    for foreign in ("wa_backend/api/driver.py", "wa_backend/models.py",
+                    "dashboard/src/pages/inventory/Tab1LiveStock.tsx"):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(DISPATCH_D10_872_EXACT) | {foreign}, policy_sem)
+    print("DISPATCH_D10_872_LIVE_STOCK_SELFTEST=PASS exact=14 missing=14 foreign=4")
+
     # #867 D09 strict 12-file admission: no partial/extra/foreign changes.
     for mode in ("ux", "operational"):
         assert classify(mode, set(DISPATCH_D09_867_EXACT), policy_sem) == ("dispatch-d09-867-exact", [])
@@ -1267,7 +1323,7 @@ def selftest() -> None:
                 _expect_fail(mode, subset, policy_sem)
         else:
             assert classify("ux", subset, policy_sem)[0] != "dispatch-d09-867-exact"
-    for foreign in (HELPER, "wa_backend/api/driver.py", "wa_backend/models.py",
+    for foreign in ("wa_backend/api/driver.py", "wa_backend/models.py",
                     "dashboard/src/lib/authStorage.ts", "dashboard/src/pages/inventory/Tab1LiveStock.tsx"):
         for mode in ("ux", "r3", "operational"):
             _expect_fail(mode, set(DISPATCH_D09_867_EXACT) | {foreign}, policy_sem)
@@ -1879,7 +1935,10 @@ def main() -> int:
     base = _git("merge-base", base_ref, head)
     subprocess.run(["git", "diff", "--check", base, head], check=True)
     changed = _changed(base, head)
-    if changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed:
+    # D10 #872 is the ONLY exact vetted exception for actor-scoped Dispatch UI
+    # plus authStorage; all other socket-only session-boundary edits remain frozen.
+    if (changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed
+            and changed != DISPATCH_D10_872_EXACT):
         before = _git_show(base, "dashboard/src/pages/DispatchBoard.tsx")
         after = _git_show(head, "dashboard/src/pages/DispatchBoard.tsx")
         def without_socket(source: str) -> str:

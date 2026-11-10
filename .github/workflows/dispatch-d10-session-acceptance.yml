@@ -1,0 +1,57 @@
+name: Dispatch D10 actor-scoped session acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/components/dispatch/ShopBulkImportModal.tsx"
+      - "dashboard/src/features/dispatch/sessionScope.ts"
+      - "dashboard/src/features/dispatch/dispatchDrafts.ts"
+      - "dashboard/src/lib/authStorage.ts"
+      - "dashboard/src/test/dispatch-d10-*.test.ts"
+      - "dashboard/src/test/dispatch-d10-*.test.tsx"
+      - "dashboard/src/test/auth-session-consumer-isolation.test.tsx"
+      - "dashboard/src/test/dispatch-load-context.test.tsx"
+      - ".github/workflows/dispatch-d10-session-acceptance.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  session-safety:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # The accepted Socket regression constructs the WebSocket URL from this
+      # test-only origin. All HTTP is mocked; no server is contacted.
+      VITE_API_URL: http://127.0.0.1:4174
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Verify whitespace
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
+      - name: Install exact dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused D10 actor, draft and real import suite
+        working-directory: dashboard
+        run: >
+          npm test --
+          src/test/dispatch-d10-session-scope.test.ts
+          src/test/dispatch-d10-drafts.test.ts
+          src/test/dispatch-d10-import.test.tsx
+      # Both historical specs stub global WebSocket; run in separate Vitest
+      # processes so one file cannot replace the other's live Socket mock.
+      - name: Canonical D09 socket and A-to-B session isolation
+        working-directory: dashboard
+        run: npm test -- src/test/auth-session-consumer-isolation.test.tsx
+      - name: D10 Warehouse/Vehicle late custody regression
+        working-directory: dashboard
+        run: npm test -- src/test/dispatch-load-context.test.tsx
