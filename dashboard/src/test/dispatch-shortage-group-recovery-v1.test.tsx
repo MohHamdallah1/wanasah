@@ -9,7 +9,7 @@ import { setAppLanguage } from "@/i18n";
 import {
   buildGroupIntent, groupMutationBody, groupText, isGroupIntent,
   parseGroupResponse, shortageGroupScope, verifiedGroupReadback,
-  readGroupHttpReference,
+  groupReadbackVerdict, readGroupHttpReference, saveGroupHttpReference,
   type GroupIntent, type GroupLine,
 } from "@/features/dispatch/shortageGroup/contract";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
@@ -409,6 +409,50 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     expect(secondProps.onVerified).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     expect(second.result.current.feedback).toBe(groupText("en", "otherTabResolved"));
+    first.unmount(); second.unmount();
+  });
+
+  it("readback verdict separates exact rows from later route changes and cannot use GET alone as proof", () => {
+    const intent = buildGroupIntent(ids, lines, draft);
+    const receipt = { requestId: "ded0c901-babc-4455-9abc-000000000003", shortageIds: [102, 103] };
+    const exact = lines.map((line, i) => ({
+      ...initial[i], id: String(receipt.shortageIds[i]),
+      quantity: line.quantity, productId: String(line.productId),
+    }));
+    expect(groupReadbackVerdict(exact, intent, receipt)).toBe("exact");
+    expect(groupReadbackVerdict(exact.map(x => ({ ...x, driverId: "18" })), intent, receipt))
+      .toBe("subsequently-changed");
+    expect(groupReadbackVerdict([], intent, receipt)).toBe("subsequently-changed");
+    expect(groupReadbackVerdict([...initial, ...exact], intent, receipt)).toBeNull();
+    expect(groupReadbackVerdict([{ id: 0 }], intent, receipt)).toBeNull();
+    expect(groupReadbackVerdict([...exact, exact[0]], intent, receipt)).toBeNull();
+    expect(groupReadbackVerdict([], intent, { ...receipt, shortageIds: [102] })).toBeNull();
+  });
+
+  it("cross-tab failed GET lacking a request reference clears stale PUT reference without losing original UUID", async () => {
+    const backend = fakeServer();
+    backend.setLost();
+    const creating = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(creating);
+    await act(async () => { expect(await creating.result.current.save(ids, lines, draft)).toBe(false); });
+    const originalId = creating.result.current.pending!.requestId;
+    saveGroupHttpReference(shortageGroupScope()!, originalId, "old-put-trace");
+    creating.unmount();
+
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    const getFail = vi.fn().mockRejectedValue(Object.assign(new Error("offline GET"), { status: 503 }));
+    const second = renderHook(() => useShortageGroupCommit(args(getFail)));
+    await waitFor(() => expect(second.result.current.pending?.requestId).toBe(originalId));
+    expect(second.result.current.httpReference).toBe("old-put-trace");
+    await act(async () => { expect(await first.result.current.retry()).toBe(true); });
+    toast.success.mockClear();
+    await act(async () => { expect(await second.result.current.retry()).toBe(false); });
+    expect(second.result.current.hasUnresolved).toBe(true);
+    expect(second.result.current.httpReference).toBeNull();
+    expect(readGroupHttpReference(shortageGroupScope()!, originalId)).toBeNull();
+    expect(second.result.current.feedback).not.toContain("old-put-trace");
+    expect(getFail.mock.calls.filter(([, options]) => options?.method === "PUT")).toHaveLength(0);
+    expect(toast.success).not.toHaveBeenCalled();
     first.unmount(); second.unmount();
   });
 
