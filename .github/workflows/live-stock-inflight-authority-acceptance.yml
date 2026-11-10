@@ -464,12 +464,11 @@ jobs:
           for missing in dispatch_d13_877_exact:
               partial = dispatch_d13_877_exact - {missing}
               try:
-                  assert ownership_mode(partial) != "DISPATCH_D13_877_EXACT"
+                  result = ownership_mode(partial)
               except AssertionError:
                   pass
               else:
-                  # The value is not the complete approved D13 scope.
-                  assert ownership_mode(partial) != "DISPATCH_D13_877_EXACT"
+                  assert result != "DISPATCH_D13_877_EXACT", f"Partial D13 admitted: {missing}"
           for foreign in (
               "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/lib/authStorage.ts",
