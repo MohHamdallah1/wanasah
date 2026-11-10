@@ -291,7 +291,32 @@ jobs:
           }
           assert len(shop_order_843_exact) == 9 and len(shop_order_843_new) == 8
 
+          # #856: one authorized ShopForm change must include all six paths.
+          # The existing DispatchBoard alone still belongs to the older scope.
+          shop_form_850_exact = {
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopForm/contract.ts",
+              "dashboard/src/features/dispatch/shopForm/messages.ts",
+              "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
+          }
+          shop_form_850_new = shop_form_850_exact - {"dashboard/src/pages/DispatchBoard.tsx"}
+          # Governance-only PR #856 has its OWN exact four-file signature;
+          # the three-file #847 mode and existing Live Stock owner modes survive.
+          ci_policy_847_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+          }
+          ci_policy_856_exact = ci_policy_847_exact | {
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+          }
+          assert len(shop_form_850_exact) == 6 and len(shop_form_850_new) == 5
+          assert len(ci_policy_856_exact) == 4
           def ownership_mode(candidate):
+              if candidate == ci_policy_856_exact:
+                  return "CI_POLICY_856_EXACT"
               if candidate & shop_order_843_new:
                   assert candidate == shop_order_843_exact, (
                       "INFLIGHT_SHOP_ORDER_843_SCOPE=FAIL",
@@ -299,6 +324,13 @@ jobs:
                       sorted(candidate - shop_order_843_exact),
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & shop_form_850_new:
+                  assert candidate == shop_form_850_exact, (
+                      "INFLIGHT_SHOP_FORM_850_SCOPE=FAIL",
+                      sorted(shop_form_850_exact - candidate),
+                      sorted(candidate - shop_form_850_exact),
+                  )
+                  return "SHOP_FORM_850_EXACT"
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
 
@@ -330,6 +362,78 @@ jobs:
               else:
                   raise AssertionError(f"Foreign ShopOrder 843 path admitted: {foreign}")
           print("INFLIGHT_847_SHOPORDER_SELFTEST=PASS exact=9 partial=9 foreign=10")
+          # Exact #855 ShopForm case and adversarial counterexamples. Every
+          # subset still touching a new form file must fail in this real gate.
+          assert ownership_mode(shop_form_850_exact) == "SHOP_FORM_850_EXACT"
+          for missing in shop_form_850_exact:
+              partial = shop_form_850_exact - {missing}
+              if partial & shop_form_850_new:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Partial ShopForm 850 admitted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "SHOP_FORM_850_EXACT"
+          for foreign in (
+              "wa_backend/main.py", "wa_backend/api/dispatch.py",
+              "wa_backend/api/driver.py", "wa_backend/models.py",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "dashboard/src/features/dispatch/shopForm/unreviewed.ts",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+          ):
+              try:
+                  ownership_mode(shop_form_850_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign ShopForm 850 path admitted: {foreign}")
+          for mixed in (
+              shop_form_850_exact | shop_order_843_exact,
+              shop_form_850_exact | ci_policy_847_exact,
+              shop_form_850_exact | ci_policy_856_exact,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed ShopForm/ShopOrder/CI ownership accepted")
+          # Both governance sizes must remain independently enforceable:
+          # three-file #847 is an established mode, not partial #856 approval.
+          assert ownership_mode(ci_policy_847_exact) == "INFLIGHT_AUTH_REPAIR_SCOPE"
+          assert ownership_mode(ci_policy_856_exact) == "CI_POLICY_856_EXACT"
+          for missing in ci_policy_856_exact:
+              partial = ci_policy_856_exact - {missing}
+              if missing == ".github/workflows/live-stock-g04-outage-recovery.yml":
+                  assert ownership_mode(partial) == "INFLIGHT_AUTH_REPAIR_SCOPE"
+              else:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Partial CI_POLICY_856_EXACT admitted: {missing}")
+          for foreign in (
+              "wa_backend/main.py",
+              "wa_backend/api/dispatch.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+          ):
+              try:
+                  ownership_mode(ci_policy_856_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign CI_POLICY_856 path admitted: {foreign}")
+          print("INFLIGHT_856_POLICY_SELFTEST=PASS shop_form=6 ci_policy=4 old847=PASS negative=PASS")
           mode = ownership_mode(files)
           subprocess.run(["git","diff","--check",base,"HEAD"], check=True)
           print(f"INFLIGHT_AUTH_REPAIR_SCOPE PASS mode={mode}")
