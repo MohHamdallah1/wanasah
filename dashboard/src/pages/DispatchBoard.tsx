@@ -1696,6 +1696,63 @@ function DispatchSession() {
           ) : activeTab === "launch" ? (
             <div key="launch" className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
               
+              {/* D07: unresolved original UUID survives lost 201 and a full reload.
+                  No new route can be started until authoritative readback settles it. */}
+              {grants.launch && actorScope && (routeLaunchPendingOwner || routeLaunch.hasUnresolved) && (
+                <div data-testid="d07-route-recovery" role="status" aria-live="polite"
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-slate-800">
+                  <p className="font-bold">
+                    {routeLaunchPendingOwner && (
+                      String(routeLaunchPendingOwner.warehouseId) !== selectedSourceWarehouseId ||
+                      String(routeLaunchPendingOwner.vehicleId) !== selectedVehicleId
+                    )
+                      ? (i18n.language.startsWith("ar")
+                          ? "توجد عملية إطلاق أصلية معلقة على مستودع أو مركبة أخرى. ارجع إليها للتحقق."
+                          : "An original route launch is pending for another warehouse or vehicle. Return to it to verify.")
+                      : routeLaunch.message}
+                  </p>
+                  {routeLaunchPendingOwner && (
+                    <p className="mt-1 font-mono text-xs text-slate-600" dir="ltr">
+                      {routeLaunchPendingOwner.requestId}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {routeLaunchPendingOwner && (
+                      String(routeLaunchPendingOwner.warehouseId) !== selectedSourceWarehouseId ||
+                      String(routeLaunchPendingOwner.vehicleId) !== selectedVehicleId
+                    ) ? (
+                      <button type="button" data-testid="d07-return-original"
+                        disabled={!warehouses.some(w => w.id === String(routeLaunchPendingOwner.warehouseId) && w.can_execute) ||
+                          !vehicles.some(v => v.id === String(routeLaunchPendingOwner.vehicleId) && v.can_execute)}
+                        onClick={() => {
+                          changeSourceWarehouse(String(routeLaunchPendingOwner.warehouseId));
+                          setSelectedVehicleId(String(routeLaunchPendingOwner.vehicleId));
+                        }}
+                        className="rounded-lg bg-slate-800 px-3 py-2 font-bold text-white disabled:opacity-50">
+                        {i18n.language.startsWith("ar") ? "العودة إلى الطلب الأصلي" : "Return to original request"}
+                      </button>
+                    ) : (
+                      <>
+                        <button type="button" data-testid="d07-verify-original"
+                          disabled={!canLaunch || routeLaunch.busy}
+                          onClick={() => { void verifyRouteLaunchOriginal(false); }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold disabled:opacity-50">
+                          {i18n.language.startsWith("ar") ? "التحقق من الإطلاق" : "Verify original launch"}
+                        </button>
+                        {routeLaunch.result.kind === "unknown" && (
+                          <button type="button" data-testid="d07-retry-original"
+                            disabled={!canLaunch || routeLaunch.busy}
+                            onClick={() => { void verifyRouteLaunchOriginal(true); }}
+                            className="rounded-lg bg-[#1e87bb] px-3 py-2 font-bold text-white disabled:opacity-50">
+                            {i18n.language.startsWith("ar") ? "إعادة محاولة الطلب الأصلي" : "Retry original request"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
               <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
                 <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
@@ -1731,8 +1788,8 @@ function DispatchSession() {
                 <p className="mb-2 text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
                 <div className="flex justify-end">
                   <button
-                    disabled={!canLaunch}
-                    onClick={handleDispatchRoute}
+                    disabled={!canLaunch || routeLaunch.busy || routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
+                    onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                   >
                     <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير
