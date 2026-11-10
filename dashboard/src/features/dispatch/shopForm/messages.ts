@@ -27,6 +27,10 @@ const copy = {
     createRecovered: "توجد محاولة إنشاء سابقة نتيجتها غير مؤكدة. بيانات المحل محفوظة ولم يُرسل طلب جديد.",
     createManualInstructions: "لا تعِد إنشاء هذا المحل حتى يراجع المسؤول سجلات الطلب والأرصدة الافتتاحية. ظهور محل مشابه أو عدم ظهوره لا يثبت نتيجة طلبك.",
     createLeaveSafely: "الخروج مع حفظ المحاولة للمراجعة",
+    editLeaveSafely: "الخروج مع حفظ التعديل للمراجعة",
+    editRecovered: "توجد محاولة تعديل سابقة لم تتأكد نتيجتها؛ أعدنا بياناتك ولم نُرسل التعديل مرة ثانية.",
+    editManualInstructions: "قد يكون التعديل محفوظاً أو رُفض قبل وصوله. تحقّق من الخادم أو راجع المسؤول، ثم افتح المحل مجدداً. لا تعِد الإرسال تلقائياً.",
+
     createPendingRecord: "رقم المتابعة المحلي (ليس إثباتاً من الخادم)",
     createServerRef: "مرجع طلب الخادم (للمراجعة فقط)",
     createRecoveryLoading: "جاري التحقق من محاولة إنشاء محفوظة لهذا الحساب...",
@@ -70,6 +74,10 @@ const copy = {
     createRecovered: "A previous shop creation remains uncertain. The draft was restored and no new request was sent.",
     createManualInstructions: "Do not recreate this shop until an administrator has reviewed the original request and opening balances. A matching shop, or no match, does not prove the outcome.",
     createLeaveSafely: "Leave and keep attempt for review",
+    editLeaveSafely: "Leave and keep edit for review",
+    editRecovered: "An earlier shop edit remains unverified. Your draft was restored; no edit was resent.",
+    editManualInstructions: "The edit may have been saved or rejected before reaching the server. Verify the server or consult an administrator. It will never be resent automatically.",
+
     createPendingRecord: "Local tracking number (not server confirmation)",
     createServerRef: "Server request reference (for investigation only)",
     createRecoveryLoading: "Checking for a saved shop-creation attempt for this account...",
