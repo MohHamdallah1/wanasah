@@ -1009,7 +1009,10 @@ function DispatchSession() {
     confirmDuplicate: confirmDuplicateShop, duplicate: duplicateWarning,
     clearDuplicate: clearDuplicateWarning, finance: shopFinance,
     financeLoading: shopFinanceLoading, feedback: shopFormFeedback,
-    needsVerification: shopNeedsVerification,
+    needsVerification: shopNeedsVerification, restoring: shopCreateRestoring,
+    recoveryUnreadable: shopCreateUnreadable, leaveUncertain: leaveUncertainShopCreate,
+    needsManualReconciliation: shopCreateNeedsReview,
+    localTrackingId: shopCreateTrackingId, serverReference: shopCreateServerRef,
   } = useShopFormCommit({
     open: isShopModalOpen, editId: editingShopId, form: shopForm,
     language: i18n.language, session: session!, canViewFinances: canReadShopFinances,
@@ -1030,6 +1033,7 @@ function DispatchSession() {
         }).catch(() => { /* A verified Shop edit remains saved. */ });
     },
     onClose: () => setIsShopModalOpen(false),
+    onRestoreForm: restored => setShopForm(restored),
   });
 
   const activeShops = useMemo(() => shops.filter(s => !s.archived), [shops]);
@@ -1682,7 +1686,11 @@ function DispatchSession() {
         editingShopId={editingShopId} shopForm={shopForm}
         onShopFormChange={next => { if (!isSaving && !shopNeedsVerification) setShopForm(next); }}
         zones={zones}
-        onSave={handleSaveShop} onVerify={verifyShopSave} language={i18n.language}
+        onSave={handleSaveShop} onVerify={verifyShopSave}
+        onLeaveUncertain={leaveUncertainShopCreate} needsManualReconciliation={shopCreateNeedsReview}
+        restoring={shopCreateRestoring} recoveryUnreadable={shopCreateUnreadable}
+        localTrackingId={shopCreateTrackingId} serverReference={shopCreateServerRef}
+        language={i18n.language}
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
