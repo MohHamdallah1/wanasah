@@ -9,7 +9,7 @@ import {
 import type { Shortage } from "@/types/dispatch";
 import {
   buildGroupIntent, groupMutationBody, groupText, isGroupIntent,
-  parseGroupResponse, shortageGroupScope, verifiedGroupReadback,
+  parseGroupResponse, shortageGroupScope, groupReadbackVerdict,
   saveGroupHttpReference, readGroupHttpReference, clearGroupHttpReference,
   type GroupDraftLine, type GroupIntent, type GroupLine,
 } from "./contract";
@@ -155,6 +155,11 @@ export function useShortageGroupCommit({
                 if (ref && pending) {
                   saveGroupHttpReference(scope, pending.requestId, ref);
                   setHttpReference(readGroupHttpReference(scope, pending.requestId));
+                } else {
+                  // Do not mislabel the previous PUT's reference as the
+                  // current failed GET request's correlation identifier.
+                  clearGroupHttpReference(scope);
+                  setHttpReference(null);
                 }
                 setFeedback(apiErrorMessage(error,
                   groupText(language, denied ? "denied" : "readback")));
@@ -247,23 +252,27 @@ export function useShortageGroupCommit({
           try {
             const rows = await fetch("/dispatch/shortages", { cache: "no-store" });
             if (!live()) return false;
-            if (!verifiedGroupReadback(rows, original.payload, receipt)) {
-              // The canonical replay-200 proves the *historical* exact-key
-              // transaction committed. Downstream route reassignment or
-              // fulfillment can legitimately change replacement rows later.
-              // A new authorized GET must still prove the ORIGINAL selection
-              // is gone; never infer historical completion from GET alone.
-              const current = Array.isArray(rows) &&
-                rows.every(row => row && typeof row === "object" &&
-                  Number.isSafeInteger(Number(row.id)) && Number(row.id) > 0);
-              const originalGone = current &&
-                !rows.some(row => original.payload.shortageIds.includes(Number(row.id)));
-              if (!retry || !originalGone) {
-                setFeedback(groupText(language, "readback"));
-                return false;
-              }
+            const readback = groupReadbackVerdict(rows, original.payload, receipt);
+            if (!readback) {
+              setFeedback(groupText(language, "readback"));
+              return false;
+            }
+            if (readback === "subsequently-changed") {
+              // Canonical exact-key PUT 200 already proves the historical
+              // committed transaction. The fresh authorized list confirms
+              // current state, not an immutable snapshot: later assignments,
+              // fulfillment and further edits may legitimately differ.
               completeDurableOperation(scope, original.requestId);
               clearGroupHttpReference(scope);
+              setPending(null);
+              setHttpReference(null);
+              setFeedback(groupText(language, "historicalCommit"));
+              onReconciledRef.current(rows as Shortage[]);
+              toast.info(groupText(language, "historicalCommit"));
+              return true;
+            }
+            completeDurableOperation(scope, original.requestId);
+            clearGroupHttpReference(scope);
               setPending(null);
               setHttpReference(null);
               setFeedback(groupText(language, "historicalCommit"));
