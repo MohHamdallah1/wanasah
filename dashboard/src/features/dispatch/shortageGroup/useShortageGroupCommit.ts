@@ -22,6 +22,7 @@ type Args = {
   fetch: AuthFetch;
   onVerified: (rows: Shortage[], command: GroupIntent) => void;
   onRefreshed: (rows: Shortage[]) => void;
+  onReconciled: (rows: Shortage[]) => void;
   onRestored: (command: GroupIntent) => void;
 };
 
@@ -37,7 +38,7 @@ const readSelected = (raw: unknown, ids: number[]): boolean => {
  * are the business truth; a local UUID/GET-only match cannot prove success.
  */
 export function useShortageGroupCommit({
-  session, authorized, language, fetch, onVerified, onRefreshed, onRestored,
+  session, authorized, language, fetch, onVerified, onRefreshed, onReconciled, onRestored,
 }: Args) {
   const [pending, setPending] = useState<DurableCommand<GroupIntent> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,9 +50,11 @@ export function useShortageGroupCommit({
   const mounted = useRef(true);
   const onVerifiedRef = useRef(onVerified);
   const onRefreshedRef = useRef(onRefreshed);
+  const onReconciledRef = useRef(onReconciled);
   const onRestoredRef = useRef(onRestored);
   onVerifiedRef.current = onVerified;
   onRefreshedRef.current = onRefreshed;
+  onReconciledRef.current = onReconciled;
   onRestoredRef.current = onRestored;
 
   const live = useCallback(() => mounted.current && isDashboardSessionCurrent(session), [session]);
@@ -148,7 +151,13 @@ export function useShortageGroupCommit({
             } catch (error) {
               if (live()) {
                 const denied = [401, 403].includes(apiErrorStatus(error) ?? 0);
-                setFeedback(groupText(language, denied ? "denied" : "readback"));
+                const ref = apiErrorRequestId(error);
+                if (ref && pending) {
+                  saveGroupHttpReference(scope, pending.requestId, ref);
+                  setHttpReference(readGroupHttpReference(scope, pending.requestId));
+                }
+                setFeedback(apiErrorMessage(error,
+                  groupText(language, denied ? "denied" : "readback")));
                 if (denied) setBlocked(true);
               }
             }
@@ -239,8 +248,28 @@ export function useShortageGroupCommit({
             const rows = await fetch("/dispatch/shortages", { cache: "no-store" });
             if (!live()) return false;
             if (!verifiedGroupReadback(rows, original.payload, receipt)) {
-              setFeedback(groupText(language, "readback"));
-              return false;
+              // The canonical replay-200 proves the *historical* exact-key
+              // transaction committed. Downstream route reassignment or
+              // fulfillment can legitimately change replacement rows later.
+              // A new authorized GET must still prove the ORIGINAL selection
+              // is gone; never infer historical completion from GET alone.
+              const current = Array.isArray(rows) &&
+                rows.every(row => row && typeof row === "object" &&
+                  Number.isSafeInteger(Number(row.id)) && Number(row.id) > 0);
+              const originalGone = current &&
+                !rows.some(row => original.payload.shortageIds.includes(Number(row.id)));
+              if (!retry || !originalGone) {
+                setFeedback(groupText(language, "readback"));
+                return false;
+              }
+              completeDurableOperation(scope, original.requestId);
+              clearGroupHttpReference(scope);
+              setPending(null);
+              setHttpReference(null);
+              setFeedback(groupText(language, "historicalCommit"));
+              onReconciledRef.current(rows as Shortage[]);
+              toast.info(groupText(language, "historicalCommit"));
+              return true; // confirmed past commit, NOT present-day field parity
             }
             completeDurableOperation(scope, original.requestId);
             clearGroupHttpReference(scope);
