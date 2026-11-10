@@ -139,7 +139,7 @@ async def test_d06_owner_company_a1_a2_companyfinance_revoke_same_bearer(pg):
             pg, home, warehouse=home.location_id, vehicle_custody=vehicle_custody,
         )
         ordinary = await _token(
-            client, pg, home, home.ordinary, "NoLotSyntheticFixture123",
+            client, pg, home, home.ordinary, "SyntheticFixture123",
         )
         limited_resp, limited = await _shop_data(client, ordinary)
         assert limited_resp.status_code == 200
@@ -242,7 +242,7 @@ async def test_d06_shortage_search_unassigned_shop_direct_id_and_no_finance_esca
         await _grant_company_dispatch_capability(pg, home, home.ordinary, "shortage.read")
         # settlement.read cannot imply Shop finance or company-wide Shop directory.
         await _grant_company_dispatch_capability(pg, home, home.ordinary, "settlement.read")
-        ordinary = await _token(client, pg, home, home.ordinary, "NoLotSyntheticFixture123")
+        ordinary = await _token(client, pg, home, home.ordinary, "SyntheticFixture123")
         for path in ("/dispatch/shortages", f"/dispatch/shortages?shortage_id={requests[1]}"):
             response = await client.get(path, headers=ordinary)
             assert response.status_code == 200
