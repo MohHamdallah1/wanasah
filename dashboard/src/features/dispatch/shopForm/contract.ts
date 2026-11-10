@@ -169,6 +169,8 @@ export function preserveUnsavedShopOrder(
  */
 export type ShopCreateAttempt = {
   kind: "SHOP_CREATE_UNCERTAIN_V1";
+  /** Client-side mutex nonce, NOT a server receipt or proof of creation. */
+  clientAttemptNonce: string;
   submitted: ShopCreatePayload;
   draft: ShopFormState;
   baselineIds: string[];
@@ -198,7 +200,10 @@ export function shopCreateAttemptScope(): string | null {
 export function isShopCreateAttempt(value: unknown): value is ShopCreateAttempt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const attempt = value as Partial<ShopCreateAttempt>;
-  if (attempt.kind !== "SHOP_CREATE_UNCERTAIN_V1" || !Array.isArray(attempt.baselineIds) ||
+  if (attempt.kind !== "SHOP_CREATE_UNCERTAIN_V1" ||
+    typeof attempt.clientAttemptNonce !== "string" ||
+    !/^[a-f0-9-]{36}$/i.test(attempt.clientAttemptNonce) ||
+    !Array.isArray(attempt.baselineIds) ||
     !attempt.baselineIds.every(id => typeof id === "string" && /^\d+$/.test(id)) ||
     !attempt.draft || typeof attempt.draft !== "object" ||
     !attempt.submitted || typeof attempt.submitted !== "object") return false;
