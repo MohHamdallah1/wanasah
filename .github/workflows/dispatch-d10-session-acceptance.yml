@@ -43,9 +43,11 @@ jobs:
           src/test/dispatch-d10-session-scope.test.ts
           src/test/dispatch-d10-drafts.test.ts
           src/test/dispatch-d10-import.test.tsx
-      - name: Preserve accepted D09 session and Warehouse vehicle regression in isolated process
+      # Both historical specs stub global WebSocket; run in separate Vitest
+      # processes so one file cannot replace the other's live Socket mock.
+      - name: Canonical D09 socket and A-to-B session isolation
         working-directory: dashboard
-        run: >
-          npm test --
-          src/test/auth-session-consumer-isolation.test.tsx
-          src/test/dispatch-load-context.test.tsx
+        run: npm test -- src/test/auth-session-consumer-isolation.test.tsx
+      - name: D10 Warehouse/Vehicle late custody regression
+        working-directory: dashboard
+        run: npm test -- src/test/dispatch-load-context.test.tsx
