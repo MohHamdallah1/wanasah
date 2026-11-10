@@ -148,7 +148,7 @@ jobs:
           path=Path("d11-real-pg16.xml")
           assert path.exists()
           cases=list(ET.parse(path).getroot().iter("testcase"))
-          assert len(cases)==2, len(cases)
+          assert len(cases)==3, len(cases)
           assert not any(c.find(k) is not None for c in cases for k in ("failure","error","skipped"))
-          print("D11_REAL_PG16_CASES=2 PASS skipped=0")
+          print("D11_REAL_PG16_CASES=3 PASS skipped=0")
           PY
