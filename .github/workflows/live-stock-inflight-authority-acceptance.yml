@@ -464,6 +464,8 @@ jobs:
           assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
           assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
+              if __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"](candidate):
+                  return "DISPATCH_D06_889_EXACT"
               if candidate == dispatch_d11_881_exact:
                   return "DISPATCH_D11_881_EXACT"
               if candidate == dispatch_d13_877_exact:

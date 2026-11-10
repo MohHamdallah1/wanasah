@@ -390,6 +390,10 @@ def test_catalog_adds_exactly_three_codes_and_retains_existing_nine():
         if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=="PERMISSIONS" for t in node.targets))
     previous = set(ast.literal_eval(assignment.value.args[0]))
     new = {"work_session.execute","visit.execute","shop.create"}
-    assert PERMISSIONS - previous == new
+    # Historical FIELD-only additions remain exactly three. D06 adds a separate
+    # Backoffice company-only financial read, NEVER a FIELD capability.
+    finance = {"shop.financial.read"}
+    assert PERMISSIONS - previous == new | finance
+    assert finance.isdisjoint(FIELD_ASSIGNABLE_PERMISSIONS)
     assert previous <= PERMISSIONS
     assert EXPECTED - new <= previous

@@ -41,8 +41,9 @@ export interface Shop {
   phone: string;
   mapLink: string;
   zoneId: string;
-  initialDebt: number;
-  maxDebtLimit: number;
+  initialDebt: number | null;
+  maxDebtLimit: number | null;
+  financeRedacted?: boolean;
   sequence: number;
   archived: boolean;
 }
