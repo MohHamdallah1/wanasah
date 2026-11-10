@@ -373,6 +373,14 @@ jobs:
               "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
           }
+          # #859 independent grouped-shortage UI, literal five-file owner set.
+          shortage_group_859_exact = {
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/features/dispatch/shortageGroup/contract.ts",
+              "dashboard/src/features/dispatch/shortageGroup/useShortageGroupCommit.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
           # Four policy files constitute an independent #856 maintenance PR,
           # NOT a general CI extension or a superset of old #847 approval.
           ci_policy_856_exact = {
@@ -405,6 +413,8 @@ jobs:
           finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
           shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
           shop_form_850_unique = shop_form_850_exact - p0_allowed - auth_session_allowed
+          shortage_group_859_unique = shortage_group_859_exact - p0_allowed - auth_session_allowed
+          assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_unique) == 4
           assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
           assert len(shop_form_850_unique) == 5
           def ownership_mode(candidate):
@@ -438,6 +448,13 @@ jobs:
                       f"extra={sorted(candidate - shop_order_843_exact)}"
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & shortage_group_859_unique:
+                  assert candidate == shortage_group_859_exact, (
+                      f"Forbidden P0/ShortageGroup #859 exact scope: "
+                      f"missing={sorted(shortage_group_859_exact - candidate)} "
+                      f"extra={sorted(candidate - shortage_group_859_exact)}"
+                  )
+                  return "SHORTAGE_GROUP_859_EXACT"
               if candidate & shop_form_850_unique:
                   assert candidate == shop_form_850_exact, (
                       f"Forbidden P0/ShopForm #850 exact scope: "
@@ -471,6 +488,7 @@ jobs:
               ("FINANCE_842_EXACT", finance_842_exact, finance_842_unique),
               ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
               ("SHOP_FORM_850_EXACT", shop_form_850_exact, shop_form_850_unique),
+              ("SHORTAGE_GROUP_859_EXACT", shortage_group_859_exact, shortage_group_859_unique),
           ):
               assert ownership_mode(exact) == label
               for missing in exact:
@@ -518,6 +536,13 @@ jobs:
               shop_form_850_exact | shop_order_843_exact,
               shop_form_850_exact | ci_policy_847_exact,
               shop_form_850_exact | ci_policy_856_exact,
+              shortage_group_859_exact | shop_order_843_exact,
+              shortage_group_859_exact | shop_form_850_exact,
+              shortage_group_859_exact | finance_842_exact,
+              shortage_group_859_exact | ci_policy_847_exact,
+              shortage_group_859_exact | ci_policy_856_exact,
+              shortage_group_859_exact | ci_policy_861_exact,
+              shortage_group_859_exact | shop_create_f06_exact,
           ):
               try:
                   ownership_mode(mixed)
@@ -674,6 +699,86 @@ jobs:
               f"f06=5 partial_with_new={f06_partial_denied} "
               f"foreign={len(f06_foreign)} mixed=6 ci_policy=2 "
               "prior847=PASS prior856=PASS"
+          )
+
+          # #865: exhaustive D05 five-file admission; never an accidental
+          # cross-grant to independent F06, ShopForm, Finance or CI policies.
+          assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
+          d05_items = sorted(shortage_group_859_exact)
+          d05_partial_denied = 0
+          for bits in range(1 << len(d05_items)):
+              subset = {
+                  item for i, item in enumerate(d05_items) if bits & (1 << i)
+              }
+              if subset == shortage_group_859_exact:
+                  continue
+              if subset & shortage_group_859_unique:
+                  try:
+                      ownership_mode(subset)
+                  except AssertionError:
+                      d05_partial_denied += 1
+                  else:
+                      raise AssertionError(
+                          f"SHORTAGE_GROUP_859_EXACT partial admitted: {sorted(subset)}"
+                      )
+              else:
+                  assert ownership_mode(subset) != "SHORTAGE_GROUP_859_EXACT"
+          assert d05_partial_denied == 29, d05_partial_denied
+
+          d05_foreign = (
+              "wa_backend/api/driver.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/schemas.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/domains/authorization/backoffice_access.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+              "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "wanasah_frontend/lib/main.dart",
+          )
+          for foreign in d05_foreign:
+              assert foreign not in shortage_group_859_exact
+              try:
+                  ownership_mode(shortage_group_859_exact | {foreign})
+              except AssertionError:
+                  # Another exact prior owner (Finance/ShopOrder/ShopForm)
+                  # may reject first; denied is the security invariant.
+                  pass
+              else:
+                  raise AssertionError(f"D05 foreign admitted: {foreign}")
+          d05_mixed = (
+              shortage_group_859_exact | shop_create_f06_exact,
+              shortage_group_859_exact | finance_842_exact,
+              shortage_group_859_exact | shop_order_843_exact,
+              shortage_group_859_exact | shop_form_850_exact,
+              shortage_group_859_exact | ci_policy_847_exact,
+              shortage_group_859_exact | ci_policy_856_exact,
+              shortage_group_859_exact | ci_policy_861_exact,
+          )
+          for mixed in d05_mixed:
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed D05/F06/Finance/CI ownership admitted")
+          print(
+              "DISPATCH_859_SCOPE_SELFTEST=PASS "
+              f"exact=5 partial_with_new={d05_partial_denied} "
+              f"foreign={len(d05_foreign)} mixed={len(d05_mixed)} "
+              "f06_prior=PASS ci861_prior=PASS"
           )
 
           # Exact-scope positive + adversarial controls, including a partial
