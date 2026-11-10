@@ -4,11 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Shortage } from "@/types/dispatch";
 import type { DashboardSession } from "@/lib/authStorage";
 import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
-import { readDurableCommand } from "@/lib/durableOperations";
+import { getOrCreateDurableCommand, readDurableCommand } from "@/lib/durableOperations";
 import { setAppLanguage } from "@/i18n";
 import {
   buildGroupIntent, groupMutationBody, groupText, isGroupIntent,
   parseGroupResponse, shortageGroupScope, verifiedGroupReadback,
+  readGroupHttpReference,
   type GroupIntent, type GroupLine,
 } from "@/features/dispatch/shortageGroup/contract";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
@@ -369,6 +370,107 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     first.unmount(); second.unmount();
   });
 
+  it("Codex P1: stale tab's Retry for A cannot send newly stored command B", async () => {
+    const backend = fakeServer();
+    backend.setLost();
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(first);
+    await act(async () => { expect(await first.result.current.save(ids, lines, draft)).toBe(false); });
+    first.unmount();
+    const controller = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    const staleProps = args(backend.fetch);
+    const stale = renderHook(() => useShortageGroupCommit(staleProps));
+    await waitFor(() => expect(stale.result.current.pending?.payload.action).toBe("edit"));
+    const requestA = stale.result.current.pending!.requestId;
+    await act(async () => { expect(await controller.result.current.retry()).toBe(true); });
+    expect(await readDurableCommand(shortageGroupScope()!)).toBeNull();
+    const originalCalls = backend.bodies.length;
+    const nextIds = backend.getRows().map(x => x.id);
+    const freshCommand = buildGroupIntent(nextIds, [], []);
+    const installedB = await getOrCreateDurableCommand(shortageGroupScope()!, freshCommand);
+    expect(installedB.requestId).not.toBe(requestA);
+    expect(stale.result.current.pending?.requestId).toBe(requestA);
+    toast.success.mockClear();
+    await act(async () => { expect(await stale.result.current.retry()).toBe(false); });
+    expect(backend.bodies).toHaveLength(originalCalls);
+    expect(stale.result.current.pending?.requestId).toBe(installedB.requestId);
+    expect(stale.result.current.pending?.payload.action).toBe("delete");
+    expect(staleProps.onRestored).toHaveBeenCalledWith(freshCommand);
+    expect(stale.result.current.feedback).toBe(groupText("en", "changedAttempt"));
+    expect(toast.success).not.toHaveBeenCalled();
+    expect((await readDurableCommand(shortageGroupScope()!))?.requestId).toBe(installedB.requestId);
+    controller.unmount(); stale.unmount();
+  });
+
+  it.each(["ar", "en"] as const)(
+    "Codex P1: canonical 409 preserves safe translated reason and HTTP correlation distinct from original UUID (%s)",
+    async language => {
+      await setAppLanguage(language);
+      const backend = fakeServer();
+      backend.setLost();
+      const firstProps = args(backend.fetch, language);
+      const first = renderHook(() => useShortageGroupCommit(firstProps));
+      await ready(first);
+      await act(async () => { expect(await first.result.current.save(ids, lines, draft)).toBe(false); });
+      const original = await readDurableCommand<GroupIntent>(shortageGroupScope()!);
+      const fetch = vi.fn().mockImplementation(async (path: string, options?: RequestInit) => {
+        if (options?.method === "PUT") {
+          throw Object.assign(new Error("untrusted internal detail"), {
+            status: 409, data: { error: {
+              code: "SHORTAGE_SELECTION_STALE",
+              message: "The selected shortage group changed.",
+              request_id: "req-backoffice-409",
+              context: { shop: "Seven" },
+            } },
+          });
+        }
+        return backend.getRows();
+      });
+      first.unmount();
+      const props = args(fetch, language);
+      const hooked = renderHook(() => useShortageGroupCommit(props));
+      await waitFor(() => expect(hooked.result.current.pending?.requestId).toBe(original?.requestId));
+      await act(async () => { expect(await hooked.result.current.retry()).toBe(false); });
+      expect(hooked.result.current.feedback).not.toBe(groupText(language, "conflict"));
+      expect(hooked.result.current.feedback).toBeTruthy();
+      expect(readGroupHttpReference(shortageGroupScope()!, original!.requestId)).toBe("req-backoffice-409");
+      expect(hooked.result.current.httpReference).toBe("req-backoffice-409");
+      expect((await readDurableCommand(shortageGroupScope()!))?.requestId).toBe(original?.requestId);
+      expect(fetch.mock.calls.filter(([, opts]) => opts?.method === "PUT")).toHaveLength(1);
+      expect(toast.success).not.toHaveBeenCalled();
+      hooked.unmount();
+      const reloaded = renderHook(() => useShortageGroupCommit(args(fetch, language)));
+      await waitFor(() => expect(reloaded.result.current.pending?.requestId).toBe(original?.requestId));
+      expect(reloaded.result.current.httpReference).toBe("req-backoffice-409");
+      reloaded.unmount();
+    },
+  );
+
+  it("Codex P1: unrecognized 5xx error never exposes private server internals", async () => {
+    const backend = fakeServer();
+    backend.setLost();
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(first);
+    await act(async () => { expect(await first.result.current.save(ids, lines, draft)).toBe(false); });
+    const original = first.result.current.pending!.requestId;
+    first.unmount();
+    const fetch = vi.fn().mockImplementation(async () => {
+      throw Object.assign(new Error("SQL PRIVATE STACK"), {
+        status: 500, data: { error: {
+          code: "INTERNAL_SERVER_ERROR",
+          message: "SQL PRIVATE STACK",
+          request_id: "req-server-500",
+        } },
+      });
+    });
+    const hooked = renderHook(() => useShortageGroupCommit(args(fetch)));
+    await waitFor(() => expect(hooked.result.current.pending?.requestId).toBe(original));
+    await act(async () => { expect(await hooked.result.current.retry()).toBe(false); });
+    expect(hooked.result.current.feedback).not.toContain("SQL PRIVATE STACK");
+    expect(hooked.result.current.httpReference).toBe("req-server-500");
+    expect((await readDurableCommand(shortageGroupScope()!))?.requestId).toBe(original);
+  });
+
   it("cross-company and principal switches never restore or mutate earlier scope", async () => {
     const backend = fakeServer();
     backend.setLost();
@@ -492,7 +594,8 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
           drivers={[]} shortageDriverId="9" onDriverChange={vi.fn()}
           groupRecovery={{
             pending: { requestId: "ded0c901-babc-4455-9abc-000000000003", payload: intent },
-            blocked: false, restoring: false, busy: false, feedback: groupText(language, "unknown"),
+            blocked: false, restoring: false, busy: false,
+            feedback: groupText(language, "unknown"), httpReference: "req-shorten-409",
             onRetry,
           }}
         />,
