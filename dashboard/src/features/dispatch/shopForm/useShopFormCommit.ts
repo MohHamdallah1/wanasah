@@ -154,7 +154,8 @@ export function useShopFormCommit({
         setFeedback(shopFormText(language, "editRecovered"));
         return;
       }
-      if (!isShopCreateAttempt(record.payload)) {
+      const createAttempt = record.payload;
+      if (!isShopCreateAttempt(createAttempt)) {
         setRecoveryUnreadable(true);
         return;
       }
@@ -162,13 +163,13 @@ export function useShopFormCommit({
       setPending(previous =>
         previous?.mode === "create" && previous.durableId === record.requestId &&
         previous.id ? previous : {
-          id: serverShopId, mode: "create", payload: record.payload.submitted,
-          baselineIds: record.payload.baselineIds,
+          id: serverShopId, mode: "create", payload: createAttempt.submitted,
+          baselineIds: createAttempt.baselineIds,
           durableId: record.requestId, durableScope: scope,
         },
       );
       setServerReference(readShopAttemptServerReference(scope, record.requestId));
-      restoreFormRef.current?.(record.payload.draft);
+      restoreFormRef.current?.(createAttempt.draft);
       setFeedback(shopFormText(language, "createRecovered"));
     }).catch(() => {
       if (active && current(token)) setRecoveryUnreadable(true);
