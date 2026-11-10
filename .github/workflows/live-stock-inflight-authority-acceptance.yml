@@ -159,13 +159,27 @@ jobs:
           python - <<'PY'
           import hashlib
           import xml.etree.ElementTree as ET
+          from pathlib import Path
 
           # #847 historical evidence: #753 added one valid Arabic UOM-pair
           # regression after the workflow froze at 127. The #846 artifact
           # 13653788381 contains 128 PASS, zero skipped/failed/duplicate cases.
           # Freeze ALL 128 exact identities, not merely a len >= 127 gate:
           # this digest also proves all original 127 case names are retained.
-          unit_manifest_sha256 = "2f2e2a2194a00e65224c263e9945b5451ff0e4ea30560e485403b353ea37944c"
+          # #867 adds exactly two scoped-reader cases only on the D09 source.
+          # Both historical 128 and D09 130 use exact, independently frozen
+          # full sorted-case SHA256 identities; neither uses a >= threshold.
+          d09_source_present = (
+              "D09 actual DispatchBoard effective grants and revoked view"
+              in Path("dashboard/src/test/auth-session-consumer-isolation.test.tsx")
+              .read_text(encoding="utf-8")
+          )
+          unit_case_count = 130 if d09_source_present else 128
+          unit_manifest_sha256 = (
+              "2f2e2a2194a00e65224c263e9945b5451ff0e4ea30560e485403b353ea37944c"
+              if d09_source_present else
+              "457188a08d56e73c4a21290cc2851f49b091887a21d425624000303779c84770"
+          )
           extra_cp7_identity = (
               "src/test/inventory-cp7-live-stock.test.tsx",
               "CP7 Live Stock Dashboard closure > separates Arabic number/UOM pairs "
@@ -173,7 +187,7 @@ jobs:
           )
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 130),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", unit_case_count),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
