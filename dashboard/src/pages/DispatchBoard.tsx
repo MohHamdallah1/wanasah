@@ -895,6 +895,7 @@ function DispatchSession() {
   }, [activeTab, hasUnsavedChanges, needsReconciliation]);
 
   const handleDispatchRoute = () => {
+    const admitted = captureUiRead();
     if (!canLaunch) {
       toast.error('لا تملك صلاحية إطلاق خطوط السير.');
       return;
@@ -934,6 +935,7 @@ function DispatchSession() {
       return;
     }
 
+    const draftSource = [actorScope, selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId] as const;
     authenticatedFetch("/dispatch/route", {
       method: "POST",
       body: JSON.stringify({
@@ -946,16 +948,18 @@ function DispatchSession() {
       })
     })
       .then(() => {
+        if (!admitted()) return;
+        clearRouteLoadDraft(...draftSource);
         toast.success("تم إطلاق خط السير بنجاح");
         setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setRouteLoadTargets({});
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
-        authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
+        authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
+          .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
+          .catch(err => { if (admitted()) console.error(err); });
       })
-      .catch((err) =>
-        toast.error(
-          apiErrorMessage(err, "فشل إطلاق خط السير.")
-        )
-      );
+      .catch((err) => {
+        if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
+      });
   };
 
   const handleConfirmRouteAction = async () => {
@@ -1260,6 +1264,7 @@ function DispatchSession() {
   });
 
   const handleAddShortage = async () => {
+    const admitted = captureUiRead();
     if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) {
       return toast.error("⚠️ يرجى إكمال بيانات الطلب");
     }
@@ -1303,14 +1308,17 @@ function DispatchSession() {
             method: "POST",
             body: JSON.stringify(newShortages),
           });
+          if (!admitted()) return;
           await refreshShortages();
+          if (!admitted()) return;
           saved = true;
         } finally {
           shortageMutationInFlightRef.current = false;
         }
       }
 
-      if (!saved) return;
+      if (!saved || !admitted()) return;
+      clearShortageDraft(actorScope);
 
       const wasEditing = editingShortageIds.length > 0;
       setEditingShortageIds([]);
@@ -1320,7 +1328,7 @@ function DispatchSession() {
       // New standalone POST still uses the existing completion message.
       if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err));
+      if (admitted()) toast.error(getErrorMessage(err));
       shortageMutationInFlightRef.current = false;
     }
   };
