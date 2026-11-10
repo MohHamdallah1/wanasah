@@ -25,6 +25,10 @@ import {
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
 import { groupText } from "@/features/dispatch/shortageGroup/contract";
+import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
+import {
+  readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchText,
+} from "@/features/dispatch/routeLaunch/contract";
 import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -342,6 +346,25 @@ function DispatchSession() {
   const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  const routeLaunchActor = useMemo(() =>
+    actorScope && Number.isSafeInteger(Number(selectedSourceWarehouseId)) &&
+    Number(selectedSourceWarehouseId) > 0 &&
+    Number.isSafeInteger(Number(selectedVehicleId)) && Number(selectedVehicleId) > 0
+      ? { actorScope, warehouseId: Number(selectedSourceWarehouseId),
+          vehicleId: Number(selectedVehicleId) }
+      : null,
+  [actorScope, selectedSourceWarehouseId, selectedVehicleId]);
+  const routeLaunch = useRouteLaunchRecovery({
+    actor: routeLaunchActor, session: session!,
+    authorized: Boolean(canLaunch && dispatchReadState === "ready" &&
+      !isWarehouseLocked && !isWarehouseStatusLoading),
+    language: i18n.language, fetch: authenticatedFetch,
+  });
+  const routeLaunchPendingOwner = (() => {
+    if (!actorScope || accessState !== "ready" || !grants.launch) return null;
+    try { return readRouteLaunchPendingOwner(actorScope); }
+    catch { return null; } // corrupt local state never authorizes an action
+  })();
   const choicesRef = useRef({
     activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
     driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
@@ -357,6 +380,34 @@ function DispatchSession() {
     activeRoute?.id, grants,
   ]));
   const captureUiRead = () => asyncEpochRef.current.capture();
+  // A verified original UUID receipt is business truth, even when its first
+  // HTTP 201 disappeared. Clear ONLY the original D10 route-load draft.
+  useEffect(() => {
+    const outcome = routeLaunch.result;
+    if (outcome.kind !== "committed" || !actorScope ||
+        accessState !== "ready" || dispatchReadState !== "ready" ||
+        !grants.launch || !isDashboardSessionCurrent(session!)) return;
+    const admitted = captureUiRead();
+    if (!routeLaunch.acknowledge(outcome.requestId)) return;
+    const original = outcome.intent;
+    clearRouteLoadDraft(actorScope, String(original.source_location_id),
+      String(original.vehicle_id), String(original.zone_id), String(original.driver_id));
+    if (selectedSourceWarehouseId === String(original.source_location_id) &&
+        selectedVehicleId === String(original.vehicle_id) &&
+        selectedZoneId === String(original.zone_id) &&
+        selectedDriverId === String(original.driver_id)) {
+      setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId("");
+      setRouteLoadTargets({});
+    }
+    toast.success(routeLaunchText(i18n.language, "committed"));
+    if (grants.routes) {
+      void authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
+        .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
+        .catch(() => undefined); // receipt already proved commit; list is presentation only
+    }
+  }, [routeLaunch.result, actorScope, accessState, dispatchReadState,
+    grants.launch, grants.routes, session, authenticatedFetch,
+    selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId, i18n.language]);
   useEffect(() => {
     const revoke = () => asyncEpochRef.current.revoke();
     window.addEventListener("inventory-permission-denied", revoke);
@@ -901,8 +952,12 @@ function DispatchSession() {
     setActiveTab(tabId);
   }, [activeTab, hasUnsavedChanges, needsReconciliation]);
 
-  const handleDispatchRoute = () => {
+  const handleDispatchRoute = async () => {
     const admitted = captureUiRead();
+    if (routeLaunch.busy || routeLaunch.hasUnresolved) {
+      toast.info(routeLaunch.message);
+      return;
+    }
     if (!canLaunch) {
       toast.error('لا تملك صلاحية إطلاق خطوط السير.');
       return;
@@ -942,31 +997,36 @@ function DispatchSession() {
       return;
     }
 
-    const draftSource = [actorScope, selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId] as const;
-    authenticatedFetch("/dispatch/route", {
-      method: "POST",
-      body: JSON.stringify({
+    try {
+      const intent = routeLaunchIntent({
         zone_id: selectedZoneId,
         driver_id: selectedDriverId,
         vehicle_id: selectedVehicleId,
-        source_location_id: Number(selectedSourceWarehouseId),
+        source_location_id: selectedSourceWarehouseId,
         inventory_base: inventoryBase,
-        expected_inventory_base: routeLoadCurrent
-      })
-    })
-      .then(() => {
-        if (!admitted()) return;
-        clearRouteLoadDraft(...draftSource);
-        toast.success("تم إطلاق خط السير بنجاح");
-        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setRouteLoadTargets({});
-        // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
-        authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
-          .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
-          .catch(err => { if (admitted()) console.error(err); });
-      })
-      .catch((err) => {
-        if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
+        expected_inventory_base: routeLoadCurrent,
       });
+      const outcome = await routeLaunch.launch(intent);
+      if (!admitted()) return;
+      if (outcome.kind === "unknown" || outcome.kind === "conflict" ||
+          outcome.kind === "blocked" || outcome.kind === "busy") {
+        toast.info(routeLaunchText(i18n.language, outcome.kind));
+      }
+      // Only the verified original receipt effect may show success, clear
+      // D10 drafts or alter route rows. UNKNOWN never fabricates a success.
+    } catch {
+      if (admitted()) toast.error(t("dispatchRouteLoad.invalid"));
+    }
+  };
+
+  const verifyRouteLaunchOriginal = async (retry: boolean) => {
+    const admitted = captureUiRead();
+    const outcome = retry ? await routeLaunch.retryOriginal() : await routeLaunch.recover();
+    if (!admitted()) return;
+    if (outcome.kind === "unknown" || outcome.kind === "blocked" ||
+        outcome.kind === "busy" || outcome.kind === "conflict") {
+      toast.info(routeLaunchText(i18n.language, outcome.kind));
+    }
   };
 
   const handleConfirmRouteAction = async () => {
