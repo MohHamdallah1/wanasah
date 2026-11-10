@@ -153,7 +153,7 @@ export function useShopFormCommit({
       if (active && current(token)) setRestoring(false);
     });
     return () => { active = false; };
-  }, [open, editId, session, current]);
+  }, [open, editId, session, current, language]);
 
   const clearAttempt = useCallback((verification: PendingVerification): void => {
     if (!verification.durableScope || !verification.durableId) return;
@@ -281,6 +281,7 @@ export function useShopFormCommit({
             baselineIds: previous.payload.baselineIds,
             durableScope: scope, durableId: previous.requestId,
           });
+          setServerReference(readShopAttemptServerReference(scope, previous.requestId));
           restoreFormRef.current?.(previous.payload.draft);
           setFeedback(shopFormText(language, "createRecovered"));
           return false; // no duplicate POST even if the clicked draft is different
