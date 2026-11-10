@@ -70,17 +70,20 @@ async def test_d11_authoritative_published_zero_tax_read_no_mutation(pg):
         field = await _seed_mobile_uom_and_field(pg, tenant)
         field_auth = await _token(client, pg, tenant, field, "SyntheticFixture123")
         denied = await client.get(_path(body), headers=field_auth)
-        assert denied.status_code == 403
+        assert denied.status_code == 401  # Field JWT is not a Backoffice credential
+        ordinary = await _token(client, pg, tenant, tenant.ordinary, "SyntheticFixture123")
+        forbidden = await client.get(_path(body), headers=ordinary)
+        assert forbidden.status_code == 403  # valid non-owner, no dispatch.execute
     assert await _state(pg, tenant, key, vehicle_location) == before
 
 
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
 async def test_d11_missing_canonical_publications_are_not_assumed_zero(pg):
-    # An untouched second company is the real absence-of-publication case.
-    # Never UPDATE an immutable PUBLISHED Pricing/Tax version just for a test.
+    # No prices are ever published for this tenant before the read.
+    # Never UPDATE immutable published Pricing/Tax history just for a test.
     from models import Zone
     from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
-    tenant = pg.tenants[1]
+    tenant = pg.tenants[0]
     field = await _seed_mobile_uom_and_field(pg, tenant)
     vehicle, _ = await _vehicle(pg, tenant)
     async with pg.session() as db:
@@ -118,7 +121,7 @@ async def test_d11_real_full_warehouse_audit_lock_blocks_launch_without_side_eff
         stocktake = StocktakeSession(
             company_id=tenant.company_id, location_id=tenant.location_id,
             reference_number="D11-STK-" + uuid4().hex[:12],
-            stocktake_type="FULL_COUNT", status="COUNTING",
+            stocktake_type="FULL_COUNT", status="DRAFT",
             started_by=tenant.owner.driver_id,
         )
         db.add(stocktake)
