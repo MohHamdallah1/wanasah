@@ -51,7 +51,7 @@ describe("Dispatch large-catalog containment", () => {
       "utf8",
     );
 
-    expect(source).toContain("{isShortageModalOpen && (");
+    expect(source).toContain("{grants.shortages && isShortageModalOpen && (");
     expect(source).toContain("{isRouteModalOpen && (");
     expect(source).toContain("<RouteLoadProductTable");
     expect(source).not.toContain("initData.products");

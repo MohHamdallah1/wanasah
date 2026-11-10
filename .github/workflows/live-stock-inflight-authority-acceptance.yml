@@ -159,13 +159,27 @@ jobs:
           python - <<'PY'
           import hashlib
           import xml.etree.ElementTree as ET
+          from pathlib import Path
 
           # #847 historical evidence: #753 added one valid Arabic UOM-pair
           # regression after the workflow froze at 127. The #846 artifact
           # 13653788381 contains 128 PASS, zero skipped/failed/duplicate cases.
           # Freeze ALL 128 exact identities, not merely a len >= 127 gate:
           # this digest also proves all original 127 case names are retained.
-          unit_manifest_sha256 = "457188a08d56e73c4a21290cc2851f49b091887a21d425624000303779c84770"
+          # #867 adds exactly two scoped-reader cases only on the D09 source.
+          # Both historical 128 and D09 130 use exact, independently frozen
+          # full sorted-case SHA256 identities; neither uses a >= threshold.
+          d09_source_present = (
+              "D09 actual DispatchBoard effective grants and revoked view"
+              in Path("dashboard/src/test/auth-session-consumer-isolation.test.tsx")
+              .read_text(encoding="utf-8")
+          )
+          unit_case_count = 130 if d09_source_present else 128
+          unit_manifest_sha256 = (
+              "2f2e2a2194a00e65224c263e9945b5451ff0e4ea30560e485403b353ea37944c"
+              if d09_source_present else
+              "457188a08d56e73c4a21290cc2851f49b091887a21d425624000303779c84770"
+          )
           extra_cp7_identity = (
               "src/test/inventory-cp7-live-stock.test.tsx",
               "CP7 Live Stock Dashboard closure > separates Arabic number/UOM pairs "
@@ -173,7 +187,7 @@ jobs:
           )
           for path, expected in [
               ("/tmp/live-stock-inflight-fixture.xml", 1),
-              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", 128),
+              ("dashboard/node_modules/.cache/live-stock-inflight-unit.xml", unit_case_count),
               ("dashboard/node_modules/.cache/live-stock-inflight-http.xml", 7),
           ]:
               root = ET.parse(path).getroot()
@@ -314,6 +328,31 @@ jobs:
           shortage_group_859_new = shortage_group_859_exact - {"dashboard/src/pages/DispatchBoard.tsx"}
           assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_new) == 4
 
+          # D09 #867: one exact twelve-file capability/navigation diff; no wildcard.
+          dispatch_d09_867_exact = {
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+              "dashboard/src/features/dispatch/dispatchAccess.ts",
+              "dashboard/src/features/dispatch/loadDispatchRead.ts",
+              "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+              "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/dispatch-scale-containment.test.ts",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
+          dispatch_d09_867_new = {
+              "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+              "dashboard/src/features/dispatch/dispatchAccess.ts",
+              "dashboard/src/features/dispatch/loadDispatchRead.ts",
+              "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+              "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+              "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+          }
+          assert len(dispatch_d09_867_exact) == 12 and len(dispatch_d09_867_new) == 6
+
           # Governance-only PR #856 has its OWN exact four-file signature;
           # the three-file #847 mode and existing Live Stock owner modes survive.
           ci_policy_847_exact = {
@@ -336,6 +375,13 @@ jobs:
                       sorted(candidate - shop_order_843_exact),
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & dispatch_d09_867_new:
+                  assert candidate == dispatch_d09_867_exact, (
+                      "INFLIGHT_DISPATCH_D09_867_SCOPE=FAIL",
+                      sorted(dispatch_d09_867_exact - candidate),
+                      sorted(candidate - dispatch_d09_867_exact),
+                  )
+                  return "DISPATCH_D09_867_EXACT"
               if candidate & shortage_group_859_new:
                   assert candidate == shortage_group_859_exact, (
                       "INFLIGHT_SHORTAGE_GROUP_859_SCOPE=FAIL",
@@ -490,6 +536,31 @@ jobs:
               "INFLIGHT_859_SCOPE_SELFTEST=PASS "
               "exact=5 partial_with_new=29 foreign=12 mixed=5 f06_cross=DENIED"
           )
+
+          # D09 complete, partial and foreign scopes never broaden old policy.
+          assert ownership_mode(dispatch_d09_867_exact) == "DISPATCH_D09_867_EXACT"
+          for missing in dispatch_d09_867_exact:
+              partial = dispatch_d09_867_exact - {missing}
+              if partial & dispatch_d09_867_new:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"D09 partial accepted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "DISPATCH_D09_867_EXACT"
+          for foreign in ("wa_backend/api/driver.py", "wa_backend/models.py",
+                          "dashboard/src/lib/authStorage.ts",
+                          "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                          ".github/scripts/live_stock_ci_ownership.py"):
+              try:
+                  ownership_mode(dispatch_d09_867_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D09 foreign accepted: {foreign}")
+          print("INFLIGHT_D09_867_SCOPE_SELFTEST=PASS exact=12 missing=12 foreign=5")
 
           # Both governance sizes must remain independently enforceable:
           # three-file #847 is an established mode, not partial #856 approval.

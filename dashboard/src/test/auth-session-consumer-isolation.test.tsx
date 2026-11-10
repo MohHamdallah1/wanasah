@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { webcrypto } from "node:crypto";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,9 +21,25 @@ const fake = vi.hoisted(() => ({
   warning: vi.fn(), error: vi.fn(), success: vi.fn(), dismiss: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
-vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
-  isCompanyOwner: fake.owner, data: { company_id: Number(localStorage.getItem("company_id")), principal_id: Number(localStorage.getItem("principal_id")) }, can: () => true,
-}) }));
+vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => {
+  const company = Number(localStorage.getItem("company_id"));
+  const principal = Number(localStorage.getItem("principal_id"));
+  const owner = fake.owner;
+  // D09 requires real effective grants. Keep stable objects across React rerenders,
+  // as the production capability query does; do not grant a non-owner shortage.read.
+  const data = useMemo(() => ({
+    company_id: company, principal_id: principal, backoffice_user_id: principal * 10,
+    is_company_owner: owner, location_id: null,
+    permissions: owner ? ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"] : [],
+    any_permissions: owner ? ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"] : ["dispatch.read"],
+    location_permissions: [],
+  }), [company, principal, owner]);
+  return {
+    isCompanyOwner: owner, data, can: () => true,
+    isFetching: false, isError: false, error: null, dataUpdatedAt: 100,
+    refetch: async () => ({ data }),
+  };
+} }));
 vi.mock("sonner", () => ({ toast: {
   warning: fake.warning, error: fake.error, success: fake.success, dismiss: fake.dismiss,
 } }));
@@ -293,6 +309,43 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
   });
 });
 
+describe("D09 actual DispatchBoard effective grants and revoked view", () => {
+  it.each([{ width: 390, locale: "ar" }, { width: 1440, locale: "en" }] as const)(
+    "keeps non-owner scoped Zones visible/read-only then hides private rows at $width in $locale",
+    async ({ width, locale }) => {
+      await setAppLanguage(locale);
+      fake.owner = false;
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      fake.fetch.mockImplementation(async (path: string) => {
+        if (path === "/dispatch/init") return {
+          zones: [{ id: "41", name: "Scoped Zone", intervalDays: null, startDate: "",
+            scheduleStatus: "null", shopsCount: 1 }],
+          drivers: [], vehicles: [], warehouses: [],
+        };
+        if (path === "/dispatch/shops") return [{
+          id: "17", name: "Scoped Shop", owner: "Private Owner", phone: "55555555",
+          initialDebt: "130", maxDebtLimit: "300", zoneId: "41", archived: false,
+          sequence: 1,
+        }];
+        return [];
+      });
+      render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
+      const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
+      fireEvent.click(tab);
+      await screen.findAllByText("Scoped Zone");
+      await screen.findByText("Scoped Shop");
+      expect(screen.queryByText("[+ منطقة جديدة]")).not.toBeInTheDocument();
+      act(() => window.dispatchEvent(new Event("inventory-permission-denied")));
+      expect(screen.queryByText("Scoped Shop")).not.toBeInTheDocument();
+      expect(screen.queryByText("Private Owner")).not.toBeInTheDocument();
+      expect(screen.queryAllByText("Scoped Zone")).toHaveLength(0);
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        locale === "ar" ? "لا تملك صلاحية" : "You do not have access",
+      );
+    },
+  );
+});
+
 describe("adjacent Product Import uses the same captured-session boundary", () => {
   const progress = { status: "IMPORTING", imported_rows: 0, invalid_rows: 0,
     import_failed_rows: 0, default_lot_control_mode: "NONE", default_expiry_control_mode: "NONE" };
@@ -452,16 +505,20 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   expect(requests.some(request => request.company === "2" && request.path === "/dispatch/init")).toBe(true);
   expect(requests.filter(request => request.company === "1" && request.path === "/dispatch/init")
     .every(request => request.signal?.aborted)).toBe(true);
-  for (const tab of ["إطلاق خط جديد", "هيكلة المناطق", "الخطوط النشطة"]) {
-    fireEvent.click(screen.getByRole("tab", { name: tab }));
-    expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage)/);
-  }
+  // D09: during B's pending permission/data read, no old or new tab is exposed.
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Checking access permissions");
   await act(async () => lateA.resolve());
   expect(document.body.textContent).not.toContain("A-LATE");
   expect(localStorage.getItem(scope)).toBe(persisted);
 
   await act(async () => allowB.resolve());
   expect(screen.getByText("B-route")).toBeInTheDocument();
+  for (const tab of ["إطلاق خط جديد", "هيكلة المناطق", "الخطوط النشطة"]) {
+    fireEvent.click(screen.getByRole("tab", { name: tab }));
+    expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage)/);
+  }
+  fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
   fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
   expect(screen.getByText("B-shop", { selector: "p" })).toBeInTheDocument();

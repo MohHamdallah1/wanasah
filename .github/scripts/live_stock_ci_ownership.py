@@ -888,6 +888,31 @@ SHOP_ORDER_843_EXACT = frozenset({
 SHOP_ORDER_843_NEW = SHOP_ORDER_843_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
 assert len(SHOP_ORDER_843_EXACT) == 9 and len(SHOP_ORDER_843_NEW) == 8
 
+# #867: only complete D09 capability/navigation UI may cross shared DispatchBoard.
+DISPATCH_D09_867_EXACT = frozenset({
+    "dashboard/src/components/dispatch/ShortageModal.tsx",
+    "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+    "dashboard/src/features/dispatch/dispatchAccess.ts",
+    "dashboard/src/features/dispatch/loadDispatchRead.ts",
+    "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+    "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+    "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+    "dashboard/src/test/dispatch-load-context.test.tsx",
+    "dashboard/src/test/dispatch-scale-containment.test.ts",
+    "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+})
+DISPATCH_D09_867_NEW = frozenset({
+    "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+    "dashboard/src/features/dispatch/dispatchAccess.ts",
+    "dashboard/src/features/dispatch/loadDispatchRead.ts",
+    "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+    "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+    "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+})
+assert len(DISPATCH_D09_867_EXACT) == 12 and len(DISPATCH_D09_867_NEW) == 6
+
 # #847 is a maintenance-only PR. It changes exactly the three policy
 # surfaces and has no right to modify Dispatch, Stock, Driver or auth runtime.
 # Do not add these paths to broad UX/R3/operational allowed unions.
@@ -945,6 +970,16 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             f"CI_POLICY_856_EXACT=FAIL missing={sorted(CI_POLICY_856_EXACT - changed)} "
             f"extra={sorted(changed - CI_POLICY_856_EXACT)}"
         ]
+    if changed & DISPATCH_D09_867_NEW:
+        if changed != DISPATCH_D09_867_EXACT:
+            return "fail", [
+                f"DISPATCH_D09_867_EXACT=FAIL missing={sorted(DISPATCH_D09_867_EXACT - changed)} "
+                f"extra={sorted(changed - DISPATCH_D09_867_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "dispatch-d09-867-exact", []
+        return "not-applicable", []
+
     # Exact #846 ShopOrder change is outside Live Stock owner scope.
     # A partial set, even with the shared DispatchBoard, or any hitchhiker
     # is REJECTED whenever one of its eight newly extracted files appears.
@@ -1220,6 +1255,23 @@ def selftest() -> None:
         "shop-form-850-exact"
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
+
+    # #867 D09 strict 12-file admission: no partial/extra/foreign changes.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(DISPATCH_D09_867_EXACT), policy_sem) == ("dispatch-d09-867-exact", [])
+    assert classify("r3", set(DISPATCH_D09_867_EXACT), policy_sem) == ("not-applicable", [])
+    for missing in DISPATCH_D09_867_EXACT:
+        subset = set(DISPATCH_D09_867_EXACT) - {missing}
+        if subset & DISPATCH_D09_867_NEW:
+            for mode in ("ux", "r3", "operational"):
+                _expect_fail(mode, subset, policy_sem)
+        else:
+            assert classify("ux", subset, policy_sem)[0] != "dispatch-d09-867-exact"
+    for foreign in (HELPER, "wa_backend/api/driver.py", "wa_backend/models.py",
+                    "dashboard/src/lib/authStorage.ts", "dashboard/src/pages/inventory/Tab1LiveStock.tsx"):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(DISPATCH_D09_867_EXACT) | {foreign}, policy_sem)
+    print("DISPATCH_D09_867_LIVE_STOCK_SELFTEST=PASS exact=12 missing=12 foreign=5")
 
     # #859 exact five-file acceptance and negative regression probes.
     # Never admit a subset, a backend path, an auth/session path, a finance
