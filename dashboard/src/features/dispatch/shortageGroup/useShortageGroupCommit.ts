@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { apiErrorStatus } from "@/lib/apiErrors";
+import { apiErrorMessage, apiErrorRequestId, apiErrorStatus } from "@/lib/apiErrors";
 import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStorage";
 import {
   completeDurableOperation, getOrCreateDurableCommand, readDurableCommand,
@@ -10,6 +10,7 @@ import type { Shortage } from "@/types/dispatch";
 import {
   buildGroupIntent, groupMutationBody, groupText, isGroupIntent,
   parseGroupResponse, shortageGroupScope, verifiedGroupReadback,
+  saveGroupHttpReference, readGroupHttpReference, clearGroupHttpReference,
   type GroupDraftLine, type GroupIntent, type GroupLine,
 } from "./contract";
 
@@ -43,6 +44,7 @@ export function useShortageGroupCommit({
   const [restoring, setRestoring] = useState(true);
   const [blocked, setBlocked] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [httpReference, setHttpReference] = useState<string | null>(null);
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const onVerifiedRef = useRef(onVerified);
@@ -62,6 +64,7 @@ export function useShortageGroupCommit({
     let active = true;
     setPending(null);
     setFeedback(null);
+    setHttpReference(null);
     setBlocked(false);
     setRestoring(true);
     if (!authorized) {
@@ -83,6 +86,7 @@ export function useShortageGroupCommit({
           return;
         }
         setPending(record);
+        setHttpReference(readGroupHttpReference(scope, record.requestId));
         setFeedback(groupText(language, "pending"));
         onRestoredRef.current(record.payload);
       })
@@ -154,7 +158,17 @@ export function useShortageGroupCommit({
               setBlocked(true);
               return false;
             }
+            if (retry && (!pending || existing.requestId !== pending.requestId)) {
+              // This tab's Retry is for A, while another tab installed B.
+              // Web Locks serialize mutations, but do NOT identify intent.
+              setPending(existing);
+              setHttpReference(readGroupHttpReference(scope, existing.requestId));
+              onRestoredRef.current(existing.payload);
+              setFeedback(groupText(language, "changedAttempt"));
+              return false; // zero PUT for a different original request
+            }
             setPending(existing);
+            setHttpReference(readGroupHttpReference(scope, existing.requestId));
             if (!retry) {
               setFeedback(groupText(language, "different"));
               onRestoredRef.current(existing.payload);
@@ -179,6 +193,7 @@ export function useShortageGroupCommit({
             command = await getOrCreateDurableCommand(scope, intent);
             if (!live()) return false;
             setPending(command);
+            setHttpReference(null);
           }
           if (!command) return false;
           const original = command as DurableCommand<GroupIntent>;
@@ -192,19 +207,23 @@ export function useShortageGroupCommit({
           } catch (error) {
             if (live()) {
               const status = apiErrorStatus(error);
-              if (status === 401 || status === 403) {
-                setFeedback(groupText(language, "denied"));
-                setBlocked(true); // no replay until fresh authenticated session
-              } else if (status === 404 || status === 400 || status === 422) {
-                // Transport-level 4xx is NOT proof that the canonical
-                // idempotency lookup ran. Preserve the original immutable
-                // command even if a router/proxy generated this response.
-                setFeedback(groupText(language, "stale"));
-              } else {
-                // 409 may be a concurrent lock or key/hash conflict; retain
-                // the unchanged key and request. 5xx/timeouts remain UNKNOWN.
-                setFeedback(groupText(language, status === 409 ? "conflict" : "unknown"));
+              const ref = apiErrorRequestId(error);
+              if (ref) {
+                saveGroupHttpReference(scope, original.requestId, ref);
+                setHttpReference(readGroupHttpReference(scope, original.requestId));
               }
+              const fallback = groupText(language,
+                status === 401 || status === 403 ? "denied"
+                  : status === 409 ? "conflict"
+                    : status === 400 || status === 404 || status === 422 ? "stale" : "unknown");
+              // Preserves canonical code, localized context and safe request
+              // reference while redacting unexpected 5xx diagnostics.
+              setFeedback(apiErrorMessage(error, fallback));
+              if (status === 401 || status === 403) {
+                setBlocked(true); // revoked grant requires fresh login
+              }
+              // 400/404/422/409 NEVER erase an ambiguous old command by
+              // status alone: router/validation error is not idempotency proof.
             }
             return false;
           }
@@ -223,7 +242,9 @@ export function useShortageGroupCommit({
               return false;
             }
             completeDurableOperation(scope, original.requestId);
+            clearGroupHttpReference(scope);
             setPending(null);
+            setHttpReference(null);
             setFeedback(null);
             onVerifiedRef.current(rows, original.payload);
             toast.success(groupText(language,
@@ -232,7 +253,13 @@ export function useShortageGroupCommit({
           } catch (error) {
             if (live()) {
               const denied = [401, 403].includes(apiErrorStatus(error) ?? 0);
-              setFeedback(groupText(language, denied ? "denied" : "readback"));
+              const ref = apiErrorRequestId(error);
+              if (ref) {
+                saveGroupHttpReference(scope, original.requestId, ref);
+                setHttpReference(readGroupHttpReference(scope, original.requestId));
+              }
+              setFeedback(apiErrorMessage(error,
+                groupText(language, denied ? "denied" : "readback")));
               if (denied) setBlocked(true); // GET may lose its read grant
             }
             return false;
@@ -274,7 +301,7 @@ export function useShortageGroupCommit({
 
   return {
     save, retry, pending: authorized ? pending : null,
-    restoring, busy, blocked, feedback,
+    restoring, busy, blocked, feedback, httpReference,
     /** Never hide an unresolved command merely because its selected IDs
      * disappeared after a lost successful PUT.
      */
