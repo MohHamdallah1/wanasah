@@ -274,9 +274,12 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   expect(choices.every(Boolean)).toBe(true);
   const selectors = page.locator(".dispatch-launch-config > .relative.mt-2");
   await expect(selectors).toHaveCount(4);
-  for (let index = 0; index < choices.length; index++) {
+  // Warehouse-first is deliberate: changing physical source invalidates all
+  // previous Zone/Representative/Vehicle selections and their stock evidence.
+  for (const index of [3, 0, 1, 2]) {
     await selectors.nth(index).locator("button").first().click();
     await selectors.nth(index).getByRole("button", { name: choices[index], exact: true }).click();
+    await expect(selectors.nth(index).locator("button").first()).toContainText(choices[index]);
   }
   const readiness = page.getByTestId("d11-commercial-preflight");
   await expect(readiness.getByRole("status")).toContainText(
