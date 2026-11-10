@@ -603,6 +603,10 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
       expect(screen.getByTestId("shortage-group-recovery")).toBeInTheDocument();
       expect(screen.getByText(groupText(language, "pending"))).toBeInTheDocument();
       expect(screen.getByText(/ded0c901-babc-4455-9abc-000000000003/)).toBeInTheDocument();
+      expect(screen.getByTestId("shortage-group-http-ref")).toHaveTextContent("req-shorten-409");
+      expect(screen.getByTestId("shortage-group-http-ref")).toHaveTextContent(
+        groupText(language, "serverReference"),
+      );
       fireEvent.click(screen.getByRole("button", { name: groupText(language, "retry") }));
       expect(onRetry).toHaveBeenCalledOnce();
       expect(screen.getByText(/Chips/)).toBeInTheDocument();
