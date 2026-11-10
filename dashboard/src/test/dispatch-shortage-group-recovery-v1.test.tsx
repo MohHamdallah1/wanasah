@@ -133,7 +133,7 @@ function fakeServer(action: "edit" | "delete" = "edit") {
 }
 const args = (fetch: (url: string, options?: RequestInit) => Promise<unknown>, language = "en") => ({
   session, authorized: true, language, fetch,
-  onVerified: vi.fn(), onRefreshed: vi.fn(), onRestored: vi.fn(),
+  onVerified: vi.fn(), onRefreshed: vi.fn(), onReconciled: vi.fn(), onRestored: vi.fn(),
 });
 const ready = async (hook: { result: { current: { restoring: boolean } } }) =>
   waitFor(() => expect(hook.result.current.restoring).toBe(false));
@@ -235,6 +235,68 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     expect(backend.bodies).toHaveLength(2);
     expect(backend.bodies[0]).toBe(backend.bodies[1]);
     expect(toast.success).toHaveBeenCalledOnce();
+    expect(await readDurableCommand(shortageGroupScope()!)).toBeNull();
+  });
+
+  it.each(["ar", "en"] as const)(
+    "Codex P1: canonical exact-key replay confirms historic edit despite downstream route driver change (%s)",
+    async language => {
+      await setAppLanguage(language);
+      const backend = fakeServer("edit");
+      backend.setLost();
+      const first = renderHook(() => useShortageGroupCommit(args(backend.fetch, language)));
+      await ready(first);
+      await act(async () => { expect(await first.result.current.save(ids, lines, draft)).toBe(false); });
+      const original = await readDurableCommand<GroupIntent>(shortageGroupScope()!);
+      expect(backend.getCommits()).toBe(1);
+      first.unmount();
+
+      const fetch = vi.fn().mockImplementation(async (path: string, options?: RequestInit) => {
+        const result = await backend.fetch(path, options);
+        if (path === "/dispatch/shortages" && options?.method !== "PUT") {
+          // Another authorized route action changed driver on committed rows
+          // AFTER the original shortage edit (not a new edit PUT).
+          return (result as Shortage[]).map(x => ({ ...x, driverId: "18" }));
+        }
+        return result;
+      });
+      const props = args(fetch, language);
+      const recovered = renderHook(() => useShortageGroupCommit(props));
+      await waitFor(() => expect(recovered.result.current.pending?.requestId).toBe(original?.requestId));
+      await act(async () => { expect(await recovered.result.current.retry()).toBe(true); });
+      expect(backend.getCommits()).toBe(1);
+      expect(backend.bodies).toHaveLength(2);
+      expect(backend.bodies[0]).toBe(backend.bodies[1]);
+      expect(await readDurableCommand(shortageGroupScope()!)).toBeNull();
+      expect(props.onVerified).not.toHaveBeenCalled(); // present state differs
+      expect(props.onReconciled).toHaveBeenCalledWith(expect.arrayContaining([
+        expect.objectContaining({ id: "102", driverId: "18" }),
+      ]));
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(toast.info).toHaveBeenCalledWith(groupText(language, "historicalCommit"));
+      expect(recovered.result.current.feedback).toBe(groupText(language, "historicalCommit"));
+      recovered.unmount();
+    },
+  );
+
+  it("Codex P1: exact-key replay200 plus authorized empty list reconciles later fulfillment without phantom current rows", async () => {
+    const backend = fakeServer("edit");
+    backend.setLost();
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(first);
+    await act(async () => { expect(await first.result.current.save(ids, lines, draft)).toBe(false); });
+    const original = first.result.current.pending!.requestId;
+    first.unmount();
+    const fetch = vi.fn().mockImplementation(async (path: string, opts?: RequestInit) =>
+      opts?.method === "PUT" ? backend.fetch(path, opts) : [],
+    );
+    const props = args(fetch);
+    const recovering = renderHook(() => useShortageGroupCommit(props));
+    await waitFor(() => expect(recovering.result.current.pending?.requestId).toBe(original));
+    await act(async () => { expect(await recovering.result.current.retry()).toBe(true); });
+    expect(props.onReconciled).toHaveBeenCalledWith([]);
+    expect(props.onVerified).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
     expect(await readDurableCommand(shortageGroupScope()!)).toBeNull();
   });
 
@@ -347,6 +409,38 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     expect(secondProps.onVerified).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     expect(second.result.current.feedback).toBe(groupText("en", "otherTabResolved"));
+    first.unmount(); second.unmount();
+  });
+
+  it("Codex P1: cross-tab stale recovery GET preserves safe canonical error reason + actual HTTP trace", async () => {
+    const backend = fakeServer();
+    backend.setLost();
+    const originalHook = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(originalHook);
+    await act(async () => { expect(await originalHook.result.current.save(ids, lines, draft)).toBe(false); });
+    const originalId = originalHook.result.current.pending!.requestId;
+    originalHook.unmount();
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    const readError = Object.assign(new Error("PRIVATE_DB_DETAIL"), {
+      status: 409, data: { error: {
+        code: "SHORTAGE_SELECTION_STALE", message: "A newer status is active.",
+        request_id: "http-readback-409",
+      } },
+    });
+    const fetch = vi.fn().mockRejectedValue(readError);
+    const secondProps = args(fetch);
+    const second = renderHook(() => useShortageGroupCommit(secondProps));
+    await waitFor(() => expect(second.result.current.pending?.requestId).toBe(originalId));
+    await act(async () => { expect(await first.result.current.retry()).toBe(true); });
+    toast.success.mockClear();
+    await act(async () => { expect(await second.result.current.retry()).toBe(false); });
+    expect(second.result.current.pending?.requestId).toBe(originalId);
+    expect(second.result.current.feedback).toContain("A newer status is active.");
+    expect(second.result.current.httpReference).toBe("http-readback-409");
+    expect(readGroupHttpReference(shortageGroupScope()!, originalId)).toBe("http-readback-409");
+    expect(fetch.mock.calls.filter(([, opts]) => opts?.method === "PUT")).toHaveLength(0);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(secondProps.onRefreshed).not.toHaveBeenCalled();
     first.unmount(); second.unmount();
   });
 
