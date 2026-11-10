@@ -7,6 +7,7 @@ import {
 } from "@/lib/durableOperations";
 import {
   isOriginalRouteUuid, isRouteLaunchIntent, originalRouteReceipt,
+  routeLaunchActorMatchesSession,
   routeLaunchIntent, routeLaunchReadback, routeLaunchScopeKey, routeLaunchText,
   type RouteLaunchActor, type RouteLaunchIntent, type RouteLaunchOutcome,
 } from "./contract";
@@ -120,7 +121,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
       return await navigator.locks.request(
         `${scope}:exclusive-d07-launch`,
         { mode: "exclusive", ifAvailable: true },
-        async lock => {
+        async (lock): Promise<RouteLaunchOutcome> => {
           if (!lock) return { kind: "busy" } satisfies RouteLaunchOutcome;
           if (checkAccess(token)) return cancelled(token);
           let existing: Stored | null;
@@ -219,7 +220,8 @@ export function useRouteLaunchRecovery({
   const [busy, setBusy] = useState(false);
   const latest = useRef({ authorized, onCommitted, fetch });
   latest.current = { authorized, onCommitted, fetch };
-  const key = actor ? (() => { try { return routeLaunchScopeKey(actor); } catch { return null; } })() : null;
+  const key = actor && routeLaunchActorMatchesSession(actor, session.identity)
+    ? (() => { try { return routeLaunchScopeKey(actor); } catch { return null; } })() : null;
   const controller = useMemo(() => {
     if (!actor || !key) return null;
     return createRouteLaunchRecovery({
@@ -231,9 +233,9 @@ export function useRouteLaunchRecovery({
     // Deliberately reset only on verified actor/scope/login generation.
   }, [key, session.generation, session.identity, authorized]);
   useEffect(() => {
-    setResult({ kind: authorized ? "idle" : "blocked" });
+    setResult({ kind: authorized && key ? "idle" : "blocked" });
     setBusy(false);
-    if (!controller || !authorized) return () => { controller?.dispose(); };
+    if (!controller || !authorized || !key) return () => { controller?.dispose(); };
     let active = true;
     void controller.recover().then(answer => {
       if (!active || !isDashboardSessionCurrent(session) || !latest.current.authorized) return;
@@ -241,7 +243,7 @@ export function useRouteLaunchRecovery({
       if (answer.kind === "committed") latest.current.onCommitted?.(answer.receipt);
     });
     return () => { active = false; controller.dispose(); };
-  }, [controller, authorized, session]);
+  }, [controller, authorized, session, key]);
 
   const run = useCallback(async (operation: "launch" | "recover" | "retry", intent?: RouteLaunchIntent) => {
     if (!controller || !latest.current.authorized || busy) return { kind: "blocked" } as RouteLaunchOutcome;
@@ -269,8 +271,8 @@ export function useRouteLaunchRecovery({
       if (done) setResult({ kind: "idle" });
       return done;
     },
-    result: authorized ? result : ({ kind: "blocked" } as RouteLaunchOutcome),
-    message: routeLaunchText(language, authorized ? result.kind : "blocked"),
+    result: authorized && key ? result : ({ kind: "blocked" } as RouteLaunchOutcome),
+    message: routeLaunchText(language, authorized && key ? result.kind : "blocked"),
     busy,
     hasUnresolved: result.kind === "unknown" || result.kind === "conflict" || result.kind === "committed",
   };
