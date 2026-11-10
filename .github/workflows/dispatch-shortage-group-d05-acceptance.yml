@@ -40,7 +40,7 @@ jobs:
         run: |
           python - <<'PY'
           import subprocess
-          base = "1a74f15db7df87f2c74a2b451af41c91b15725ed"
+          base = "9c4db8c6a7978993ca8287515d71c1d74cc306f8"
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           assert subprocess.check_output(
               ["git", "merge-base", base, "HEAD"], text=True
@@ -62,7 +62,7 @@ jobs:
               ["git", "rev-parse", "HEAD"], text=True).strip())
           print("WORKER1_SCOPE_FILES=" + ", ".join(sorted(files)))
           PY
-          git diff --check 1a74f15db7df87f2c74a2b451af41c91b15725ed HEAD
+          git diff --check 9c4db8c6a7978993ca8287515d71c1d74cc306f8 HEAD
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
