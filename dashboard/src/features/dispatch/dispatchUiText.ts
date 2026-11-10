@@ -215,6 +215,6 @@ const copy = {
 export type DispatchUiKey = keyof typeof copy.en;
 export function dispatchUiText(language: string, key: DispatchUiKey, values: Record<string, string | number> = {}): string {
   const text: string = copy[language.toLowerCase().startsWith("ar") ? "ar" : "en"][key];
-  return text.replace(/\\{([a-zA-Z]+)\\}/g, (match, name: string) =>
+  return text.replace(/\{([a-zA-Z]+)\}/g, (match, name: string) =>
     Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match);
 }
