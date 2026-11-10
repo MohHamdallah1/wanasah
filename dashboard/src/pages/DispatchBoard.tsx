@@ -1309,7 +1309,7 @@ function DispatchSession() {
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
               { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
-            ] as const).filter(tab => isCompanyOwner || tab.id !== 'zones').map(tab => (
+            ] as const).filter(tab => tabAllowed(tab.id)).map(tab => (
               <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 <tab.icon className="w-4 h-4" /> {tab.label}
               </button>
@@ -1317,8 +1317,8 @@ function DispatchSession() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {isCompanyOwner && activeTab === "routes" && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
-          {activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
+          {grants.shortages && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
+          {grants.zoneManage && activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
         </div>
       </div>
 
@@ -1343,7 +1343,9 @@ function DispatchSession() {
       {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
       <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
         <>
-          {activeTab === "routes" ? (
+          {!tabAllowed(activeTab) ? (
+            <DispatchAccessNotice state="denied" onRetry={retryAccess} />
+          ) : activeTab === "routes" ? (
             <div key="routes" className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
               <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                 
@@ -1526,7 +1528,7 @@ function DispatchSession() {
                       <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
                       <div className="flex items-center gap-2">
                         <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>
-                        <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>
+                        {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>}
                       </div>
                     </div>
                     <div className="relative">
@@ -1557,7 +1559,7 @@ function DispatchSession() {
                           <span className="text-slate-300">•</span>
                           <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
                         </p>
-                      </div><div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
+                      </div>{grants.zoneManage && <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
                         onClick={e => {
                           e.stopPropagation();
                           setZoneToKill(zone);
@@ -1568,38 +1570,40 @@ function DispatchSession() {
                         title="أرشفة المنطقة بمسح شامل (سوبر أدمن)"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                      </button></div></div>))}</div>
+                      </button></div>}</div>))}</div>
                 </div>
               </div>
 
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-full xl:w-[75%] flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (<button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}<button
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0"><div className="flex items-center gap-4"><h2 className="text-lg font-bold text-slate-800">المحلات</h2><div className="relative"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-80 transition-all" /></div></div><div className="flex items-center gap-3">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <button
                     onClick={() => setShowRecycleBin(true)}
                     className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-blue-600"
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
                     <Archive className="w-5 h-5" />
-                  </button><button onClick={() => {
+                  </button>}{grants.zoneManage && <button onClick={() => {
                     if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
                       toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
                       return;
                     }
                     setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
-                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button></div></div>
+                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
                   <ShopOrderScopeNotice language={i18n.language}
                     selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
                     hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={isEditMode} />
-                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={isEditMode && !recoveryBlocked}
+                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={grants.zoneManage && isEditMode && !recoveryBlocked}
                     language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
+                       if (!grants.zoneManage) return;
                        if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
                          toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
                          return;
                        }
                        setShopForm(existingShopForm(s)); setEditingShopId(s.id); setIsShopModalOpen(true);
                      }} onArchiveShop={id => {
+                    if (!grants.zoneManage) return;
                     if (isEditMode) {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
@@ -1631,8 +1635,8 @@ function DispatchSession() {
                         }
                       });
                     }
-                  }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => dropShopInZone(e.dataTransfer.getData("shopId"), targetId)} />
-                  <AnimatePresence>{isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
+                  }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
+                  <AnimatePresence>{grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
                   <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
@@ -1784,7 +1788,7 @@ function DispatchSession() {
         openCancelForFocus={radarOpenCancel}
       />
 
-      <ZoneModal isOpen={isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
+      <ZoneModal isOpen={grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
       <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
           route?.sessionBound
             ? { status: "waiting" }
@@ -1792,7 +1796,7 @@ function DispatchSession() {
         ) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { toast.error(getErrorMessage(e)); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
-        isOpen={isBulkImportModalOpen}
+        isOpen={grants.zoneManage && isBulkImportModalOpen}
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}
         existingShops={shops}
