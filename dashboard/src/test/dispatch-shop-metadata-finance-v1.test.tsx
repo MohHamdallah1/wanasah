@@ -882,3 +882,114 @@ describe("Shop unknown-create durable operator escape / relogin / tenant authori
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
+
+describe("Codex P2: atomic cross-tab Shop create and canonical POST shop_id restoration", () => {
+  it("two tabs concurrently claiming an absent durable record serialize through a real exclusive lock", async () => {
+    let release!: (value: unknown) => void;
+    const post = new Promise<unknown>(resolve => { release = resolve; });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "POST" ? post : [],
+    );
+    const first = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    const second = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => {
+      expect(first.result.current.restoring).toBe(false);
+      expect(second.result.current.restoring).toBe(false);
+    });
+    let attemptOne!: Promise<boolean>;
+    let attemptTwo!: Promise<boolean>;
+    act(() => {
+      attemptOne = first.result.current.save();
+      attemptTwo = second.result.current.save();
+    });
+    await act(async () => { expect(await attemptTwo).toBe(false); });
+    expect(second.result.current.feedback).toBe(shopFormText("en", "createOtherTab"));
+    await waitFor(() => expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1));
+    expect(heldCreateLocks.size).toBe(1);
+    await act(async () => { release({ shop_id: "77" }); expect(await attemptOne).toBe(false); });
+    expect(heldCreateLocks.size).toBe(0);
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    expect(toast.success).not.toHaveBeenCalled(); // no metadata readback evidence
+    first.unmount(); second.unmount();
+  });
+
+  it.each(["ar", "en"] as const)(
+    "POST-201 canonical shop_id survives locale change and verifies only that ID in %s",
+    async language => {
+      await setAppLanguage(language);
+      let reads = 0;
+      const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+        if (opts?.method === "POST") return { shop_id: "77" };
+        reads++;
+        if (reads === 1) return []; // preflight
+        if (reads === 2) throw fakeError(403, "FORBIDDEN");
+        return [wire()]; // recovers under authorized GET
+      });
+      const initial = args(fetch, { editId: null, language });
+      const hooked = renderHook(
+        (props: typeof initial) => useShopFormCommit(props),
+        { initialProps: initial },
+      );
+      await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+      await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+      expect(hooked.result.current.needsManualReconciliation).toBe(true);
+      const scope = shopCreateAttemptScope()!;
+      expect(JSON.parse(localStorage.getItem(`${scope}:canonical-id`) || "null")).toMatchObject({
+        localId: hooked.result.current.localTrackingId, shopId: "77",
+      });
+      hooked.rerender({ ...initial, language: language === "ar" ? "en" : "ar" });
+      await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+      await act(async () => { expect(await hooked.result.current.verify()).toBe(true); });
+      expect(initial.onVerified).toHaveBeenCalledWith(expect.any(Array), true, "3");
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+      expect(localStorage.getItem(`${scope}:canonical-id`)).toBeNull();
+      expect(await readDurableCommand(scope)).toBeNull();
+      expect(toast.success).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("known canonical POST-201 Shop ID persists across explicit leave, reload and same-principal re-login", async () => {
+    let reads = 0;
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") return { shop_id: "77" };
+      reads++;
+      if (reads === 1) return [];
+      if (reads === 2) throw new Error("offline readback after real POST-201");
+      return [wire()];
+    });
+    const close = vi.fn();
+    const old = renderHook(() => useShopFormCommit(args(fetch, { editId: null, onClose: close })));
+    await waitFor(() => expect(old.result.current.restoring).toBe(false));
+    await act(async () => { expect(await old.result.current.save()).toBe(false); });
+    const originalId = old.result.current.localTrackingId;
+    act(() => old.result.current.leaveUncertain());
+    expect(close).toHaveBeenCalledOnce();
+    old.unmount();
+    clearLocalStoragePreservingLoginHintsAndPreferences();
+    localStorage.setItem("company_id", "1");
+    localStorage.setItem("principal_id", "11");
+    localStorage.setItem("backoffice_user_id", "110");
+    const restoreForm = vi.fn();
+    const props = args(fetch, { editId: null, onRestoreForm: restoreForm });
+    const fresh = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(fresh.result.current.needsManualReconciliation).toBe(true));
+    expect(fresh.result.current.localTrackingId).toBe(originalId);
+    await act(async () => { expect(await fresh.result.current.verify()).toBe(true); });
+    expect(props.onVerified).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(await readDurableCommand(shopCreateAttemptScope()!)).toBeNull();
+  });
+
+  it("without cross-context Web Locks, a new create is rejected before sending even a preflight", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const fetch = vi.fn().mockResolvedValue([]);
+    const hooked = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "createLockUnavailable"));
+    expect(fetch).not.toHaveBeenCalled();
+    expect(await readDurableCommand(shopCreateAttemptScope()!)).toBeNull();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
