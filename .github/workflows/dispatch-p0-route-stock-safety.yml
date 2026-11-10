@@ -381,6 +381,31 @@ jobs:
               "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
           }
+          # D09 #867: one exact twelve-file capability/navigation diff; no wildcard.
+          dispatch_d09_867_exact = {
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+              "dashboard/src/features/dispatch/dispatchAccess.ts",
+              "dashboard/src/features/dispatch/loadDispatchRead.ts",
+              "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+              "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/dispatch-scale-containment.test.ts",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
+          dispatch_d09_867_new = {
+              "dashboard/src/features/dispatch/DispatchAccessNotice.tsx",
+              "dashboard/src/features/dispatch/dispatchAccess.ts",
+              "dashboard/src/features/dispatch/loadDispatchRead.ts",
+              "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+              "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+              "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+          }
+          assert len(dispatch_d09_867_exact) == 12 and len(dispatch_d09_867_new) == 6
+
           # Four policy files constitute an independent #856 maintenance PR,
           # NOT a general CI extension or a superset of old #847 approval.
           ci_policy_856_exact = {
@@ -448,6 +473,12 @@ jobs:
                       f"extra={sorted(candidate - shop_order_843_exact)}"
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & dispatch_d09_867_new:
+                  assert candidate == dispatch_d09_867_exact, (
+                      f"DISPATCH_D09_867_EXACT=FAIL missing={sorted(dispatch_d09_867_exact - candidate)} "
+                      f"extra={sorted(candidate - dispatch_d09_867_exact)}"
+                  )
+                  return "DISPATCH_D09_867_EXACT"
               if candidate & shortage_group_859_unique:
                   assert candidate == shortage_group_859_exact, (
                       f"Forbidden P0/ShortageGroup #859 exact scope: "
@@ -489,6 +520,7 @@ jobs:
               ("SHOP_ORDER_843_EXACT", shop_order_843_exact, shop_order_843_unique),
               ("SHOP_FORM_850_EXACT", shop_form_850_exact, shop_form_850_unique),
               ("SHORTAGE_GROUP_859_EXACT", shortage_group_859_exact, shortage_group_859_unique),
+              ("DISPATCH_D09_867_EXACT", dispatch_d09_867_exact, dispatch_d09_867_new),
           ):
               assert ownership_mode(exact) == label
               for missing in exact:
