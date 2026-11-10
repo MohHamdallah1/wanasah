@@ -897,9 +897,33 @@ CI_POLICY_847_EXACT = frozenset({
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
 })
 
+# #856: only the six actual #855 ShopForm paths may cross the shared
+# DispatchBoard consumer. Neither new form files nor mixed workers are allowed.
+SHOP_FORM_850_EXACT = frozenset({
+    "dashboard/src/components/dispatch/ShopFormModal.tsx",
+    "dashboard/src/features/dispatch/shopForm/contract.ts",
+    "dashboard/src/features/dispatch/shopForm/messages.ts",
+    "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
+})
+SHOP_FORM_850_NEW = SHOP_FORM_850_EXACT - {"dashboard/src/pages/DispatchBoard.tsx"}
+assert len(SHOP_FORM_850_EXACT) == 6 and len(SHOP_FORM_850_NEW) == 5
+
+# Independent four-file CI maintenance: #847 three-file mode remains accepted.
+CI_POLICY_856_EXACT = frozenset({
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    ".github/workflows/live-stock-g04-outage-recovery.yml",
+})
+assert CI_POLICY_847_EXACT < CI_POLICY_856_EXACT and len(CI_POLICY_856_EXACT) == 4
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     if changed == CI_POLICY_847_EXACT:
         return "ci-policy-847-exact", []
+    if changed == CI_POLICY_856_EXACT:
+        return "ci-policy-856-exact", []
     # Exact #846 ShopOrder change is outside Live Stock owner scope.
     # A partial set, even with the shared DispatchBoard, or any hitchhiker
     # is REJECTED whenever one of its eight newly extracted files appears.
@@ -911,6 +935,18 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             ]
         if mode in {"ux", "operational"}:
             return "shop-order-843-exact", []
+        return "not-applicable", []
+
+    # New ShopForm sources are not covered by existing generic Dispatch/Auth
+    # scopes. An exact six-file edit alone can cross the shared UI trigger.
+    if changed & SHOP_FORM_850_NEW:
+        if changed != SHOP_FORM_850_EXACT:
+            return "fail", [
+                f"SHOP_FORM_850_EXACT=FAIL missing={sorted(SHOP_FORM_850_EXACT - changed)} "
+                f"extra={sorted(changed - SHOP_FORM_850_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "shop-form-850-exact", []
         return "not-applicable", []
 
     # Exact membership only; all previous classifying/negative protections
@@ -1081,6 +1117,76 @@ def selftest() -> None:
                 "ci-policy-847-exact"
             )
     print("CI_POLICY_847_LIVE_STOCK_SELFTEST=PASS exact=3 partial=3 foreign=8")
+
+    # #856: keep the old three-file policy set and all established owner
+    # modes; admit ONLY the four-file governance diff as its own new mode.
+    # New G04 workflow path may never be used as a wildcard for business code.
+    assert len(CI_POLICY_856_EXACT) == 4
+    assert len(SHOP_FORM_850_EXACT) == 6
+    for mode in ("ux", "r3", "operational"):
+        assert classify(mode, set(CI_POLICY_856_EXACT), policy_sem) == (
+            "ci-policy-856-exact", []
+        )
+        for missing in CI_POLICY_856_EXACT:
+            partial = set(CI_POLICY_856_EXACT) - {missing}
+            assert classify(mode, partial, policy_sem)[0] != "ci-policy-856-exact"
+        for foreign in (
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "dashboard/src/components/dispatch/ShopFormModal.tsx",
+            "dashboard/src/features/dispatch/shopOrder/messages.ts",
+            "wa_backend/main.py",
+            "wa_backend/api/driver.py",
+            "wa_backend/api/warehouse/live_stock.py",
+            "dashboard/src/hooks/useAuthFetch.ts",
+            "wanasah_frontend/lib/main.dart",
+        ):
+            _expect_fail(mode, set(CI_POLICY_856_EXACT) | {foreign}, policy_sem)
+    assert classify("ux", set(CI_POLICY_847_EXACT), policy_sem) == (
+        "ci-policy-847-exact", []
+    )
+    print("CI_POLICY_856_LIVE_STOCK_SELFTEST=PASS exact=4 partial=4 foreign=8 prior847=PASS")
+
+    # Every candidate touching one of the *five new* #855 paths must
+    # contain the whole immutable six-file set; no cross-owner combination.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(SHOP_FORM_850_EXACT), policy_sem) == (
+            "shop-form-850-exact", []
+        )
+    assert classify("r3", set(SHOP_FORM_850_EXACT), policy_sem) == (
+        "not-applicable", []
+    )
+    for missing in SHOP_FORM_850_EXACT:
+        partial = set(SHOP_FORM_850_EXACT) - {missing}
+        if partial & SHOP_FORM_850_NEW:
+            for mode in ("ux", "r3", "operational"):
+                _expect_fail(mode, partial, policy_sem)
+        else:
+            for mode in ("ux", "r3", "operational"):
+                assert classify(mode, partial, policy_sem)[0] != "shop-form-850-exact"
+    for foreign in (
+        HELPER, "wa_backend/main.py", "wa_backend/api/dispatch.py",
+        "wa_backend/api/driver.py", "wa_backend/models.py",
+        "dashboard/src/features/dispatch/shopForm/unreviewed.ts",
+        "dashboard/src/features/dispatch/shopOrder/scope.ts",
+        "dashboard/src/hooks/useAuthFetch.ts",
+        "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+        ".github/workflows/dispatch-p0-route-stock-safety.yml",
+        ".github/workflows/live-stock-g04-outage-recovery.yml",
+        "wanasah_frontend/lib/main.dart",
+    ):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(SHOP_FORM_850_EXACT) | {foreign}, policy_sem)
+    for mixed in (
+        set(SHOP_FORM_850_EXACT) | SHOP_ORDER_843_EXACT,
+        set(SHOP_FORM_850_EXACT) | CI_POLICY_847_EXACT,
+        set(SHOP_FORM_850_EXACT) | CI_POLICY_856_EXACT,
+    ):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, mixed, policy_sem)
+    assert classify("ux", {"dashboard/src/pages/DispatchBoard.tsx"}, policy_sem)[0] != (
+        "shop-form-850-exact"
+    )
+    print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
 
     # #847: real #846 payload passes only as its literal nine-file set.
     # Every partial-with-new-file and every foreign/mixed-domain path fails.
