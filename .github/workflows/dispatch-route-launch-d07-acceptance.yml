@@ -1,0 +1,228 @@
+name: Dispatch D07 route-launch lost-201 PG16 Bearer acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/domains/dispatch_route_launch_receipt.py"
+      - "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py"
+      - ".github/workflows/dispatch-route-launch-d07-acceptance.yml"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/features/dispatch/routeLaunch/*"
+      - "dashboard/src/test/dispatch-route-launch-d07.test.tsx"
+
+permissions:
+  contents: read
+
+jobs:
+  d07-pg16-bearer:
+    name: d07-real-route-launch-bearer-pg16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: Dispatch870D07RouteOnlyPG16BearerTestKey123456789012345
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: D07 backend exact five-path ownership before UI integration
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          python - <<'PY'
+          import os, subprocess
+          base = os.environ["BASE"]
+          assert subprocess.check_output(
+              ["git", "merge-base", base, "HEAD"], text=True
+          ).strip() == base
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          owned = {
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/schemas.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          # Interim D07 milestone #870: these three NEW isolated UI paths
+          # are owned by Worker1; Board/D10 and shared gate files are forbidden.
+          d07_independent_exact = owned | {
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+          }
+          assert len(d07_independent_exact) == 8
+          d07_complete_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_complete_exact) == 14 and d07_independent_exact <= d07_complete_exact
+          assert files == d07_complete_exact, (
+              f"D07 complete scope denied missing={sorted(d07_complete_exact - files)} "
+              f"extra={sorted(files - d07_complete_exact)}"
+          )
+          for absent in d07_complete_exact:
+              assert d07_complete_exact - {absent} != files
+          for foreign in (
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/sessionScope.ts",
+              "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
+          ):
+              assert foreign not in files, f"D07 forbidden foreign path: {foreign}"
+          print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
+          PY
+          git diff --check "$BASE" HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile source and D07 tests, not mock commercial scope
+        working-directory: wa_backend
+        run: python -m py_compile api/dispatch.py schemas.py domains/dispatch_route_launch_receipt.py tests/test_dispatch_route_launch_d07_postgres.py
+      - name: Start fresh disposable local PostgreSQL 16
+        run: |
+          docker run --detach --name dispatch-d07-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec dispatch-d07-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dispatch-d07-pg16
+          exit 1
+      - name: Create separate restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as connection:
+              connection.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+      - name: Alembic real migration to latest schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant restricted runtime DML only within disposable schema
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as connection:
+              connection.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              connection.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              connection.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              connection.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Prove restricted PostgreSQL16 and FORCE RLS
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as connection:
+              name, user, ver, superuser, bypass = connection.execute(
+                  "SELECT current_database(),current_user,current_setting('server_version_num')::int,"
+                  "rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user"
+              ).fetchone()
+              assert name == "wanasah_no_lot_contract_test" and user == "wanasah_app"
+              assert 160000 <= ver < 170000 and not superuser and not bypass
+              for table in ("dispatch_routes","visits","route_commercial_contexts",
+                            "inventory_balances","inventory_movements","operation_idempotency"):
+                  flags = connection.execute(
+                      "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass(%s)",
+                      (table,)
+                  ).fetchone()
+                  assert flags == (True,True), (table,flags)
+              print("D07_PG16_NOBYPASSRLS_FORCE_RLS PASS")
+          PY
+      - name: Real HTTP owner/nonowner lost-201 replay, published policy and physical rollback
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_route_launch_d07_postgres.py
+          --junitxml=d07-real-pg16.xml
+      - name: Exact D07 no-skip JUnit manifest
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          name = "d07-real-pg16.xml"
+          assert os.path.isfile(name), "No genuine PG16 evidence"
+          cases = list(ET.parse(name).getroot().iter("testcase"))
+          invalid = [(x.get("name"),state) for x in cases for state in ("failure","error","skipped")
+                     if x.find(state) is not None]
+          print(f"D07_PG16_CASES={len(cases)} failures_or_skips={len(invalid)}")
+          assert len(cases) == 5, f"D07 focused expected 5, got {len(cases)}"
+          assert not invalid, f"D07 real PG16 failed/skipped: {invalid}"
+          PY
+      - name: Publish test evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-d07-real-pg16-junit-${{ github.run_id }}
+          path: wa_backend/d07-real-pg16.xml
+          if-no-files-found: warn
+      - name: Disposable PG diagnostic on failure only
+        if: failure()
+        run: docker logs dispatch-d07-pg16 2>/dev/null | tail -n 100 || true
+
+  d07-react-focused:
+    name: d07-independent-client-command-vitest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused D07 immutable original command and React AR/EN acceptance
+        working-directory: dashboard
+        run: npx vitest run src/test/dispatch-route-launch-d07.test.tsx
+      - name: Check Dashboard TypeScript contract
+        working-directory: dashboard
+        run: npx tsc --noEmit

@@ -25,6 +25,10 @@ import {
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
 import { groupText } from "@/features/dispatch/shortageGroup/contract";
+import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
+import {
+  readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchText,
+} from "@/features/dispatch/routeLaunch/contract";
 import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -342,6 +346,25 @@ function DispatchSession() {
   const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  const routeLaunchActor = useMemo(() =>
+    actorScope && Number.isSafeInteger(Number(selectedSourceWarehouseId)) &&
+    Number(selectedSourceWarehouseId) > 0 &&
+    Number.isSafeInteger(Number(selectedVehicleId)) && Number(selectedVehicleId) > 0
+      ? { actorScope, warehouseId: Number(selectedSourceWarehouseId),
+          vehicleId: Number(selectedVehicleId) }
+      : null,
+  [actorScope, selectedSourceWarehouseId, selectedVehicleId]);
+  const routeLaunch = useRouteLaunchRecovery({
+    actor: routeLaunchActor, session: session!,
+    authorized: Boolean(canLaunch && dispatchReadState === "ready" &&
+      !isWarehouseLocked && !isWarehouseStatusLoading),
+    language: i18n.language, fetch: authenticatedFetch,
+  });
+  const routeLaunchPendingOwner = (() => {
+    if (!actorScope || accessState !== "ready" || !grants.launch) return null;
+    try { return readRouteLaunchPendingOwner(actorScope); }
+    catch { return null; } // corrupt local state never authorizes an action
+  })();
   const choicesRef = useRef({
     activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
     driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
@@ -357,6 +380,34 @@ function DispatchSession() {
     activeRoute?.id, grants,
   ]));
   const captureUiRead = () => asyncEpochRef.current.capture();
+  // A verified original UUID receipt is business truth, even when its first
+  // HTTP 201 disappeared. Clear ONLY the original D10 route-load draft.
+  useEffect(() => {
+    const outcome = routeLaunch.result;
+    if (outcome.kind !== "committed" || !actorScope ||
+        accessState !== "ready" || dispatchReadState !== "ready" ||
+        !grants.launch || !isDashboardSessionCurrent(session!)) return;
+    const admitted = captureUiRead();
+    if (!routeLaunch.acknowledge(outcome.requestId)) return;
+    const original = outcome.intent;
+    clearRouteLoadDraft(actorScope, String(original.source_location_id),
+      String(original.vehicle_id), String(original.zone_id), String(original.driver_id));
+    if (selectedSourceWarehouseId === String(original.source_location_id) &&
+        selectedVehicleId === String(original.vehicle_id) &&
+        selectedZoneId === String(original.zone_id) &&
+        selectedDriverId === String(original.driver_id)) {
+      setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId("");
+      setRouteLoadTargets({});
+    }
+    toast.success(routeLaunchText(i18n.language, "committed"));
+    if (grants.routes) {
+      void authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
+        .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
+        .catch(() => undefined); // receipt already proved commit; list is presentation only
+    }
+  }, [routeLaunch.result, actorScope, accessState, dispatchReadState,
+    grants.launch, grants.routes, session, authenticatedFetch,
+    selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId, i18n.language]);
   useEffect(() => {
     const revoke = () => asyncEpochRef.current.revoke();
     window.addEventListener("inventory-permission-denied", revoke);
@@ -901,8 +952,12 @@ function DispatchSession() {
     setActiveTab(tabId);
   }, [activeTab, hasUnsavedChanges, needsReconciliation]);
 
-  const handleDispatchRoute = () => {
+  const handleDispatchRoute = async () => {
     const admitted = captureUiRead();
+    if (routeLaunch.busy || routeLaunch.hasUnresolved) {
+      toast.info(routeLaunch.message);
+      return;
+    }
     if (!canLaunch) {
       toast.error('لا تملك صلاحية إطلاق خطوط السير.');
       return;
@@ -942,31 +997,36 @@ function DispatchSession() {
       return;
     }
 
-    const draftSource = [actorScope, selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId] as const;
-    authenticatedFetch("/dispatch/route", {
-      method: "POST",
-      body: JSON.stringify({
+    try {
+      const intent = routeLaunchIntent({
         zone_id: selectedZoneId,
         driver_id: selectedDriverId,
         vehicle_id: selectedVehicleId,
-        source_location_id: Number(selectedSourceWarehouseId),
+        source_location_id: selectedSourceWarehouseId,
         inventory_base: inventoryBase,
-        expected_inventory_base: routeLoadCurrent
-      })
-    })
-      .then(() => {
-        if (!admitted()) return;
-        clearRouteLoadDraft(...draftSource);
-        toast.success("تم إطلاق خط السير بنجاح");
-        setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setRouteLoadTargets({});
-        // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
-        authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
-          .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
-          .catch(err => { if (admitted()) console.error(err); });
-      })
-      .catch((err) => {
-        if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
+        expected_inventory_base: routeLoadCurrent,
       });
+      const outcome = await routeLaunch.launch(intent);
+      if (!admitted()) return;
+      if (outcome.kind === "unknown" || outcome.kind === "conflict" ||
+          outcome.kind === "blocked" || outcome.kind === "busy") {
+        toast.info(routeLaunchText(i18n.language, outcome.kind));
+      }
+      // Only the verified original receipt effect may show success, clear
+      // D10 drafts or alter route rows. UNKNOWN never fabricates a success.
+    } catch (err: unknown) {
+      if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
+    }
+  };
+
+  const verifyRouteLaunchOriginal = async (retry: boolean) => {
+    const admitted = captureUiRead();
+    const outcome = retry ? await routeLaunch.retryOriginal() : await routeLaunch.recover();
+    if (!admitted()) return;
+    if (outcome.kind === "unknown" || outcome.kind === "blocked" ||
+        outcome.kind === "busy" || outcome.kind === "conflict") {
+      toast.info(routeLaunchText(i18n.language, outcome.kind));
+    }
   };
 
   const handleConfirmRouteAction = async () => {
@@ -1636,6 +1696,63 @@ function DispatchSession() {
           ) : activeTab === "launch" ? (
             <div key="launch" className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
               
+              {/* D07: unresolved original UUID survives lost 201 and a full reload.
+                  No new route can be started until authoritative readback settles it. */}
+              {grants.launch && actorScope && (routeLaunchPendingOwner || routeLaunch.hasUnresolved) && (
+                <div data-testid="d07-route-recovery" role="status" aria-live="polite"
+                  className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-slate-800">
+                  <p className="font-bold">
+                    {routeLaunchPendingOwner && (
+                      String(routeLaunchPendingOwner.warehouseId) !== selectedSourceWarehouseId ||
+                      String(routeLaunchPendingOwner.vehicleId) !== selectedVehicleId
+                    )
+                      ? (i18n.language.startsWith("ar")
+                          ? "توجد عملية إطلاق أصلية معلقة على مستودع أو مركبة أخرى. ارجع إليها للتحقق."
+                          : "An original route launch is pending for another warehouse or vehicle. Return to it to verify.")
+                      : routeLaunch.message}
+                  </p>
+                  {routeLaunchPendingOwner && (
+                    <p className="mt-1 font-mono text-xs text-slate-600" dir="ltr">
+                      {routeLaunchPendingOwner.requestId}
+                    </p>
+                  )}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {routeLaunchPendingOwner && (
+                      String(routeLaunchPendingOwner.warehouseId) !== selectedSourceWarehouseId ||
+                      String(routeLaunchPendingOwner.vehicleId) !== selectedVehicleId
+                    ) ? (
+                      <button type="button" data-testid="d07-return-original"
+                        disabled={!warehouses.some(w => w.id === String(routeLaunchPendingOwner.warehouseId) && w.can_execute) ||
+                          !vehicles.some(v => v.id === String(routeLaunchPendingOwner.vehicleId) && v.can_execute)}
+                        onClick={() => {
+                          changeSourceWarehouse(String(routeLaunchPendingOwner.warehouseId));
+                          setSelectedVehicleId(String(routeLaunchPendingOwner.vehicleId));
+                        }}
+                        className="rounded-lg bg-slate-800 px-3 py-2 font-bold text-white disabled:opacity-50">
+                        {i18n.language.startsWith("ar") ? "العودة إلى الطلب الأصلي" : "Return to original request"}
+                      </button>
+                    ) : (
+                      <>
+                        <button type="button" data-testid="d07-verify-original"
+                          disabled={!canLaunch || routeLaunch.busy}
+                          onClick={() => { void verifyRouteLaunchOriginal(false); }}
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold disabled:opacity-50">
+                          {i18n.language.startsWith("ar") ? "التحقق من الإطلاق" : "Verify original launch"}
+                        </button>
+                        {routeLaunch.result.kind === "unknown" && (
+                          <button type="button" data-testid="d07-retry-original"
+                            disabled={!canLaunch || routeLaunch.busy}
+                            onClick={() => { void verifyRouteLaunchOriginal(true); }}
+                            className="rounded-lg bg-[#1e87bb] px-3 py-2 font-bold text-white disabled:opacity-50">
+                            {i18n.language.startsWith("ar") ? "إعادة محاولة الطلب الأصلي" : "Retry original request"}
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
               <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
                 <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
@@ -1671,8 +1788,8 @@ function DispatchSession() {
                 <p className="mb-2 text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
                 <div className="flex justify-end">
                   <button
-                    disabled={!canLaunch}
-                    onClick={handleDispatchRoute}
+                    disabled={!canLaunch || routeLaunch.busy || routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
+                    onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                   >
                     <Rocket className="w-5 h-5" /> اعتماد وإطلاق خط السير

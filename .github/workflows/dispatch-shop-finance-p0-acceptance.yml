@@ -84,6 +84,32 @@ jobs:
               ".github/workflows/dispatch-p0-route-stock-safety.yml",
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
           }
+          d07_complete_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          d07_unique = {
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
+          assert len(d07_complete_exact) == 14
           f06_new = shop_create_f06_exact - finance_842_allowed
           ci_new = ci_policy_861_exact - finance_842_allowed
           assert len(finance_842_allowed) == 4
@@ -91,6 +117,13 @@ jobs:
           assert len(ci_policy_861_exact) == 2 and len(ci_new) == 1
 
           def ownership_mode(candidate):
+              if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
+              if candidate & d07_unique:
+                  assert candidate == d07_complete_exact, (
+                      f"Finance D07 exact scope denied missing={sorted(d07_complete_exact - candidate)} "
+                      f"extra={sorted(candidate - d07_complete_exact)}"
+                  )
+                  return "D07_COMPLETE_EXACT"
               if candidate == shop_create_f06_exact:
                   return "SHOP_CREATE_F06_EXACT"
               if candidate == ci_policy_861_exact:
@@ -132,6 +165,20 @@ jobs:
               }
               assert ownership_mode(subset) == "FINANCE_842_LEGACY_BOUNDED"
           denied(set(), "Empty comparison")
+
+          assert ownership_mode(d07_complete_exact) == "D07_COMPLETE_EXACT"
+          for missing in d07_complete_exact:
+              partial = d07_complete_exact - {missing}
+              if partial & d07_unique:
+                  denied(partial, "D07 incomplete group")
+              else:
+                  assert ownership_mode(partial) != "D07_COMPLETE_EXACT"
+          for foreign in (
+              "wa_backend/main.py", "wa_backend/models.py",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+          ):
+              denied(d07_complete_exact | {foreign}, "D07 foreign path")
+          print("FINANCE_D07_POLICY_SELFTEST=PASS exact=14 missing=14 foreign=3")
 
           assert ownership_mode(shop_create_f06_exact) == "SHOP_CREATE_F06_EXACT"
           f06_items = sorted(shop_create_f06_exact)

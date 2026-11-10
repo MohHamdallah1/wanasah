@@ -463,6 +463,32 @@ jobs:
           assert ci_policy_847_exact < ci_policy_856_exact
           assert len(shop_create_f06_exact) == 5 and len(shop_create_f06_new) == 3
           assert len(ci_policy_861_exact) == 2
+          d07_complete_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          d07_unique = {
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
+          assert len(d07_complete_exact) == 14
           finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
           shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
           shop_form_850_unique = shop_form_850_exact - p0_allowed - auth_session_allowed
@@ -471,6 +497,13 @@ jobs:
           assert len(finance_842_unique) == 3 and len(shop_order_843_unique) == 8
           assert len(shop_form_850_unique) == 5
           def ownership_mode(candidate):
+              if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
+              if candidate & d07_unique:
+                  assert candidate == d07_complete_exact, (
+                      f"DISPATCH_D07_EXACT=FAIL missing={sorted(d07_complete_exact - candidate)} "
+                      f"extra={sorted(candidate - d07_complete_exact)}"
+                  )
+                  return "D07_COMPLETE_EXACT"
               if candidate == ci_policy_847_exact:
                   return "CI_POLICY_847_EXACT"
               if candidate == ci_policy_856_exact:
@@ -672,6 +705,22 @@ jobs:
 
           # #861: exhaustive F06 exact admission and every partial involving a
           # NEW path. Shared legacy router/schema alone retain old P0 semantics.
+          assert ownership_mode(d07_complete_exact) == "D07_COMPLETE_EXACT"
+          for missing in d07_complete_exact:
+              partial = d07_complete_exact - {missing}
+              if partial & d07_unique:
+                  try: ownership_mode(partial)
+                  except AssertionError: pass
+                  else: raise AssertionError(f"D07 partial accepted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "D07_COMPLETE_EXACT"
+          for foreign in ("wa_backend/models.py", "wa_backend/main.py",
+                          "dashboard/src/components/dispatch/ShortageModal.tsx"):
+              try: ownership_mode(d07_complete_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"D07 foreign accepted: {foreign}")
+          print("DISPATCH_D07_SCOPE_SELFTEST=PASS exact=14 partial=14 foreign=3")
+
           assert ownership_mode(shop_create_f06_exact) == "SHOP_CREATE_F06_EXACT"
           f06_items = sorted(shop_create_f06_exact)
           f06_partial_denied = 0
