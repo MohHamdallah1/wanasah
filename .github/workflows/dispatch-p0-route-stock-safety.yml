@@ -465,6 +465,9 @@ jobs:
                   "dashboard/src/lib/authStorage.ts",
                   "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
                   "dashboard/src/features/dispatch/shopOrder/unreviewed.ts",
+                  "dashboard/src/features/dispatch/shopForm/unreviewed.ts",
+                  "dashboard/src/features/dispatch/shopOrder/scope.ts",
+                  "wa_backend/main.py", "wa_backend/api/dispatch.py",
                   "wanasah_frontend/lib/main.dart",
               ):
                   try:
