@@ -573,6 +573,9 @@ export function ShopBulkImportModal({
     }
   };
 
+  // Revoke/logout must remove private Shop data without a visible exit animation.
+  if (!isOpen || !admitted()) return null;
+
   return (
     <>
       <Modal
