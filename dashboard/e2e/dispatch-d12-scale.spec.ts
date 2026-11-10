@@ -18,16 +18,13 @@ for (const width of [1440, 390]) {
       page.waitForURL(url => url.pathname !== "/login"),
       page.locator('button[type="submit"]').click(),
     ]);
-    const seen = new Map<string, { status: number; bytes: number; duration: number }>();
+    const seen = new Map<string, { status: number; bytes: number }>();
     page.on("response", async response => {
       const path = new URL(response.url()).pathname;
       if (!endpoints.includes(path)) return;
-      const timing = response.request().timing();
       seen.set(path, {
         status: response.status(),
         bytes: (await response.body()).length,
-        duration: timing.responseEnd >= 0 && timing.startTime >= 0
-          ? timing.responseEnd - timing.startTime : -1,
       });
     });
     const started = Date.now();
@@ -40,8 +37,13 @@ for (const width of [1440, 390]) {
       documentWidth: document.documentElement.scrollWidth,
       viewportWidth: window.innerWidth,
     }));
+    const loadMs = Date.now() - started;
+    const launchStart = Date.now();
+    await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
+    await expect(page.getByRole("tab", { name: /إطلاق خط جديد/ })).toHaveAttribute("aria-selected", "true");
+    const launchSelectMs = Date.now() - launchStart;
     const result = {
-      width, loadMs: Date.now() - started, ...rendered,
+      width, loadMs, launchSelectMs, ...rendered,
       reads: Object.fromEntries(seen),
     };
     expect(rendered.visibleRouteRow).toBeGreaterThan(0);
