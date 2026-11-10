@@ -7,6 +7,7 @@ import {
   Package, AlertTriangle, Clock, X, Eraser,
 } from "lucide-react";
 import { ShortageProductPicker } from "./ShortageProductPicker";
+import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
@@ -40,6 +41,14 @@ interface ShortageModalProps {
   drivers: { id: string; name: string }[];
   shortageDriverId: string;
   onDriverChange: (id: string) => void;
+  groupRecovery: {
+    pending: { requestId: string; payload: GroupIntent } | null;
+    blocked: boolean;
+    restoring: boolean;
+    busy: boolean;
+    feedback: string | null;
+    onRetry: () => void;
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -340,6 +349,7 @@ export function ShortageModal({
   drivers,
   shortageDriverId,
   onDriverChange,
+  groupRecovery,
 }: ShortageModalProps) {
   const { t, i18n } = useTranslation();
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
@@ -354,11 +364,43 @@ export function ShortageModal({
       maxWidth="max-w-5xl"
     >
       <div className="space-y-6">
+        {(groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
+          <section role="status" data-testid="shortage-group-recovery"
+            dir={i18n.dir()}
+            className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 space-y-2">
+            <p className="font-semibold">{groupRecovery.blocked
+              ? groupText(i18n.language, "blocked")
+              : groupRecovery.pending ? groupText(i18n.language, "pending")
+                : groupRecovery.restoring ? groupText(i18n.language, "inProgress") : groupRecovery.feedback}</p>
+            {groupRecovery.feedback && groupRecovery.pending && (
+              <p role="alert">{groupRecovery.feedback}</p>
+            )}
+            {groupRecovery.pending && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs" dir="auto">
+                  {groupText(i18n.language, "reference")}: {groupRecovery.pending.requestId}
+                </span>
+                <span className="text-xs font-bold">
+                  {groupText(i18n.language,
+                    groupRecovery.pending.payload.action === "delete" ? "delete" : "edit")}
+                </span>
+                <button type="button" onClick={groupRecovery.onRetry}
+                  disabled={groupRecovery.busy || groupRecovery.restoring || groupRecovery.blocked}
+                  className="rounded-lg bg-amber-800 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
+                  {groupRecovery.busy ? groupText(i18n.language, "inProgress")
+                    : groupText(i18n.language, "retry")}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
 
         {/* ═══════════════════════════════════════════════════
             INPUT / EDIT SECTION — visually separated (#1)
         ═══════════════════════════════════════════════════ */}
-        <div className={`rounded-2xl border shadow-sm ${isEditMode
+        <fieldset disabled={Boolean(groupRecovery.pending || groupRecovery.blocked ||
+          groupRecovery.busy || groupRecovery.restoring)}
+          className={`rounded-2xl border shadow-sm ${isEditMode
           ? "bg-amber-50 border-amber-200 shadow-amber-100"
           : "bg-slate-50 border-slate-200"
         }`}>
@@ -488,7 +530,7 @@ export function ShortageModal({
               )}
             </div>
           </div>
-        </div>
+        </fieldset>
 
         {/* ═══════════════════════════════════════════════════
             PENDING LIST — visually distinct from input section
