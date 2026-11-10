@@ -104,6 +104,22 @@ export const routeLaunchIntent = (raw: {
   return intent;
 };
 
+/** Do not trust an arbitrary UI string as actor scope. The first three IDs
+ * must equal the CURRENT canonical DashboardSession identity tuple.
+ */
+export const routeLaunchActorMatchesSession = (
+  actor: RouteLaunchActor, sessionIdentity: string,
+): boolean => {
+  try {
+    const identity: unknown = JSON.parse(sessionIdentity);
+    return Array.isArray(identity) && identity.length >= 3 &&
+      actor.actorScope === identity.slice(0, 3).join(":") &&
+      identity.slice(0, 3).every((id: unknown) =>
+        typeof id === "string" && /^[1-9]\\d*$/.test(id) &&
+        Number.isSafeInteger(Number(id)));
+  } catch { return false; }
+};
+
 export const routeLaunchScopeKey = ({ actorScope, warehouseId, vehicleId }: RouteLaunchActor): string => {
   if (!/^[1-9]\d*:[1-9]\d*:[1-9]\d*$/.test(actorScope) ||
       actorScope.split(":").some(part => !pos(Number(part))) ||
