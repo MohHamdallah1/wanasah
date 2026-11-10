@@ -95,34 +95,56 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   expect(loadResponse.status()).toBe(200);
   expect((await loadResponse.json()).mode).toBe("DIRECT");
 
-  // The route's closure does NOT silently unload or settle vehicle custody.
+  // Status-only transitions never move Warehouse/Vehicle physical custody.
   await page.reload();
   const active = page.locator(".dispatch-route-row").first();
   await expect(active.getByRole("button", { name: "إيقاف مؤقت" })).toBeEnabled();
+  await active.getByRole("button", { name: "إيقاف مؤقت" }).click();
+  const stopDialog = page.getByRole("dialog", { name: "إيقاف المنطقة" });
+  await expect(stopDialog).toBeVisible();
   const stopped = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
     r.request().method() === "PUT");
-  await active.getByRole("button", { name: "إيقاف مؤقت" }).click();
+  await stopDialog.getByRole("button", { name: "تأكيد", exact: true }).click();
   expect((await stopped).status()).toBe(200);
-  const resumedRow = page.locator(".dispatch-route-row").first();
-  await expect(resumedRow.getByRole("button", { name: "متابعة الحمولة" })).toBeVisible();
-  await resumedRow.getByRole("button", { name: "متابعة الحمولة" }).click();
-  const resume = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
-    r.request().method() === "PUT");
-  await page.getByRole("dialog").getByRole("button", { name: "Confirm route status and assignment" }).click();
-  expect((await resume).status()).toBe(200);
+  const waiting = page.locator(".dispatch-route-row").first();
+  await expect(waiting.getByRole("button", { name: "متابعة الحمولة" })).toBeVisible();
 
+  const postponed = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
+    r.request().method() === "PUT");
+  await waiting.getByRole("button", { name: /تأجيل المنطقة/ }).click();
+  expect((await postponed).status()).toBe(200);
+  await page.getByRole("button", { name: /عرض المؤجل/ }).click();
+  const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة/ });
+  await expect(postponedDialog.getByRole("button", { name: "استعادة" })).toBeVisible();
+  const restored = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
+    r.request().method() === "PUT");
+  await postponedDialog.getByRole("button", { name: "استعادة" }).click();
+  expect((await restored).status()).toBe(200);
+  await postponedDialog.locator(".app-modal-header button").click();
+  await expect(postponedDialog).not.toBeVisible();
+
+  const toClose = page.locator(".dispatch-route-row").first();
+  await expect(toClose.getByRole("button", { name: "إغلاق خط السير" })).toBeVisible();
+  await toClose.getByRole("button", { name: "إغلاق خط السير" }).click();
+  const closingDialog = page.getByRole("dialog", { name: "تأكيد إغلاق خط السير" });
+  await expect(closingDialog).toBeVisible();
   const closed = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
     r.request().method() === "PUT");
-  await page.locator(".dispatch-route-row").first()
-    .getByRole("button", { name: "إيقاف مؤقت" }).click();
+  await closingDialog.getByRole("button", { name: "تأكيد", exact: true }).click();
   expect((await closed).status()).toBe(200);
-  await page.getByRole("button", { name: /عرض المؤجل/ }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.locator(".dispatch-route-row")).toHaveCount(0);
+  
+  // The existing Operations workflow, not Dispatch, owns settlement.
+  const operations = page.waitForResponse(r => new URL(r.url()).pathname ===
+    "/admin/sessions/today" && r.request().method() === "GET");
+  await page.goto("/");
+  expect((await operations).status()).toBe(200);
 
   writeFileSync(info.outputPath("d08-real-wire.json"), JSON.stringify({
     backend: state.confirmed, browser: {
       zoneCreate: true, routeActivate: true, blockedActiveShopMove: true,
-      vehicleAdjust: true, routeStopAndRestore: true,
+      vehicleAdjust: true, routeActiveWaitingPostponedRestoredClosed: true,
+      operationsSettlementHandoff: true,
     }, wires,
   }, null, 2));
   expect(wires.some(w => w.path === "/dispatch/zones" && w.method === "POST" && w.status === 201)).toBe(true);
