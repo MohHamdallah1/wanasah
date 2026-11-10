@@ -1013,6 +1013,8 @@ class DispatchInitResponse(BaseModel):
     warehouses: List[DispatchWarehouseResponse]
 
 class DispatchRouteRequest(RequestModel):
+    # Stable client-generated intent. Legacy callers without it keep old semantics.
+    request_id: Optional[UUID] = None
     zone_id: PositiveDbInt
     driver_id: PositiveDbInt
     vehicle_id: PositiveDbInt
