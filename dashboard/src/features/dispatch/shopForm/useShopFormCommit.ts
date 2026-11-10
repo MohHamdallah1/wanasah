@@ -12,7 +12,7 @@ import {
   metadataPayload, metadataVerified, shopEditAttemptScope,
   readShopAttemptCanonicalId, readShopAttemptServerReference,
   saveShopAttemptCanonicalId, saveShopAttemptServerReference, shopCreateAttemptScope,
-  withExclusiveShopCreateLock,
+  withExclusiveShopWriteLock,
   ShopFormInputError, type ShopCreateAttempt, type ShopEditAttempt,
   type ShopCreatePayload, type ShopFormState,
   type ShopFinanceReadback,
@@ -386,23 +386,22 @@ export function useShopFormCommit({
       setPending(verification); // lock repeat mutation until authorized GET verifies
       return await finish(token, verification);
       };
-      if (!editId) {
-        if (!attemptScope) {
-          setRecoveryUnreadable(true);
-          return false;
-        }
-        if (typeof navigator === "undefined" || !navigator.locks?.request) {
-          setFeedback(shopFormText(language, "createLockUnavailable"));
-          return false; // never issue POST without cross-tab exclusion
-        }
-        const locked = await withExclusiveShopCreateLock(attemptScope, performWrite);
-        if (!locked.acquired) {
-          if (current(token)) setFeedback(shopFormText(language, "createOtherTab"));
-          return false;
-        }
-        return locked.result ?? false;
+      if (!attemptScope) {
+        setRecoveryUnreadable(true);
+        return false;
       }
-      return await performWrite();
+      if (typeof navigator === "undefined" || !navigator.locks?.request) {
+        setFeedback(shopFormText(language, editId ? "editLockUnavailable" : "createLockUnavailable"));
+        return false; // neither CREATE nor EDIT may bypass cross-tab exclusion
+      }
+      // Every Shop write keeps its own exact tenant/principal(+shop) lock
+      // across read of the durable command, immutable claim and HTTP send.
+      const locked = await withExclusiveShopWriteLock(attemptScope, performWrite);
+      if (!locked.acquired) {
+        if (current(token)) setFeedback(shopFormText(language, editId ? "editOtherTab" : "createOtherTab"));
+        return false;
+      }
+      return locked.result ?? false;
     } catch (error) {
       if (!current(token)) return false;
       const status = apiErrorStatus(error);
