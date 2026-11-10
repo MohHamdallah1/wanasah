@@ -115,7 +115,7 @@ export const routeLaunchActorMatchesSession = (
     return Array.isArray(identity) && identity.length >= 3 &&
       actor.actorScope === identity.slice(0, 3).join(":") &&
       identity.slice(0, 3).every((id: unknown) =>
-        typeof id === "string" && /^[1-9]\\d*$/.test(id) &&
+        typeof id === "string" && /^[1-9]\d*$/.test(id) &&
         Number.isSafeInteger(Number(id)));
   } catch { return false; }
 };
