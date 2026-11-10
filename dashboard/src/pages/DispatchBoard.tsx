@@ -445,7 +445,7 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (accessState !== "ready") return;
+    if (accessState !== "ready" || dispatchReadState === "denied" || dispatchReadState === "error") return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -623,7 +623,7 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner, accessState]);
+  }, [fetchInitialData, isCompanyOwner, accessState, dispatchReadState]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -1295,7 +1295,7 @@ function DispatchSession() {
   if (accessState !== "ready" || dispatchReadState !== "ready") {
     const display = accessState !== "ready" ? accessState : dispatchReadState;
     return <DispatchAccessNotice state={display === "ready" ? "loading" : display}
-      onRetry={() => { retryAccess(); fetchInitialData(); }} />;
+      onRetry={() => { setDispatchReadState("loading"); retryAccess(); }} />;
   }
 
   return (
