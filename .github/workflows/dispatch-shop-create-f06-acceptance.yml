@@ -164,8 +164,8 @@ jobs:
           f06 = [case for case in cases if "test_dispatch_shop_create_f06_postgres" in case.attrib.get("classname", "")]
           failures = [case for case in cases if case.find("failure") is not None or case.find("error") is not None]
           skipped = [case for case in cases if case.find("skipped") is not None]
-          assert len(f06) == 9, f"F06 case manifest mismatch: {len(f06)}"
-          assert len(cases) >= 28, f"Missing earlier finance/physical cases: {len(cases)}"
+          assert len(f06) == 10, f"F06 case manifest mismatch: {len(f06)}"
+          assert len(cases) == 29, f"F06+finance+physical exact manifest mismatch: {len(cases)}"
           assert not failures and not skipped, f"F06 FAIL={len(failures)} SKIP={len(skipped)}"
           print(f"F06_PG16_CASES PASS total={len(cases)} f06={len(f06)} failures=0 skips=0")
           PY
