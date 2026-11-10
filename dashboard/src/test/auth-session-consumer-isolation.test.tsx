@@ -332,13 +332,13 @@ describe("D09 actual DispatchBoard effective grants and revoked view", () => {
       render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
       const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
       fireEvent.click(tab);
-      await screen.findByText("Scoped Zone");
+      await screen.findAllByText("Scoped Zone");
       await screen.findByText("Scoped Shop");
       expect(screen.queryByText("[+ منطقة جديدة]")).not.toBeInTheDocument();
       act(() => window.dispatchEvent(new Event("inventory-permission-denied")));
       expect(screen.queryByText("Scoped Shop")).not.toBeInTheDocument();
       expect(screen.queryByText("Private Owner")).not.toBeInTheDocument();
-      expect(screen.queryByText("Scoped Zone")).not.toBeInTheDocument();
+      expect(screen.queryAllByText("Scoped Zone")).toHaveLength(0);
       expect(screen.getByRole("alert")).toHaveTextContent(
         locale === "ar" ? "لا تملك صلاحية" : "You do not have access",
       );
@@ -505,16 +505,20 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   expect(requests.some(request => request.company === "2" && request.path === "/dispatch/init")).toBe(true);
   expect(requests.filter(request => request.company === "1" && request.path === "/dispatch/init")
     .every(request => request.signal?.aborted)).toBe(true);
-  for (const tab of ["إطلاق خط جديد", "هيكلة المناطق", "الخطوط النشطة"]) {
-    fireEvent.click(screen.getByRole("tab", { name: tab }));
-    expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage)/);
-  }
+  // D09: during B's pending permission/data read, no old or new tab is exposed.
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Checking access permissions");
   await act(async () => lateA.resolve());
   expect(document.body.textContent).not.toContain("A-LATE");
   expect(localStorage.getItem(scope)).toBe(persisted);
 
   await act(async () => allowB.resolve());
   expect(screen.getByText("B-route")).toBeInTheDocument();
+  for (const tab of ["إطلاق خط جديد", "هيكلة المناطق", "الخطوط النشطة"]) {
+    fireEvent.click(screen.getByRole("tab", { name: tab }));
+    expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage)/);
+  }
+  fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
   fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
   expect(screen.getByText("B-shop", { selector: "p" })).toBeInTheDocument();
