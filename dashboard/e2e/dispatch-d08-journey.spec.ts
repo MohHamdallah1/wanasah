@@ -185,7 +185,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     });
     return { status: r.status, body: await r.json() };
   }, { endpoint: "/dispatch/shops/bulk_update", shopId: state.importedShopId,
-       zoneId: state.zoneId, origin: API });
+       zoneId: state.otherZoneId, origin: API });
   expect(deniedMove.status).toBe(409);
 
   await page.locator(".dispatch-route-row").first()
