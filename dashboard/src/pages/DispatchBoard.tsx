@@ -1012,6 +1012,7 @@ function DispatchSession() {
     needsVerification: shopNeedsVerification, restoring: shopCreateRestoring,
     recoveryUnreadable: shopCreateUnreadable, leaveUncertain: leaveUncertainShopCreate,
     needsManualReconciliation: shopCreateNeedsReview,
+    needsEditReview: shopEditNeedsReview,
     localTrackingId: shopCreateTrackingId, serverReference: shopCreateServerRef,
   } = useShopFormCommit({
     open: isShopModalOpen, editId: editingShopId, form: shopForm,
@@ -1688,7 +1689,7 @@ function DispatchSession() {
         zones={zones}
         onSave={handleSaveShop} onVerify={verifyShopSave}
         onLeaveUncertain={leaveUncertainShopCreate} needsManualReconciliation={shopCreateNeedsReview}
-        restoring={shopCreateRestoring} recoveryUnreadable={shopCreateUnreadable}
+        needsEditReview={shopEditNeedsReview} restoring={shopCreateRestoring} recoveryUnreadable={shopCreateUnreadable}
         localTrackingId={shopCreateTrackingId} serverReference={shopCreateServerRef}
         language={i18n.language}
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
