@@ -133,6 +133,16 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   await closingDialog.getByRole("button", { name: "تأكيد", exact: true }).click();
   expect((await closed).status()).toBe(200);
   await expect(page.locator(".dispatch-route-row")).toHaveCount(0);
+  const custody = await page.evaluate(async ({ id, origin }) => {
+    const response = await fetch(origin + "/dispatch/inventory/" + id, {
+      headers: { Authorization: "Bearer " + localStorage.getItem("admin_token") },
+    });
+    return { status: response.status, data: await response.json() };
+  }, { id: state.vehicleId, origin: API });
+  expect(custody.status).toBe(200);
+  const vehicleProduct = custody.data.find((line: { product_id: string }) =>
+    String(line.product_id) === String(state.variantId));
+  expect(Number(vehicleProduct?.current_base_quantity)).toBe(21);
   
   // The existing Operations workflow, not Dispatch, owns settlement.
   const operations = page.waitForResponse(r => new URL(r.url()).pathname ===
