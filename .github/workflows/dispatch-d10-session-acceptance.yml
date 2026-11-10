@@ -23,13 +23,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - name: Verify whitespace
-        run: git diff --check HEAD~1 HEAD
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
       - name: Install exact dashboard dependencies
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
