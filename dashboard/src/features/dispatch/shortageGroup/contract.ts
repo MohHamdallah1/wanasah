@@ -147,6 +147,8 @@ const messages = {
     noLock: "المتصفح لا يدعم منع تكرار العملية بين التبويبات. لم نرسل الطلب.",
     otherTab: "تبويب آخر يعالج النواقص الآن؛ لم نرسل طلباً ثانياً.",
     otherTabResolved: "تم تحديث النواقص من الخادم بعد إغلاق المحاولة في تبويب آخر. لم نرسل طلباً جديداً ولم نفترض نجاحاً هنا.",
+    changedAttempt: "توجد محاولة أخرى محفوظة من تبويب مختلف. عرضنا المحاولة الجديدة ولم نرسل طلب التعديل أو الحذف القديم.",
+    serverReference: "مرجع طلب الخادم",
     unknown: "نتيجة الحفظ غير مؤكدة. لم نعتبر العملية ناجحة، ويمكن التحقق بنفس الطلب الأصلي.",
     readback: "وصل رد الحفظ، لكن تعذّر التحقق من قائمة النواقص. لم نعلن النجاح.",
     denied: "لا تملك صلاحية متابعة هذه العملية. المحاولة الأصلية محفوظة للمراجعة.",
@@ -167,6 +169,8 @@ const messages = {
     noLock: "This browser cannot safely prevent duplicate writes across tabs. No request was sent.",
     otherTab: "Another tab is processing shortages. No second request was sent.",
     otherTabResolved: "The server shortage list was refreshed after another tab cleared the attempt. No new write or success claim was made here.",
+    changedAttempt: "Another tab saved a different pending operation. Its details are now displayed; the previous Retry did not send anything.",
+    serverReference: "Server request reference",
     unknown: "The save result is uncertain. No success was claimed; recover using the same original request.",
     readback: "The server responded but the shortage list could not be verified. No success was claimed.",
     denied: "You are not authorized to continue. The original attempt is retained for review.",
@@ -179,3 +183,30 @@ const messages = {
     delete: "Delete all",
   },
 } as const;
+
+/** The request's HTTP log reference is separate from the idempotency UUID.
+ * It is diagnostic only; never proof of a successful write.
+ */
+export function saveGroupHttpReference(scope: string, operationId: string, value: string | undefined): void {
+  if (!value || !/^[A-Za-z0-9._:-]{1,100}$/.test(value)) return;
+  try {
+    localStorage.setItem(`${scope}:http-ref`,
+      JSON.stringify({ operationId, value }));
+  } catch { /* The immutable command remains protected independently. */ }
+}
+
+export function readGroupHttpReference(scope: string, operationId: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${scope}:http-ref`);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const ref = parsed as { operationId?: unknown; value?: unknown };
+    return ref.operationId === operationId && typeof ref.value === "string" &&
+      /^[A-Za-z0-9._:-]{1,100}$/.test(ref.value) ? ref.value : null;
+  } catch { return null; }
+}
+
+export function clearGroupHttpReference(scope: string): void {
+  try { localStorage.removeItem(`${scope}:http-ref`); } catch { /* no mutation is implied */ }
+}
