@@ -205,7 +205,11 @@ export function isShopCreateAttempt(value: unknown): value is ShopCreateAttempt 
   try {
     const expected = createPayload(attempt.draft as ShopFormState,
       attempt.submitted.force_save);
-    return JSON.stringify(expected) === JSON.stringify(attempt.submitted);
+    const actual = attempt.submitted as unknown as Record<string, unknown>;
+    return typeof actual.force_save === "boolean" &&
+      Object.keys(actual).length === Object.keys(expected).length &&
+      (Object.keys(expected) as Array<keyof ShopCreatePayload>)
+        .every(key => actual[key] === expected[key]);
   } catch {
     return false;
   }
