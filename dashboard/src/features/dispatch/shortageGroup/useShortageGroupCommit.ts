@@ -273,15 +273,6 @@ export function useShortageGroupCommit({
             }
             completeDurableOperation(scope, original.requestId);
             clearGroupHttpReference(scope);
-              setPending(null);
-              setHttpReference(null);
-              setFeedback(groupText(language, "historicalCommit"));
-              onReconciledRef.current(rows as Shortage[]);
-              toast.info(groupText(language, "historicalCommit"));
-              return true; // confirmed past commit, NOT present-day field parity
-            }
-            completeDurableOperation(scope, original.requestId);
-            clearGroupHttpReference(scope);
             setPending(null);
             setHttpReference(null);
             setFeedback(null);
