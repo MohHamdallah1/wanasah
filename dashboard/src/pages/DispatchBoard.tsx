@@ -1014,8 +1014,8 @@ function DispatchSession() {
       }
       // Only the verified original receipt effect may show success, clear
       // D10 drafts or alter route rows. UNKNOWN never fabricates a success.
-    } catch {
-      if (admitted()) toast.error(t("dispatchRouteLoad.invalid"));
+    } catch (err: unknown) {
+      if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
     }
   };
 
