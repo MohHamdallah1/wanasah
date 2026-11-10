@@ -542,7 +542,7 @@ function DispatchSession() {
       });
 
     return () => controller.abort();
-  }, [selectedSourceWarehouseId, authenticatedFetch, actorScope, accessState, dispatchReadState]);
+  }, [selectedSourceWarehouseId, authenticatedFetch, actorScope, accessState, dispatchReadState, activeRoute?.id]);
 
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
@@ -783,7 +783,8 @@ function DispatchSession() {
       });
 
     return () => controller.abort();
-  }, [selectedVehicleId, vehicleLoadContext, vehicleInventoryReloadKey, authenticatedFetch, t]);
+  }, [selectedVehicleId, selectedZoneId, selectedDriverId, vehicleLoadContext,
+    vehicleInventoryReloadKey, actorScope, accessState, dispatchReadState, authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -828,8 +829,10 @@ function DispatchSession() {
   });
 
   const fetchArchivedZones = async () => {
+    const admitted = captureUiRead();
     try {
       const data = await authenticatedFetch("/dispatch/zones/archived");
+      if (!admitted()) return;
       if (!Array.isArray(data)) {
         throw new Error("استجابة أرشيف المناطق غير صالحة.");
       }
@@ -847,11 +850,13 @@ function DispatchSession() {
         })
       );
     } catch (err: unknown) {
+      if (!admitted()) return;
       toast.error("خطأ في جلب أرشيف المناطق: " + getErrorMessage(err));
     }
   };
 
   const handleRestoreZone = async (zoneId: string) => {
+    const admitted = captureUiRead();
     try {
       await authenticatedFetch(`/dispatch/zones/${zoneId}/restore`, {
       method: "PUT",
@@ -860,10 +865,12 @@ function DispatchSession() {
       }),
     });
 
+      if (!admitted()) return;
       const [initRaw, shopsRaw] = await Promise.all([
         authenticatedFetch("/dispatch/init"),
         authenticatedFetch("/dispatch/shops"),
       ]);
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
       setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
       setShops(normalizeShops(shopsRaw));
@@ -872,6 +879,7 @@ function DispatchSession() {
       toast.success("تم استعادة المنطقة بنجاح");
       if (archivedZones.length <= 1) setIsZoneRecycleBinOpen(false);
     } catch (err: unknown) {
+      if (!admitted()) return;
       toast.error("خطأ في الاستعادة: " + getErrorMessage(err));
     }
   };
@@ -951,6 +959,7 @@ function DispatchSession() {
   };
 
   const handleConfirmRouteAction = async () => {
+    const admitted = captureUiRead();
     if (!activeRoute || activeRoute.can_execute !== true ||
         !vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true)) return;
     if (activeRoute.sessionEnded) {
@@ -987,17 +996,20 @@ function DispatchSession() {
         body: JSON.stringify(buildRouteStatusOnlyPayload("active", newDriverId, selectedVehicleId))
       });
 
+      if (!admitted()) return;
       const freshRoutes = await authenticatedFetch("/dispatch/active_routes");
+      if (!admitted()) return;
       setPendingRoutes(Array.isArray(freshRoutes) ? freshRoutes : []);
 
       toast.success("تم تفعيل خط السير بنجاح");
       setIsRouteModalOpen(false);
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err));
+      if (admitted()) toast.error(getErrorMessage(err));
     }
   };
 
   const handleUpdateScheduling = async () => {
+    const admitted = captureUiRead();
     const targetIds =
       schedulingType === "bulk"
         ? selectedBulkZoneIds
@@ -1035,6 +1047,7 @@ function DispatchSession() {
       )
     );
 
+    if (!admitted()) return;
     const successIds = targetIds.filter(
       (_, index) => results[index].status === "fulfilled"
     );
@@ -1042,6 +1055,7 @@ function DispatchSession() {
 
     if (successIds.length > 0) {
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
       setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
       toast.success(
