@@ -1,0 +1,174 @@
+name: D06 temporary read-only PG16 Backoffice Bearer audit (DO NOT MERGE)
+on:
+  push:
+    branches:
+      - audit/866-d06-pg16-evidence
+
+permissions:
+  contents: read
+
+jobs:
+  d06-real-pg16:
+    name: D06 A1-A2-B restricted real PG16 Bearer
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: DispatchD06IsolatedPG16BearerOnly12345678901234567890123456
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_DISPATCH_D06_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prove exact runtime MAIN and isolated ONLY two audit files
+        env:
+          BASE_SHA: 7cc90e70dc4856786762bdfbc3c13a02f0620987
+        run: |
+          python - <<'PY'
+          import os, subprocess
+          base = os.environ["BASE_SHA"]
+          assert subprocess.check_output(
+              ["git", "merge-base", base, "HEAD"], text=True
+          ).strip() == base, "Audit source must descend from approved exact MAIN"
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True
+          ).splitlines())
+          approved = {
+              ".github/workflows/dispatch-d06-read-scope-audit.yml",
+              "wa_backend/tests/test_dispatch_d06_read_scope_audit_postgres.py",
+          }
+          assert changed == approved, f"Refuse unapproved runtime changes: {sorted(changed ^ approved)}"
+          print("D06_EXACT_MAIN=7cc90e70dc4856786762bdfbc3c13a02f0620987")
+          print("D06_RUNTIME_CODE_UNCHANGED_FROM_EXACT_MAIN=PASS")
+          print("D06_TEST_ONLY_FILES=2")
+          PY
+          git diff --check "$BASE_SHA" HEAD
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing locked backend/test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile audit fixture only; no Backend modifications
+        working-directory: wa_backend
+        run: python -m py_compile tests/test_dispatch_d06_read_scope_audit_postgres.py
+      - name: Launch ONLY disposable local PostgreSQL16
+        run: |
+          docker run --detach --name dispatch-d06-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 30); do
+            if docker exec dispatch-d06-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs dispatch-d06-pg16
+          exit 1
+      - name: Create independent restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as conn:
+              conn.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+      - name: Migrate full pristine schema with current exact source
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant only existing DML/SQL permissions in disposable schema
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri, autocommit=True) as conn:
+              conn.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              conn.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Prove PostgreSQL16 role, RLS and unmodified schema
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          uri = make_url(os.environ["DATABASE_URL"]).set(
+              drivername="postgresql"
+          ).render_as_string(hide_password=False)
+          with psycopg.connect(uri) as conn:
+              identity = conn.execute(
+                  "SELECT current_database(), current_user, "
+                  "current_setting('server_version_num')::int, rolsuper, rolbypassrls "
+                  "FROM pg_roles WHERE rolname=current_user"
+              ).fetchone()
+              assert identity[0:2] == ("wanasah_no_lot_contract_test", "wanasah_app")
+              assert 160000 <= identity[2] < 170000
+              assert identity[3:] == (False, False)
+              print("D06_PG16_NOBYPASSRLS PASS")
+              for table in ("shops", "zones", "dispatch_routes", "inventory_locations"):
+                  flags = conn.execute(
+                      "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+                      "WHERE oid=to_regclass(%s)", (table,)
+                  ).fetchone()
+                  assert flags == (True, True), (table, flags)
+              print("D06_PG16_FORCE_RLS PASS shops/zones/routes/locations")
+          PY
+      - name: Execute genuine A1-A2-B Bearer D06 plus unchanged Finance/Physical PG16
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_d06_read_scope_audit_postgres.py
+          tests/test_dispatch_shop_finance_edit_v1_postgres.py
+          tests/test_dispatch_p0_route_stock_safety_postgres.py
+          --junitxml=d06-real-pg16-junit.xml
+      - name: Independently count every real case, reject SKIP or silent failure
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          path = "d06-real-pg16-junit.xml"
+          assert os.path.isfile(path), "D06 genuine PG16 evidence missing"
+          cases = list(ET.parse(path).getroot().iter("testcase"))
+          bad = []
+          for case in cases:
+              outcome = next((n for n in ("failure", "error", "skipped")
+                              if case.find(n) is not None), "PASS")
+              print("D06_CASE", outcome, case.get("classname"), case.get("name"))
+              if outcome != "PASS":
+                  bad.append((case.get("name"), outcome,
+                              (case.find(outcome).text or "")[:1200]))
+          print(f"D06_REAL_PG16_CASES total={len(cases)} failures_or_skips={len(bad)}")
+          assert len(cases) == 20, f"Expected 1 new D06 and existing 19, got {len(cases)}"
+          assert not bad, f"D06 PG16 audit failure/skip: {bad}"
+          PY
+      - name: Retain immutable synthetic audit JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-d06-pg16-real-junit-${{ github.run_id }}
+          path: wa_backend/d06-real-pg16-junit.xml
+          if-no-files-found: error
+      - name: Diagnostics only if disposable PG fails
+        if: failure()
+        run: docker logs dispatch-d06-pg16 2>/dev/null | tail -n 100 || true
