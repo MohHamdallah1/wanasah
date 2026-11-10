@@ -1,10 +1,16 @@
 import { webcrypto } from "node:crypto";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import DispatchBoard from "@/pages/DispatchBoard";
+import { setAppLanguage } from "@/i18n";
+import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 import { captureDashboardSession, beginDashboardSession } from "@/lib/authStorage";
 import { readDurableCommand } from "@/lib/durableOperations";
 import {
-  routeLaunchIntent, routeLaunchReadback, routeLaunchScopeKey, routeLaunchText,
+  readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchReadback,
+  routeLaunchPendingKey, routeLaunchScopeKey, routeLaunchText,
   type RouteLaunchActor, type RouteLaunchIntent,
 } from "@/features/dispatch/routeLaunch/contract";
 import {
@@ -29,6 +35,33 @@ const committed = (requestId: string, routeId = 300) => ({
     tax_ruleset_version: 3, rounding_policy_version: 1,
   },
 });
+
+// Same real Board and D10 session/permission wiring as the accepted D10
+// browser-focused test. Only transport and discovery are deterministic.
+const board = vi.hoisted(() => ({ fetch: vi.fn() }));
+vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => board.fetch }));
+const boardOwner = {
+  company_id: 1, principal_id: 3, backoffice_user_id: 13,
+  is_company_owner: true, location_id: null,
+  permissions: ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"],
+  any_permissions: ["dispatch.read", "dispatch.execute", "shortage.read", "shortage.create", "shortage.cancel"],
+  location_permissions: [],
+};
+vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => ({
+  isCompanyOwner: true, data: boardOwner, can: () => true,
+  isFetching: false, isError: false, error: null, dataUpdatedAt: 100,
+  refetch: async () => ({ data: boardOwner }),
+}) }));
+vi.mock("@/components/ui/custom-select", () => ({
+  CustomSelect: ({ label, value, options, onChange }: {
+    label: string; value: string; options: { id: string; label: string }[];
+    onChange: (value: string) => void;
+  }) => <select aria-label={label} value={value}
+    onChange={event => onChange(event.target.value)}>
+    <option value="" />{options.map(option =>
+      <option key={option.id} value={option.id}>{option.label}</option>)}
+  </select>,
+}));
 
 const held = new Set<string>();
 const locks = {
@@ -88,6 +121,7 @@ beforeEach(() => {
   Object.defineProperty(navigator, "locks", { configurable: true, value: locks });
 });
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
   Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
 });
@@ -248,5 +282,105 @@ describe("D07 original route launch command / fail-closed recovery", () => {
     hook.unmount();
     // The durable command is deliberately not cleared by revoked UI state.
     expect(await record()).not.toBeNull();
+  });
+});
+
+
+describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
+  const unit = {
+    base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "EACH",
+    quantity_scale: 0, quantity_step: "1",
+    display_uom_name: "PACK", display_factor_to_base: "8",
+  };
+  const custody = [{ ...unit, product_id: "44", product_name: "Chips",
+    current_base_quantity: "25", current_quantity: 3 }];
+  const page = { items: [{ id: "44", name: "Chips",
+    load: { ...unit, product_id: "44", product_name: "Chips",
+      current_base_quantity: "0", reserved_base_quantity: "0", pending_base_quantity: "0" } }],
+    next_cursor: null, has_more: false };
+
+  it.each([
+    ["ar", "التحقق من الإطلاق"],
+    ["en", "Verify original launch"],
+  ])("%s: physical launch loses 201, visible original UUID verifies after reentry with one POST", async (language, verifyLabel) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    vi.stubGlobal("WebSocket", class {
+      static OPEN = 1; static CONNECTING = 0; static CLOSED = 3;
+      readyState = 0;
+      send() {}
+      close() { this.readyState = 3; }
+    });
+    localStorage.setItem("admin_token", "synthetic-board-integration-only");
+    localStorage.setItem("company_id", "1");
+    localStorage.setItem("principal_id", "3");
+    localStorage.setItem("backoffice_user_id", "13");
+    writeDispatchPreferences("1:3:13", {
+      activeTab: "launch", zoneForShops: "", launchZone: "7",
+      driver: "9", vehicle: "31", sourceWarehouse: "20",
+    });
+    await setAppLanguage(language);
+    board.fetch.mockReset();
+    let original: ReturnType<typeof committed> | null = null;
+    const posts: Recorded[] = [];
+    let lookups = 0;
+    board.fetch.mockImplementation(async (path: string, opts?: RequestInit): Promise<unknown> => {
+      if (path === "/dispatch/init") return {
+        zones: [{ id: "7", name: "Zone seven", shopsCount: 1 }],
+        drivers: [{ id: "9", name: "Driver" }],
+        vehicles: [{ id: "31", label: "Vehicle", can_execute: true }],
+        warehouses: [{ id: "20", label: "Warehouse", can_execute: true }],
+      };
+      if (path === "/dispatch/shops") return [{
+        id: "77", zoneId: "7", name: "Shop", archived: false,
+        initialDebt: "0", maxDebtLimit: "0",
+      }];
+      if (path === "/dispatch/active_routes" || path === "/dispatch/shortages") return [];
+      if (path.startsWith("/dispatch/inventory/")) return custody;
+      if (path.startsWith("/dispatch/products?")) return page;
+      if (path.startsWith("/warehouse/status")) return { is_locked: false };
+      if (path === "/dispatch/route") {
+        const payload = JSON.parse(String(opts?.body)) as Recorded;
+        posts.push(payload);
+        if (!original) {
+          original = committed(payload.request_id, 901);
+          throw new TypeError("A real HTTP 201 response disappears after DB commit");
+        }
+        expect(payload.request_id).toBe(original.request_id);
+        return original;
+      }
+      if (path.startsWith("/dispatch/route/create-operations/")) {
+        const requestId = path.split("/").at(-1)!;
+        lookups++;
+        if (lookups === 1) return { request_id: requestId, state: "UNKNOWN" };
+        return { request_id: requestId, state: "COMMITTED", response: original };
+      }
+      return [];
+    });
+
+    render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
+    await screen.findByText("Chips");
+    const target = await screen.findByRole("textbox", { name: /Target.*Chips/ });
+    await waitFor(() => expect(target).not.toBeDisabled());
+    fireEvent.change(target, { target: { value: "5" } });
+    const launch = screen.getByRole("button", { name: "اعتماد وإطلاق خط السير" });
+    await waitFor(() => expect(launch).not.toBeDisabled());
+    fireEvent.click(launch);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    await screen.findByTestId("d07-route-recovery");
+    await waitFor(() => expect(screen.getByRole("button", { name: verifyLabel })).not.toBeDisabled());
+    expect(launch).toBeDisabled();
+    expect(posts[0].request_id).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(posts[0]).toMatchObject({
+      zone_id: 7, driver_id: 9, vehicle_id: 31, source_location_id: 20,
+      inventory_base: { "44": "5" }, expected_inventory_base: { "44": "25" },
+    });
+    const pointer = readRouteLaunchPendingOwner("1:3:13");
+    expect(pointer).toMatchObject({ requestId: posts[0].request_id, warehouseId: 20, vehicleId: 31 });
+    fireEvent.click(screen.getByRole("button", { name: verifyLabel }));
+    await waitFor(() => expect(localStorage.getItem(routeLaunchPendingKey("1:3:13"))).toBeNull());
+    expect(posts).toHaveLength(1);
+    expect(lookups).toBe(2);
+    expect(screen.queryByTestId("d07-route-recovery")).not.toBeInTheDocument();
+    expect(launch).toBeDisabled(); // D10 form selection cleared on verified original
   });
 });
