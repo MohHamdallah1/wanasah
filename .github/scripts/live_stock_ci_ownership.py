@@ -1007,6 +1007,34 @@ CI_POLICY_856_EXACT = frozenset({
 })
 assert CI_POLICY_847_EXACT < CI_POLICY_856_EXACT and len(CI_POLICY_856_EXACT) == 4
 
+# #870 full D07 original route-launch recovery. Never promote partial
+# Backend/DispatchBoard/CI source edits into Live Stock or D10 authority.
+DISPATCH_D07_COMPLETE_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+    ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+    "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+    "wa_backend/api/dispatch.py",
+    "wa_backend/domains/dispatch_route_launch_receipt.py",
+    "wa_backend/schemas.py",
+    "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+})
+DISPATCH_D07_NEW = frozenset({
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+    "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+    "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+    "wa_backend/domains/dispatch_route_launch_receipt.py",
+    "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+})
+assert len(DISPATCH_D07_COMPLETE_EXACT) == 14 and len(DISPATCH_D07_NEW) == 6
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # Exact D13 only; no partial/mixed crossover can steal the old owners.
     if changed == DISPATCH_D13_877_EXACT:
@@ -1024,6 +1052,16 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             f"CI_POLICY_856_EXACT=FAIL missing={sorted(CI_POLICY_856_EXACT - changed)} "
             f"extra={sorted(changed - CI_POLICY_856_EXACT)}"
         ]
+    if changed & DISPATCH_D07_NEW:
+        if changed != DISPATCH_D07_COMPLETE_EXACT:
+            return "fail", [
+                f"DISPATCH_D07_COMPLETE_EXACT=FAIL missing={sorted(DISPATCH_D07_COMPLETE_EXACT - changed)} "
+                f"extra={sorted(changed - DISPATCH_D07_COMPLETE_EXACT)}"
+            ]
+        if mode in {"ux", "operational"}:
+            return "dispatch-d07-complete-exact", []
+        return "not-applicable", []
+
     if changed & DISPATCH_D10_872_NEW:
         if changed != DISPATCH_D10_872_EXACT:
             return "fail", [
@@ -1338,6 +1376,25 @@ def selftest() -> None:
         "shop-form-850-exact"
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
+
+    # D07 #870: only complete fourteen-file route-launch diff admitted.
+    for mode in ("ux", "operational"):
+        assert classify(mode, set(DISPATCH_D07_COMPLETE_EXACT), policy_sem) == (
+            "dispatch-d07-complete-exact", []
+        )
+    assert classify("r3", set(DISPATCH_D07_COMPLETE_EXACT), policy_sem) == (
+        "not-applicable", []
+    )
+    for missing in DISPATCH_D07_COMPLETE_EXACT:
+        partial = set(DISPATCH_D07_COMPLETE_EXACT) - {missing}
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, partial, policy_sem)
+    for foreign in ("wa_backend/models.py", "wa_backend/main.py",
+                    "dashboard/src/features/dispatch/sessionScope.ts",
+                    "dashboard/src/components/dispatch/ShortageModal.tsx"):
+        for mode in ("ux", "r3", "operational"):
+            _expect_fail(mode, set(DISPATCH_D07_COMPLETE_EXACT) | {foreign}, policy_sem)
+    print("DISPATCH_D07_LIVE_STOCK_SELFTEST=PASS exact=14 partial=14 foreign=4")
 
     # Strict D10 acceptance: both supported owner modes, every missing file,
     # unrelated/Backend file denied, original D09 policy unchanged.
