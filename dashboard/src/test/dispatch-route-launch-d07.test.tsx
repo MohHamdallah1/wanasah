@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import DispatchBoard from "@/pages/DispatchBoard";
 import { setAppLanguage } from "@/i18n";
+// D13 Shop children read tenant currency. This isolated Board test does not
+// mount React Query, so supply the actual test tenant's verified currency.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
+import { PREFLIGHT_AREAS } from "@/features/dispatch/commercialPreflight/contract";
 import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 import { captureDashboardSession, beginDashboardSession } from "@/lib/authStorage";
 import { readDurableCommand } from "@/lib/durableOperations";
@@ -338,6 +344,11 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
       if (path.startsWith("/dispatch/inventory/")) return custody;
       if (path.startsWith("/dispatch/products?")) return page;
       if (path.startsWith("/warehouse/status")) return { is_locked: false };
+      if (path.startsWith("/dispatch/route/commercial-preflight?")) return {
+        ready: true, advisory: true, currency_code: "QAR",
+        checks: Object.fromEntries(PREFLIGHT_AREAS.map(area =>
+          [area, { ready: true, code: "READY", context: {} }])),
+      };
       if (path === "/dispatch/route") {
         const payload = JSON.parse(String(opts?.body)) as Recorded;
         posts.push(payload);
@@ -365,7 +376,7 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
     const target = await screen.findByRole("textbox", { name: /Chips/ });
     await waitFor(() => expect(target).not.toBeDisabled());
     fireEvent.change(target, { target: { value: "5" } });
-    const launch = screen.getByRole("button", { name: "اعتماد وإطلاق خط السير" });
+    const launch = screen.getByRole("button", { name: language === "ar" ? "اعتماد وإطلاق خط السير" : "Confirm and launch route" });
     await waitFor(() => expect(launch).not.toBeDisabled());
     fireEvent.click(launch);
     await waitFor(() => expect(posts).toHaveLength(1));

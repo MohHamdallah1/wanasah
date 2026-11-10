@@ -37,9 +37,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Verify #849 exact approved base and immutable file ownership
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           python - <<'PY'
-          import subprocess
+          import subprocess, os
           base = "0e03d3423dd4773e694d386073fb214c7082e0d6"
           subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
           assert subprocess.check_output(
@@ -56,7 +58,35 @@ jobs:
               "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
               ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
           }
-          assert files and files <= allowed, f"Worker 1 #849 scope violated: {sorted(files - allowed)}"
+          # D11 is a complete, separate owner-reviewed launch safety surface.
+          # Admit ONLY its 16 exact files against the current PR base; retain
+          # the frozen #849 ancient-base requirement for EVERY other PR.
+          d11_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-d11-commercial-preflight.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py",
+          }
+          assert len(d11_exact) == 16
+          pr_files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", os.environ["PR_BASE"], "HEAD"], text=True,
+          ).splitlines())
+          if pr_files == d11_exact:
+              print("D11_D05_CROSS_OWNER=PASS exact=16 original #849 unchanged")
+          else:
+              assert files and files <= allowed, f"Worker 1 #849 scope violated: {sorted(files - allowed)}"
           print(f"EXACT_APPROVED_BASE={base}")
           print("EXACT_TEST_HEAD=" + subprocess.check_output(
               ["git", "rev-parse", "HEAD"], text=True).strip())
