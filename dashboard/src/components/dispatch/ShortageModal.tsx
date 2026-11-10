@@ -270,7 +270,7 @@ function ShopCard({
         </div>
 
         {/* Right: action buttons */}
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {canEdit && !isBeingEdited && (
             <button
               onClick={e => { e.stopPropagation(); onEdit(); }}
@@ -433,7 +433,7 @@ export function ShortageModal({
 
           <div className="p-5 space-y-4">
             {/* Selects */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <CustomSelect
                 label="المنطقة"
                 options={zones.map(z => ({ id: z.id, label: z.name }))}
@@ -458,14 +458,14 @@ export function ShortageModal({
             </div>
 
             {/* Product + Qty picker */}
-            <div className="grid grid-cols-5 gap-3 items-end bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="col-span-2 flex flex-col gap-1.5">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.product")}</span>
                 <ShortageProductPicker scope={productScope} selected={newShortage.productId && newShortage.productName
                   ? { id: newShortage.productId, name: newShortage.productName } : null} drafted={shortageDraft}
                   onSelect={(productId, productName) => onNewShortageChange({ ...newShortage, productId, productName })} />
               </div>
-              <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="sm:col-span-2 flex flex-col gap-1.5">
                 <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.quantity")}</span>
                 <input
                   type="number"
