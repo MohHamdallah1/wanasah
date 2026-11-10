@@ -1,7 +1,7 @@
-import { currentLocale } from "@/i18n";
+import { resolveAppLocale } from "@/lib/locale";
 import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useId } from "react";
 import {
   Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
   Package, AlertTriangle, Clock, X, Eraser,
@@ -11,6 +11,7 @@ import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/c
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
+import { dispatchUiText, type DispatchUiKey } from "@/features/dispatch/dispatchUiText";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface ShortageModalProps {
@@ -94,27 +95,22 @@ function groupByShop(shortages: Shortage[]) {
 }
 
 /** Arabic human-readable relative time + clock HH:MM · date */
-function formatTimestamp(isoStr?: string | null): string {
-  if (!isoStr) return "الآن";
-  // +++ الكي الجراحي: استخدام الدرع الزمني الموحد لمنع كراش Invalid Date +++
-  const safeIso = isoStr.endsWith("Z") || isoStr.includes("+") ? isoStr : isoStr + "Z";
+function formatTimestamp(isoStr: string | null | undefined, language: string): string {
+  const text = (key: DispatchUiKey, count?: number) => dispatchUiText(language, key, count === undefined ? {} : { count });
+  if (!isoStr) return text("shortageNow");
+  const safeIso = /(?:Z|[+-]\\d{2}:\\d{2})$/.test(isoStr) ? isoStr : isoStr + "Z";
   const date = new Date(safeIso);
-  if (isNaN(date.getTime())) return "الآن";
-
-  const diffMs = Date.now() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHrs = Math.floor(diffMins / 60);
-
-  let relative: string;
-  if (diffMins < 1) relative = "الآن";
-  else if (diffMins < 60) relative = `منذ ${diffMins} دقيقة`;
-  else if (diffHrs < 24) relative = `منذ ${diffHrs} ساعة`;
-  else relative = `منذ ${Math.floor(diffHrs / 24)} يوم`;
-
-  const timeStr = date.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit", hour12: true });
-  const dateStr = date.toLocaleDateString(currentLocale(), { day: "numeric", month: "short" });
-
-  return `${relative}  •  ${timeStr}، ${dateStr}`;
+  if (Number.isNaN(date.getTime())) return text("shortageNow");
+  const elapsed = Math.max(0, Date.now() - date.getTime());
+  const minutes = Math.floor(elapsed / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const relative = minutes < 1 ? text("shortageNow") :
+    minutes < 60 ? text("shortageMinutes", minutes) :
+    hours < 24 ? text("shortageHours", hours) : text("shortageDays", Math.floor(hours / 24));
+  const locale = resolveAppLocale(language);
+  const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(date);
+  const calendar = new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }).format(date);
+  return `${relative} • ${clock}, ${calendar}`;
 }
 
 function isUrgentGroup(createdAt?: string): boolean {
@@ -124,61 +120,61 @@ function isUrgentGroup(createdAt?: string): boolean {
 
 // ─── Draft Qty Row ────────────────────────────────────────────────────────────
 function DraftRow({
-  item,
-  idx,
-  onQtyChange,
-  onRemove,
+  item, idx, language, onQtyChange, onRemove,
 }: {
   item: { productName: string; quantity: number };
   idx: number;
+  language: string;
   onQtyChange: (idx: number, qty: number) => void;
   onRemove: (idx: number) => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
-
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
+  const text = (key: DispatchUiKey) => dispatchUiText(language, key, { product: item.productName });
+  useEffect(() => { if (confirmDelete) confirmRef.current?.focus(); }, [confirmDelete]);
+  const cancel = () => {
+    setConfirmDelete(false);
+    requestAnimationFrame(() => deleteRef.current?.focus());
+  };
   return (
     <tr className="group">
-      <td className="p-3 font-medium text-slate-700 text-sm">{item.productName}</td>
-      <td className="p-3 text-center w-36">
-        <div className="inline-flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1">
-          <button
+      <th scope="row" className="p-3 text-start font-medium text-slate-700 text-sm">{item.productName}</th>
+      <td className="p-2 text-center w-36">
+        <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
+          <button type="button" aria-label={text("shortageDecrease")}
+            disabled={item.quantity <= 1}
             onClick={() => onQtyChange(idx, Math.max(1, item.quantity - 1))}
-            className="w-6 h-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all"
-          >
-            <Minus className="w-3 h-3" />
+            className="min-h-9 min-w-9 rounded-lg border border-slate-200 bg-white text-slate-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb] disabled:opacity-40">
+            <Minus className="mx-auto h-4 w-4" />
           </button>
-          <span className="w-8 text-center font-bold text-[#1e87bb] text-sm">{item.quantity}</span>
-          <button
+          <output className="min-w-8 text-center font-bold text-[#1e87bb] text-sm" aria-live="polite">{item.quantity}</output>
+          <button type="button" aria-label={text("shortageIncrease")}
             onClick={() => onQtyChange(idx, item.quantity + 1)}
-            className="w-6 h-6 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-emerald-50 hover:text-emerald-500 hover:border-emerald-200 transition-all"
-          >
-            <Plus className="w-3 h-3" />
+            className="min-h-9 min-w-9 rounded-lg border border-slate-200 bg-white text-slate-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+            <Plus className="mx-auto h-4 w-4" />
           </button>
         </div>
       </td>
-      <td className="p-3 w-12 text-center">
+      <td className="p-2 min-w-16 text-center">
         {confirmDelete ? (
-          <div className="flex items-center gap-1 justify-center">
-            <button
-              onClick={() => onRemove(idx)}
-              className="text-[10px] font-bold bg-red-500 text-white px-2 py-1 rounded-lg hover:bg-red-600 transition-all"
-            >
-              تأكيد
+          <div className="flex flex-wrap items-center justify-center gap-1"
+            onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); cancel(); } }}>
+            <button type="button" ref={confirmRef} onClick={() => onRemove(idx)}
+              className="min-h-9 rounded-lg bg-red-600 px-2 text-xs font-bold text-white focus-visible:ring-2 focus-visible:ring-offset-2">
+              {text("shortageYes")}
             </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-lg hover:bg-slate-200 transition-all"
-            >
-              لا
+            <button type="button" onClick={cancel}
+              className="min-h-9 rounded-lg bg-slate-100 px-2 text-xs font-bold text-slate-700 focus-visible:ring-2">
+              {text("shortageNo")}
             </button>
           </div>
         ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
-            title="حذف هذا المنتج"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
+          <button type="button" ref={deleteRef} onClick={() => setConfirmDelete(true)}
+            aria-label={text("shortageRemove")}
+            title={text("shortageRemove")}
+            className="min-h-9 min-w-9 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+            <Trash2 className="mx-auto h-4 w-4" />
           </button>
         )}
       </td>
