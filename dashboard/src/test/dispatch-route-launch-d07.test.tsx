@@ -302,7 +302,7 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
   it.each([
     ["ar", "التحقق من الإطلاق"],
     ["en", "Retry original request"],
-  ])("%s: physical launch loses 201, visible original UUID verifies after reentry with one POST", async (language, verifyLabel) => {
+  ] as const)("%s: physical launch loses 201, visible original UUID verifies after reentry with one POST", async (language, verifyLabel) => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
     vi.stubGlobal("WebSocket", class {
       static OPEN = 1; static CONNECTING = 0; static CLOSED = 3;
