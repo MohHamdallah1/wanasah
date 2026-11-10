@@ -36,12 +36,16 @@ jobs:
       - name: Install exact dashboard dependencies
         working-directory: dashboard
         run: npm ci --no-audit --no-fund
-      - name: One focused D10/accepted D09 and Vehicle session regression suite
+      - name: Focused D10 actor, draft and real import suite
         working-directory: dashboard
         run: >
           npm test --
           src/test/dispatch-d10-session-scope.test.ts
           src/test/dispatch-d10-drafts.test.ts
           src/test/dispatch-d10-import.test.tsx
+      - name: Preserve accepted D09 session and Warehouse vehicle regression in isolated process
+        working-directory: dashboard
+        run: >
+          npm test --
           src/test/auth-session-consumer-isolation.test.tsx
           src/test/dispatch-load-context.test.tsx
