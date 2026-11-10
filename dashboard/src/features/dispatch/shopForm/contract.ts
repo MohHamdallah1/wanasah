@@ -99,7 +99,8 @@ export function financeReadback(rows: unknown, id: string): ShopFinanceReadback 
   if (!Array.isArray(rows)) return null;
   const shop = rows.find(row => row && typeof row === "object" &&
     String((row as { id?: unknown }).id) === id) as Record<string, unknown> | undefined;
-  if (!shop || !["string", "number"].includes(typeof shop.initialDebt) ||
+  if (!shop || shop.financeRedacted !== false ||
+    !["string", "number"].includes(typeof shop.initialDebt) ||
     !["string", "number"].includes(typeof shop.maxDebtLimit)) return null;
   try {
     return { initialDebt: readMoney(shop.initialDebt),
