@@ -5,6 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import DispatchBoard from "@/pages/DispatchBoard";
 import { setAppLanguage } from "@/i18n";
+// D13 Shop children read tenant currency. This isolated Board test does not
+// mount React Query, so supply the actual test tenant's verified currency.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({ data: { company_id: 1, currency_code: "QAR" } }),
+}));
 import { PREFLIGHT_AREAS } from "@/features/dispatch/commercialPreflight/contract";
 import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 import { captureDashboardSession, beginDashboardSession } from "@/lib/authStorage";
