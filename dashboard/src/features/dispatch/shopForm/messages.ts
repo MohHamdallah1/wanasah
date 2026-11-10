@@ -31,6 +31,9 @@ const copy = {
     createServerRef: "مرجع طلب الخادم (للمراجعة فقط)",
     createRecoveryLoading: "جاري التحقق من محاولة إنشاء محفوظة لهذا الحساب...",
     createRecoveryBlocked: "تعذر قراءة سجل المحاولة بأمان أو هوية الحساب غير مكتملة. لم يُرسل طلب إنشاء جديد. راجع المسؤول قبل المتابعة.",
+    createLockUnavailable: "المتصفح لا يدعم قفل إنشاء المحلات بين التبويبات بأمان. لم يُرسل الطلب. استخدم متصفحاً حديثاً أو راجع المسؤول.",
+    createOtherTab: "يوجد تبويب آخر ينفذ إنشاء محل لهذا الحساب. لم يُرسل طلب ثانٍ. راجع المحاولة المحفوظة.",
+
     createRecoverySaved: "يمكنك مغادرة النموذج الآن. ستظل المحاولة محفوظة وستظهر عند العودة بنفس الحساب.",
 
     beforeCreateFailed: "تعذّر التحقق من المحلات قبل الإنشاء. لم يُرسل طلب إنشاء، وبياناتك محفوظة.",
@@ -71,6 +74,9 @@ const copy = {
     createServerRef: "Server request reference (for investigation only)",
     createRecoveryLoading: "Checking for a saved shop-creation attempt for this account...",
     createRecoveryBlocked: "The attempt record could not be safely read or this account's identity is incomplete. No new create request was sent. Contact an administrator.",
+    createLockUnavailable: "This browser cannot safely lock shop creation across tabs. No request was sent. Use a modern browser or contact an administrator.",
+    createOtherTab: "Another tab is already submitting a shop for this account. No second request was sent. Review the saved attempt.",
+
     createRecoverySaved: "You can leave this form. This unresolved attempt will be restored when you return with the same account.",
 
     beforeCreateFailed: "The shop list could not be checked before creating. No create request was sent; your details are kept.",
