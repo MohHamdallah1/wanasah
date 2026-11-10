@@ -1082,6 +1082,11 @@ function DispatchSession() {
       setEditingShortageIds([]);
       setShortageDraft([]);
     },
+    onReconciled: rows => {
+      setShortages(rows);
+      setEditingShortageIds([]);
+      setShortageDraft([]);
+    },
     onRestored: command => {
       if (command.action === "edit") {
         const first = command.items[0];
