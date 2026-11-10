@@ -14,7 +14,7 @@ from tests.test_dispatch_route_launch_d07_postgres import (
     _prepared_route, _state,
 )
 from tests.test_dispatch_shop_finance_edit_v1_postgres import (
-    _owner, _real_http, _token,
+    _grant_company_dispatch_capability, _owner, _real_http, _token,
 )
 from tests.test_live_stock_v1_route_sale_unload_postgres import _seed_mobile_uom_and_field
 
@@ -71,6 +71,7 @@ async def test_d11_authoritative_published_zero_tax_read_no_mutation(pg):
         field_auth = await _token(client, pg, tenant, field, "SyntheticFixture123")
         denied = await client.get(_path(body), headers=field_auth)
         assert denied.status_code == 401  # Field JWT is not a Backoffice credential
+        await _grant_company_dispatch_capability(pg, tenant, tenant.ordinary, "dispatch.read")
         ordinary = await _token(client, pg, tenant, tenant.ordinary, "SyntheticFixture123")
         forbidden = await client.get(_path(body), headers=ordinary)
         assert forbidden.status_code == 403  # valid non-owner, no dispatch.execute
