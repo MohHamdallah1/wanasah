@@ -12,9 +12,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select
 from models import (
-    DispatchRoute, Permission, Role, Shop, UserLocationAccess, Zone, role_permissions,
+    DispatchRoute, Permission, Role, Shop, UserLocationAccess, UserRole, Zone, role_permissions,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.canonical_actor_fixtures import seed_field_fixture
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _real_http, _token, _owner
 from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
 
@@ -107,6 +108,14 @@ async def test_d06_a1_a2_b_real_http_and_read_field_matrix(pg):
     assert len({zone_a1, zone_a2, zone_b}) == 3
     assert len({shop_a1, shop_a2, shop_b}) == 3
 
+    # A genuinely canonical A2 field representative is company-visible through
+    # /dispatch/init even when the reader has only Warehouse A1.
+    async with pg.session() as db:
+        representative_a2 = await seed_field_fixture(db, home.company_id)
+        representative_a2.driver.full_name = "D06 A2 Field Representative"
+        representative_a2_id = int(representative_a2.driver.id)
+        await db.commit()
+
     # Genuine dispatch vehicle/custody records; route visibility also requires
     # that exact vehicle-location grant, NOT only source Warehouse permission.
     vehicle_a1, vehicle_loc_a1 = await _vehicle(pg, home)
@@ -120,7 +129,7 @@ async def test_d06_a1_a2_b_real_http_and_read_field_matrix(pg):
         )
         r2 = DispatchRoute(
             company_id=home.company_id, zone_id=zone_a2,
-            driver_id=home.ordinary.driver_id, vehicle_id=vehicle_a2,
+            driver_id=representative_a2_id, vehicle_id=vehicle_a2,
             source_location_id=home.other_location_id, status="waiting",
         )
         db.add_all([r1, r2])
@@ -158,9 +167,18 @@ async def test_d06_a1_a2_b_real_http_and_read_field_matrix(pg):
         assert warehouse_ids == {home.location_id}, warehouse_ids
         assert {zone_a1, zone_a2} <= zone_ids and zone_b not in zone_ids
         assert initial.json()["vehicles"] == []
+        assert {
+            (row["id"], row["name"]) for row in initial.json()["drivers"]
+        } >= {(str(representative_a2_id), "D06 A2 Field Representative")}
+        owner_b_init = await client.get("/dispatch/init", headers=owner_b)
+        assert owner_b_init.status_code == 200, owner_b_init.text
+        assert str(representative_a2_id) not in {
+            item["id"] for item in owner_b_init.json()["drivers"]
+        }
         counts = {int(z["id"]): z["shopsCount"] for z in initial.json()["zones"]}
         assert counts[zone_a1] == counts[zone_a2] == 1
-        print("D06_A1_READER_INIT PASS warehouse=A1_only, zones=A1+A2, count_A2=1")
+        print("D06_A1_READER_INIT PASS warehouse=A1_only, zones=A1+A2, count_A2=1,"
+              "field_representative_A2_visible, B_field_isolated")
 
         response = await client.get("/dispatch/shops", headers=limited)
         visible = {int(row["id"]): row for row in response.json()}
@@ -204,6 +222,53 @@ async def test_d06_a1_a2_b_real_http_and_read_field_matrix(pg):
         )
         assert denied_write.status_code == 403, denied_write.text
         print("D06_A1_ROUTE_READ PASS A1_route_only_with_vehicle, A2_denied, shortage=403,edit=403")
+
+        # Extra company-only settlement.read and shortage.read are independent
+        # of any shop-finance field permission (none exists in current catalog).
+        # Grant and revoke them in the disposable database only; do not edit
+        # permissions or roles in the actual application.
+        async with pg.session() as db:
+            granted = {}
+            for code in ("settlement.read", "shortage.read"):
+                permission = await db.scalar(select(Permission).where(Permission.code == code))
+                assert permission is not None
+                role = Role(
+                    company_id=home.company_id,
+                    name="D06 extra " + code + " " + uuid4().hex[:8],
+                )
+                db.add(role)
+                await db.flush()
+                await db.execute(role_permissions.insert().values(
+                    company_id=home.company_id, role_id=role.id,
+                    permission_id=permission.id,
+                ))
+                db.add(UserRole(
+                    company_id=home.company_id, driver_id=home.ordinary.driver_id,
+                    role_id=role.id,
+                ))
+                granted[code] = int(role.id)
+            await db.commit()
+        extra_shortage = await client.get("/dispatch/shortages", headers=limited)
+        assert extra_shortage.status_code == 200, extra_shortage.text
+        extra_shop = await client.get("/dispatch/shops", headers=limited)
+        assert extra_shop.status_code == 200, extra_shop.text
+        extra_visible = {int(z["id"]): z for z in extra_shop.json()}
+        _assert_shop(extra_visible[shop_a2], name="D06-A2 Shop", phone=phone_a2,
+                     balance="789.125", cap="999.500", zone=zone_a2)
+        async with pg.session() as db:
+            await db.execute(delete(UserRole).where(
+                UserRole.company_id == home.company_id,
+                UserRole.driver_id == home.ordinary.driver_id,
+                UserRole.role_id.in_(list(granted.values())),
+            ))
+            await db.commit()
+        revoked_shortage = await client.get("/dispatch/shortages", headers=limited)
+        assert revoked_shortage.status_code == 403, revoked_shortage.text
+        read_still = await client.get("/dispatch/shops", headers=limited)
+        assert read_still.status_code == 200, read_still.text
+        assert shop_a2 in {int(z["id"]) for z in read_still.json()}
+        print("D06_EXTRA_GRANTS PASS shortage.read=200_then_403; settlement.read "
+              "did_not_create_finance_field_gate; dispatch.read_still_exposes_A2")
 
         # Supplying company/warehouse IDs in a query cannot override trusted
         # tenant/access context. Company B records stay isolated.
