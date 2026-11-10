@@ -14,6 +14,11 @@ import { shopFormText } from "@/features/dispatch/shopForm/messages";
 import type { Shop, Zone } from "@/types/dispatch";
 import type { DashboardSession } from "@/lib/authStorage";
 import { setAppLanguage } from "@/i18n";
+import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
+import { readDurableCommand } from "@/lib/durableOperations";
+import {
+  isShopCreateAttempt, shopCreateAttemptScope, type ShopCreateAttempt,
+} from "@/features/dispatch/shopForm/contract";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 const auth = vi.hoisted(() => ({ current: true }));
@@ -593,6 +598,217 @@ describe("Shop authenticated save/readback & financial denial", () => {
     unmount();
     await act(async () => { late([wire({ name: "Changed" })]); expect(await promise).toBe(false); });
     expect(props.onVerified).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe("Shop unknown-create durable operator escape / relogin / tenant authority", () => {
+  function createLostReply(verifyRows: unknown = []) {
+    let reads = 0;
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") {
+        throw fakeError(500, "SERVER_LOST_AFTER_WRITE", "req-sh-500");
+      }
+      reads++;
+      return reads === 1 ? [] : verifyRows;
+    });
+    return { fetch, reads: () => reads };
+  }
+
+  it.each(["ar", "en"] as const)(
+    "persists unknown POST before send; explicit leave and same-account reload restore in %s without resending",
+    async language => {
+      await setAppLanguage(language);
+      const transport = createLostReply();
+      const onClose = vi.fn();
+      const restored = vi.fn();
+      const props = args(transport.fetch, { editId: null, language, onClose, onRestoreForm: restored });
+      const first = renderHook(() => useShopFormCommit(props));
+      await waitFor(() => expect(first.result.current.restoring).toBe(false));
+      await act(async () => { expect(await first.result.current.save()).toBe(false); });
+      expect(first.result.current.needsManualReconciliation).toBe(true);
+      expect(first.result.current.needsVerification).toBe(true);
+      expect(first.result.current.localTrackingId).toMatch(/[0-9a-f-]{20,}/i);
+      expect(first.result.current.serverReference).toBe("req-sh-500");
+      const scope = shopCreateAttemptScope()!;
+      const command = await readDurableCommand<ShopCreateAttempt>(scope);
+      expect(command?.requestId).toBe(first.result.current.localTrackingId);
+      expect(command?.payload.submitted).toMatchObject({
+        name: form.name, initialDebt: "100.125", maxDebtLimit: "150.500",
+      });
+      expect(isShopCreateAttempt(command?.payload)).toBe(true);
+
+      act(() => first.result.current.leaveUncertain());
+      expect(onClose).toHaveBeenCalledOnce();
+      expect(toast.success).not.toHaveBeenCalled();
+      first.unmount();
+      // Unmount/reload is not proof of a successful server write.
+      const second = renderHook(() => useShopFormCommit(props));
+      await waitFor(() => expect(second.result.current.restoring).toBe(false));
+      await waitFor(() => expect(second.result.current.needsManualReconciliation).toBe(true));
+      expect(restored).toHaveBeenCalledWith(expect.objectContaining({
+        name: form.name, phone: form.phone, initialDebt: "100.125",
+      }));
+      expect(second.result.current.localTrackingId).toBe(command?.requestId);
+      expect(second.result.current.serverReference).toBe("req-sh-500");
+      await act(async () => { expect(await second.result.current.save()).toBe(false); });
+      await act(async () => { expect(await second.result.current.verify()).toBe(false); });
+      expect(transport.fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+      expect(toast.success).not.toHaveBeenCalled();
+      expect(props.onVerified).not.toHaveBeenCalled();
+      second.unmount();
+    },
+  );
+
+  it.each([390, 700, 1440])(
+    "operator-visible bilingual manual exit at %ipx preserves draft and never triggers another POST",
+    async width => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      const onSave = vi.fn();
+      const onVerify = vi.fn();
+      const onLeaveUncertain = vi.fn();
+      for (const language of ["ar", "en"] as const) {
+        await setAppLanguage(language);
+        const modal = render(
+          <ShopFormModal isOpen onClose={vi.fn()} editingShopId={null}
+            shopForm={form} onShopFormChange={vi.fn()} zones={[zone]}
+            onSave={onSave} onVerify={onVerify} onLeaveUncertain={onLeaveUncertain}
+            needsManualReconciliation restoring={false} recoveryUnreadable={false}
+            localTrackingId="local-abc-123" serverReference="req-sh-500"
+            language={language} saving={false} needsVerification
+            canViewFinances={false} finance={null} financeLoading={false}
+            feedback={shopFormText(language, "createUncorrelated")}/>,
+        );
+        expect(screen.getByTestId("shop-uncertain-create")).toBeInTheDocument();
+        expect(screen.getByText(shopFormText(language, "createManualInstructions"))).toBeInTheDocument();
+        expect(screen.getByText(/local-abc-123/)).toBeInTheDocument();
+        expect(screen.getByText(/req-sh-500/)).toBeInTheDocument();
+        expect(screen.getByDisplayValue(form.name)).toBeDisabled();
+        expect(screen.getByRole("button", { name: shopFormText(language, "refresh") })).toBeEnabled();
+        fireEvent.click(screen.getByRole("button", { name: shopFormText(language, "createLeaveSafely") }));
+        expect(onLeaveUncertain).toHaveBeenCalledTimes(language === "ar" ? 1 : 2);
+        expect(onSave).not.toHaveBeenCalled();
+        modal.unmount();
+      }
+    },
+  );
+
+  it("canonical logout preserves A's pending record but a different company/principal never loads it", async () => {
+    const transport = createLostReply();
+    const first = renderHook(() => useShopFormCommit(args(transport.fetch, { editId: null })));
+    await waitFor(() => expect(first.result.current.restoring).toBe(false));
+    await act(async () => { expect(await first.result.current.save()).toBe(false); });
+    const originalScope = shopCreateAttemptScope()!;
+    const oldId = first.result.current.localTrackingId;
+    first.unmount();
+
+    expect(clearLocalStoragePreservingLoginHintsAndPreferences()).toBe(true);
+    expect(localStorage.getItem(originalScope)).not.toBeNull(); // persisted across logout
+    expect(localStorage.getItem("company_id")).toBeNull();
+    localStorage.setItem("company_id", "2");
+    localStorage.setItem("principal_id", "22");
+    localStorage.setItem("backoffice_user_id", "220");
+    const different = renderHook(() => useShopFormCommit(args(vi.fn().mockResolvedValue([]), {
+      editId: null, onRestoreForm: vi.fn(),
+    })));
+    await waitFor(() => expect(different.result.current.restoring).toBe(false));
+    expect(different.result.current.needsVerification).toBe(false);
+    expect(different.result.current.localTrackingId).toBeNull();
+    expect(toast.success).not.toHaveBeenCalled();
+    different.unmount();
+
+    // Same authenticated company/principal on a new login generation.
+    localStorage.setItem("company_id", "1");
+    localStorage.setItem("principal_id", "11");
+    localStorage.setItem("backoffice_user_id", "110");
+    const restored = vi.fn();
+    const same = renderHook(() => useShopFormCommit(args(vi.fn().mockResolvedValue([]), {
+      editId: null, onRestoreForm: restored,
+    })));
+    await waitFor(() => expect(same.result.current.needsManualReconciliation).toBe(true));
+    expect(same.result.current.localTrackingId).toBe(oldId);
+    expect(restored).toHaveBeenCalledWith(expect.objectContaining({
+      name: form.name, maxDebtLimit: "150.500",
+    }));
+    same.unmount();
+  });
+
+  it("a missing/corrupt scoped record blocks any new POST instead of discarding uncertain money", async () => {
+    const scope = shopCreateAttemptScope()!;
+    localStorage.setItem(scope, "{not valid JSON");
+    const fetch = vi.fn().mockResolvedValue([]);
+    const hooked = renderHook(() => useShopFormCommit(args(fetch, { editId: null })));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    expect(hooked.result.current.recoveryUnreadable).toBe(true);
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(hooked.result.current.needsManualReconciliation).toBe(false);
+  });
+
+  it("definitively unsent offline preflight writes no recovery record and permits ordinary safe retry", async () => {
+    let first = true;
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") return { shop_id: "77" };
+      if (first) {
+        first = false;
+        throw new Error("offline before any POST");
+      }
+      return [wire()];
+    });
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(await readDurableCommand(shopCreateAttemptScope()!)).toBeNull();
+    expect(hooked.result.current.needsVerification).toBe(false);
+    await act(async () => { expect(await hooked.result.current.save()).toBe(true); });
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+    expect(await readDurableCommand(shopCreateAttemptScope()!)).toBeNull();
+    expect(toast.success).toHaveBeenCalledOnce();
+  });
+
+  it.each([401, 403])("revoked authority HTTP %s on verification keeps pending draft and permits safe exit", async status => {
+    const transport = createLostReply();
+    const props = args(transport.fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    transport.fetch.mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw new Error("NO SECOND POST");
+      throw fakeError(status, "FORBIDDEN", "req-denied");
+    });
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+    expect(hooked.result.current.feedback).toContain(shopFormText("en", "denied"));
+    expect(hooked.result.current.needsManualReconciliation).toBe(true);
+    expect(props.onVerified).not.toHaveBeenCalled();
+    act(() => hooked.result.current.leaveUncertain());
+    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(await readDurableCommand(shopCreateAttemptScope()!)).not.toBeNull();
+    expect(transport.fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
+  });
+
+  it.each([0, 1, 2])("zero/one/multiple possible matching new shops (%i) never confirm uncertain POST", async count => {
+    let reads = 0;
+    const match = wire({ initialDebt: "100.125", maxDebtLimit: "150.500" });
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw fakeError(500, "SERVER_UNAVAILABLE", "req-unknown");
+      reads++;
+      return reads === 1 ? [] : Array.from({ length: count }, (_, i) => ({
+        ...match, id: String(77 + i),
+      }));
+    });
+    const props = args(fetch, { editId: null });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+    expect(hooked.result.current.needsManualReconciliation).toBe(true);
+    expect(hooked.result.current.feedback).toBe(
+      shopFormText("en", count === 1 ? "createUncorrelated" : "createNotFound"),
+    );
+    expect(props.onClose).not.toHaveBeenCalled();
+    expect(props.onVerified).not.toHaveBeenCalled();
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
     expect(toast.success).not.toHaveBeenCalled();
   });
 });
