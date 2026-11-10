@@ -207,6 +207,7 @@ function DispatchSession() {
   const discoveryAccess = accessState === "ready" ? inventoryAccess.data : undefined;
   // Current server Shop financial visibility is unchanged; D03 remains policy-owned.
   const canReadShopFinances = grants.routes;
+  const canReadZoneArchive = grants.zones && Boolean(discoveryAccess?.permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
   const dispatchFenceRef = useRef(createDispatchReadFence());
@@ -362,6 +363,9 @@ function DispatchSession() {
     setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
     setIsZoneRecycleBinOpen(false); setShowRecycleBin(false); setIsBulkTransferModalOpen(false);
     setIsRouteModalOpen(false); setIsShowPostponedModalOpen(false);
+    setIsRadarModalOpen(false); setIsInventoryModalOpen(false);
+    setRestorePromptShop(null); setIsSuicideModalOpen(false);
+    setActiveRoute(null); setArchiveRouteFocus(null); setArchiveShortageFocus(null);
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: () => {} });
   }, []);
 
@@ -1303,14 +1307,14 @@ function DispatchSession() {
       {/* +++ الكي الجراحي: إزالة التثبيت (sticky) لكي يصعد البار مع السكرول ولا يتداخل مع المحتوى +++ */}
       <div className="dispatch-command-bar glass-card rounded-2xl min-h-16 md:min-h-20 px-4 md:px-6 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 relative z-20">
         <div className="flex items-center gap-6">
-          <div className="dispatch-tab-list flex bg-slate-100 p-1 rounded-xl" role="tablist" aria-label="أقسام إدارة التوزيع">
+          <div className="dispatch-tab-list flex max-w-full overflow-x-auto bg-slate-100 p-1 rounded-xl" role="tablist" aria-label="أقسام إدارة التوزيع">
             {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
             {([
               { id: "routes", label: "الخطوط النشطة", icon: Truck },
               { id: "launch", label: "إطلاق خط جديد", icon: Plus },
               { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
             ] as const).filter(tab => tabAllowed(tab.id)).map(tab => (
-              <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex items-center gap-2 px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+              <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex shrink-0 items-center gap-2 px-3 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
                 <tab.icon className="w-4 h-4" /> {tab.label}
               </button>
             ))}
@@ -1527,7 +1531,7 @@ function DispatchSession() {
                     <div className="flex items-center justify-between">
                       <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
                       <div className="flex items-center gap-2">
-                        <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>
+                        {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>}
                         {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>}
                       </div>
                     </div>
