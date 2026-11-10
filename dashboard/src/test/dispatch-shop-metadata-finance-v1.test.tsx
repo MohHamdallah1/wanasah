@@ -191,6 +191,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
       });
       const props = args(fetch, { editId: null, language });
       const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
       await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
       expect(hooked.result.current.needsVerification).toBe(true);
       expect(fetch.mock.calls.filter(([, o]) => o?.method === "POST")).toHaveLength(1);
@@ -217,6 +218,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     });
     const props = args(fetch, { editId: null });
     const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(true);
@@ -237,6 +239,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     });
     const props = args(fetch, { editId: null });
     const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(true);
@@ -259,6 +262,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     });
     const props = args(fetch, { editId: null });
     const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(true);
     await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
@@ -299,6 +303,7 @@ describe("Codex P2: Shop form closure, lost POST identity and order draft", () =
     const fetch = vi.fn().mockRejectedValue(new Error("offline before request"));
     const props = args(fetch, { editId: null });
     const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(false);
     expect(hooked.result.current.feedback).toBe(shopFormText("en", "beforeCreateFailed"));
@@ -369,6 +374,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     });
     const props = args(fetch, { form: { ...form, name: "Updated Grocery" } });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(true); });
     const put = fetch.mock.calls.find(([path, opts]) => path.includes("/shops/") && opts?.method === "PUT");
     expect(JSON.parse(put![1]!.body as string)).toEqual(metadataPayload(props.form));
@@ -387,6 +393,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     const props = args(fetch, { language, canViewFinances: true,
       form: { ...form, name: "New Shop Name", phone: "55997711" } });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await waitFor(() => expect(result.current.finance).toEqual({
       initialDebt: "80.000", maxDebtLimit: "75.125",
     }));
@@ -407,6 +414,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     });
     const props = args(fetch, { canViewFinances: true });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.feedback).toContain(shopFormText("en", "financialAuthority"));
     expect(toast.success).not.toHaveBeenCalled();
@@ -431,6 +439,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
         });
         const props = args(fetch, { editId: null, language });
         const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
         await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
         expect(hooked.result.current.feedback).toContain(reason);
         expect(hooked.result.current.feedback).toContain(`req-business-${status}`);
@@ -443,9 +452,13 @@ describe("Shop authenticated save/readback & financial denial", () => {
   );
 
   it.each([409, 422])("deterministic create error %s does not lock future saves as uncertain", async status => {
-    const fetch = vi.fn().mockRejectedValue(fakeError(status, "BUSINESS_CONFLICT"));
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "POST") throw fakeError(status, "BUSINESS_CONFLICT");
+      return [];
+    });
     const props = args(fetch, { editId: null });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.needsVerification).toBe(false);
     expect(props.onClose).not.toHaveBeenCalled();
@@ -474,6 +487,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     const fetch = vi.fn().mockRejectedValue(fakeError(status, "FORBIDDEN"));
     const props = args(fetch);
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.finance).toBeNull();
     expect(result.current.feedback).toContain(shopFormText("en", "denied"));
@@ -494,6 +508,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     });
     const props = args(fetch, { form: { ...form, name: "Changed" } });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.needsVerification).toBe(true);
     expect(toast.success).not.toHaveBeenCalled();
@@ -509,6 +524,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     });
     const props = args(fetch, { editId: null });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(true); });
     const post = fetch.mock.calls.find(([, opts]) => opts?.method === "POST");
     expect(JSON.parse(post![1]!.body as string)).toMatchObject({
@@ -531,6 +547,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
     });
     const props = args(fetch, { editId: null });
     const { result } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     await act(async () => { expect(await result.current.save()).toBe(false); });
     expect(result.current.duplicate?.shopData.name).toBe("Existing Grocery");
     await act(async () => { expect(await result.current.confirmDuplicate()).toBe(true); });
