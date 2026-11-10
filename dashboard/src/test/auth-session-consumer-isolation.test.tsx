@@ -22,6 +22,14 @@ const fake = vi.hoisted(() => ({
   warning: vi.fn(), error: vi.fn(), success: vi.fn(), dismiss: vi.fn(),
 }));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
+// D13 shop children now read the verified company currency. The old socket
+// fixture deliberately has no QueryClient, so keep the tenant response scoped.
+vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
+  useTenantIdentity: () => ({
+    data: { company_id: Number(localStorage.getItem("company_id")),
+      currency_code: localStorage.getItem("company_id") === "1" ? "QAR" : "OMR" },
+  }),
+}));
 vi.mock("@/hooks/useInventoryAccess", () => ({ useInventoryAccess: () => {
   const company = Number(localStorage.getItem("company_id"));
   const principal = Number(localStorage.getItem("principal_id"));
