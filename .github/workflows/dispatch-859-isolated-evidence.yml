@@ -14,14 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 08765b8e7ce84377368030ddc0d265f5d19a28d9
+          ref: 81620e75fc054ed21023a1ea9d92cc5ae6f3a25e
           fetch-depth: 0
       - name: Verify exact independent UI and base
         run: |
-          test "$(git rev-parse HEAD)" = "08765b8e7ce84377368030ddc0d265f5d19a28d9"
-          git diff --check 1f3987932434038b87696597a1736d2e936a204e HEAD
-          echo "D05_UI_EXACT_HEAD=08765b8e7ce84377368030ddc0d265f5d19a28d9"
-          echo "D05_MAIN_EXACT_BASE=1f3987932434038b87696597a1736d2e936a204e"
+          test "$(git rev-parse HEAD)" = "81620e75fc054ed21023a1ea9d92cc5ae6f3a25e"
+          git diff --check 7cc90e70dc4856786762bdfbc3c13a02f0620987 HEAD
+          echo "D05_UI_EXACT_HEAD=81620e75fc054ed21023a1ea9d92cc5ae6f3a25e"
+          echo "D05_MAIN_EXACT_BASE=7cc90e70dc4856786762bdfbc3c13a02f0620987"
           echo "D05_UNMERGED_BACKEND_REF=ef62b01b4633991ada0e4f301d56c2e827f22daa"
       - uses: actions/setup-node@v4
         with:
@@ -55,7 +55,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/dispatch-859-ts-baseline"
-          git worktree add --detach "$RUNNER_TEMP/dispatch-859-ts-baseline" 1f3987932434038b87696597a1736d2e936a204e
+          git worktree add --detach "$RUNNER_TEMP/dispatch-859-ts-baseline" 7cc90e70dc4856786762bdfbc3c13a02f0620987
           ln -s "$GITHUB_WORKSPACE/dashboard/node_modules" "$RUNNER_TEMP/dispatch-859-ts-baseline/dashboard/node_modules"
           (cd "$RUNNER_TEMP/dispatch-859-ts-baseline/dashboard" && ./node_modules/.bin/tsc -p tsconfig.app.json --noEmit --pretty false > "$RUNNER_TEMP/base-ts.txt" 2>&1) || true
           (cd dashboard && ./node_modules/.bin/tsc -p tsconfig.app.json --noEmit --pretty false > "$RUNNER_TEMP/candidate-ts.txt" 2>&1) || true
@@ -104,17 +104,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 08765b8e7ce84377368030ddc0d265f5d19a28d9
+          ref: 81620e75fc054ed21023a1ea9d92cc5ae6f3a25e
           fetch-depth: 0
       - name: Isolated staged Backend 851 contract, NEVER main or worker1 branch
         run: |
-          test "$(git rev-parse HEAD)" = "08765b8e7ce84377368030ddc0d265f5d19a28d9"
+          test "$(git rev-parse HEAD)" = "81620e75fc054ed21023a1ea9d92cc5ae6f3a25e"
           git fetch --no-tags origin ef62b01b4633991ada0e4f301d56c2e827f22daa
           git cat-file -e ef62b01b4633991ada0e4f301d56c2e827f22daa^{commit}
           git checkout ef62b01b4633991ada0e4f301d56c2e827f22daa -- wa_backend/main.py wa_backend/api/dispatch_shortages_group.py wa_backend/domains/dispatch_shortages_group.py wa_backend/domains/dispatch_shortage_visits.py wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py
-          echo "D05_UI_EXACT_HEAD=08765b8e7ce84377368030ddc0d265f5d19a28d9"
+          echo "D05_UI_EXACT_HEAD=81620e75fc054ed21023a1ea9d92cc5ae6f3a25e"
           echo "D05_BACKEND851_EXACT_HEAD=ef62b01b4633991ada0e4f301d56c2e827f22daa"
-          echo "D05_MAIN_EXACT_BASE=1f3987932434038b87696597a1736d2e936a204e"
+          echo "D05_MAIN_EXACT_BASE=7cc90e70dc4856786762bdfbc3c13a02f0620987"
           git status --short
       - uses: actions/setup-python@v5
         with:
@@ -124,7 +124,7 @@ jobs:
       - name: Reproduce original exact-main HTTP 405 against baseline ASGI app
         run: |
           mkdir -p "$RUNNER_TEMP/dispatch-849-before"
-          git archive 1f3987932434038b87696597a1736d2e936a204e wa_backend | tar -x -C "$RUNNER_TEMP/dispatch-849-before"
+          git archive 7cc90e70dc4856786762bdfbc3c13a02f0620987 wa_backend | tar -x -C "$RUNNER_TEMP/dispatch-849-before"
           cd "$RUNNER_TEMP/dispatch-849-before/wa_backend"
           python - <<'PY'
           import asyncio
