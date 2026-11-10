@@ -1,0 +1,154 @@
+name: Dispatch D11 authoritative commercial launch preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/dispatch_commercial_preflight.py"
+      - "wa_backend/main.py"
+      - "wa_backend/tests/test_dispatch_commercial_preflight_d11_postgres.py"
+      - "dashboard/src/features/dispatch/commercialPreflight/**"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx"
+      - ".github/workflows/dispatch-d11-commercial-preflight.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VITE_API_URL: http://127.0.0.1:4174
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Validate exact PR whitespace
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
+      - name: Install pinned Dashboard dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: D11 server-response interactions and accepted D07 original UUID
+        working-directory: dashboard
+        run: >-
+          npx vitest run
+          src/test/dispatch-d11-commercial-preflight.test.tsx
+          src/test/dispatch-route-launch-d07.test.tsx
+      - name: Production TypeScript and browser build
+        working-directory: dashboard
+        run: |
+          npx tsc --noEmit
+          npm run build
+
+  real-pg16-bearer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 27
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: DispatchD11CommercialPreflightPG16BearerSecret12345678901
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      WANASAH_DISPATCH_D11_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile narrow D11 Python modules
+        working-directory: wa_backend
+        run: python -m py_compile api/dispatch_commercial_preflight.py main.py tests/test_dispatch_commercial_preflight_d11_postgres.py
+      - name: Install locked Backend dependencies
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Disposable PostgreSQL16
+        run: |
+          docker run --detach --name dispatch-d11-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec dispatch-d11-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-d11-pg16
+          exit 1
+      - name: Restricted runtime and latest migrations
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as connection:
+              connection.execute(
+                  "CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB "
+                  "NOCREATEROLE NOINHERIT NOBYPASSRLS"
+              )
+          PY
+          cd wa_backend
+          alembic upgrade head
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Prove real restricted role and FORCE RLS
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL"]).set(
+              drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as db:
+              user, version, superuser, bypass = db.execute(
+                  "SELECT current_user, current_setting('server_version_num')::int, "
+                  "rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+              ).fetchone()
+              assert user == "wanasah_app" and 160000 <= version < 170000 and not superuser and not bypass
+              for table in ("dispatch_routes", "route_commercial_contexts",
+                            "inventory_balances", "inventory_movements", "operation_idempotency"):
+                  assert db.execute(
+                      "SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass(%s)",
+                      (table,)
+                  ).fetchone() == (True, True)
+          print("D11_PG16_BEARER_FORCE_RLS=PASS")
+          PY
+      - name: D11 genuine published 0 percent, missing authority and no side effects
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q --tb=short -s
+          tests/test_dispatch_commercial_preflight_d11_postgres.py
+          --junitxml=d11-real-pg16.xml
+      - name: Focused no-skip real PG16 manifest
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          path=Path("d11-real-pg16.xml")
+          assert path.exists()
+          cases=list(ET.parse(path).getroot().iter("testcase"))
+          assert len(cases)==2, len(cases)
+          assert not any(c.find(k) is not None for c in cases for k in ("failure","error","skipped"))
+          print("D11_REAL_PG16_CASES=2 PASS skipped=0")
+          PY
