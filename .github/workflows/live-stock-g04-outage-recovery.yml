@@ -222,16 +222,125 @@ jobs:
               "wa_backend/main.py",
               "wa_backend/api/authentication/dependencies.py",
           }
-          assert files <= allowed, sorted(files - allowed)
-          forbidden = [
-              p for p in files
-              if p.startswith("dashboard/src/")
-              or p == ".github/scripts/live_stock_ci_ownership.py"
-              or p == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
-          ]
-          assert not forbidden, forbidden
+          # #856: six audited D05 paths may trigger this shared main.py
+          # G04 workflow. No individual Backend route/service/file is a
+          # blanket exception and any missing path or mixed owner is denied.
+          d05_shortages_849_exact = {
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/main.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+          }
+          d05_shortages_new = d05_shortages_849_exact - {"wa_backend/main.py"}
+          # Maintenance is a separate four-file-only policy. The old G04
+          # one-file workflow / auth / UI evidence ownership remains intact.
+          ci_policy_856_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+          }
+          assert len(d05_shortages_849_exact) == 6
+          assert len(d05_shortages_new) == 5
+          assert len(ci_policy_856_exact) == 4
+
+          def ownership_mode(candidate):
+              if candidate == ci_policy_856_exact:
+                  return "CI_POLICY_856_EXACT"
+              if candidate & d05_shortages_new:
+                  assert candidate == d05_shortages_849_exact, (
+                      f"D05_SHORTAGES_849_EXACT=FAIL "
+                      f"missing={sorted(d05_shortages_849_exact - candidate)} "
+                      f"extra={sorted(candidate - d05_shortages_849_exact)}"
+                  )
+                  return "D05_SHORTAGES_849_EXACT"
+              # Retain the original G04 exact paths plus existing shared main.py
+              # and auth dependency, without broadening any existing allowance.
+              assert candidate <= allowed, sorted(candidate - allowed)
+              forbidden = [
+                  p for p in candidate
+                  if p.startswith("dashboard/src/")
+                  or p == ".github/scripts/live_stock_ci_ownership.py"
+                  or p == "LIVE_STOCK_V1_CLOSURE_PLAN.md"
+              ]
+              assert not forbidden, forbidden
+              return "G04_EXISTING_BOUNDED"
+
+          # Positive and adversarial ownership proofs run AFTER original
+          # fixture, real restricted HTTP and Chromium checks. No test skips.
+          assert ownership_mode(d05_shortages_849_exact) == "D05_SHORTAGES_849_EXACT"
+          for missing in d05_shortages_849_exact:
+              subset = d05_shortages_849_exact - {missing}
+              if subset & d05_shortages_new:
+                  try:
+                      ownership_mode(subset)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"D05 partial with new path accepted: {missing}")
+              else:
+                  assert ownership_mode(subset) != "D05_SHORTAGES_849_EXACT"
+          for hitchhiker in (
+              "wa_backend/api/driver.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/models.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/api/warehouse/live_stock.py",
+              "wa_backend/api/authentication/dependencies.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "wa_backend/domains/dispatch_shortages_group_unreviewed.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(d05_shortages_849_exact | {hitchhiker})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D05 extra path accepted: {hitchhiker}")
+          assert ownership_mode(ci_policy_856_exact) == "CI_POLICY_856_EXACT"
+          for missing in ci_policy_856_exact:
+              try:
+                  ownership_mode(ci_policy_856_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Partial CI_POLICY_856_EXACT accepted: {missing}")
+          for hitchhiker in (
+              "wa_backend/main.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+          ):
+              try:
+                  ownership_mode(ci_policy_856_exact | {hitchhiker})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"CI_POLICY_856 extra path accepted: {hitchhiker}")
+          # Old G04 owner-approved paths remain allowed, but common main.py
+          # alone NEVER admits the five new D05 files as a partial change.
+          assert ownership_mode(allowed) == "G04_EXISTING_BOUNDED"
+          assert ownership_mode({"wa_backend/main.py"}) == "G04_EXISTING_BOUNDED"
+          for mixed in (
+              d05_shortages_849_exact | ci_policy_856_exact,
+              d05_shortages_849_exact | allowed,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed G04/D05/CI ownership accepted")
+          print("G04_856_POLICY_SELFTEST PASS d05=6 ci_policy=4 negative=PASS")
+          mode = ownership_mode(files)
           subprocess.run(["git", "diff", "--check", base, "HEAD"], check=True)
-          print("G04_SCOPE PASS files=" + str(len(files)))
+          print(f"G04_SCOPE PASS mode={mode} files={len(files)}")
           PY
 
       - name: Verify service recovered after all fault injection
