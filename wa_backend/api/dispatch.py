@@ -17,6 +17,11 @@ from domains.dispatch_shop_finance_fence import (
     ShopFinancialEditConflict,
     require_metadata_only_shop_finance,
 )
+from domains.dispatch_shop_create import (
+    ShopCreateDuplicate,
+    create_shop,
+    read_shop_create_receipt,
+)
 from domains.vehicles import (
     VehicleError,
     resolve_vehicle_custody_location_id,
@@ -116,7 +121,7 @@ from services import (
     recover_idempotent_operation,
     OperationIdempotencyError,
 )
-from uuid import uuid4
+from uuid import UUID, uuid4
 from product_lifecycle import (
     REPLENISHMENT_NEW,
     ROUTE_LOAD_NEW,
@@ -3650,7 +3655,8 @@ async def bulk_update_shops(
 
 
 # =========================================
-# 13. إضافة محل جديد من لوحة التحكم (مع كاشف التكرار الذكي)
+# 13. Shop create: slim compatibility adapter. Durable identity and
+# original opening-money receipt are owned by domains.dispatch_shop_create.
 # =========================================
 @router.post("/dispatch/shops", status_code=201)
 async def admin_add_shop(
@@ -3659,157 +3665,61 @@ async def admin_add_shop(
     access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
-    company_id = access.company_id
-    name = payload.name.strip()
-    phone = payload.phone.strip() if payload.phone and payload.phone.strip() else None
-    map_link = payload.mapLink.strip() if payload.mapLink else ""
-    zone_id = int(payload.zoneId)
-    await _require_shop_tax_jurisdictions(
-        db,
-        company_id=company_id,
-        jurisdiction_ids=(
-            [payload.taxJurisdictionId]
-            if payload.taxJurisdictionId is not None
-            else []
-        ),
-    )
-
-    # Pydantic أنهى التحقق من الإحداثيات/الأموال؛ نحافظ على القيم كما وصلت بلا تصحيح صامت.
-    lat = float(payload.latitude) if payload.latitude is not None else None
-    lng = float(payload.longitude) if payload.longitude is not None else None
-
     try:
-        zones = await _dispatch_lock_zone_rows(
-            db,
-            company_id=company_id,
-            zone_ids=[zone_id],
+        response = await create_shop(
+            db, company_id=access.company_id, actor_id=legacy_actor.id,
+            payload=payload,
+            lock_zones=_dispatch_lock_zone_rows,
+            lock_advisory=_dispatch_advisory_locks,
+            require_tax=_require_shop_tax_jurisdictions,
         )
-        if not zones[zone_id].is_active:
-            raise HTTPException(
-                status_code=400,
-                detail="المنطقة المحددة مؤرشفة ولا يمكن إضافة محل جديد إليها.",
-            )
-
-        if phone:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[f"shop-phone:{phone}"],
-            )
-
-        duplicate_shop = None
-
-        if phone:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.phone_number == phone,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
-
-        if duplicate_shop is None and name and map_link:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.name == name,
-                        Shop.location_link == map_link,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
-
-        if duplicate_shop is None and lat is not None and lng is not None:
-            duplicate_shop = (
-                await db.execute(
-                    select(Shop)
-                    .options(joinedload(Shop.zone))
-                    .filter(
-                        Shop.company_id == company_id,
-                        Shop.name == name,
-                        Shop.latitude.isnot(None),
-                        Shop.longitude.isnot(None),
-                        func.abs(cast(Shop.latitude, Float) - lat) < 0.0001,
-                        func.abs(cast(Shop.longitude, Float) - lng) < 0.0001,
-                    )
-                    .order_by(Shop.id.asc())
-                )
-            ).scalars().first()
-
-        if duplicate_shop and not payload.force_save:
-            zone_name = duplicate_shop.zone.name if duplicate_shop.zone else "بدون منطقة"
-            is_arch_msg = " (مؤرشف)" if duplicate_shop.is_archived else ""
-            duplicate_payload = {
-                "message": "تنبيه: يوجد محل مسجل مسبقاً بمعلومات مطابقة.",
-                "is_duplicate": True,
-                "existing_shop": {
-                    "id": str(duplicate_shop.id),
-                    "name": duplicate_shop.name,
-                    "owner": duplicate_shop.contact_person or "غير مسجل",
-                    "phone": duplicate_shop.phone_number,
-                    "mapLink": duplicate_shop.location_link,
-                    "zone_name": zone_name + is_arch_msg,
-                },
-            }
-            await db.rollback()
-            return JSONResponse(status_code=409, content=duplicate_payload)
-
-        # force_save لا يستطيع تجاوز قيد الهاتف الصلب داخل Tenant.
-        if duplicate_shop and phone and duplicate_shop.phone_number == phone:
-            raise HTTPException(
-                status_code=409,
-                detail="رقم الهاتف مستخدم لمحل آخر داخل الشركة ولا يمكن تجاوزه بالحفظ الإجباري.",
-            )
-
-        new_shop = Shop(
-            company_id=company_id,
-            name=name,
-            contact_person=payload.owner.strip() if payload.owner else "",
-            phone_number=phone,
-            location_link=map_link,
-            latitude=payload.latitude,
-            longitude=payload.longitude,
-            zone_id=zone_id,
-            tax_jurisdiction_id=(
-                int(payload.taxJurisdictionId)
-                if payload.taxJurisdictionId is not None
-                else None
-            ),
-            is_active=True,
-            is_archived=False,
-            current_balance=payload.initialDebt,
-            max_debt_limit=payload.maxDebtLimit,
-            added_by_driver_id=legacy_actor.id,
-            sequence=int(payload.sequence),
-        )
-        db.add(new_shop)
-        await db.flush()
-        shop_id = int(new_shop.id)
-
         await db.commit()
-        return {"message": "تم إضافة المحل بنجاح", "shop_id": str(shop_id)}
-
+        return response
+    except ShopCreateDuplicate as exc:
+        await db.rollback()
+        return JSONResponse(status_code=409, content=exc.response)
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=inventory_business_error(
+                "SHOP_CREATE_" + exc.code, str(exc),
+                context={"request_id": str(payload.request_id)},
+            ),
+        ) from exc
     except HTTPException:
         await db.rollback()
         raise
     except IntegrityError as exc:
         await db.rollback()
-        logger.error(f"Admin add shop integrity conflict: {str(exc)}", exc_info=True)
+        logger.error("Admin add shop integrity conflict", exc_info=True)
         raise HTTPException(
             status_code=409,
             detail="تعذر إضافة المحل بسبب تعارض بيانات فريدة داخل الشركة.",
         ) from exc
     except Exception as exc:
         await db.rollback()
-        logger.error(f"خطأ في العملية: {str(exc)}", exc_info=True)
-        raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المحل.") from exc
+        logger.error("Admin add shop failed", exc_info=True)
+        raise HTTPException(
+            status_code=500, detail="حدث خطأ داخلي في الخادم أثناء إضافة المحل.",
+        ) from exc
+
+
+@router.get("/dispatch/shops/create-operations/{request_id}", status_code=200)
+async def get_shop_create_operation(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_company_execute),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    """Only the same authorized actor can recover an immutable Shop receipt."""
+    try:
+        return await read_shop_create_receipt(
+            db, company_id=access.company_id,
+            actor_id=legacy_actor.id, request_id=request_id,
+        )
+    finally:
+        await db.rollback()
 
 
 # =========================================
