@@ -159,7 +159,7 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
             "vehicleId": launch_body["vehicle_id"],
             "variantId": tenant.variant_id,
             "driverId": launch_body["driver_id"],
-            "zoneId": target_zone, "shopId": shop_id,
+            "zoneId": target_zone, "otherZoneId": zone_id, "shopId": shop_id,
             "importedShopId": imported_ids[0],
             "vehicleLocationId": vehicle_location,
             "warehouseId": tenant.location_id,
