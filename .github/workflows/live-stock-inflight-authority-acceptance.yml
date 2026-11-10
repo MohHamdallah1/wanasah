@@ -328,6 +328,34 @@ jobs:
           shortage_group_859_new = shortage_group_859_exact - {"dashboard/src/pages/DispatchBoard.tsx"}
           assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_new) == 4
 
+          # #872: exact D10 11 business and 3 CI ownership files.
+          dispatch_d10_872_exact = {
+              '.github/scripts/live_stock_ci_ownership.py',
+              '.github/workflows/dispatch-d10-session-acceptance.yml',
+              '.github/workflows/dispatch-p0-route-stock-safety.yml',
+              '.github/workflows/live-stock-inflight-authority-acceptance.yml',
+              'dashboard/src/components/dispatch/ShopBulkImportModal.tsx',
+              'dashboard/src/features/dispatch/dispatchDrafts.ts',
+              'dashboard/src/features/dispatch/sessionScope.ts',
+              'dashboard/src/lib/authStorage.ts',
+              'dashboard/src/pages/DispatchBoard.tsx',
+              'dashboard/src/test/auth-session-consumer-isolation.test.tsx',
+              'dashboard/src/test/dispatch-d10-drafts.test.ts',
+              'dashboard/src/test/dispatch-d10-import.test.tsx',
+              'dashboard/src/test/dispatch-d10-session-scope.test.ts',
+              'dashboard/src/test/dispatch-load-context.test.tsx',
+          }
+          dispatch_d10_872_new = {
+              '.github/workflows/dispatch-d10-session-acceptance.yml',
+              'dashboard/src/components/dispatch/ShopBulkImportModal.tsx',
+              'dashboard/src/features/dispatch/dispatchDrafts.ts',
+              'dashboard/src/features/dispatch/sessionScope.ts',
+              'dashboard/src/test/dispatch-d10-drafts.test.ts',
+              'dashboard/src/test/dispatch-d10-import.test.tsx',
+              'dashboard/src/test/dispatch-d10-session-scope.test.ts',
+          }
+          assert len(dispatch_d10_872_exact) == 14 and len(dispatch_d10_872_new) == 7
+
           # D09 #867: one exact twelve-file capability/navigation diff; no wildcard.
           dispatch_d09_867_exact = {
               "dashboard/src/components/dispatch/ShortageModal.tsx",
@@ -375,6 +403,13 @@ jobs:
                       sorted(candidate - shop_order_843_exact),
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & dispatch_d10_872_new:
+                  assert candidate == dispatch_d10_872_exact, (
+                      "INFLIGHT_DISPATCH_D10_872_SCOPE=FAIL",
+                      sorted(dispatch_d10_872_exact - candidate),
+                      sorted(candidate - dispatch_d10_872_exact),
+                  )
+                  return "DISPATCH_D10_872_EXACT"
               if candidate & dispatch_d09_867_new:
                   assert candidate == dispatch_d09_867_exact, (
                       "INFLIGHT_DISPATCH_D09_867_SCOPE=FAIL",
@@ -536,6 +571,30 @@ jobs:
               "INFLIGHT_859_SCOPE_SELFTEST=PASS "
               "exact=5 partial_with_new=29 foreign=12 mixed=5 f06_cross=DENIED"
           )
+
+          # D10 exact scope, denied partials and denied foreign files.
+          assert ownership_mode(dispatch_d10_872_exact) == "DISPATCH_D10_872_EXACT"
+          for missing in dispatch_d10_872_exact:
+              partial = dispatch_d10_872_exact - {missing}
+              if partial & dispatch_d10_872_new:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"D10 partial admitted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "DISPATCH_D10_872_EXACT"
+          for foreign in ("wa_backend/api/driver.py", "wa_backend/models.py",
+                          "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+                          "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(dispatch_d10_872_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"D10 foreign admitted: {foreign}")
+          print("INFLIGHT_D10_872_SCOPE_SELFTEST=PASS exact=14 missing=14 foreign=4")
 
           # D09 complete, partial and foreign scopes never broaden old policy.
           assert ownership_mode(dispatch_d09_867_exact) == "DISPATCH_D09_867_EXACT"
