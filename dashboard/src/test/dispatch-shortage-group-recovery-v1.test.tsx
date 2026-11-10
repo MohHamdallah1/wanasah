@@ -425,6 +425,12 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     expect(groupReadbackVerdict([], intent, receipt)).toBe("subsequently-changed");
     expect(groupReadbackVerdict([...initial, ...exact], intent, receipt)).toBeNull();
     expect(groupReadbackVerdict([{ id: 0 }], intent, receipt)).toBeNull();
+    // A 200 replay plus malformed/incomplete GET must not be misreported as a
+    // confirmed current-state readback merely because source IDs are absent.
+    expect(groupReadbackVerdict([{ id: "999" }], intent, receipt)).toBeNull();
+    expect(groupReadbackVerdict([
+      { ...exact[0], status: "unrecognized" }, exact[1],
+    ], intent, receipt)).toBeNull();
     expect(groupReadbackVerdict([...exact, exact[0]], intent, receipt)).toBeNull();
     expect(groupReadbackVerdict([], intent, { ...receipt, shortageIds: [102] })).toBeNull();
   });
