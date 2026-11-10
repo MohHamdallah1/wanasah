@@ -924,6 +924,15 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "ci-policy-847-exact", []
     if changed == CI_POLICY_856_EXACT:
         return "ci-policy-856-exact", []
+    # A fourth G04 governance file cannot be piggybacked onto the older
+    # three-file policy approval. The old #847 mode remains unchanged.
+    if CI_POLICY_847_EXACT <= changed and (
+        ".github/workflows/live-stock-g04-outage-recovery.yml" in changed
+    ):
+        return "fail", [
+            f"CI_POLICY_856_EXACT=FAIL missing={sorted(CI_POLICY_856_EXACT - changed)} "
+            f"extra={sorted(changed - CI_POLICY_856_EXACT)}"
+        ]
     # Exact #846 ShopOrder change is outside Live Stock owner scope.
     # A partial set, even with the shared DispatchBoard, or any hitchhiker
     # is REJECTED whenever one of its eight newly extracted files appears.
