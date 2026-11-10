@@ -1935,7 +1935,10 @@ def main() -> int:
     base = _git("merge-base", base_ref, head)
     subprocess.run(["git", "diff", "--check", base, head], check=True)
     changed = _changed(base, head)
-    if changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed:
+    # D10 #872 is the ONLY exact vetted exception for actor-scoped Dispatch UI
+    # plus authStorage; all other socket-only session-boundary edits remain frozen.
+    if (changed & SESSION_ISOLATION_ROOTS and "dashboard/src/pages/DispatchBoard.tsx" in changed
+            and changed != DISPATCH_D10_872_EXACT):
         before = _git_show(base, "dashboard/src/pages/DispatchBoard.tsx")
         after = _git_show(head, "dashboard/src/pages/DispatchBoard.tsx")
         def without_socket(source: str) -> str:
