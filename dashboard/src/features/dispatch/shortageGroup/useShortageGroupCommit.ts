@@ -20,6 +20,7 @@ type Args = {
   language: string;
   fetch: AuthFetch;
   onVerified: (rows: Shortage[], command: GroupIntent) => void;
+  onRefreshed: (rows: Shortage[]) => void;
   onRestored: (command: GroupIntent) => void;
 };
 
@@ -35,7 +36,7 @@ const readSelected = (raw: unknown, ids: number[]): boolean => {
  * are the business truth; a local UUID/GET-only match cannot prove success.
  */
 export function useShortageGroupCommit({
-  session, authorized, language, fetch, onVerified, onRestored,
+  session, authorized, language, fetch, onVerified, onRefreshed, onRestored,
 }: Args) {
   const [pending, setPending] = useState<DurableCommand<GroupIntent> | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,8 +46,10 @@ export function useShortageGroupCommit({
   const inFlight = useRef(false);
   const mounted = useRef(true);
   const onVerifiedRef = useRef(onVerified);
+  const onRefreshedRef = useRef(onRefreshed);
   const onRestoredRef = useRef(onRestored);
   onVerifiedRef.current = onVerified;
+  onRefreshedRef.current = onRefreshed;
   onRestoredRef.current = onRestored;
 
   const live = useCallback(() => mounted.current && isDashboardSessionCurrent(session), [session]);
@@ -122,6 +125,30 @@ export function useShortageGroupCommit({
           }
           const existing = await readDurableCommand<GroupIntent>(scope);
           if (!live()) return false;
+          if (!existing && retry && pending) {
+            // A different tab may have finished this command and cleared
+            // durable storage. Refresh through real authorized GET before
+            // releasing this tab's stale lock; do NOT infer success here.
+            try {
+              const snapshot = await fetch("/dispatch/shortages", { cache: "no-store" });
+              if (!live()) return false;
+              if (!Array.isArray(snapshot) || snapshot.some(row =>
+                !row || typeof row !== "object")) {
+                setFeedback(groupText(language, "readback"));
+                return false;
+              }
+              onRefreshedRef.current(snapshot as Shortage[]);
+              setPending(null);
+              setFeedback(groupText(language, "otherTabResolved"));
+            } catch (error) {
+              if (live()) {
+                const denied = [401, 403].includes(apiErrorStatus(error) ?? 0);
+                setFeedback(groupText(language, denied ? "denied" : "readback"));
+                if (denied) setBlocked(true);
+              }
+            }
+            return false; // no PUT, no success toast, no new key
+          }
           if (existing) {
             if (!isGroupIntent(existing.payload)) {
               setBlocked(true);
@@ -169,10 +196,9 @@ export function useShortageGroupCommit({
                 setFeedback(groupText(language, "denied"));
                 setBlocked(true); // no replay until fresh authenticated session
               } else if (status === 404 || status === 400 || status === 422) {
-                // Canonical server rejection AFTER the idempotency replay
-                // check: no commit for this exact key. No inferred success.
-                completeDurableOperation(scope, original.requestId);
-                setPending(null);
+                // Transport-level 4xx is NOT proof that the canonical
+                // idempotency lookup ran. Preserve the original immutable
+                // command even if a router/proxy generated this response.
                 setFeedback(groupText(language, "stale"));
               } else {
                 // 409 may be a concurrent lock or key/hash conflict; retain
@@ -230,7 +256,7 @@ export function useShortageGroupCommit({
       inFlight.current = false;
       if (live()) setBusy(false);
     }
-  }, [authorized, blocked, busy, fetch, language, live, restoring]);
+  }, [authorized, blocked, busy, fetch, language, live, pending, restoring]);
 
   const save = useCallback(async (
     shortageIds: string[], items: GroupLine[], draft: GroupDraftLine[] = [],
