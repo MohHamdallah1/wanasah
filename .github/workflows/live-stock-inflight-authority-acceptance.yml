@@ -393,7 +393,32 @@ jobs:
           }
           assert len(shop_form_850_exact) == 6 and len(shop_form_850_new) == 5
           assert len(ci_policy_856_exact) == 4
+          d07_complete_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          d07_unique = d07_complete_exact - owned - dispatch_d10_872_exact - dispatch_d09_867_exact
+          assert len(d07_complete_exact) == 14 and len(d07_unique) >= 7
           def ownership_mode(candidate):
+              if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"
+              if candidate & d07_unique:
+                  assert candidate == d07_complete_exact, (
+                      f"INFLIGHT_D07_EXACT=FAIL missing={sorted(d07_complete_exact - candidate)} "
+                      f"extra={sorted(candidate - d07_complete_exact)}"
+                  )
+                  return "D07_COMPLETE_EXACT"
               if candidate == ci_policy_856_exact:
                   return "CI_POLICY_856_EXACT"
               if candidate & shop_order_843_new:
@@ -433,6 +458,22 @@ jobs:
                   return "SHOP_FORM_850_EXACT"
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
+
+          assert ownership_mode(d07_complete_exact) == "D07_COMPLETE_EXACT"
+          for missing in d07_complete_exact:
+              partial = d07_complete_exact - {missing}
+              if partial & d07_unique:
+                  try: ownership_mode(partial)
+                  except AssertionError: pass
+                  else: raise AssertionError(f"D07 partial accepted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "D07_COMPLETE_EXACT"
+          for foreign in ("wa_backend/main.py", "wa_backend/models.py",
+                          "dashboard/src/components/dispatch/ShortageModal.tsx"):
+              try: ownership_mode(d07_complete_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"D07 foreign accepted: {foreign}")
+          print("INFLIGHT_D07_SCOPE_SELFTEST=PASS exact=14 partial=14 foreign=3")
 
           assert ownership_mode(shop_order_843_exact) == "SHOP_ORDER_843_EXACT"
           for missing in shop_order_843_exact:

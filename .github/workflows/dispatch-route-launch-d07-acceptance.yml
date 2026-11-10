@@ -64,21 +64,36 @@ jobs:
               "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
           }
           assert len(d07_independent_exact) == 8
-          assert files == d07_independent_exact, (
-              f"D07 isolated Backend + independent UI exact denied: "
-              f"missing={sorted(d07_independent_exact - files)} "
-              f"extra={sorted(files - d07_independent_exact)}"
-          )
-          for absent in d07_independent_exact:
-              assert d07_independent_exact - {absent} != files
-          for foreign in (
+          d07_complete_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLaunch/contract.ts",
+              "dashboard/src/features/dispatch/routeLaunch/useRouteLaunchRecovery.ts",
               "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_route_launch_receipt.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
+          }
+          assert len(d07_complete_exact) == 14 and d07_independent_exact <= d07_complete_exact
+          assert files == d07_complete_exact, (
+              f"D07 complete scope denied missing={sorted(d07_complete_exact - files)} "
+              f"extra={sorted(files - d07_complete_exact)}"
+          )
+          for absent in d07_complete_exact:
+              assert d07_complete_exact - {absent} != files
+          for foreign in (
               "dashboard/src/features/dispatch/dispatchDrafts.ts",
               "dashboard/src/features/dispatch/sessionScope.ts",
-              "wa_backend/models.py",
+              "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files, f"D07 forbidden D10/Backend path: {foreign}"
-          print("D07_ISOLATED_OWNERSHIP=PASS exact=8 foreign=4")
+              assert foreign not in files, f"D07 forbidden foreign path: {foreign}"
+          print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD
       - uses: actions/setup-python@v5
