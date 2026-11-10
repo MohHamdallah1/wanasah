@@ -617,6 +617,9 @@ describe("Shop authenticated save/readback & financial denial", () => {
     await waitFor(() => expect(result.current.restoring).toBe(false));
     let promise!: Promise<boolean>;
     await act(async () => { promise = result.current.save(); await Promise.resolve(); });
+    // The async save reaches the verification GET after its durable lock;
+    // do not revoke before the test's deliberately delayed response exists.
+    await waitFor(() => expect(late).toBeTypeOf("function"));
     auth.current = false;
     unmount();
     await act(async () => { late([wire({ name: "Changed" })]); expect(await promise).toBe(false); });
