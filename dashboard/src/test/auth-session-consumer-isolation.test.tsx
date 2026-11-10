@@ -13,6 +13,7 @@ import {
 } from "@/lib/authStorage";
 import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 import DispatchBoard from "@/pages/DispatchBoard";
+import { writeDispatchPreferences } from "@/features/dispatch/sessionScope";
 import { durableScope, getOrCreateDurableCommand, readDurableCommand } from "@/lib/durableOperations";
 import { useImportProductPolling } from "@/pages/products/import/useImportProductPolling";
 
@@ -424,8 +425,10 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   const draft = await getOrCreateDurableCommand(scope, { deltas: [{ product_id: 701, delta_base: "8" }] });
   const persisted = localStorage.getItem(scope);
   vi.useFakeTimers();
-  localStorage.setItem("activeTab", "launch");
-  localStorage.setItem("wanasah_route_vehicle", "17");
+  writeDispatchPreferences("1:11:110", {
+    activeTab: "launch", zoneForShops: "1", launchZone: "1",
+    driver: "31", vehicle: "17", sourceWarehouse: "21",
+  });
   const lateA = deferred<void>(), allowB = deferred<void>();
   const requests: Array<{ company: string; path: string; signal?: AbortSignal | null }> = [];
   let aInit = 0;
