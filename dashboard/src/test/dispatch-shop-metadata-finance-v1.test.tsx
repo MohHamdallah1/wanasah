@@ -17,7 +17,8 @@ import { setAppLanguage } from "@/i18n";
 import { clearLocalStoragePreservingLoginHintsAndPreferences } from "@/lib/authStorage";
 import { readDurableCommand } from "@/lib/durableOperations";
 import {
-  isShopCreateAttempt, shopCreateAttemptScope, type ShopCreateAttempt,
+  isShopCreateAttempt, shopCreateAttemptScope, shopEditAttemptScope,
+  type ShopCreateAttempt, type ShopEditAttempt,
 } from "@/features/dispatch/shopForm/contract";
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
@@ -992,4 +993,154 @@ describe("Codex P2: atomic cross-tab Shop create and canonical POST shop_id rest
     expect(await readDurableCommand(shopCreateAttemptScope()!)).toBeNull();
     expect(toast.success).not.toHaveBeenCalled();
   });
+});
+
+describe("Codex P2: edit PUT with unreconcilable readback has a durable operator exit", () => {
+  it.each(["ar", "en"] as const)(
+    "offline PUT in %s can be left and reopened with the original metadata draft, no duplicate PUT",
+    async language => {
+      await setAppLanguage(language);
+      const edited = { ...form, name: "Unsent local name", phone: "5551122" };
+      const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+        if (opts?.method === "PUT") throw new Error("offline before transport");
+        return [wire()];
+      });
+      const onClose = vi.fn();
+      const original = args(fetch, {
+        editId: "77", form: edited, language, onClose, onRestoreForm: vi.fn(),
+      });
+      const first = renderHook(() => useShopFormCommit(original));
+      await waitFor(() => expect(first.result.current.restoring).toBe(false));
+      await act(async () => { expect(await first.result.current.save()).toBe(false); });
+      expect(first.result.current.needsEditReview).toBe(true);
+      expect(first.result.current.needsVerification).toBe(true);
+      const scope = shopEditAttemptScope("77")!;
+      const record = await readDurableCommand<ShopEditAttempt>(scope);
+      expect(record?.payload).toMatchObject({
+        kind: "SHOP_METADATA_EDIT_UNCERTAIN_V1",
+        submitted: metadataPayload(edited), draft: edited, shopId: "77",
+      });
+      await act(async () => { expect(await first.result.current.verify()).toBe(false); });
+      expect(first.result.current.needsEditReview).toBe(true);
+      expect(original.onVerified).not.toHaveBeenCalled();
+      act(() => first.result.current.leaveUncertain());
+      expect(onClose).toHaveBeenCalledOnce();
+      first.unmount();
+
+      const restoreForm = vi.fn();
+      const after = args(fetch, {
+        editId: "77", form: existingShopForm(shop), language, onRestoreForm: restoreForm,
+      });
+      const second = renderHook(() => useShopFormCommit(after));
+      await waitFor(() => expect(second.result.current.needsEditReview).toBe(true));
+      expect(restoreForm).toHaveBeenCalledWith(edited);
+      expect(second.result.current.localTrackingId).toBe(record?.requestId);
+      await act(async () => { expect(await second.result.current.save()).toBe(false); });
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1);
+      expect(toast.success).not.toHaveBeenCalled();
+      second.unmount();
+    },
+  );
+
+  it("successful edit PUT but later server conflict stays reviewable without repeating the PUT", async () => {
+    const edited = { ...form, name: "Saved originally" };
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) => {
+      if (opts?.method === "PUT") return { message: "ok" };
+      return [wire({ name: "Other editor changed this name" })];
+    });
+    const props = args(fetch, { form: edited });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.needsEditReview).toBe(true);
+    await act(async () => { expect(await hooked.result.current.verify()).toBe(false); });
+    expect(hooked.result.current.needsEditReview).toBe(true);
+    act(() => hooked.result.current.leaveUncertain());
+    expect(props.onClose).toHaveBeenCalledOnce();
+    expect(await readDurableCommand<ShopEditAttempt>(shopEditAttemptScope("77")!)).not.toBeNull();
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it("verified edit metadata readback clears durable edit record and cannot alter money", async () => {
+    const edited = { ...form, name: "Updated Shop", initialDebt: "999999999.999" };
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "PUT" ? { message: "ok" } :
+        [wire({ name: "Updated Shop", initialDebt: "80.000", maxDebtLimit: "75.125" })],
+    );
+    const props = args(fetch, { form: edited });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(true); });
+    expect(props.onVerified).toHaveBeenCalledOnce();
+    const put = fetch.mock.calls.find(([, o]) => o?.method === "PUT");
+    expect(JSON.parse(put![1]!.body as string)).toEqual(metadataPayload(edited));
+    expect(JSON.stringify(put![1]!.body)).not.toMatch(/initialDebt|maxDebtLimit/);
+    expect(await readDurableCommand(shopEditAttemptScope("77")!)).toBeNull();
+    expect(toast.success).toHaveBeenCalledOnce();
+  });
+
+  it.each([401, 403, 409])("definitive edit HTTP %s never leaves an immutable unresolved lock", async status => {
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "PUT" ? Promise.reject(fakeError(status, "FORBIDDEN")) : [wire()],
+    );
+    const props = args(fetch, { form: { ...form, name: "Changed" } });
+    const hooked = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.needsEditReview).toBe(false);
+    expect(await readDurableCommand(shopEditAttemptScope("77")!)).toBeNull();
+    expect(props.onVerified).not.toHaveBeenCalled();
+  });
+
+  it("edit recovery belongs only to the authorized original company and principal", async () => {
+    const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+      opts?.method === "PUT" ? Promise.reject(new Error("unconfirmed")) : [wire()],
+    );
+    const first = renderHook(() => useShopFormCommit(args(fetch, {
+      form: { ...form, name: "Private pending data" },
+    })));
+    await waitFor(() => expect(first.result.current.restoring).toBe(false));
+    await act(async () => { expect(await first.result.current.save()).toBe(false); });
+    const privateScope = shopEditAttemptScope("77")!;
+    first.unmount();
+    localStorage.setItem("principal_id", "22");
+    const restore = vi.fn();
+    const other = renderHook(() => useShopFormCommit(args(vi.fn().mockResolvedValue([wire()]), {
+      onRestoreForm: restore,
+    })));
+    await waitFor(() => expect(other.result.current.restoring).toBe(false));
+    expect(other.result.current.needsEditReview).toBe(false);
+    expect(restore).not.toHaveBeenCalled();
+    expect(localStorage.getItem(privateScope)).not.toBeNull();
+    other.unmount();
+  });
+
+  it.each([390, 700, 1440])(
+    "pending edit at width %i offers bilingual safe exit and locked metadata fields",
+    async width => {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
+      for (const language of ["ar", "en"] as const) {
+        await setAppLanguage(language);
+        const onLeave = vi.fn();
+        const modal = render(
+          <ShopFormModal isOpen onClose={vi.fn()} editingShopId="77"
+            shopForm={form} onShopFormChange={vi.fn()} zones={[zone]}
+            onSave={vi.fn()} onVerify={vi.fn()} onLeaveUncertain={onLeave}
+            needsManualReconciliation={false} needsEditReview
+            restoring={false} recoveryUnreadable={false}
+            localTrackingId="local-edit-77" serverReference="req-edit-77"
+            language={language} saving={false} needsVerification
+            canViewFinances={false} finance={null}
+            financeLoading={false} feedback={shopFormText(language, "readback")}/>,
+        );
+        expect(screen.getByTestId("shop-uncertain-edit")).toBeInTheDocument();
+        expect(screen.getByText(shopFormText(language, "editManualInstructions"))).toBeInTheDocument();
+        expect(screen.getByDisplayValue(form.name)).toBeDisabled();
+        fireEvent.click(screen.getByRole("button", { name: shopFormText(language, "editLeaveSafely") }));
+        expect(onLeave).toHaveBeenCalledOnce();
+        modal.unmount();
+      }
+    },
+  );
 });
