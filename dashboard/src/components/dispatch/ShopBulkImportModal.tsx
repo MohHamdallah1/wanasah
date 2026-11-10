@@ -327,7 +327,7 @@ export function ShopBulkImportModal({
     readerRef.current?.abort();
     readerRef.current = reader;
     reader.onload = (loadEvent) => {
-      if (!admitted() || !zones.some(zone => zone.id === selectedZoneId)) return;
+      if (readerRef.current !== reader || !admitted() || !zones.some(zone => zone.id === selectedZoneId)) return;
       try {
         const result = loadEvent.target?.result;
         if (!(result instanceof ArrayBuffer)) {
@@ -622,7 +622,7 @@ export function ShopBulkImportModal({
                   label: zone.name,
                 }))}
                 value={selectedZoneId}
-                onChange={(value) => { if (value === selectedZoneId) return; readerRef.current?.abort(); setSelectedZoneId(value); setGridData([]); setStep(1); setFileName(""); }}
+                onChange={(value) => { if (value === selectedZoneId) return; readerRef.current?.abort(); readerRef.current = null; setSelectedZoneId(value); setGridData([]); setStep(1); setFileName(""); }}
                 placeholder="-- اضغط لاختيار المنطقة --"
               />
             </div>
