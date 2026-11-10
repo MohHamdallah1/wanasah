@@ -96,7 +96,8 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   fireEvent.change(screen.getByRole("combobox", { name: "السيارة" }), { target: { value: "18" } });
   await screen.findByText("New Warehouse stock");
   await screen.findByText("Current vehicle two");
-  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).toBeDisabled();
+  // A newly selected, authorized Vehicle is editable again with a fresh zero draft.
+  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).not.toBeDisabled();
   await act(async () => finishOld([custody("521", "Stale old custody")]));
   expect(screen.queryByText("Stale old custody")).not.toBeInTheDocument();
   expect(screen.queryByText("Eligible source B")).not.toBeInTheDocument();
