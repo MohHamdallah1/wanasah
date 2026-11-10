@@ -254,7 +254,53 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   const vehicleProduct = custody.data.find((line: { product_id: string }) =>
     String(line.product_id) === String(state.variantId));
   expect(Number(vehicleProduct?.current_base_quantity)).toBe(21);
-  
+
+  // Actual Dashboard Launch UI on the freshly CLOSED route's assets, with D11
+  // live commercial preflight and original D07 request identity; no mocked wire.
+  await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
+  const init = await page.evaluate(async origin => {
+    const reply = await fetch(origin + "/dispatch/init", {
+      headers: { Authorization: "Bearer " + localStorage.getItem("admin_token") },
+    });
+    if (!reply.ok) throw new Error("Authorized Dispatch init failed: " + reply.status);
+    return reply.json();
+  }, API);
+  const choices = [
+    init.zones.find((x: { id: string }) => x.id === String(state.zoneId))?.name,
+    init.drivers.find((x: { id: string }) => x.id === String(state.driverId))?.name,
+    init.vehicles.find((x: { id: string }) => x.id === String(state.vehicleId))?.label,
+    init.warehouses.find((x: { id: string }) => x.id === String(state.warehouseId))?.label,
+  ];
+  expect(choices.every(Boolean)).toBe(true);
+  const selectors = page.locator(".dispatch-launch-config > .relative.mt-2");
+  await expect(selectors).toHaveCount(4);
+  for (let index = 0; index < choices.length; index++) {
+    await selectors.nth(index).locator("button").first().click();
+    await selectors.nth(index).getByRole("button", { name: choices[index], exact: true }).click();
+  }
+  const readiness = page.getByTestId("d11-commercial-preflight");
+  await expect(readiness.getByRole("status")).toContainText(
+    "Checks passed — launch requirements are currently met.", { timeout: 30000 });
+  const target = page.locator("#route-base-" + state.variantId);
+  await expect(target).toBeEnabled({ timeout: 30000 });
+  await target.fill("21");
+  const realLaunch = page.waitForResponse(r => new URL(r.url()).pathname === "/dispatch/route"
+    && r.request().method() === "POST");
+  await page.getByRole("button", { name: "Confirm and launch route" }).click();
+  const launchReceipt = await realLaunch;
+  expect(launchReceipt.status()).toBe(201);
+  const launched = await launchReceipt.json();
+  expect(String(launched.route_id)).not.toBe(String(state.routeId));
+  const finalCustody = await page.evaluate(async ({ id, origin }) => {
+    const response = await fetch(origin + "/dispatch/inventory/" + id, {
+      headers: { Authorization: "Bearer " + localStorage.getItem("admin_token") },
+    });
+    return { status: response.status, data: await response.json() };
+  }, { id: state.vehicleId, origin: API });
+  expect(finalCustody.status).toBe(200);
+  expect(Number(finalCustody.data.find((x: { product_id: string }) =>
+    String(x.product_id) === String(state.variantId))?.current_base_quantity)).toBe(21);
+
   // The existing Operations workflow, not Dispatch, owns settlement.
   const operations = page.waitForResponse(r => new URL(r.url()).pathname ===
     "/admin/sessions/today" && r.request().method() === "GET");
@@ -265,7 +311,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     backend: state.confirmed, browser: {
       zoneCreate: true, routeActivate: true, blockedActiveShopMove: true,
       vehicleAdjust: true, routeActiveWaitingPostponedRestoredClosed: true,
-      operationsSettlementHandoff: true,
+      operationsSettlementHandoff: true, actualDashboardLaunchAndD11Preflight: true,
     }, wires,
   }, null, 2));
   expect(wires.some(w => w.path === "/dispatch/zones" && w.method === "POST" && w.status === 201)).toBe(true);
