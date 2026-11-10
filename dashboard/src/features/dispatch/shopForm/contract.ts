@@ -250,11 +250,11 @@ export function clearShopAttemptServerReference(scope: string): void {
   try { localStorage.removeItem(`${scope}:server-ref`); } catch { /* No claim of success. */ }
 }
 
-/** Web Locks provide the browser's cross-tab atomic exclusion; localStorage
- * read/write + random nonce alone are NOT an atomic compare-and-swap.
- * Unsupported user agents must fail closed, not silently allow duplicate POST.
+/** Web Locks provide real cross-tab exclusion for BOTH CREATE and EDIT
+ * claim-and-send. localStorage read/write + random nonce is NOT atomic.
+ * Unsupported user agents fail closed rather than risking duplicate writes.
  */
-export async function withExclusiveShopCreateLock<T>(
+export async function withExclusiveShopWriteLock<T>(
   scope: string,
   work: () => Promise<T>,
 ): Promise<{ acquired: boolean; result?: T }> {
@@ -262,7 +262,7 @@ export async function withExclusiveShopCreateLock<T>(
     return { acquired: false };
   }
   return navigator.locks.request(
-    `${scope}:exclusive-create-send`, { mode: "exclusive", ifAvailable: true },
+    `${scope}:exclusive-shop-write`, { mode: "exclusive", ifAvailable: true },
     async lock => lock ? { acquired: true, result: await work() } : { acquired: false },
   );
 }
