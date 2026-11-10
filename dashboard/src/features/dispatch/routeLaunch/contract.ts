@@ -34,7 +34,7 @@ export type RouteLaunchReceipt = {
 };
 export type RouteLaunchOutcome =
   | { kind: "idle" | "unknown" | "blocked" | "conflict" | "busy" | "stale"; requestId?: string }
-  | { kind: "committed"; requestId: string; receipt: RouteLaunchReceipt };
+  | { kind: "committed"; requestId: string; receipt: RouteLaunchReceipt; intent: RouteLaunchIntent };
 
 export type RouteLaunchLanguage = "ar" | "en";
 export const routeLaunchText = (language: string, state: RouteLaunchOutcome["kind"]): string => {
@@ -118,6 +118,27 @@ export const routeLaunchActorMatchesSession = (
         typeof id === "string" && /^[1-9]\d*$/.test(id) &&
         Number.isSafeInteger(Number(id)));
   } catch { return false; }
+};
+
+/** One outstanding route launch per canonical actor, across vehicles and
+ * warehouses. Stores only the command UUID + location IDs, never credentials.
+ */
+export const routeLaunchPendingKey = (actorScope: string): string => {
+  if (!/^[1-9]\d*:[1-9]\d*:[1-9]\d*$/.test(actorScope)) throw new Error("D07_INVALID_ACTOR_SCOPE");
+  return `wanasah:dispatch:route-launch:pending:v1:${actorScope}`;
+};
+export type RouteLaunchPendingOwner = { warehouseId: number; vehicleId: number; requestId: string };
+export const readRouteLaunchPendingOwner = (actorScope: string): RouteLaunchPendingOwner | null => {
+  const raw = localStorage.getItem(routeLaunchPendingKey(actorScope));
+  if (!raw) return null;
+  let data: unknown;
+  try { data = JSON.parse(raw); } catch { throw new Error("D07_PENDING_OWNER_CORRUPT"); }
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("D07_PENDING_OWNER_CORRUPT");
+  const item = data as Record<string, unknown>;
+  if (!pos(item.warehouseId) || !pos(item.vehicleId) || !isOriginalRouteUuid(item.requestId)) {
+    throw new Error("D07_PENDING_OWNER_CORRUPT");
+  }
+  return item as RouteLaunchPendingOwner;
 };
 
 export const routeLaunchScopeKey = ({ actorScope, warehouseId, vehicleId }: RouteLaunchActor): string => {
