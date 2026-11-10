@@ -47,6 +47,7 @@ interface ShortageModalProps {
     restoring: boolean;
     busy: boolean;
     feedback: string | null;
+    httpReference: string | null;
     onRetry: () => void;
   };
 }
@@ -377,6 +378,11 @@ export function ShortageModal({
             )}
             {groupRecovery.pending && (
               <div className="flex flex-wrap items-center gap-2">
+                {groupRecovery.httpReference && (
+                  <span className="text-xs" dir="auto" data-testid="shortage-group-http-ref">
+                    {groupText(i18n.language, "serverReference")}: {groupRecovery.httpReference}
+                  </span>
+                )}
                 <span className="text-xs" dir="auto">
                   {groupText(i18n.language, "reference")}: {groupRecovery.pending.requestId}
                 </span>
