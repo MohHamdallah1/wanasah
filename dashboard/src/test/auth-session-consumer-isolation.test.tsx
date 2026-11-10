@@ -539,7 +539,7 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
   fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
-  expect(screen.getByText("B-shop", { selector: "p" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) B-shop/ })).toBeInTheDocument();
   expect(await readDurableCommand(scope)).toEqual(draft);
 
   // The production auth-expiry logout also emits the existing session event.
