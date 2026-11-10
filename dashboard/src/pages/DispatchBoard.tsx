@@ -44,6 +44,15 @@ import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
+import {
+  clearLegacyDispatchPreferences, createDispatchAsyncEpoch,
+  dispatchActorScope, readDispatchPreferences, reconcileDispatchPreferences,
+  writeDispatchPreferences,
+} from "@/features/dispatch/sessionScope";
+import {
+  clearRouteLoadDraft, clearShortageDraft, restoreRouteLoadDraft,
+  restoreShortageDraft, saveRouteLoadDraft, saveShortageDraft,
+} from "@/features/dispatch/dispatchDrafts";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
@@ -102,9 +111,6 @@ const normalizeShops = (data: unknown): Shop[] => {
     };
   });
 };
-
-const isTabId = (value: string | null): value is TabId =>
-  value === "routes" || value === "zones" || value === "launch";
 
 const frequencyFromIntervalDays = (days: number | null): string => {
   if (days === 7) return "كل 7 أيام";
@@ -173,10 +179,7 @@ function DispatchSession() {
   const [dispatchFocus, setDispatchFocus] = useState(
     initialDispatchFocusRef.current,
   );
-  const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const stored = localStorage.getItem("activeTab");
-    return isTabId(stored) ? stored : "routes";
-  });
+  const [activeTab, setActiveTab] = useState<TabId>("routes");
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
   const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<TabId | null>(null);
 
@@ -198,7 +201,6 @@ function DispatchSession() {
     });
   }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
-  useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
   const inventoryAccess = useInventoryAccess();
@@ -209,6 +211,9 @@ function DispatchSession() {
   const canReadShopFinances = grants.routes;
   const canReadZoneArchive = grants.zones && Boolean(discoveryAccess?.permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
+  const actorScope = accessState === "ready" ? dispatchActorScope(session, discoveryAccess) : null;
+  const hydratedScopeRef = useRef<string | null>(null);
+  const asyncEpochRef = useRef(createDispatchAsyncEpoch(session!));
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
   const dispatchFenceRef = useRef(createDispatchReadFence());
   const dispatchDeniedRef = useRef(false);
@@ -230,27 +235,11 @@ function DispatchSession() {
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
 
-  // +++ الدرع المعماري للـ UX: ربط المنطقة المحددة بالذاكرة المحلية لمنع ضياعها عند الـ Refresh +++
-  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState(() => localStorage.getItem("wanasah_selected_zone") || "");
-
-  useEffect(() => {
-    if (selectedZoneIdForZones) {
-      localStorage.setItem("wanasah_selected_zone", selectedZoneIdForZones);
-    } else {
-      localStorage.removeItem("wanasah_selected_zone");
-    }
-  }, [selectedZoneIdForZones]);
-
-  // +++ الذاكرة الفولاذية: حفظ خيارات إطلاق خط السير +++
-  const [selectedZoneId, setSelectedZoneId] = useState(() => localStorage.getItem("wanasah_route_zone") || "");
-  const [selectedDriverId, setSelectedDriverId] = useState(() => localStorage.getItem("wanasah_route_driver") || "");
-  const [selectedVehicleId, setSelectedVehicleId] = useState(() => localStorage.getItem("wanasah_route_vehicle") || "");
-
-  useEffect(() => {
-    localStorage.setItem("wanasah_route_zone", selectedZoneId);
-    localStorage.setItem("wanasah_route_driver", selectedDriverId);
-    localStorage.setItem("wanasah_route_vehicle", selectedVehicleId);
-  }, [selectedZoneId, selectedDriverId, selectedVehicleId]);
+  // Never hydrate from global localStorage before the backend verifies this actor.
+  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState("");
+  const [selectedZoneId, setSelectedZoneId] = useState("");
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [routeLoadCurrent, setRouteLoadCurrent] = useState<Record<string, Quantity>>({});
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
@@ -338,6 +327,8 @@ function DispatchSession() {
   // Snapshot of shops taken when entering edit mode — used for Cancel/revert
   const savedShopsRef = useRef<Shop[]>([]);
   const shortageMutationInFlightRef = useRef(false);
+  const activeShortageEditRef = useRef(false);
+  activeShortageEditRef.current = editingShortageIds.length > 0;
 
   const [isSuicideModalOpen, setIsSuicideModalOpen] = useState(false);
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
@@ -351,6 +342,75 @@ function DispatchSession() {
   const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  const choicesRef = useRef({
+    activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+    driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
+  });
+  choicesRef.current = {
+    activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+    driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
+  };
+  // One generation fences role, actual source Warehouse and active route.
+  // Zone/vehicle-specific reads also use their own abort/context identity.
+  asyncEpochRef.current.update(JSON.stringify([
+    actorScope, accessState, dispatchReadState, selectedSourceWarehouseId,
+    activeRoute?.id, grants,
+  ]));
+  const captureUiRead = () => asyncEpochRef.current.capture();
+  useEffect(() => {
+    const revoke = () => asyncEpochRef.current.revoke();
+    window.addEventListener("inventory-permission-denied", revoke);
+    return () => window.removeEventListener("inventory-permission-denied", revoke);
+  }, []);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" ||
+        hydratedScopeRef.current !== actorScope || !isDashboardSessionCurrent(session!)) return;
+    writeDispatchPreferences(actorScope, {
+      activeTab: tabAllowed(activeTab) ? activeTab : "routes",
+      zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+      driver: selectedDriverId, vehicle: selectedVehicleId,
+      sourceWarehouse: selectedSourceWarehouseId,
+    });
+  }, [
+    actorScope, accessState, dispatchReadState, activeTab, selectedZoneIdForZones,
+    selectedZoneId, selectedDriverId, selectedVehicleId, selectedSourceWarehouseId,
+    grants, session,
+  ]);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" ||
+        !grants.shortages || !grants.shortageCreate || !grants.routes ||
+        !isShortageModalOpen || editingShortageIds.length > 0 || shortageMutationInFlightRef.current ||
+        !shortageZoneId || !shortageShopId || !shortageDraft.length) return;
+    if (!zones.some(zone => zone.id === shortageZoneId) ||
+        !shops.some(shop => shop.id === shortageShopId && shop.zoneId === shortageZoneId && !shop.archived) ||
+        (shortageDriverId && !drivers.some(driver => driver.id === shortageDriverId))) return;
+    saveShortageDraft(actorScope, {
+      zoneId: shortageZoneId, shopId: shortageShopId, driverId: shortageDriverId, rows: shortageDraft,
+    });
+  }, [actorScope, accessState, dispatchReadState, grants, isShortageModalOpen,
+    editingShortageIds, shortageZoneId, shortageShopId, shortageDriverId, shortageDraft, zones, shops, drivers]);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" || !grants.launch ||
+        !vehicleCustodyReady || isRouteModalOpen || !selectedSourceWarehouseId ||
+        !selectedVehicleId || !selectedZoneId || !selectedDriverId) return;
+    saveRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
+      selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets);
+  }, [actorScope, accessState, dispatchReadState, grants.launch, vehicleCustodyReady,
+    isRouteModalOpen, selectedSourceWarehouseId, selectedVehicleId,
+    selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets]);
+
+  const changeSourceWarehouse = (warehouseId: string) => {
+    if (warehouseId === selectedSourceWarehouseId) return;
+    asyncEpochRef.current.revoke();
+    setSelectedSourceWarehouseId(warehouseId);
+    // A different Warehouse is a new launch intent; never carry stale product targets.
+    setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId("");
+    setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
+    setVehicleInventoryLoadedForContext(null);
+  };
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const clearDispatchPrivateState = useCallback(() => {
@@ -358,7 +418,18 @@ function DispatchSession() {
     setDrivers([]); setVehicles([]); setWarehouses([]); setArchivedZones([]);
     savedShopsRef.current = [];
     setSelectedShopIds([]); setIsEditMode(false); setHasUnsavedChanges(false);
-    setSelectedSourceWarehouseId(""); setVehicleInventoryLoadedForContext(null);
+    hydratedScopeRef.current = null;
+    asyncEpochRef.current.revoke();
+    setActiveTab("routes"); setSelectedZoneIdForZones(""); setSelectedZoneId("");
+    setSelectedDriverId(""); setSelectedVehicleId(""); setSelectedSourceWarehouseId("");
+    setVehicleInventoryLoadedForContext(null);
+    setShortageZoneId(""); setShortageShopId(""); setShortageDriverId("");
+    setShopForm(emptyShopForm("")); setEditingShopId(null);
+    setZoneFormName(""); setEditingZoneId(null);
+    setSelectedBulkZoneIds([]); setTargetTransferZoneId("");
+    setZoneToKill(null); setConfirmName("");
+    setInventoryRoute(null); setRadarRoute(null); setRadarFocusTransferId(null);
+    setTransferDriverId(""); setUnsavedTabPrompt(null);
     setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadNames({}); setRouteLoadUnits({});
     setShortageDraft([]); setNewShortage({}); setEditingShortageIds([]);
     setIsShortageModalOpen(false); setIsZoneModalOpen(false); setIsShopModalOpen(false);
@@ -374,8 +445,15 @@ function DispatchSession() {
   const fetchInitialData = useCallback(() => {
     const snapshot = captureDashboardSession();
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
-    if (accessState !== "ready") {
+    if (accessState !== "ready" || !actorScope) {
       admission.abort();
+      if (accessState === "ready" && !actorScope) {
+        // Permission payload and authenticated principal disagree: no UI, stream or old drafts.
+        dispatchDeniedRef.current = true;
+        dispatchFenceRef.current.revoke();
+        clearDispatchPrivateState();
+        setDispatchReadState("denied");
+      }
       return admission;
     }
     void loadDispatchRead({
@@ -391,11 +469,31 @@ function DispatchSession() {
         setShops(grants.routes ? normalizeShops(freshShops) : []);
         setPendingRoutes(grants.routes && Array.isArray(routes) ? routes : []);
         setShortages(grants.shortages && Array.isArray(freshShortages) ? freshShortages : []);
-        setSelectedZoneIdForZones(prev => sorted.some(zone => zone.id === prev) ? prev : sorted[0]?.id || "");
-        setSelectedZoneId(prev => sorted.some(zone => zone.id === prev) ? prev : "");
-        setSelectedDriverId(prev => nextDrivers.some(driver => driver.id === prev) ? prev : "");
-        setSelectedVehicleId(prev => nextVehicles.some(vehicle => vehicle.id === prev) ? prev : "");
-        setSelectedSourceWarehouseId(prev => nextWarehouses.some(warehouse => warehouse.id === prev) ? prev : "");
+        const hydrate = Boolean(actorScope && hydratedScopeRef.current !== actorScope);
+        if (hydrate) clearLegacyDispatchPreferences();
+        const prefs = hydrate ? readDispatchPreferences(actorScope) : choicesRef.current;
+        const valid = reconcileDispatchPreferences(prefs, {
+          zones: sorted, drivers: nextDrivers, vehicles: nextVehicles, warehouses: nextWarehouses,
+        }, grants.launch);
+        if (hydrate) {
+          setActiveTab(valid.activeTab === "launch" && !grants.launch ? "routes" : valid.activeTab);
+          hydratedScopeRef.current = actorScope;
+        }
+        setSelectedZoneIdForZones(valid.zoneForShops);
+        setSelectedZoneId(valid.launchZone); setSelectedDriverId(valid.driver);
+        setSelectedVehicleId(valid.vehicle); setSelectedSourceWarehouseId(valid.sourceWarehouse);
+        if (hydrate && actorScope && grants.shortages && grants.shortageCreate && grants.routes &&
+            !activeShortageEditRef.current) {
+          const recovered = restoreShortageDraft(actorScope, sorted, normalizeShops(freshShops), nextDrivers);
+          if (recovered) {
+            setShortageZoneId(recovered.zoneId);
+            setShortageShopId(recovered.shopId);
+            setShortageDriverId(recovered.driverId);
+            setShortageDraft(recovered.rows);
+          } else {
+            clearShortageDraft(actorScope);
+          }
+        }
         dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
       },
@@ -408,7 +506,7 @@ function DispatchSession() {
       },
     });
     return admission;
-  }, [authenticatedFetch, accessState, grants, clearDispatchPrivateState]);
+  }, [authenticatedFetch, accessState, grants, clearDispatchPrivateState, actorScope]);
 
   useEffect(() => {
     if (accessState === "ready") return;
@@ -426,12 +524,14 @@ function DispatchSession() {
     }
 
     const controller = new AbortController();
+    const admitted = captureUiRead();
     setIsWarehouseStatusLoading(true);
     authenticatedFetch(
       `/warehouse/status?location_id=${encodeURIComponent(selectedSourceWarehouseId)}`,
       { signal: controller.signal }
     )
       .then((data) => {
+        if (controller.signal.aborted || !admitted()) return;
         const status =
           typeof data === "object" && data !== null && "status" in data
             ? String((data as { status: unknown }).status)
@@ -439,21 +539,22 @@ function DispatchSession() {
         setIsWarehouseLocked(status === "AUDIT_LOCK");
       })
       .catch((err: unknown) => {
-        if (!(err instanceof Error && err.name === "AbortError")) {
-          console.error(err);
-        }
+        if (controller.signal.aborted || !admitted()) return;
+        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
+        // A failed audit-status read is never evidence that the Warehouse is unlocked.
+        setIsWarehouseLocked(true);
       })
       .finally(() => {
-        if (!controller.signal.aborted) setIsWarehouseStatusLoading(false);
+        if (!controller.signal.aborted && admitted()) setIsWarehouseStatusLoading(false);
       });
 
     return () => controller.abort();
-  }, [selectedSourceWarehouseId, authenticatedFetch]);
+  }, [selectedSourceWarehouseId, authenticatedFetch, actorScope, accessState, dispatchReadState, activeRoute?.id]);
 
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (accessState !== "ready" || dispatchDeniedRef.current) return;
+    if (accessState !== "ready" || !actorScope || dispatchDeniedRef.current) return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -631,7 +732,7 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner, accessState]);
+  }, [fetchInitialData, isCompanyOwner, accessState, actorScope]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -650,21 +751,31 @@ function DispatchSession() {
     setRouteLoadUnits({});
     setRouteLoadNames({});
     const requestedVehicleId = selectedVehicleId;
+    const requestedZoneId = selectedZoneId;
+    const requestedDriverId = selectedDriverId;
     const controller = new AbortController();
     setVehicleInventoryLoadedForContext(null);
 
+    const admitted = captureUiRead();
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
       signal: controller.signal,
     })
       .then((data) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !admitted() ||
+            choicesRef.current.vehicle !== requestedVehicleId ||
+            choicesRef.current.launchZone !== requestedZoneId ||
+            choicesRef.current.driver !== requestedDriverId) return;
         if (!Array.isArray(data)) {
           throw new Error("DISPATCH_UOM_METADATA_INVALID");
         }
         // Only canonical base-unit evidence feeds the explicit Load editor.
         const precise = parseRouteLoadVehicleInventory(data);
         setRouteLoadCurrent(precise.current);
-        setRouteLoadTargets({ ...precise.current });
+        const saved = !isRouteModalOpen && actorScope && grants.launch
+          ? restoreRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
+              selectedZoneId, selectedDriverId, precise.current, Object.keys(precise.units))
+          : null;
+        setRouteLoadTargets(saved ?? { ...precise.current });
         setRouteLoadUnits(precise.units);
         setRouteLoadNames(Object.fromEntries(data.map((raw) => {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
@@ -673,13 +784,14 @@ function DispatchSession() {
         setVehicleInventoryLoadedForContext(vehicleLoadContext);
       })
       .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted || !admitted()) return;
         setVehicleInventoryLoadedForContext(null);
         toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
 
     return () => controller.abort();
-  }, [selectedVehicleId, vehicleLoadContext, vehicleInventoryReloadKey, authenticatedFetch, t]);
+  }, [selectedVehicleId, selectedZoneId, selectedDriverId, vehicleLoadContext,
+    vehicleInventoryReloadKey, actorScope, accessState, dispatchReadState, authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -724,8 +836,10 @@ function DispatchSession() {
   });
 
   const fetchArchivedZones = async () => {
+    const admitted = captureUiRead();
     try {
       const data = await authenticatedFetch("/dispatch/zones/archived");
+      if (!admitted()) return;
       if (!Array.isArray(data)) {
         throw new Error("استجابة أرشيف المناطق غير صالحة.");
       }
@@ -743,11 +857,13 @@ function DispatchSession() {
         })
       );
     } catch (err: unknown) {
+      if (!admitted()) return;
       toast.error("خطأ في جلب أرشيف المناطق: " + getErrorMessage(err));
     }
   };
 
   const handleRestoreZone = async (zoneId: string) => {
+    const admitted = captureUiRead();
     try {
       await authenticatedFetch(`/dispatch/zones/${zoneId}/restore`, {
       method: "PUT",
@@ -756,10 +872,12 @@ function DispatchSession() {
       }),
     });
 
+      if (!admitted()) return;
       const [initRaw, shopsRaw] = await Promise.all([
         authenticatedFetch("/dispatch/init"),
         authenticatedFetch("/dispatch/shops"),
       ]);
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
       setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
       setShops(normalizeShops(shopsRaw));
@@ -768,6 +886,7 @@ function DispatchSession() {
       toast.success("تم استعادة المنطقة بنجاح");
       if (archivedZones.length <= 1) setIsZoneRecycleBinOpen(false);
     } catch (err: unknown) {
+      if (!admitted()) return;
       toast.error("خطأ في الاستعادة: " + getErrorMessage(err));
     }
   };
@@ -783,6 +902,7 @@ function DispatchSession() {
   }, [activeTab, hasUnsavedChanges, needsReconciliation]);
 
   const handleDispatchRoute = () => {
+    const admitted = captureUiRead();
     if (!canLaunch) {
       toast.error('لا تملك صلاحية إطلاق خطوط السير.');
       return;
@@ -822,6 +942,7 @@ function DispatchSession() {
       return;
     }
 
+    const draftSource = [actorScope, selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId] as const;
     authenticatedFetch("/dispatch/route", {
       method: "POST",
       body: JSON.stringify({
@@ -834,19 +955,22 @@ function DispatchSession() {
       })
     })
       .then(() => {
+        if (!admitted()) return;
+        clearRouteLoadDraft(...draftSource);
         toast.success("تم إطلاق خط السير بنجاح");
         setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId(""); setRouteLoadTargets({});
         // +++ الكي الجراحي: استخدام Array.isArray لمنع كراش دالة .map إذا أرجع السيرفر كائن خطأ بدل المصفوفة +++
-        authenticatedFetch("/dispatch/active_routes").then(data => setPendingRoutes(Array.isArray(data) ? data : [])).catch(err => console.error(err));
+        authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
+          .then(data => { if (admitted()) setPendingRoutes(Array.isArray(data) ? data : []); })
+          .catch(err => { if (admitted()) console.error(err); });
       })
-      .catch((err) =>
-        toast.error(
-          apiErrorMessage(err, "فشل إطلاق خط السير.")
-        )
-      );
+      .catch((err) => {
+        if (admitted()) toast.error(apiErrorMessage(err, "فشل إطلاق خط السير."));
+      });
   };
 
   const handleConfirmRouteAction = async () => {
+    const admitted = captureUiRead();
     if (!activeRoute || activeRoute.can_execute !== true ||
         !vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true)) return;
     if (activeRoute.sessionEnded) {
@@ -883,17 +1007,20 @@ function DispatchSession() {
         body: JSON.stringify(buildRouteStatusOnlyPayload("active", newDriverId, selectedVehicleId))
       });
 
+      if (!admitted()) return;
       const freshRoutes = await authenticatedFetch("/dispatch/active_routes");
+      if (!admitted()) return;
       setPendingRoutes(Array.isArray(freshRoutes) ? freshRoutes : []);
 
       toast.success("تم تفعيل خط السير بنجاح");
       setIsRouteModalOpen(false);
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err));
+      if (admitted()) toast.error(getErrorMessage(err));
     }
   };
 
   const handleUpdateScheduling = async () => {
+    const admitted = captureUiRead();
     const targetIds =
       schedulingType === "bulk"
         ? selectedBulkZoneIds
@@ -931,6 +1058,7 @@ function DispatchSession() {
       )
     );
 
+    if (!admitted()) return;
     const successIds = targetIds.filter(
       (_, index) => results[index].status === "fulfilled"
     );
@@ -938,6 +1066,7 @@ function DispatchSession() {
 
     if (successIds.length > 0) {
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
       setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
       toast.success(
@@ -950,6 +1079,7 @@ function DispatchSession() {
   };
 
   const handleSaveZone = async () => {
+  const admitted = captureUiRead();
   const cleanZoneName = zoneFormName.trim();
 
   if (cleanZoneName.length < 2) {
@@ -969,7 +1099,9 @@ function DispatchSession() {
         body: JSON.stringify({ name: cleanZoneName }),
       });
 
+      if (!admitted()) return;
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
 
       setZones(
@@ -987,6 +1119,7 @@ function DispatchSession() {
         body: JSON.stringify({ name: cleanZoneName }),
       });
 
+      if (!admitted()) return;
       const response =
         typeof raw === "object" && raw !== null
           ? (raw as { zone_id?: unknown })
@@ -1001,7 +1134,9 @@ function DispatchSession() {
 
       const newZoneId = String(response.zone_id);
 
+      if (!admitted()) return;
       const initRaw = await authenticatedFetch("/dispatch/init");
+      if (!admitted()) return;
       const initData = initRaw as DispatchInitPayload;
 
       setZones(
@@ -1024,7 +1159,7 @@ function DispatchSession() {
       setIsSchedulingModalOpen(true);
     }
   } catch (err: unknown) {
-    toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
+    if (admitted()) toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
   }
 };
 
@@ -1039,20 +1174,23 @@ function DispatchSession() {
     needsEditReview: shopEditNeedsReview,
     localTrackingId: shopCreateTrackingId, serverReference: shopCreateServerRef,
   } = useShopFormCommit({
-    open: isShopModalOpen, editId: editingShopId, form: shopForm,
+    open: isShopModalOpen && grants.zoneManage && accessState === "ready" &&
+      dispatchReadState === "ready", editId: editingShopId, form: shopForm,
     language: i18n.language, session: session!, canViewFinances: canReadShopFinances,
     busy: isSaving, setBusy: setIsSaving, fetch: authenticatedFetch,
     onVerified: (rows, isCreate, zoneId) => {
-      if (!isDashboardSessionCurrent(session!)) return;
+      if (!isDashboardSessionCurrent(session!) || accessState !== "ready" ||
+          dispatchReadState !== "ready" || !grants.zoneManage) return;
       const authorized = normalizeShops(rows);
       setShops(previous => canOpenShopForm(hasUnsavedChanges, needsReconciliation)
         ? authorized : preserveUnsavedShopOrder(previous, authorized));
       if (isCreate) setZones(prev => sortZones(prev.map(z => z.id === zoneId
         ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
       // Zone totals and names are server-owned; refreshed independently.
+      const admitted = captureUiRead();
       void authenticatedFetch("/dispatch/init", { cache: "no-store" })
         .then(value => {
-          if (!isDashboardSessionCurrent(session!)) return;
+          if (!admitted()) return;
           const fresh = value as DispatchInitPayload;
           if (Array.isArray(fresh.zones)) setZones(sortZones(fresh.zones));
         }).catch(() => { /* A verified Shop edit remains saved. */ });
@@ -1081,8 +1219,9 @@ function DispatchSession() {
 
   const refreshShortages = useCallback(async () => {
     const snapshot = captureDashboardSession();
+    const admitted = captureUiRead();
     const data = await authenticatedFetch("/dispatch/shortages", { cache: "no-store" });
-    if (!isDashboardSessionCurrent(snapshot) || !grants.shortages) return;
+    if (!isDashboardSessionCurrent(snapshot) || !grants.shortages || !admitted()) return;
     setShortages(Array.isArray(data) ? data : []);
   }, [authenticatedFetch, grants.shortages]);
 
@@ -1132,6 +1271,7 @@ function DispatchSession() {
   });
 
   const handleAddShortage = async () => {
+    const admitted = captureUiRead();
     if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) {
       return toast.error("⚠️ يرجى إكمال بيانات الطلب");
     }
@@ -1175,14 +1315,17 @@ function DispatchSession() {
             method: "POST",
             body: JSON.stringify(newShortages),
           });
+          if (!admitted()) return;
           await refreshShortages();
+          if (!admitted()) return;
           saved = true;
         } finally {
           shortageMutationInFlightRef.current = false;
         }
       }
 
-      if (!saved) return;
+      if (!saved || !admitted()) return;
+      clearShortageDraft(actorScope);
 
       const wasEditing = editingShortageIds.length > 0;
       setEditingShortageIds([]);
@@ -1192,7 +1335,7 @@ function DispatchSession() {
       // New standalone POST still uses the existing completion message.
       if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
     } catch (err: unknown) {
-      toast.error(getErrorMessage(err));
+      if (admitted()) toast.error(getErrorMessage(err));
       shortageMutationInFlightRef.current = false;
     }
   };
@@ -1298,7 +1441,8 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
-    if (shortageGroup.hasUnresolved) return; // retain visible draft until recovery
+    if (shortageGroup.hasUnresolved) return;
+    clearShortageDraft(actorScope); // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
     setShortageShopId("");
@@ -1416,15 +1560,17 @@ function DispatchSession() {
                       setIsRouteModalOpen(true);
                     }}
                     onPostponeRoute={async (id) => {
+                      const admitted = captureUiRead();
                       try {
                         await authenticatedFetch(`/dispatch/route/${id}/status`, {
                           method: "PUT",
                           body: JSON.stringify({ status: "postponed" })
                         });
+                        if (!admitted()) return;
                         setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
                         toast.info("تم تأجيل المنطقة");
                       } catch (e: unknown) {
-                        toast.error(getErrorMessage(e));
+                        if (admitted()) toast.error(getErrorMessage(e));
                       }
                     }}
                     onCloseZone={route => {
@@ -1438,18 +1584,20 @@ function DispatchSession() {
                         title: "تأكيد إغلاق خط السير",
                         message: message,
                         onConfirm: async () => {
+                          const admitted = captureUiRead();
                           try {
                             await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
                               method: "PUT",
                               body: JSON.stringify({ status: "closed" })
                             });
+                            if (!admitted()) return;
                             setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
                             fetchInitialData();
                             toast.success("تم إغلاق خط السير. عهدة السيارة لم تُصفّر.");
                           } catch (e: unknown) {
-                            toast.error(getErrorMessage(e));
+                            if (admitted()) toast.error(getErrorMessage(e));
                           } finally {
-                            setConfirmDialog(d => ({ ...d, isOpen: false }));
+                            if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false }));
                           }
                         }
                       })
@@ -1503,7 +1651,7 @@ function DispatchSession() {
                   label="مستودع المصدر"
                   options={warehouses}
                   value={selectedSourceWarehouseId}
-                  onChange={setSelectedSourceWarehouseId}
+                  onChange={changeSourceWarehouse}
                   placeholder="اختر مستودع المصدر"
                 />
               </div>
@@ -1639,18 +1787,20 @@ function DispatchSession() {
                         title: "تأكيد الأرشفة",
                         message: "هل تريد أرشفة هذا المحل؟",
                         onConfirm: async () => {
+                          const admitted = captureUiRead();
                           try {
                             await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify([{ id, archived: true }]) });
+                            if (!admitted()) return;
                             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
                             fetchInitialData();
                             toast.success("تم أرشفة المحل بنجاح");
-                          } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); }
-                          finally { setConfirmDialog(d => ({ ...d, isOpen: false })); }
+                          } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); }
+                          finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); }
                         }
                       });
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
-                  <AnimatePresence>{grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
+                  <AnimatePresence>{grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
 {grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
@@ -1754,13 +1904,14 @@ function DispatchSession() {
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
-        isOpen={showRecycleBin}
+        isOpen={grants.zoneManage && showRecycleBin}
         onClose={() => setShowRecycleBin(false)}
         recycleSearchQuery={recycleSearchQuery}
         onRecycleSearchQueryChange={setRecycleSearchQuery}
         filteredRecycleBin={filteredRecycleBin}
         zones={[...zones, ...archivedZones]}
         onRestoreShop={async (id) => {
+          const admitted = captureUiRead();
           const shopToRestore = shops.find(s => s.id === id);
           const isZoneActive = zones.some(z => z.id === shopToRestore?.zoneId);
 
@@ -1774,14 +1925,15 @@ function DispatchSession() {
               method: "PUT",
               body: JSON.stringify([{ id, archived: false }])
             });
+            if (!admitted()) return;
             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: false } : s));
             setZones(prev => sortZones(prev.map(z => z.id === archivedShops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: (z.shopsCount || 0) + 1 } : z)));
             fetchInitialData();
             toast.success("تم استعادة المحل بنجاح");
-          } catch (err: unknown) { toast.error(getErrorMessage(err)); }
+          } catch (err: unknown) { if (admitted()) toast.error(getErrorMessage(err)); }
         }}
       />
-      <BulkTransferModal isOpen={isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
+      <BulkTransferModal isOpen={grants.zoneManage && isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
         companyId={sourceAccess.data?.company_id}
@@ -1806,13 +1958,16 @@ function DispatchSession() {
       />
 
       <ZoneModal isOpen={grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
+      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { const admitted = captureUiRead(); try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
           route?.sessionBound
             ? { status: "waiting" }
             : { status: "waiting", driverId: route?.driverId }
-        ) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { toast.error(getErrorMessage(e)); } }} />
+        ) }); if (!admitted()) return; setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { if (admitted()) toast.error(getErrorMessage(e)); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
+        key={actorScope ?? "no-actor"}
+        actorScope={actorScope}
+        session={session!}
         isOpen={grants.zoneManage && isBulkImportModalOpen}
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}

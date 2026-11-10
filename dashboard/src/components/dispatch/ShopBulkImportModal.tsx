@@ -15,13 +15,16 @@ import * as XLSX from "xlsx";
 import Papa from "papaparse";
 import { toast } from "sonner";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStorage";
 
-const DRAFT_KEY = "shop_import_draft";
+const scopedImportDraftKey = (scope: string) => `wanasah:dispatch:shop-import:v2:${scope}`;
 const MAX_IMPORT_ROWS = 10_000;
 const MAX_MONEY = 999_999_999.999;
 
 interface ShopBulkImportModalProps {
   isOpen: boolean;
+  actorScope: string | null;
+  session: DashboardSession;
   onClose: () => void;
   zones: Zone[];
   existingShops: Shop[];
@@ -49,7 +52,7 @@ interface ValidatedShop extends ParsedShop {
 }
 
 interface DraftPayload {
-  companyId: string;
+  actorScope: string;
   zoneId: string;
   data: ParsedShop[];
 }
@@ -85,13 +88,13 @@ const hasValidMoney = (value: string): boolean => {
 
 const normalizeDraft = (
   value: unknown,
-  expectedCompanyId: string
+  expectedActorScope: string
 ): DraftPayload | null => {
   if (typeof value !== "object" || value === null) return null;
   const record = value as Record<string, unknown>;
 
   if (
-    record.companyId !== expectedCompanyId ||
+    record.actorScope !== expectedActorScope ||
     typeof record.zoneId !== "string" ||
     !Array.isArray(record.data) ||
     record.data.length === 0 ||
@@ -118,7 +121,7 @@ const normalizeDraft = (
   }
 
   return {
-    companyId: expectedCompanyId,
+    actorScope: expectedActorScope,
     zoneId: record.zoneId,
     data,
   };
@@ -126,6 +129,8 @@ const normalizeDraft = (
 
 export function ShopBulkImportModal({
   isOpen,
+  actorScope,
+  session,
   onClose,
   zones,
   existingShops,
@@ -141,29 +146,44 @@ export function ShopBulkImportModal({
   const [conflictRow, setConflictRow] = useState<ValidatedShop | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const companyId = localStorage.getItem("company_id") || "";
+  const draftKey = actorScope ? scopedImportDraftKey(actorScope) : null;
+  const readerRef = useRef<FileReader | null>(null);
+  const latest = useRef({ actorScope, isOpen, session });
+  latest.current = { actorScope, isOpen, session };
+  const admitted = () => Boolean(actorScope && latest.current.actorScope === actorScope &&
+    latest.current.isOpen && isDashboardSessionCurrent(session));
+
+  useEffect(() => {
+    if (!isOpen) {
+      readerRef.current?.abort();
+      readerRef.current = null;
+      setConflictRow(null); setStep(1); setPasteText(""); setGridData([]);
+      setSelectedZoneId(""); setFileName("");
+    }
+    return () => { readerRef.current?.abort(); readerRef.current = null; };
+  }, [actorScope, isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    const raw = localStorage.getItem(DRAFT_KEY);
-    if (!raw || !companyId) {
+    const raw = draftKey && admitted() ? localStorage.getItem(draftKey) : null;
+    if (!raw || !actorScope) {
       setHasDraft(false);
       return;
     }
 
     try {
-      const draft = normalizeDraft(JSON.parse(raw), companyId);
+      const draft = normalizeDraft(JSON.parse(raw), actorScope);
       if (!draft) {
-        localStorage.removeItem(DRAFT_KEY);
+        draftKey && localStorage.removeItem(draftKey);
         setHasDraft(false);
         return;
       }
       setHasDraft(true);
     } catch {
-      localStorage.removeItem(DRAFT_KEY);
+      draftKey && localStorage.removeItem(draftKey);
       setHasDraft(false);
     }
-  }, [companyId, isOpen]);
+  }, [actorScope, draftKey, isOpen]);
 
   useEffect(() => {
     if (
@@ -176,7 +196,7 @@ export function ShopBulkImportModal({
 
   useEffect(() => {
     if (
-      !companyId ||
+      !actorScope || !draftKey || !admitted() ||
       step !== 2 ||
       gridData.length === 0 ||
       !zones.some((zone) => zone.id === selectedZoneId)
@@ -185,30 +205,30 @@ export function ShopBulkImportModal({
     }
 
     const draft: DraftPayload = {
-      companyId,
+      actorScope,
       zoneId: selectedZoneId,
       data: gridData,
     };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+    localStorage.setItem(draftKey, JSON.stringify(draft));
     setHasDraft(true);
-  }, [companyId, gridData, selectedZoneId, step, zones]);
+  }, [actorScope, draftKey, gridData, selectedZoneId, step, zones]);
 
   const clearDraft = () => {
-    localStorage.removeItem(DRAFT_KEY);
+    draftKey && localStorage.removeItem(draftKey);
     setHasDraft(false);
   };
 
   const loadDraft = () => {
-    if (!companyId) {
-      toast.error("هوية الشركة غير متاحة. أعد تسجيل الدخول.");
+    if (!actorScope || !admitted()) {
+      toast.error("هوية المستخدم غير متاحة. أعد تسجيل الدخول.");
       return;
     }
 
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = draftKey && admitted() ? localStorage.getItem(draftKey) : null;
     if (!raw) return;
 
     try {
-      const draft = normalizeDraft(JSON.parse(raw), companyId);
+      const draft = normalizeDraft(JSON.parse(raw), actorScope);
       if (
         !draft ||
         !zones.some((zone) => zone.id === draft.zoneId)
@@ -304,7 +324,10 @@ export function ShopBulkImportModal({
     setFileName(file.name.slice(0, 255));
 
     const reader = new FileReader();
+    readerRef.current?.abort();
+    readerRef.current = reader;
     reader.onload = (loadEvent) => {
+      if (readerRef.current !== reader || !admitted() || !zones.some(zone => zone.id === selectedZoneId)) return;
       try {
         const result = loadEvent.target?.result;
         if (!(result instanceof ArrayBuffer)) {
@@ -328,7 +351,7 @@ export function ShopBulkImportModal({
         toast.error("خطأ في قراءة الملف: " + getErrorMessage(error));
       }
     };
-    reader.onerror = () => toast.error("تعذر قراءة الملف.");
+    reader.onerror = () => { if (admitted()) toast.error("تعذر قراءة الملف."); };
     reader.readAsArrayBuffer(file);
 
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -490,8 +513,8 @@ export function ShopBulkImportModal({
   };
 
   const handleBulkImport = async () => {
-    if (!companyId) {
-      toast.error("هوية الشركة غير متاحة. أعد تسجيل الدخول.");
+    if (!actorScope || !admitted()) {
+      toast.error("هوية المستخدم غير متاحة. أعد تسجيل الدخول.");
       return;
     }
     if (!zones.some((zone) => zone.id === selectedZoneId)) {
@@ -536,6 +559,7 @@ export function ShopBulkImportModal({
         }
       );
 
+      if (!admitted()) { toast.dismiss(toastId); return; }
       toast.success(
         getResponseMessage(response) || "تم رفع المحلات بنجاح",
         { id: toastId }
@@ -544,9 +568,13 @@ export function ShopBulkImportModal({
       handleClose();
       onSuccess?.();
     } catch (error: unknown) {
+      if (!admitted()) { toast.dismiss(toastId); return; }
       toast.error("خطأ: " + getErrorMessage(error), { id: toastId });
     }
   };
+
+  // Revoke/logout must remove private Shop data without a visible exit animation.
+  if (!isOpen || !admitted()) return null;
 
   return (
     <>
@@ -597,7 +625,7 @@ export function ShopBulkImportModal({
                   label: zone.name,
                 }))}
                 value={selectedZoneId}
-                onChange={setSelectedZoneId}
+                onChange={(value) => { if (value === selectedZoneId) return; readerRef.current?.abort(); readerRef.current = null; setSelectedZoneId(value); setGridData([]); setStep(1); setFileName(""); }}
                 placeholder="-- اضغط لاختيار المنطقة --"
               />
             </div>
