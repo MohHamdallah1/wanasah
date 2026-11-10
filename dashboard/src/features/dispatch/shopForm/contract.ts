@@ -180,12 +180,13 @@ const SHOP_CREATE_RECOVERY_PREFIX = "wanasah:backoffice-identity:shop-create-att
 const safeIdentityPart = (value: string | null): string | null =>
   value && /^(?:0|[1-9]\d{0,15})$/.test(value) && value !== "0" ? value : null;
 
-/** Requires all three authoritative backoffice identity fields; never use a
- * global/shared key, company-only fallback or a login-generation-only key.
+/** Requires canonical company AND principal identifiers; never use a
+ * shared/company-only key or a login-generation-only fallback. Backoffice
+ * user ID is optional in existing sessions and cannot gate valid Operators.
  */
 export function shopCreateAttemptScope(): string | null {
   try {
-    const parts = ["company_id", "principal_id", "backoffice_user_id"]
+    const parts = ["company_id", "principal_id"]
       .map(key => safeIdentityPart(localStorage.getItem(key)));
     return parts.every((part): part is string => part !== null)
       ? `${SHOP_CREATE_RECOVERY_PREFIX}:${parts.join(":")}` : null;
