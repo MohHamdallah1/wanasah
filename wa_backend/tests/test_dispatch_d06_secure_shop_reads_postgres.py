@@ -14,9 +14,10 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select
 from models import (
-    Permission, Role, Shop, ShortageRequest, UserLocationAccess, UserRole, Zone,
+    Company, Permission, Role, Shop, ShortageRequest, UserLocationAccess, UserRole, Zone,
     role_permissions,
 )
+from domains.identity.models import CompanyPrincipal
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import _prepared_route
 from tests.test_dispatch_shop_finance_edit_v1_postgres import (
@@ -99,6 +100,29 @@ async def test_d06_owner_company_a1_a2_companyfinance_revoke_same_bearer(pg):
     _, route_request, vehicle_custody = await _prepared_route(pg, home)
     async with _real_http() as client:
         owner = await _owner(client, pg, home)
+        # D06 is exclusively BACKOFFICE: a genuine, signed Flutter FIELD token
+        # from the persisted field principal must not access these Dashboard URLs.
+        async with pg.session() as db:
+            field_name = await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == home.company_id,
+                CompanyPrincipal.principal_type == "FIELD_REPRESENTATIVE",
+            ))
+            company_code = await db.scalar(select(Company.company_code).where(
+                Company.id == home.company_id,
+            ))
+        assert field_name and company_code
+        field_login = await client.post("/driver/login", json={
+            "company_code": company_code, "username": field_name,
+            "password": "SyntheticFixture123",
+        })
+        assert field_login.status_code == 200, field_login.text
+        field_headers = {"Authorization": "Bearer " + field_login.json()["token"]}
+        for field_only_url in (
+            "/dispatch/init", "/dispatch/shops", "/dispatch/active_routes",
+            "/dispatch/shortages",
+        ):
+            rejected = await client.get(field_only_url, headers=field_headers)
+            assert rejected.status_code in (401, 403), (field_only_url, rejected.text)
         launched = await client.post("/dispatch/route", json=route_request, headers=owner)
         assert launched.status_code == 201, launched.text
 
