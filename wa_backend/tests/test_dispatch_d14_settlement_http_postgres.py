@@ -239,7 +239,7 @@ async def test_signed_backoffice_financial_close_after_field_custody_has_one_eff
                 assert await _count(
                     db, SystemAuditLog, company,
                     action_type="FINANCIAL_SETTLEMENT",
-                    target_id=f"Session_{session_id}_Driver_{actor.driver_id}",
+                    target_id=f"Session_{session_id}_Driver_{field.driver.id}",
                 ) == 1
                 assert await _count(
                     db, OperationIdempotency, company,
