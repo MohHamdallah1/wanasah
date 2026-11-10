@@ -44,6 +44,11 @@ import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
+import {
+  clearLegacyDispatchPreferences, createDispatchAsyncEpoch,
+  dispatchActorScope, readDispatchPreferences, reconcileDispatchPreferences,
+  writeDispatchPreferences,
+} from "@/features/dispatch/sessionScope";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
 import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
@@ -102,9 +107,6 @@ const normalizeShops = (data: unknown): Shop[] => {
     };
   });
 };
-
-const isTabId = (value: string | null): value is TabId =>
-  value === "routes" || value === "zones" || value === "launch";
 
 const frequencyFromIntervalDays = (days: number | null): string => {
   if (days === 7) return "كل 7 أيام";
@@ -173,10 +175,7 @@ function DispatchSession() {
   const [dispatchFocus, setDispatchFocus] = useState(
     initialDispatchFocusRef.current,
   );
-  const [activeTab, setActiveTab] = useState<TabId>(() => {
-    const stored = localStorage.getItem("activeTab");
-    return isTabId(stored) ? stored : "routes";
-  });
+  const [activeTab, setActiveTab] = useState<TabId>("routes");
   const [confirmDialog, setConfirmDialog] = useState<{ isOpen: boolean, title: string, message: string, onConfirm: () => void }>({ isOpen: false, title: "", message: "", onConfirm: () => { } });
   const [unsavedTabPrompt, setUnsavedTabPrompt] = useState<TabId | null>(null);
 
@@ -198,7 +197,6 @@ function DispatchSession() {
     });
   }, [routeLocation.pathname, routeLocation.search, routeNavigate]);
 
-  useEffect(() => { localStorage.setItem("activeTab", activeTab); }, [activeTab]);
 
   const authenticatedFetch = useAuthFetch();
   const inventoryAccess = useInventoryAccess();
@@ -209,6 +207,9 @@ function DispatchSession() {
   const canReadShopFinances = grants.routes;
   const canReadZoneArchive = grants.zones && Boolean(discoveryAccess?.permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
+  const actorScope = accessState === "ready" ? dispatchActorScope(session, discoveryAccess) : null;
+  const hydratedScopeRef = useRef<string | null>(null);
+  const asyncEpochRef = useRef(createDispatchAsyncEpoch(session!));
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
   const dispatchFenceRef = useRef(createDispatchReadFence());
   const dispatchDeniedRef = useRef(false);
@@ -230,27 +231,11 @@ function DispatchSession() {
   const [shortages, setShortages] = useState<Shortage[]>([]);
   const [shops, setShops] = useState<Shop[]>([]);
 
-  // +++ الدرع المعماري للـ UX: ربط المنطقة المحددة بالذاكرة المحلية لمنع ضياعها عند الـ Refresh +++
-  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState(() => localStorage.getItem("wanasah_selected_zone") || "");
-
-  useEffect(() => {
-    if (selectedZoneIdForZones) {
-      localStorage.setItem("wanasah_selected_zone", selectedZoneIdForZones);
-    } else {
-      localStorage.removeItem("wanasah_selected_zone");
-    }
-  }, [selectedZoneIdForZones]);
-
-  // +++ الذاكرة الفولاذية: حفظ خيارات إطلاق خط السير +++
-  const [selectedZoneId, setSelectedZoneId] = useState(() => localStorage.getItem("wanasah_route_zone") || "");
-  const [selectedDriverId, setSelectedDriverId] = useState(() => localStorage.getItem("wanasah_route_driver") || "");
-  const [selectedVehicleId, setSelectedVehicleId] = useState(() => localStorage.getItem("wanasah_route_vehicle") || "");
-
-  useEffect(() => {
-    localStorage.setItem("wanasah_route_zone", selectedZoneId);
-    localStorage.setItem("wanasah_route_driver", selectedDriverId);
-    localStorage.setItem("wanasah_route_vehicle", selectedVehicleId);
-  }, [selectedZoneId, selectedDriverId, selectedVehicleId]);
+  // Never hydrate from global localStorage before the backend verifies this actor.
+  const [selectedZoneIdForZones, setSelectedZoneIdForZones] = useState("");
+  const [selectedZoneId, setSelectedZoneId] = useState("");
+  const [selectedDriverId, setSelectedDriverId] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [routeLoadCurrent, setRouteLoadCurrent] = useState<Record<string, Quantity>>({});
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
@@ -351,6 +336,44 @@ function DispatchSession() {
   const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
   const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  // One generation covers role, source Warehouse, route, zone and selected Vehicle.
+  // A -> B -> A must never re-admit an old Promise with the same numeric ID.
+  asyncEpochRef.current.update(JSON.stringify([
+    actorScope, accessState, dispatchReadState, selectedSourceWarehouseId,
+    selectedZoneId, selectedZoneIdForZones, selectedDriverId, selectedVehicleId,
+    activeRoute?.id, grants,
+  ]));
+  const captureUiRead = () => asyncEpochRef.current.capture();
+  useEffect(() => {
+    const revoke = () => asyncEpochRef.current.revoke();
+    window.addEventListener("inventory-permission-denied", revoke);
+    return () => window.removeEventListener("inventory-permission-denied", revoke);
+  }, []);
+
+  useEffect(() => {
+    if (!actorScope || accessState !== "ready" || dispatchReadState !== "ready" ||
+        hydratedScopeRef.current !== actorScope || !isDashboardSessionCurrent(session!)) return;
+    writeDispatchPreferences(actorScope, {
+      activeTab: tabAllowed(activeTab) ? activeTab : "routes",
+      zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+      driver: selectedDriverId, vehicle: selectedVehicleId,
+      sourceWarehouse: selectedSourceWarehouseId,
+    });
+  }, [
+    actorScope, accessState, dispatchReadState, activeTab, selectedZoneIdForZones,
+    selectedZoneId, selectedDriverId, selectedVehicleId, selectedSourceWarehouseId,
+    grants, session,
+  ]);
+
+  const changeSourceWarehouse = (warehouseId: string) => {
+    if (warehouseId === selectedSourceWarehouseId) return;
+    asyncEpochRef.current.revoke();
+    setSelectedSourceWarehouseId(warehouseId);
+    // A different Warehouse is a new launch intent; never carry stale product targets.
+    setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId("");
+    setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
+    setVehicleInventoryLoadedForContext(null);
+  };
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const clearDispatchPrivateState = useCallback(() => {
@@ -358,7 +381,18 @@ function DispatchSession() {
     setDrivers([]); setVehicles([]); setWarehouses([]); setArchivedZones([]);
     savedShopsRef.current = [];
     setSelectedShopIds([]); setIsEditMode(false); setHasUnsavedChanges(false);
-    setSelectedSourceWarehouseId(""); setVehicleInventoryLoadedForContext(null);
+    hydratedScopeRef.current = null;
+    asyncEpochRef.current.revoke();
+    setActiveTab("routes"); setSelectedZoneIdForZones(""); setSelectedZoneId("");
+    setSelectedDriverId(""); setSelectedVehicleId(""); setSelectedSourceWarehouseId("");
+    setVehicleInventoryLoadedForContext(null);
+    setShortageZoneId(""); setShortageShopId(""); setShortageDriverId("");
+    setShopForm(emptyShopForm("")); setEditingShopId(null);
+    setZoneFormName(""); setEditingZoneId(null);
+    setSelectedBulkZoneIds([]); setTargetTransferZoneId("");
+    setZoneToKill(null); setConfirmName("");
+    setInventoryRoute(null); setRadarRoute(null); setRadarFocusTransferId(null);
+    setTransferDriverId(""); setUnsavedTabPrompt(null);
     setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadNames({}); setRouteLoadUnits({});
     setShortageDraft([]); setNewShortage({}); setEditingShortageIds([]);
     setIsShortageModalOpen(false); setIsZoneModalOpen(false); setIsShopModalOpen(false);
@@ -391,11 +425,22 @@ function DispatchSession() {
         setShops(grants.routes ? normalizeShops(freshShops) : []);
         setPendingRoutes(grants.routes && Array.isArray(routes) ? routes : []);
         setShortages(grants.shortages && Array.isArray(freshShortages) ? freshShortages : []);
-        setSelectedZoneIdForZones(prev => sorted.some(zone => zone.id === prev) ? prev : sorted[0]?.id || "");
-        setSelectedZoneId(prev => sorted.some(zone => zone.id === prev) ? prev : "");
-        setSelectedDriverId(prev => nextDrivers.some(driver => driver.id === prev) ? prev : "");
-        setSelectedVehicleId(prev => nextVehicles.some(vehicle => vehicle.id === prev) ? prev : "");
-        setSelectedSourceWarehouseId(prev => nextWarehouses.some(warehouse => warehouse.id === prev) ? prev : "");
+        const hydrate = Boolean(actorScope && hydratedScopeRef.current !== actorScope);
+        if (hydrate) clearLegacyDispatchPreferences();
+        const prefs = hydrate ? readDispatchPreferences(actorScope) : {
+          activeTab, zoneForShops: selectedZoneIdForZones, launchZone: selectedZoneId,
+          driver: selectedDriverId, vehicle: selectedVehicleId, sourceWarehouse: selectedSourceWarehouseId,
+        };
+        const valid = reconcileDispatchPreferences(prefs, {
+          zones: sorted, drivers: nextDrivers, vehicles: nextVehicles, warehouses: nextWarehouses,
+        }, grants.launch);
+        if (hydrate) {
+          setActiveTab(valid.activeTab === "launch" && !grants.launch ? "routes" : valid.activeTab);
+          hydratedScopeRef.current = actorScope;
+        }
+        setSelectedZoneIdForZones(valid.zoneForShops);
+        setSelectedZoneId(valid.launchZone); setSelectedDriverId(valid.driver);
+        setSelectedVehicleId(valid.vehicle); setSelectedSourceWarehouseId(valid.sourceWarehouse);
         dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
       },
@@ -408,7 +453,11 @@ function DispatchSession() {
       },
     });
     return admission;
-  }, [authenticatedFetch, accessState, grants, clearDispatchPrivateState]);
+  }, [
+    authenticatedFetch, accessState, grants, clearDispatchPrivateState, actorScope,
+    activeTab, selectedZoneIdForZones, selectedZoneId, selectedDriverId,
+    selectedVehicleId, selectedSourceWarehouseId,
+  ]);
 
   useEffect(() => {
     if (accessState === "ready") return;
@@ -1503,7 +1552,7 @@ function DispatchSession() {
                   label="مستودع المصدر"
                   options={warehouses}
                   value={selectedSourceWarehouseId}
-                  onChange={setSelectedSourceWarehouseId}
+                  onChange={changeSourceWarehouse}
                   placeholder="اختر مستودع المصدر"
                 />
               </div>
@@ -1813,6 +1862,9 @@ function DispatchSession() {
         ) }); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { toast.error(getErrorMessage(e)); } }} />
       <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
+        key={actorScope ?? "no-actor"}
+        actorScope={actorScope}
+        session={session!}
         isOpen={grants.zoneManage && isBulkImportModalOpen}
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}
