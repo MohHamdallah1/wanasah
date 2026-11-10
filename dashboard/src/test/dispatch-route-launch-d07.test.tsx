@@ -157,8 +157,11 @@ describe("D07 original route launch command / fail-closed recovery", () => {
       current: () => true, authorized: () => true, fetch: api.fetch,
     }).recover()).kind).toBe("idle");
     expect((await command.launch({ ...draft(), vehicle_id: 32 })).kind).toBe("conflict");
+    // Retry commits only the original UUID. A later forged GET cannot turn
+    // an unrelated or altered response into verified business success.
+    expect((await command.retryOriginal()).kind).toBe("committed");
     api.corrupt();
-    const tried = await command.retryOriginal();
+    const tried = await command.recover();
     expect(tried.kind).toBe("unknown");
     expect(await record()).not.toBeNull();
     expect(routeLaunchReadback({
