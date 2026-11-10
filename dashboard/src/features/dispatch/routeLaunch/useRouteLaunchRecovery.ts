@@ -8,7 +8,8 @@ import {
 import {
   isOriginalRouteUuid, isRouteLaunchIntent, originalRouteReceipt,
   routeLaunchActorMatchesSession,
-  routeLaunchIntent, routeLaunchReadback, routeLaunchScopeKey, routeLaunchText,
+  readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchPendingKey,
+  routeLaunchReadback, routeLaunchScopeKey, routeLaunchText,
   type RouteLaunchActor, type RouteLaunchIntent, type RouteLaunchOutcome,
 } from "./contract";
 
@@ -31,6 +32,9 @@ const sameId = (a: RouteLaunchIntent, b: RouteLaunchIntent) =>
  */
 export function createRouteLaunchRecovery({ actor, authorized, current, fetch }: Inputs) {
   const scope = routeLaunchScopeKey(actor);
+  const pendingKey = routeLaunchPendingKey(actor.actorScope);
+  // An uncertain original in Warehouse A blocks a new UUID in Warehouse B.
+  const actorLock = `wanasah:dispatch:route-launch:actor:${actor.actorScope}`;
   let disposed = false;
   let writing = false;
   let revoked = false;
@@ -57,6 +61,20 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
     }
   };
 
+  const ensureOwner = (command: Stored | null): boolean => {
+    const pointer = readRouteLaunchPendingOwner(actor.actorScope);
+    if (pointer && (pointer.warehouseId !== actor.warehouseId ||
+        pointer.vehicleId !== actor.vehicleId ||
+        (command && pointer.requestId !== command.requestId))) return false;
+    if (command && !pointer) {
+      // Persist before any POST or fail closed, preserving the original body.
+      localStorage.setItem(pendingKey, JSON.stringify({
+        warehouseId: actor.warehouseId, vehicleId: actor.vehicleId,
+        requestId: command.requestId,
+      }));
+    }
+    return true;
+  };
   const requireOriginal = async (): Promise<Stored | null> => {
     const command = await readDurableCommand<RouteLaunchIntent>(scope);
     if (command && (!isOriginalRouteUuid(command.requestId) ||
@@ -74,7 +92,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
       const receipt = routeLaunchReadback(raw, command.requestId);
       if (receipt) {
         verifiedId = command.requestId;
-        return { kind: "committed", requestId: command.requestId, receipt };
+        return { kind: "committed", requestId: command.requestId, receipt, intent: command.payload };
       }
       return unknown(command.requestId); // UNKNOWN, invalid JSON or wrong operation are NOT success.
     } catch (error) {
@@ -92,7 +110,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
       const receipt = originalRouteReceipt(raw, command.requestId);
       if (receipt) {
         verifiedId = command.requestId;
-        return { kind: "committed", requestId: command.requestId, receipt };
+        return { kind: "committed", requestId: command.requestId, receipt, intent: command.payload };
       }
       return unknown(command.requestId);
     } catch (error) {
@@ -119,7 +137,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
     writing = true;
     try {
       return await navigator.locks.request(
-        `${scope}:exclusive-d07-launch`,
+        actorLock,
         { mode: "exclusive", ifAvailable: true },
         async (lock): Promise<RouteLaunchOutcome> => {
           if (!lock) return { kind: "busy" } satisfies RouteLaunchOutcome;
@@ -127,6 +145,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
           let existing: Stored | null;
           try {
             existing = await requireOriginal();
+            if (!ensureOwner(existing)) return { kind: "conflict" };
           } catch {
             return { kind: "blocked" }; // corrupted records never get overwritten
           }
@@ -152,7 +171,7 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
             try {
               existing = await getOrCreateDurableCommand(scope, normalized);
               if (!isOriginalRouteUuid(existing.requestId) ||
-                  !isRouteLaunchIntent(existing.payload, actor)) {
+                  !isRouteLaunchIntent(existing.payload, actor) || !ensureOwner(existing)) {
                 return { kind: "blocked" };
               }
             } catch {
@@ -187,6 +206,10 @@ export function createRouteLaunchRecovery({ actor, authorized, current, fetch }:
           verifiedId !== requestId || !isOriginalRouteUuid(requestId)) return false;
       try {
         completeDurableOperation(scope, requestId);
+        const pointer = readRouteLaunchPendingOwner(actor.actorScope);
+        if (pointer && pointer.requestId === requestId &&
+            pointer.warehouseId === actor.warehouseId &&
+            pointer.vehicleId === actor.vehicleId) localStorage.removeItem(pendingKey);
         verifiedId = null;
         return true;
       } catch { return false; }
