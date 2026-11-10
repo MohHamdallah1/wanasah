@@ -28,7 +28,7 @@ import { groupText } from "@/features/dispatch/shortageGroup/contract";
 import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
 import { useCommercialPreflight } from "@/features/dispatch/commercialPreflight/useCommercialPreflight";
 import { CommercialPreflightPanel } from "@/features/dispatch/commercialPreflight/CommercialPreflightPanel";
-import { preflightCopy } from "@/features/dispatch/commercialPreflight/contract";
+import { PREFLIGHT_AREAS, preflightCopy, preflightReason } from "@/features/dispatch/commercialPreflight/contract";
 import {
   readRouteLaunchPendingOwner, routeLaunchIntent, routeLaunchText,
 } from "@/features/dispatch/routeLaunch/contract";
@@ -1023,7 +1023,12 @@ function DispatchSession() {
     const livePreflight = await commercialPreflight.verifyBeforeLaunch();
     if (!admitted()) return;
     if (!livePreflight?.ready) {
-      toast.error(preflightCopy(i18n.language, "unavailable"));
+      const firstFailure = livePreflight
+        ? PREFLIGHT_AREAS.find(area => !livePreflight.checks[area].ready)
+        : null;
+      toast.error(firstFailure
+        ? preflightReason(i18n.language, livePreflight.checks[firstFailure].code).text
+        : preflightCopy(i18n.language, "unavailable"));
       return;
     }
 
