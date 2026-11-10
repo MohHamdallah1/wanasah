@@ -310,7 +310,7 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
 });
 
 describe("D09 actual DispatchBoard effective grants and revoked view", () => {
-  it.each([{ width: 390, locale: "ar" }, { width: 1440, locale: "en" }])(
+  it.each([{ width: 390, locale: "ar" }, { width: 1440, locale: "en" }] as const)(
     "keeps non-owner scoped Zones visible/read-only then hides private rows at $width in $locale",
     async ({ width, locale }) => {
       await setAppLanguage(locale);
