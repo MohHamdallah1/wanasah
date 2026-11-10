@@ -154,6 +154,10 @@ async def test_d07_real_lost_201_authoritative_lookup_and_same_uuid_replay(pg):
             with pytest.raises(httpx.ReadError, match="D07 lost committed 201"):
                 await unreliable.post("/dispatch/route", json=body, headers=owner)
         assert dropped.dropped
+        # The browser may restart after the 201 disappears. The new genuine
+        # Backoffice login must recover as the same actor/tenant, not require
+        # an in-memory server session or recreate a route under a fresh UUID.
+        owner = await _owner(client, pg, home)
         after_first = await _state(pg, home, key, vehicle_location)
         assert len(after_first["route_ids"]) == 1
         assert len(after_first["context_ids"]) == len(after_first["operations"]) == 1
@@ -161,6 +165,12 @@ async def test_d07_real_lost_201_authoritative_lookup_and_same_uuid_replay(pg):
         assert after_first["cost_events"] == original_state["cost_events"]
         assert after_first["visits"]
 
+        # A wrong UUID must stay UNKNOWN, even though a matching route is
+        # already visible. Never infer an operation receipt by route metadata.
+        missing = await client.get(
+            f"/dispatch/route/create-operations/{uuid4()}", headers=owner,
+        )
+        assert missing.status_code == 200 and missing.json()["state"] == "UNKNOWN"
         lookup = await client.get(
             f"/dispatch/route/create-operations/{key}", headers=owner,
         )
