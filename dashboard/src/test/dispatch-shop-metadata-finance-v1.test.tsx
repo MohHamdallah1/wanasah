@@ -22,6 +22,16 @@ import {
 
 const toast = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }));
 const auth = vi.hoisted(() => ({ current: true }));
+const heldCreateLocks = new Set<string>();
+const fakeWebLocks = {
+  request: async <T,>(name: string, _options: unknown, callback: (lock: object | null) => Promise<T>): Promise<T> => {
+    // A synchronous cross-context lock claim before the first microtask.
+    if (heldCreateLocks.has(name)) return callback(null);
+    heldCreateLocks.add(name);
+    try { return await callback({ name, mode: "exclusive" }); }
+    finally { heldCreateLocks.delete(name); }
+  },
+};
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/lib/authStorage", async importOriginal => {
   const original = await importOriginal<typeof import("@/lib/authStorage")>();
@@ -57,10 +67,15 @@ beforeEach(async () => {
   localStorage.setItem("principal_id", "11");
   localStorage.setItem("backoffice_user_id", "110");
   vi.stubGlobal("crypto", webcrypto);
+  heldCreateLocks.clear();
+  Object.defineProperty(navigator, "locks", { configurable: true, value: fakeWebLocks });
   await setAppLanguage("ar");
 });
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+});
 
 describe("Shop metadata-only allowlist and create financial truth", () => {
   it("never sends money, aliases or unrelated fields in metadata PUT even with stale high draft", () => {
