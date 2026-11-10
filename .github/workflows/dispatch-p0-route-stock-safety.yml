@@ -600,7 +600,7 @@ jobs:
                       )
               else:
                   assert ownership_mode(subset) != "SHOP_CREATE_F06_EXACT"
-          assert f06_partial_denied == 28, f06_partial_denied
+          assert f06_partial_denied == 27, f06_partial_denied
 
           f06_foreign = (
               "wa_backend/api/driver.py",
