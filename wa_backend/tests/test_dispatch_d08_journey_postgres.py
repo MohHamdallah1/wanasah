@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 from uuid import uuid4
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -16,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from domains.identity.models import CompanyPrincipal
 from models import Company, Shop, Zone
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
-from tests.test_dispatch_route_launch_d07_postgres import _prepared_route
+from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _state
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
 
 STATE = Path(os.getenv("WANASAH_DISPATCH_D08_STATE", "/tmp/dispatch-d08-journey.json"))
@@ -38,6 +39,7 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
     assert not STATE.exists(), "Fresh disposable company data required"
     tenant, foreign = pg.tenants
     request_id, launch_body, vehicle_location = await _prepared_route(pg, tenant)
+    pre_launch = await _state(pg, tenant, request_id, vehicle_location)
 
     async with _real_http() as http:
         owner = await _owner(http, pg, tenant)
@@ -112,6 +114,17 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
         replay = success(await http.post("/dispatch/route", headers=owner,
                                          json=launch_body), 201, "same UUID replay")
         assert int(replay["route_id"]) == route_id
+        post_launch = await _state(pg, tenant, request_id, vehicle_location)
+        assert len(post_launch["route_ids"]) == len(pre_launch["route_ids"]) + 1
+        assert len(post_launch["operations"]) == 1
+        assert post_launch["movements"] == pre_launch["movements"] + 1
+        assert post_launch["cost_events"] == pre_launch["cost_events"]
+        totals = lambda record, location: sum(
+            (Decimal(quantity) for loc, _batch, _status, quantity, _reserved
+             in record["balances"] if int(loc) == int(location)), Decimal(0))
+        assert totals(pre_launch, vehicle_location) == 25
+        assert totals(post_launch, vehicle_location) == 20
+        assert totals(post_launch, tenant.location_id) - totals(pre_launch, tenant.location_id) == 5
         recovered = success(await http.get(
             f"/dispatch/route/create-operations/{request_id}", headers=owner),
             200, "authoritative route recovery")
@@ -145,6 +158,13 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
             "credentials": {
                 "code": code, "username": username,
                 "password": "NoLotSyntheticFixture123",
+            },
+            "before_after": {
+                "vehicle_before": "25", "vehicle_after_launch": "20",
+                "warehouse_increase": "5",
+                "route_created": 1,
+                "movement_delta": post_launch["movements"] - pre_launch["movements"],
+                "cost_event_delta": post_launch["cost_events"] - pre_launch["cost_events"],
             },
             "confirmed": {
                 "zone_create_edit_archive_restore": True,
