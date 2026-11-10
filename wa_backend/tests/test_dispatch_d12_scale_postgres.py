@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from uuid import uuid4
 from statistics import median
 from time import perf_counter
 
@@ -15,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import engine as runtime_engine
 from domains.identity.models import CompanyPrincipal
 from main import app
+from domains.vehicles.contracts import CreateVehicleCommand
+from domains.vehicles.management import create_vehicle
 from models import Company, DispatchRoute, Shop, ShortageRequest, Zone
 from tests.test_inbound_no_lot_frozen_postgres import checked_urls, pg  # noqa: F401
 
@@ -64,6 +67,7 @@ async def test_measured_first_company_dispatch_reads(pg):
     company = pg.tenants[0]
     foreign = pg.tenants[1]
     zone_ids = []
+    vehicle_ids = []
     async with pg.session() as db:
         for index in range(ROUTE_COUNT):
             zone = Zone(company_id=company.company_id,
@@ -82,11 +86,21 @@ async def test_measured_first_company_dispatch_reads(pg):
             Shop.company_id == company.company_id,
             Shop.name.like("D12 synthetic shop %")).order_by(Shop.id))).all()
         assert len(shops) == SHOP_COUNT
+        for index in range(ROUTE_COUNT):
+            vehicle = await create_vehicle(
+                db, company_id=company.company_id,
+                actor_id=company.owner.operational_driver.id,
+                command=CreateVehicleCommand(
+                    request_id=str(uuid4()),
+                    plate_number=f"D12-{index:04d}",
+                    vehicle_type="Van", maintenance_status="Active"))
+            vehicle_ids.append(int(vehicle["id"]))
         db.add_all([
             DispatchRoute(company_id=company.company_id, zone_id=z,
+                          vehicle_id=vehicle_ids[index],
                           source_location_id=company.location_id,
                           status="waiting")
-            for z in zone_ids
+            for index, z in enumerate(zone_ids)
         ])
         db.add_all([
             ShortageRequest(company_id=company.company_id,
