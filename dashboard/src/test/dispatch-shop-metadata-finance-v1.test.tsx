@@ -56,7 +56,7 @@ const zone: Zone = {
   frequency: "", visitDay: "", startDate: "", intervalDays: null,
 };
 const wire = (overrides: Record<string, unknown> = {}) => ({
-  ...shop, initialDebt: "80.000", maxDebtLimit: "75.125", ...overrides,
+  ...shop, initialDebt: "80.000", maxDebtLimit: "75.125", financeRedacted: false, ...overrides,
 });
 const fakeError = (status: number, code?: string, requestId = "req-finance-409") =>
   Object.assign(new Error("private backend diagnostic"), {
