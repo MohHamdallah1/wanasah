@@ -227,7 +227,7 @@ export function ShopBulkImportModal({
 
   const loadDraft = () => {
     if (!actorScope || !admitted()) {
-      toast.error("هوية المستخدم غير متاحة. أعد تسجيل الدخول.");
+      toast.error(text("importBadScope"));
       return;
     }
 
@@ -242,7 +242,7 @@ export function ShopBulkImportModal({
       ) {
         clearDraft();
         toast.error(
-          "المسودة لا تتبع الشركة/المناطق الحالية وتم حذفها لحماية العزل."
+          text("importDraftInvalid")
         );
         return;
       }
@@ -250,10 +250,10 @@ export function ShopBulkImportModal({
       setSelectedZoneId(draft.zoneId);
       setGridData(draft.data);
       setStep(2);
-      toast.success("تم استعادة المسودة بنجاح 📝");
+      toast.success(text("importDraftRecovered"));
     } catch {
       clearDraft();
-      toast.error("المسودة تالفة وتم حذفها.");
+      toast.error(text("importDraftCorrupt"));
     }
   };
 
@@ -274,8 +274,8 @@ export function ShopBulkImportModal({
       { wch: 18 },
     ];
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "المحلات");
-    XLSX.writeFile(workbook, "نموذج_استيراد_المحلات.xlsx");
+    XLSX.utils.book_append_sheet(workbook, worksheet, text("importTemplateSheet"));
+    XLSX.writeFile(workbook, text("importTemplateFile"));
   };
 
   const processRawData = (data: unknown[][]) => {
@@ -287,21 +287,21 @@ export function ShopBulkImportModal({
     );
 
     if (cleanedData.length === 0) {
-      toast.error("الملف أو النص فارغ ولا يحتوي على بيانات");
+      toast.error(text("importEmpty"));
       return;
     }
 
     const firstCell = cellText(cleanedData[0]?.[0]);
-    const startIndex = firstCell.includes("اسم") ? 1 : 0;
+    const startIndex = firstCell.includes("اسم") || /^shop\s*name\b/i.test(firstCell) ? 1 : 0;
     const actualData = cleanedData.slice(startIndex);
 
     if (actualData.length === 0) {
-      toast.error("لم يتم العثور على بيانات صالحة بعد العناوين");
+      toast.error(text("importNoData"));
       return;
     }
     if (actualData.length > MAX_IMPORT_ROWS) {
       toast.error(
-        `الحد الأقصى للاستيراد هو ${MAX_IMPORT_ROWS} محل في الدفعة الواحدة.`
+        text("importTooMany", { count: MAX_IMPORT_ROWS })
       );
       return;
     }
@@ -324,7 +324,7 @@ export function ShopBulkImportModal({
     if (!file) return;
     if (!selectedZoneId) {
       if (fileInputRef.current) fileInputRef.current.value = "";
-      toast.error("⚠️ يرجى اختيار المنطقة أولاً");
+      toast.error(text("importSelectZone"));
       return;
     }
 
@@ -338,13 +338,13 @@ export function ShopBulkImportModal({
       try {
         const result = loadEvent.target?.result;
         if (!(result instanceof ArrayBuffer)) {
-          throw new Error("تعذر قراءة الملف.");
+          throw new Error(text("importReadFile"));
         }
 
         const workbook = XLSX.read(result, { type: "array" });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) {
-          throw new Error("الملف لا يحتوي على ورقة بيانات.");
+          throw new Error(text("importReadSheet"));
         }
 
         const worksheet = workbook.Sheets[sheetName];
@@ -355,10 +355,10 @@ export function ShopBulkImportModal({
         });
         processRawData(data);
       } catch (error: unknown) {
-        toast.error("خطأ في قراءة الملف: " + getErrorMessage(error));
+        if (admitted()) toast.error(text("importReadFile"));
       }
     };
-    reader.onerror = () => { if (admitted()) toast.error("تعذر قراءة الملف."); };
+    reader.onerror = () => { if (admitted()) toast.error(text("importReadFile")); };
     reader.readAsArrayBuffer(file);
 
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -366,17 +366,17 @@ export function ShopBulkImportModal({
 
   const handlePasteSubmit = () => {
     if (!selectedZoneId) {
-      toast.error("⚠️ يرجى اختيار المنطقة أولاً");
+      toast.error(text("importSelectZone"));
       return;
     }
     if (!pasteText.trim()) {
-      toast.error("⚠️ يرجى لصق البيانات أولاً");
+      toast.error(text("importNeedPaste"));
       return;
     }
 
     Papa.parse<string[]>(pasteText, {
       delimiter: "\t",
-      complete: (results) => processRawData(results.data),
+      complete: (results) => { if (admitted()) processRawData(results.data); },
     });
   };
 
@@ -444,23 +444,23 @@ export function ShopBulkImportModal({
       const money = row.initialDebt.trim().replace(",", ".");
 
       if (name.length < 2) {
-        errors.push("اسم المحل يجب أن يحتوي حرفين على الأقل");
+        errors.push(text("importNeedName"));
       }
       if (row.name.trim().length > 150) {
-        errors.push("اسم المحل يتجاوز 150 حرفاً");
+        errors.push(text("importNameLong"));
       }
       if (owner.length > 100) {
-        errors.push("اسم المالك يتجاوز 100 حرف");
+        errors.push(text("importOwnerLong"));
       }
       if (phone.length > 20) {
-        errors.push("رقم الهاتف يتجاوز 20 حرفاً");
+        errors.push(text("importPhoneLong"));
       }
       if (row.mapLink.trim().length > 500) {
-        errors.push("رابط الخريطة يتجاوز 500 حرف");
+        errors.push(text("importLinkLong"));
       }
       if (!hasValidMoney(money)) {
         errors.push(
-          "الذمة يجب أن تكون بين 0 و999999999.999 وبحد أقصى 3 منازل عشرية"
+          text("importMoneyInvalid")
         );
       }
 
@@ -473,9 +473,9 @@ export function ShopBulkImportModal({
 
       if (duplicateCandidate) {
         if (duplicateCandidate.shop) {
-          errors.push("موجود بالنظام حسب قاعدة التكرار المعتمدة");
+          errors.push(text("importDuplicateServer"));
         } else if (duplicateCandidate.rowNumber) {
-          errors.push(`مكرر مع السطر رقم ${duplicateCandidate.rowNumber}`);
+          errors.push(text("importDuplicateRow", { count: duplicateCandidate.rowNumber }));
         }
       }
 
@@ -496,7 +496,7 @@ export function ShopBulkImportModal({
         duplicateCandidate,
       };
     });
-  }, [existingShops, gridData]);
+  }, [existingShops, gridData, i18n.language]);
 
   const stats = useMemo(() => {
     const invalid = validatedRows.filter(
@@ -521,22 +521,22 @@ export function ShopBulkImportModal({
 
   const handleBulkImport = async () => {
     if (!actorScope || !admitted()) {
-      toast.error("هوية المستخدم غير متاحة. أعد تسجيل الدخول.");
+      toast.error(text("importBadScope"));
       return;
     }
     if (!zones.some((zone) => zone.id === selectedZoneId)) {
-      toast.error("المنطقة المحددة غير موجودة ضمن الشركة الحالية.");
+      toast.error(text("importNoZone"));
       return;
     }
     if (stats.invalid > 0) {
-      toast.error("يرجى تصحيح الأخطاء الحمراء قبل الرفع");
+      toast.error(text("importCorrectErrors"));
       return;
     }
     if (
       validatedRows.length === 0 ||
       validatedRows.length > MAX_IMPORT_ROWS
     ) {
-      toast.error("عدد المحلات في الدفعة غير صالح.");
+      toast.error(text("importBadCount"));
       return;
     }
 
@@ -554,11 +554,11 @@ export function ShopBulkImportModal({
     };
 
     const toastId = toast.loading(
-      "جاري رفع المحلات وحماية قاعدة البيانات..."
+      text("importUploading")
     );
 
     try {
-      const response = await authenticatedFetch(
+      await authenticatedFetch(
         "/dispatch/shops/bulk_import",
         {
           method: "POST",
@@ -568,7 +568,7 @@ export function ShopBulkImportModal({
 
       if (!admitted()) { toast.dismiss(toastId); return; }
       toast.success(
-        getResponseMessage(response) || "تم رفع المحلات بنجاح",
+        text("importSuccess"),
         { id: toastId }
       );
       clearDraft();
@@ -576,7 +576,7 @@ export function ShopBulkImportModal({
       onSuccess?.();
     } catch (error: unknown) {
       if (!admitted()) { toast.dismiss(toastId); return; }
-      toast.error("خطأ: " + getErrorMessage(error), { id: toastId });
+      toast.error(text("importError", { reason: text("importUnknown") }), { id: toastId });
     }
   };
 
@@ -607,7 +607,7 @@ export function ShopBulkImportModal({
                   <button
                     onClick={() => {
                       clearDraft();
-                      toast.info("تم إتلاف المسودة");
+                      toast.info(text("importDraftDeleted"));
                     }}
                     className="px-3 py-2 bg-white text-red-500 font-bold text-sm rounded-lg hover:bg-red-50 shadow-sm transition-colors"
                     title={text("importDeleteDraft")}
@@ -753,6 +753,9 @@ export function ShopBulkImportModal({
               </div>
             </div>
 
+            <p role="status" className="text-xs font-semibold text-slate-600">
+              {currency ? text("importCurrencyNotice", { code: currency }) : text("importCurrencyPending")}
+            </p>
             <div className="max-h-[50vh] overflow-auto rounded-xl border border-slate-200">
               <table className="w-full min-w-[920px] text-sm text-start">
                 <thead className="bg-slate-100 sticky top-0 z-10 shadow-sm">
