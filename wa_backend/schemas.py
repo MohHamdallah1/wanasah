@@ -1011,6 +1011,7 @@ class DispatchInitResponse(BaseModel):
     drivers: List[DispatchDriverResponse]
     vehicles: List[DispatchVehicleResponse]
     warehouses: List[DispatchWarehouseResponse]
+    shopScope: Literal["company", "authorized_routes"] = "authorized_routes"
 
 class DispatchRouteRequest(RequestModel):
     # Stable client-generated intent. Legacy callers without it keep old semantics.
@@ -1164,8 +1165,9 @@ class DispatchShopResponse(BaseModel):
     mapLink: Optional[str] = ""
     zoneId: Optional[str] = ""
     taxJurisdictionId: Optional[int] = None
-    initialDebt: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
-    maxDebtLimit: Annotated[str, BeforeValidator(clean_finance_str)] = "0.0"
+    initialDebt: Optional[Annotated[str, BeforeValidator(clean_finance_str)]] = None
+    maxDebtLimit: Optional[Annotated[str, BeforeValidator(clean_finance_str)]] = None
+    financeRedacted: bool = True
     sequence: Optional[int] = 999
     archived: bool
 
