@@ -1147,3 +1147,64 @@ describe("Codex P2: edit PUT with unreconcilable readback has a durable operator
     },
   );
 });
+
+describe("Codex P2: atomically serialize concurrent metadata edit claims", () => {
+  it.each(["ar", "en"] as const)(
+    "two %s tabs editing the same shop claim ONE durable edit and ONE PUT, retaining original draft",
+    async language => {
+      await setAppLanguage(language);
+      let releasePut!: (value: unknown) => void;
+      const inFlightPut = new Promise<unknown>(resolve => { releasePut = resolve; });
+      const fetch = vi.fn().mockImplementation(async (_path: string, opts?: RequestInit) =>
+        opts?.method === "PUT" ? inFlightPut : [wire()],
+      );
+      const primary = { ...form, name: "Original first-tab edit" };
+      const competing = { ...form, name: "Competing second-tab edit" };
+      const first = renderHook(() => useShopFormCommit(args(fetch, { form: primary, language })));
+      const second = renderHook(() => useShopFormCommit(args(fetch, { form: competing, language })));
+      await waitFor(() => {
+        expect(first.result.current.restoring).toBe(false);
+        expect(second.result.current.restoring).toBe(false);
+      });
+      let firstWrite!: Promise<boolean>;
+      let secondWrite!: Promise<boolean>;
+      act(() => {
+        firstWrite = first.result.current.save();
+        secondWrite = second.result.current.save();
+      });
+      await act(async () => { expect(await secondWrite).toBe(false); });
+      expect(second.result.current.feedback).toBe(shopFormText(language, "editOtherTab"));
+      await waitFor(() => expect(fetch.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1));
+      expect(heldCreateLocks.size).toBe(1);
+      const scope = shopEditAttemptScope("77")!;
+      const original = await readDurableCommand<ShopEditAttempt>(scope);
+      expect(original?.payload).toMatchObject({
+        submitted: metadataPayload(primary),
+        draft: primary,
+        shopId: "77",
+      });
+      await act(async () => { releasePut({ message: "ok" }); expect(await firstWrite).toBe(false); });
+      expect(heldCreateLocks.size).toBe(0);
+      const retained = await readDurableCommand<ShopEditAttempt>(scope);
+      expect(retained?.requestId).toBe(original?.requestId);
+      expect(retained?.payload.draft).toEqual(primary);
+      expect(fetch.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1);
+      expect(toast.success).not.toHaveBeenCalled();
+      first.unmount(); second.unmount();
+    },
+  );
+
+  it("unsupported Web Locks for metadata edit fails closed before any PUT", async () => {
+    Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+    const fetch = vi.fn().mockResolvedValue([wire()]);
+    const hooked = renderHook(() => useShopFormCommit(args(fetch, {
+      form: { ...form, name: "No unsafe edit" },
+    })));
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
+    await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
+    expect(hooked.result.current.feedback).toBe(shopFormText("en", "editLockUnavailable"));
+    expect(fetch.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(0);
+    expect(await readDurableCommand(shopEditAttemptScope("77")!)).toBeNull();
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
