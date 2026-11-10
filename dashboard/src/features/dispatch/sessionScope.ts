@@ -17,7 +17,7 @@ export function dispatchActorScope(session: DashboardSession | null, access: Inv
 }
 
 const prefix = "wanasah:dispatch:session:v1:";
-const id = (value: unknown): string => typeof value === "string" && /^[1-9]\\d*$/.test(value) &&
+const id = (value: unknown): string => typeof value === "string" && /^[1-9]\d*$/.test(value) &&
   Number.isSafeInteger(Number(value)) ? value : "";
 const tab = (value: unknown): TabId => value === "zones" || value === "launch" || value === "routes" ? value : "routes";
 export type DispatchPreferences = {
@@ -34,7 +34,7 @@ export const defaultDispatchPreferences = (): DispatchPreferences => ({
 export const dispatchPreferencesKey = (scope: string): string => prefix + scope + ":preferences";
 
 export function readDispatchPreferences(scope: string | null): DispatchPreferences {
-  if (!scope || !/^\\d+:\\d+:\\d+$/.test(scope)) return defaultDispatchPreferences();
+  if (!scope || !/^\d+:\d+:\d+$/.test(scope)) return defaultDispatchPreferences();
   try {
     const raw = localStorage.getItem(dispatchPreferencesKey(scope));
     if (!raw) return defaultDispatchPreferences();
@@ -53,7 +53,7 @@ export function readDispatchPreferences(scope: string | null): DispatchPreferenc
 }
 
 export function writeDispatchPreferences(scope: string | null, prefs: DispatchPreferences): boolean {
-  if (!scope || !/^\\d+:\\d+:\\d+$/.test(scope)) return false;
+  if (!scope || !/^\d+:\d+:\d+$/.test(scope)) return false;
   try {
     localStorage.setItem(dispatchPreferencesKey(scope), JSON.stringify({
       ...prefs, scope, version: 1,
