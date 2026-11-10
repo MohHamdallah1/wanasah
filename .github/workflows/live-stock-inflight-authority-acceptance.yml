@@ -302,6 +302,18 @@ jobs:
               "dashboard/src/test/dispatch-shop-metadata-finance-v1.test.tsx",
           }
           shop_form_850_new = shop_form_850_exact - {"dashboard/src/pages/DispatchBoard.tsx"}
+          # #859 admission: a literal five-file grouped-shortage UI change,
+          # never a wildcard for Backend/Inventory/other Dispatch features.
+          shortage_group_859_exact = {
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/features/dispatch/shortageGroup/contract.ts",
+              "dashboard/src/features/dispatch/shortageGroup/useShortageGroupCommit.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+          }
+          shortage_group_859_new = shortage_group_859_exact - {"dashboard/src/pages/DispatchBoard.tsx"}
+          assert len(shortage_group_859_exact) == 5 and len(shortage_group_859_new) == 4
+
           # Governance-only PR #856 has its OWN exact four-file signature;
           # the three-file #847 mode and existing Live Stock owner modes survive.
           ci_policy_847_exact = {
@@ -324,6 +336,13 @@ jobs:
                       sorted(candidate - shop_order_843_exact),
                   )
                   return "SHOP_ORDER_843_EXACT"
+              if candidate & shortage_group_859_new:
+                  assert candidate == shortage_group_859_exact, (
+                      "INFLIGHT_SHORTAGE_GROUP_859_SCOPE=FAIL",
+                      sorted(shortage_group_859_exact - candidate),
+                      sorted(candidate - shortage_group_859_exact),
+                  )
+                  return "SHORTAGE_GROUP_859_EXACT"
               if candidate & shop_form_850_new:
                   assert candidate == shop_form_850_exact, (
                       "INFLIGHT_SHOP_FORM_850_SCOPE=FAIL",
@@ -403,6 +422,49 @@ jobs:
                   pass
               else:
                   raise AssertionError("Mixed ShopForm/ShopOrder/CI ownership accepted")
+          # #859 all five exact UI files ONLY. Probe missing, foreign and
+          # mixed ownership cases; preserve the older #847/#856 protections.
+          assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
+          for missing in shortage_group_859_exact:
+              partial = shortage_group_859_exact - {missing}
+              if partial & shortage_group_859_new:
+                  try:
+                      ownership_mode(partial)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Partial ShortageGroup #859 admitted: {missing}")
+              else:
+                  assert ownership_mode(partial) != "SHORTAGE_GROUP_859_EXACT"
+          for foreign in (
+              "wa_backend/main.py", "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/api/driver.py", "dashboard/src/lib/authStorage.ts",
+              "dashboard/src/features/dispatch/shopForm/contract.ts",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(shortage_group_859_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign ShortageGroup #859 path admitted: {foreign}")
+          for mixed in (
+              shortage_group_859_exact | shop_form_850_exact,
+              shortage_group_859_exact | shop_order_843_exact,
+              shortage_group_859_exact | ci_policy_847_exact,
+              shortage_group_859_exact | ci_policy_856_exact,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed ShortageGroup/ShopForm/ShopOrder/CI admitted")
+          print("INFLIGHT_859_SCOPE_SELFTEST=PASS exact=5 partial=5 foreign=9 mixed=4")
+
           # Both governance sizes must remain independently enforceable:
           # three-file #847 is an established mode, not partial #856 approval.
           assert ownership_mode(ci_policy_847_exact) == "INFLIGHT_AUTH_REPAIR_SCOPE"
