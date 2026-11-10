@@ -31,11 +31,12 @@ PERMISSIONS = frozenset({
     'tax.view', 'tax.manage', 'tax.approve',
     'stocktake.read', 'stocktake.start', 'stocktake.count', 'stocktake.review',
     'stocktake.approve', 'stocktake.recount', 'stocktake.cancel',
-    'dispatch.read', 'dispatch.execute',
+    'dispatch.read', 'dispatch.execute', 'shop.financial.read',
     'sales_return.create',
 })
 
 COMPANY_ONLY = frozenset({
+    'shop.financial.read',  # D06: explicit, never in warehouse or default role grants.
     'supplier.read', 'supplier.manage',
     'representative.read', 'representative.manage', 'representative.credentials.reset',
     'vehicle.read', 'vehicle.manage',
