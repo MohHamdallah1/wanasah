@@ -249,3 +249,52 @@ export function readShopAttemptServerReference(scope: string, localId: string): 
 export function clearShopAttemptServerReference(scope: string): void {
   try { localStorage.removeItem(`${scope}:server-ref`); } catch { /* No claim of success. */ }
 }
+
+/** Web Locks provide the browser's cross-tab atomic exclusion; localStorage
+ * read/write + random nonce alone are NOT an atomic compare-and-swap.
+ * Unsupported user agents must fail closed, not silently allow duplicate POST.
+ */
+export async function withExclusiveShopCreateLock<T>(
+  scope: string,
+  work: () => Promise<T>,
+): Promise<{ acquired: boolean; result?: T }> {
+  if (typeof navigator === "undefined" || !navigator.locks?.request) {
+    return { acquired: false };
+  }
+  return navigator.locks.request(
+    `${scope}:exclusive-create-send`, { mode: "exclusive", ifAvailable: true },
+    async lock => lock ? { acquired: true, result: await work() } : { acquired: false },
+  );
+}
+
+/** This identifier must come from the actual POST-201 response. It is NEVER
+ * guessed using a Shop list or attached to an unknown/lost POST response.
+ * The receipt is bound to the immutable local attempt's requestId.
+ */
+export function saveShopAttemptCanonicalId(scope: string, localId: string, shopId: string): boolean {
+  if (!/^\d{1,16}$/.test(shopId) || shopId === "0" || !safeTrackingId(localId)) return false;
+  try {
+    localStorage.setItem(`${scope}:canonical-id`, JSON.stringify({ localId, shopId }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readShopAttemptCanonicalId(scope: string, localId: string): string | null {
+  try {
+    const raw = localStorage.getItem(`${scope}:canonical-id`);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as { localId?: unknown; shopId?: unknown };
+    return value.localId === localId && typeof value.shopId === "string" &&
+      /^\d{1,16}$/.test(value.shopId) && value.shopId !== "0" ? value.shopId : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearShopAttemptCanonicalId(scope: string): void {
+  try { localStorage.removeItem(`${scope}:canonical-id`); } catch { /* Remain conservative. */ }
+}
