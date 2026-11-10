@@ -131,7 +131,8 @@ function fakeServer(action: "edit" | "delete" = "edit") {
   };
 }
 const args = (fetch: (url: string, options?: RequestInit) => Promise<unknown>, language = "en") => ({
-  session, authorized: true, language, fetch, onVerified: vi.fn(), onRestored: vi.fn(),
+  session, authorized: true, language, fetch,
+  onVerified: vi.fn(), onRefreshed: vi.fn(), onRestored: vi.fn(),
 });
 const ready = async (hook: { result: { current: { restoring: boolean } } }) =>
   waitFor(() => expect(hook.result.current.restoring).toBe(false));
@@ -296,15 +297,76 @@ describe("D05 canonical grouped-shortage original operation identity", () => {
     },
   );
 
-  it("a real definitive 404 on original request is not misreported as success", async () => {
+  it.each([400, 404, 422])(
+    "a transport %i cannot prove idempotency rejection after response loss: preserve original UUID",
+    async status => {
+      const backend = fakeServer();
+      backend.setLost();
+      const hooked = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+      await ready(hooked);
+      await act(async () => { expect(await hooked.result.current.save(ids, lines, draft)).toBe(false); });
+      const original = await readDurableCommand<GroupIntent>(shortageGroupScope()!);
+      expect(original).not.toBeNull();
+      backend.setPutError(status);
+      await act(async () => { expect(await hooked.result.current.retry()).toBe(false); });
+      const retained = await readDurableCommand<GroupIntent>(shortageGroupScope()!);
+      expect(retained?.requestId).toBe(original?.requestId);
+      expect(retained?.payload).toEqual(original?.payload);
+      expect(hooked.result.current.hasUnresolved).toBe(true);
+      expect(backend.getCommits()).toBe(1);
+      expect(toast.success).not.toHaveBeenCalled();
+    },
+  );
+
+  it("second tab whose first tab cleared the original command performs authorized GET only and unlocks", async () => {
     const backend = fakeServer();
-    backend.setPutError(404);
-    const hooked = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
-    await ready(hooked);
-    await act(async () => { expect(await hooked.result.current.save(ids, lines, draft)).toBe(false); });
-    expect(toast.success).not.toHaveBeenCalled();
+    backend.setLost();
+    const initialHook = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(initialHook);
+    await act(async () => { expect(await initialHook.result.current.save(ids, lines, draft)).toBe(false); });
+    initialHook.unmount();
+    const firstProps = args(backend.fetch);
+    const secondProps = args(backend.fetch);
+    const first = renderHook(() => useShortageGroupCommit(firstProps));
+    const second = renderHook(() => useShortageGroupCommit(secondProps));
+    await waitFor(() => {
+      expect(first.result.current.pending).not.toBeNull();
+      expect(second.result.current.pending).not.toBeNull();
+    });
+    await act(async () => { expect(await first.result.current.retry()).toBe(true); });
+    expect(firstProps.onVerified).toHaveBeenCalledOnce();
+    expect(second.result.current.hasUnresolved).toBe(true);
     expect(await readDurableCommand(shortageGroupScope()!)).toBeNull();
-    expect(hooked.result.current.hasUnresolved).toBe(false);
+    toast.success.mockClear();
+    const writesBefore = backend.bodies.length;
+    await act(async () => { expect(await second.result.current.retry()).toBe(false); });
+    expect(backend.bodies.length).toBe(writesBefore);
+    expect(second.result.current.hasUnresolved).toBe(false);
+    expect(secondProps.onRefreshed).toHaveBeenCalledOnce();
+    expect(secondProps.onVerified).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(second.result.current.feedback).toBe(groupText("en", "otherTabResolved"));
+    first.unmount(); second.unmount();
+  });
+
+  it("another tab clears the command but readback fails: keep local pending and forbid a new PUT", async () => {
+    const backend = fakeServer();
+    backend.setLost();
+    const initialHook = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await ready(initialHook);
+    await act(async () => { expect(await initialHook.result.current.save(ids, lines, draft)).toBe(false); });
+    initialHook.unmount();
+    const first = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    const second = renderHook(() => useShortageGroupCommit(args(backend.fetch)));
+    await waitFor(() => expect(second.result.current.pending).not.toBeNull());
+    await act(async () => { expect(await first.result.current.retry()).toBe(true); });
+    const before = backend.bodies.length;
+    backend.setReadbackFailure(); // test fixture only fails GET when commit exists
+    await act(async () => { expect(await second.result.current.retry()).toBe(false); });
+    expect(second.result.current.hasUnresolved).toBe(true);
+    expect(backend.bodies.length).toBe(before);
+    expect(toast.success).toHaveBeenCalledTimes(1); // only FIRST tab
+    first.unmount(); second.unmount();
   });
 
   it("cross-company and principal switches never restore or mutate earlier scope", async () => {
