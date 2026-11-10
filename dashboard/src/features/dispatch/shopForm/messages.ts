@@ -37,6 +37,9 @@ const copy = {
     createRecoveryBlocked: "تعذر قراءة سجل المحاولة بأمان أو هوية الحساب غير مكتملة. لم يُرسل طلب إنشاء جديد. راجع المسؤول قبل المتابعة.",
     createLockUnavailable: "المتصفح لا يدعم قفل إنشاء المحلات بين التبويبات بأمان. لم يُرسل الطلب. استخدم متصفحاً حديثاً أو راجع المسؤول.",
     createOtherTab: "يوجد تبويب آخر ينفذ إنشاء محل لهذا الحساب. لم يُرسل طلب ثانٍ. راجع المحاولة المحفوظة.",
+    editLockUnavailable: "المتصفح لا يدعم القفل الآمن لتعديل المحلات بين التبويبات. لم يُرسل التعديل. افتح متصفحاً حديثاً أو راجع المسؤول.",
+    editOtherTab: "تبويب آخر يعدل هذا المحل الآن. لم يُرسل تعديل ثانٍ، ولم تُستبدل المحاولة المحفوظة.",
+
 
     createRecoverySaved: "يمكنك مغادرة النموذج الآن. ستظل المحاولة محفوظة وستظهر عند العودة بنفس الحساب.",
 
@@ -84,6 +87,9 @@ const copy = {
     createRecoveryBlocked: "The attempt record could not be safely read or this account's identity is incomplete. No new create request was sent. Contact an administrator.",
     createLockUnavailable: "This browser cannot safely lock shop creation across tabs. No request was sent. Use a modern browser or contact an administrator.",
     createOtherTab: "Another tab is already submitting a shop for this account. No second request was sent. Review the saved attempt.",
+    editLockUnavailable: "This browser cannot safely lock a shop edit across tabs. No edit was sent. Use a modern browser or ask an administrator.",
+    editOtherTab: "Another tab is modifying this shop. No second edit was sent, and the saved attempt was not replaced.",
+
 
     createRecoverySaved: "You can leave this form. This unresolved attempt will be restored when you return with the same account.",
 
