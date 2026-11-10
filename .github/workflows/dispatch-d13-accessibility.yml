@@ -1,0 +1,39 @@
+name: Dispatch D13 focused AR EN accessibility
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dashboard/src/components/dispatch/ShortageModal.tsx"
+      - "dashboard/src/components/dispatch/ShopTable.tsx"
+      - "dashboard/src/components/dispatch/ShopFormModal.tsx"
+      - "dashboard/src/components/dispatch/ShopBulkImportModal.tsx"
+      - "dashboard/src/components/dispatch/ZoneModal.tsx"
+      - "dashboard/src/features/dispatch/dispatchUiText.ts"
+      - "dashboard/src/test/dispatch-d13-accessibility.test.tsx"
+      - ".github/workflows/dispatch-d13-accessibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  focused-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Validate complete PR whitespace
+        run: git diff --check "$(git merge-base origin/main HEAD)" HEAD
+      - name: Install pinned frontend dependencies
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Focused D13 bilingual currency keyboard and focus interactions
+        working-directory: dashboard
+        run: npm test -- src/test/dispatch-d13-accessibility.test.tsx
