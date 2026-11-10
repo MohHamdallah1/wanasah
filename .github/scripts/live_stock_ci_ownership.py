@@ -1231,16 +1231,28 @@ def selftest() -> None:
     assert classify("r3", set(SHORTAGE_GROUP_859_EXACT), policy_sem) == (
         "not-applicable", []
     )
-    for missing in SHORTAGE_GROUP_859_EXACT:
-        partial = set(SHORTAGE_GROUP_859_EXACT) - {missing}
-        if partial & SHORTAGE_GROUP_859_NEW:
+    # #865: cover all 31 strict subsets, not just five missing-one probes.
+    shortage_items = sorted(SHORTAGE_GROUP_859_EXACT)
+    shortage_partials_rejected = 0
+    for bits in range(1 << len(shortage_items)):
+        subset = {
+            path for i, path in enumerate(shortage_items) if bits & (1 << i)
+        }
+        if subset == set(SHORTAGE_GROUP_859_EXACT):
+            continue
+        if subset & SHORTAGE_GROUP_859_NEW:
             for mode in ("ux", "r3", "operational"):
-                _expect_fail(mode, partial, policy_sem)
+                _expect_fail(mode, subset, policy_sem)
+            shortage_partials_rejected += 1
         else:
-            assert classify("ux", partial, policy_sem)[0] != "shortage-group-859-exact"
+            assert classify("ux", subset, policy_sem)[0] != "shortage-group-859-exact"
+    assert shortage_partials_rejected == 29
     for foreign in (
         HELPER, "wa_backend/main.py", "wa_backend/api/dispatch_shortages_group.py",
-        "wa_backend/api/dispatch.py", "dashboard/src/lib/authStorage.ts",
+        "wa_backend/api/dispatch.py", "wa_backend/domains/dispatch_shop_create.py",
+        "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+        ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+        "dashboard/src/lib/authStorage.ts",
         "dashboard/src/features/dispatch/shopOrder/scope.ts",
         "dashboard/src/features/dispatch/shopForm/contract.ts",
         "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
@@ -1250,15 +1262,28 @@ def selftest() -> None:
     ):
         for mode in ("ux", "r3", "operational"):
             _expect_fail(mode, set(SHORTAGE_GROUP_859_EXACT) | {foreign}, policy_sem)
+    # The F06 exact shop-create policy is independent from the D05 UI.
+    f06_shop_create_exact = {
+        ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+        "wa_backend/api/dispatch.py",
+        "wa_backend/domains/dispatch_shop_create.py",
+        "wa_backend/schemas.py",
+        "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+    }
+    assert len(f06_shop_create_exact) == 5
     for mixed in (
         set(SHORTAGE_GROUP_859_EXACT) | SHOP_FORM_850_EXACT,
         set(SHORTAGE_GROUP_859_EXACT) | SHOP_ORDER_843_EXACT,
         set(SHORTAGE_GROUP_859_EXACT) | CI_POLICY_847_EXACT,
         set(SHORTAGE_GROUP_859_EXACT) | CI_POLICY_856_EXACT,
+        set(SHORTAGE_GROUP_859_EXACT) | f06_shop_create_exact,
     ):
         for mode in ("ux", "r3", "operational"):
             _expect_fail(mode, mixed, policy_sem)
-    print("SHORTAGE_GROUP_859_LIVE_STOCK_SELFTEST=PASS exact=5 partial=5 foreign=11 mixed=4")
+    print(
+        "SHORTAGE_GROUP_859_LIVE_STOCK_SELFTEST=PASS "
+        "exact=5 partial_with_new=29 foreign=14 mixed=5 f06_cross=DENIED"
+    )
 
     # #847: real #846 payload passes only as its literal nine-file set.
     # Every partial-with-new-file and every foreign/mixed-domain path fails.

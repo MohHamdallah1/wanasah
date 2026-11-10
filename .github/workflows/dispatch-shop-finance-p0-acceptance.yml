@@ -9,6 +9,11 @@ on:
       - "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py"
       - ".github/workflows/dispatch-shop-finance-p0-acceptance.yml"
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: "Exact approved base SHA for manual audited comparison"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -33,31 +38,186 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - name: Verify #842 exact approved base and immutable file ownership
+      - name: Verify current PR base, #842 provenance and exact F06/CI-only file ownership
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base_sha }}
         run: |
           python - <<'PY'
-          import subprocess
-          base = "3339296caf9d0442eeab985d772f0c323351a935"
-          subprocess.run(["git", "cat-file", "-e", base + "^{commit}"], check=True)
-          assert subprocess.check_output(
-              ["git", "merge-base", base, "HEAD"], text=True
-          ).strip() == base, "Audit must descend from owner-approved exact MAIN"
+          import os, re, subprocess
+
+          base = os.environ["BASE_SHA"]
+          historic = "3339296caf9d0442eeab985d772f0c323351a935"
+          assert re.fullmatch(r"[0-9a-f]{40}", base), "Finance base must be a real 40hex commit"
+          for rev in (base, historic, "HEAD"):
+              subprocess.run(["git", "cat-file", "-e", rev + "^{commit}"], check=True)
+          def merge_base(a, b):
+              return subprocess.check_output(
+                  ["git", "merge-base", a, b], text=True,
+              ).strip()
+          assert merge_base(historic, base) == historic, (
+              "Finance #842 historical approved MAIN provenance has been broken"
+          )
+          assert merge_base(base, "HEAD") == base, (
+              "Finance must use the actual PR base (ancestor of HEAD)"
+          )
           files = set(subprocess.check_output(
-              ["git", "diff", "--name-only", base, "HEAD"], text=True
+              ["git", "diff", "--name-only", base, "HEAD"], text=True,
           ).splitlines())
-          allowed = {
+
+          # Original #842 subset policy is deliberately preserved for legacy
+          # edits. The new F06 and policy paths are admitted only in complete
+          # standalone exact groups. No directory, prefix, or wildcard scope.
+          finance_842_allowed = {
               "wa_backend/api/dispatch.py",
               "wa_backend/domains/dispatch_shop_finance_fence.py",
               "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
           }
-          assert files and files <= allowed, f"Worker 1 #842 scope violated: {sorted(files - allowed)}"
-          print(f"EXACT_APPROVED_BASE={base}")
+          shop_create_f06_exact = {
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+          }
+          ci_policy_861_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+          }
+          f06_new = shop_create_f06_exact - finance_842_allowed
+          ci_new = ci_policy_861_exact - finance_842_allowed
+          assert len(finance_842_allowed) == 4
+          assert len(shop_create_f06_exact) == 5 and len(f06_new) == 4
+          assert len(ci_policy_861_exact) == 2 and len(ci_new) == 1
+
+          def ownership_mode(candidate):
+              if candidate == shop_create_f06_exact:
+                  return "SHOP_CREATE_F06_EXACT"
+              if candidate == ci_policy_861_exact:
+                  return "CI_POLICY_861_EXACT"
+              if candidate & f06_new:
+                  assert candidate == shop_create_f06_exact, (
+                      f"Finance F06 exact scope rejected: "
+                      f"missing={sorted(shop_create_f06_exact - candidate)} "
+                      f"extra={sorted(candidate - shop_create_f06_exact)}"
+                  )
+                  return "SHOP_CREATE_F06_EXACT"
+              if candidate & ci_new:
+                  assert candidate == ci_policy_861_exact, (
+                      f"Finance CI-policy #861 exact scope rejected: "
+                      f"missing={sorted(ci_policy_861_exact - candidate)} "
+                      f"extra={sorted(candidate - ci_policy_861_exact)}"
+                  )
+                  return "CI_POLICY_861_EXACT"
+              assert candidate and candidate <= finance_842_allowed, (
+                  f"Historic Finance #842 four-file ownership rejected: "
+                  f"extra={sorted(candidate - finance_842_allowed)}"
+              )
+              return "FINANCE_842_LEGACY_BOUNDED"
+
+          def denied(candidate, label):
+              try:
+                  ownership_mode(candidate)
+              except AssertionError:
+                  return
+              raise AssertionError(f"{label}: unexpected Finance ownership admission: {sorted(candidate)}")
+
+          # Preserve all original #842 nonempty subsets and its exact four-file
+          # provenance, not a new general Dispatch or money write authority.
+          finance_items = sorted(finance_842_allowed)
+          assert ownership_mode(finance_842_allowed) == "FINANCE_842_LEGACY_BOUNDED"
+          for bits in range(1, 1 << len(finance_items)):
+              subset = {
+                  item for i, item in enumerate(finance_items) if bits & (1 << i)
+              }
+              assert ownership_mode(subset) == "FINANCE_842_LEGACY_BOUNDED"
+          denied(set(), "Empty comparison")
+
+          assert ownership_mode(shop_create_f06_exact) == "SHOP_CREATE_F06_EXACT"
+          f06_items = sorted(shop_create_f06_exact)
+          f06_partial_denied = 0
+          for bits in range(1 << len(f06_items)):
+              subset = {
+                  item for i, item in enumerate(f06_items) if bits & (1 << i)
+              }
+              if subset == shop_create_f06_exact:
+                  continue
+              if subset & f06_new:
+                  denied(subset, "Partial F06 with new path")
+                  f06_partial_denied += 1
+              elif subset:
+                  assert ownership_mode(subset) == "FINANCE_842_LEGACY_BOUNDED"
+              else:
+                  denied(subset, "F06 empty comparison")
+          assert f06_partial_denied == 29, f06_partial_denied
+
+          assert ownership_mode(ci_policy_861_exact) == "CI_POLICY_861_EXACT"
+          denied({".github/workflows/dispatch-p0-route-stock-safety.yml"}, "CI-only partial")
+          assert ownership_mode({
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+          }) == "FINANCE_842_LEGACY_BOUNDED"
+
+          foreign_paths = (
+              "wa_backend/api/driver.py",
+              "wa_backend/main.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/domains/inventory_costing/service.py",
+              "wa_backend/domains/authorization/backoffice_access.py",
+              "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              "wanasah_frontend/lib/main.dart",
+          )
+          for label, exact in (
+              ("SHOP_CREATE_F06_EXACT", shop_create_f06_exact),
+              ("CI_POLICY_861_EXACT", ci_policy_861_exact),
+          ):
+              for foreign in foreign_paths + (
+                  "wa_backend/api/dispatch.py",
+                  "wa_backend/schemas.py",
+                  ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ):
+                  if foreign not in exact:
+                      denied(exact | {foreign}, f"{label} foreign {foreign}")
+          for mixed in (
+              shop_create_f06_exact | finance_842_allowed,
+              shop_create_f06_exact | ci_policy_861_exact,
+              shop_create_f06_exact | {
+                  "dashboard/src/pages/DispatchBoard.tsx",
+              },
+              ci_policy_861_exact | finance_842_allowed,
+              ci_policy_861_exact | {
+                  "wa_backend/domains/dispatch_shop_create.py",
+              },
+          ):
+              denied(mixed, "Mixed Finance/Shop/CI owner files")
+
+          mode = ownership_mode(files)
+          denied(files | {"wa_backend/domains/inventory/services.py"},
+                 "Real PR foreign-file negative")
+          print("HISTORIC_842_APPROVED_BASE=" + historic)
+          print("ACTUAL_PR_BASE=" + base)
           print("EXACT_TEST_HEAD=" + subprocess.check_output(
-              ["git", "rev-parse", "HEAD"], text=True).strip())
-          print("WORKER1_SCOPE_FILES=" + ", ".join(sorted(files)))
+              ["git", "rev-parse", "HEAD"], text=True,
+          ).strip())
+          print(
+              "FINANCE_861_POLICY_SELFTEST=PASS "
+              f"finance_842_subsets=15 f06=5 f06_partials={f06_partial_denied} "
+              "ci_policy=2 foreign=PASS mixed=PASS"
+          )
+          print(f"FINANCE_OWNER_SCOPE=PASS mode={mode} files={len(files)}")
           PY
-          git diff --check 3339296caf9d0442eeab985d772f0c323351a935 HEAD
+          git diff --check "$BASE_SHA" HEAD --
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

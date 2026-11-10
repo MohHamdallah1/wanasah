@@ -389,9 +389,27 @@ jobs:
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               ".github/workflows/live-stock-g04-outage-recovery.yml",
           }
+          # #861: only the complete F06 Backend command+receipt+test+workflow
+          # can cross this shared Dispatch router/schema gate. Neither those
+          # new paths nor Finance or another worker gain general P0 ownership.
+          shop_create_f06_exact = {
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+          }
+          shop_create_f06_new = shop_create_f06_exact - p0_allowed - auth_session_allowed
+          # Separate two-file governance PR, not an expansion of #847/#856.
+          ci_policy_861_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+          }
           assert len(shop_form_850_exact) == 6
           assert len(ci_policy_856_exact) == 4
           assert ci_policy_847_exact < ci_policy_856_exact
+          assert len(shop_create_f06_exact) == 5 and len(shop_create_f06_new) == 3
+          assert len(ci_policy_861_exact) == 2
           finance_842_unique = finance_842_exact - p0_allowed - auth_session_allowed
           shop_order_843_unique = shop_order_843_exact - p0_allowed - auth_session_allowed
           shop_form_850_unique = shop_form_850_exact - p0_allowed - auth_session_allowed
@@ -404,6 +422,15 @@ jobs:
                   return "CI_POLICY_847_EXACT"
               if candidate == ci_policy_856_exact:
                   return "CI_POLICY_856_EXACT"
+              if candidate == ci_policy_861_exact:
+                  return "CI_POLICY_861_EXACT"
+              if candidate & shop_create_f06_new:
+                  assert candidate == shop_create_f06_exact, (
+                      f"Forbidden P0/ShopCreate F06 exact scope: "
+                      f"missing={sorted(shop_create_f06_exact - candidate)} "
+                      f"extra={sorted(candidate - shop_create_f06_exact)}"
+                  )
+                  return "SHOP_CREATE_F06_EXACT"
               # Existing owner-visual and Live Stock Worker1 bounded scopes
               # also legitimately include all three shared CI files.
               # Never treat a CI-policy subset as a general exclusion.
@@ -514,6 +541,8 @@ jobs:
               shortage_group_859_exact | finance_842_exact,
               shortage_group_859_exact | ci_policy_847_exact,
               shortage_group_859_exact | ci_policy_856_exact,
+              shortage_group_859_exact | ci_policy_861_exact,
+              shortage_group_859_exact | shop_create_f06_exact,
           ):
               try:
                   ownership_mode(mixed)
@@ -572,9 +601,185 @@ jobs:
                   raise AssertionError(f"CI_POLICY_856_EXACT foreign path accepted: {foreign}")
           assert ownership_mode({"dashboard/src/pages/DispatchBoard.tsx"}) == "P0_STRICT"
           assert ownership_mode(shop_form_850_exact) == "SHOP_FORM_850_EXACT"
-          assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
           print("DISPATCH_856_POLICY_SELFTEST=PASS shop_form=6 ci_policy=4 old847=PASS negative=PASS")
-          print("DISPATCH_859_SCOPE_SELFTEST=PASS exact=5 partial=5 mixed=5 foreign=PASS")
+
+          # #861: exhaustive F06 exact admission and every partial involving a
+          # NEW path. Shared legacy router/schema alone retain old P0 semantics.
+          assert ownership_mode(shop_create_f06_exact) == "SHOP_CREATE_F06_EXACT"
+          f06_items = sorted(shop_create_f06_exact)
+          f06_partial_denied = 0
+          for bits in range(1 << len(f06_items)):
+              subset = {
+                  item for i, item in enumerate(f06_items) if bits & (1 << i)
+              }
+              if subset == shop_create_f06_exact:
+                  continue
+              if subset & shop_create_f06_new:
+                  try:
+                      ownership_mode(subset)
+                  except AssertionError:
+                      f06_partial_denied += 1
+                  else:
+                      raise AssertionError(
+                          f"SHOP_CREATE_F06_EXACT partial admitted: {sorted(subset)}"
+                      )
+              else:
+                  assert ownership_mode(subset) != "SHOP_CREATE_F06_EXACT"
+          assert f06_partial_denied == 27, f06_partial_denied
+
+          f06_foreign = (
+              "wa_backend/api/driver.py",
+              "wa_backend/main.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/domains/inventory_costing/service.py",
+              "wa_backend/domains/authorization/backoffice_access.py",
+              "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-g04-outage-recovery.yml",
+              "wanasah_frontend/lib/main.dart",
+          )
+          for foreign in f06_foreign:
+              assert foreign not in shop_create_f06_exact
+              try:
+                  ownership_mode(shop_create_f06_exact | {foreign})
+              except AssertionError as exc:
+                  assert foreign in str(exc)
+              else:
+                  raise AssertionError(f"F06 foreign admitted: {foreign}")
+          for mixed in (
+              shop_create_f06_exact | finance_842_exact,
+              shop_create_f06_exact | shop_order_843_exact,
+              shop_create_f06_exact | shop_form_850_exact,
+              shop_create_f06_exact | ci_policy_847_exact,
+              shop_create_f06_exact | ci_policy_856_exact,
+              shop_create_f06_exact | ci_policy_861_exact,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed F06/Finance/Worker/CI admission")
+          assert ownership_mode(ci_policy_861_exact) == "CI_POLICY_861_EXACT"
+          assert ownership_mode(ci_policy_861_exact - {
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+          }) == "P0_STRICT"  # Pre-existing single workflow, not #861 mode.
+          try:
+              ownership_mode(ci_policy_861_exact - {
+                  ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              })
+          except AssertionError:
+              pass
+          else:
+              raise AssertionError("CI_POLICY_861 partial with new finance path admitted")
+          for foreign in f06_foreign + (
+              "wa_backend/api/dispatch.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_p0_route_stock_safety_postgres.py",
+          ):
+              if foreign in ci_policy_861_exact:
+                  continue
+              try:
+                  ownership_mode(ci_policy_861_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"CI_POLICY_861 foreign admitted: {foreign}")
+          print(
+              "DISPATCH_861_POLICY_SELFTEST=PASS "
+              f"f06=5 partial_with_new={f06_partial_denied} "
+              f"foreign={len(f06_foreign)} mixed=6 ci_policy=2 "
+              "prior847=PASS prior856=PASS"
+          )
+
+          # #865: exhaustive D05 five-file admission; never an accidental
+          # cross-grant to independent F06, ShopForm, Finance or CI policies.
+          assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
+          d05_items = sorted(shortage_group_859_exact)
+          d05_partial_denied = 0
+          for bits in range(1 << len(d05_items)):
+              subset = {
+                  item for i, item in enumerate(d05_items) if bits & (1 << i)
+              }
+              if subset == shortage_group_859_exact:
+                  continue
+              if subset & shortage_group_859_unique:
+                  try:
+                      ownership_mode(subset)
+                  except AssertionError:
+                      d05_partial_denied += 1
+                  else:
+                      raise AssertionError(
+                          f"SHORTAGE_GROUP_859_EXACT partial admitted: {sorted(subset)}"
+                      )
+              else:
+                  assert ownership_mode(subset) != "SHORTAGE_GROUP_859_EXACT"
+          assert d05_partial_denied == 29, d05_partial_denied
+
+          d05_foreign = (
+              "wa_backend/api/driver.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/schemas.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/domains/dispatch_shop_finance_fence.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/domains/authorization/backoffice_access.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+              "wa_backend/tests/test_dispatch_shop_finance_edit_v1_postgres.py",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              "dashboard/src/components/dispatch/ShopFormModal.tsx",
+              "dashboard/src/features/dispatch/shopOrder/scope.ts",
+              "dashboard/src/features/dispatch/shopForm/useShopFormCommit.ts",
+              "dashboard/src/hooks/useAuthFetch.ts",
+              "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+              ".github/scripts/live_stock_ci_ownership.py",
+              "wanasah_frontend/lib/main.dart",
+          )
+          for foreign in d05_foreign:
+              assert foreign not in shortage_group_859_exact
+              try:
+                  ownership_mode(shortage_group_859_exact | {foreign})
+              except AssertionError:
+                  # Another exact prior owner (Finance/ShopOrder/ShopForm)
+                  # may reject first; denied is the security invariant.
+                  pass
+              else:
+                  raise AssertionError(f"D05 foreign admitted: {foreign}")
+          d05_mixed = (
+              shortage_group_859_exact | shop_create_f06_exact,
+              shortage_group_859_exact | finance_842_exact,
+              shortage_group_859_exact | shop_order_843_exact,
+              shortage_group_859_exact | shop_form_850_exact,
+              shortage_group_859_exact | ci_policy_847_exact,
+              shortage_group_859_exact | ci_policy_856_exact,
+              shortage_group_859_exact | ci_policy_861_exact,
+          )
+          for mixed in d05_mixed:
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed D05/F06/Finance/CI ownership admitted")
+          print(
+              "DISPATCH_859_SCOPE_SELFTEST=PASS "
+              f"exact=5 partial_with_new={d05_partial_denied} "
+              f"foreign={len(d05_foreign)} mixed={len(d05_mixed)} "
+              "f06_prior=PASS ci861_prior=PASS"
+          )
 
           # Exact-scope positive + adversarial controls, including a partial
           # CP2 contract and tempting Dispatch/auth/runtime hitchhikers.

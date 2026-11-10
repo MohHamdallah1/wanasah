@@ -425,20 +425,32 @@ jobs:
           # #859 all five exact UI files ONLY. Probe missing, foreign and
           # mixed ownership cases; preserve the older #847/#856 protections.
           assert ownership_mode(shortage_group_859_exact) == "SHORTAGE_GROUP_859_EXACT"
-          for missing in shortage_group_859_exact:
-              partial = shortage_group_859_exact - {missing}
-              if partial & shortage_group_859_new:
+          # #865: exhaust all 31 partial subsets; existing DispatchBoard
+          # alone may retain its former mode, never the grouped-shortage mode.
+          shortage_items = sorted(shortage_group_859_exact)
+          shortage_partials_denied = 0
+          for bits in range(1 << len(shortage_items)):
+              subset = {
+                  path for i, path in enumerate(shortage_items) if bits & (1 << i)
+              }
+              if subset == shortage_group_859_exact:
+                  continue
+              if subset & shortage_group_859_new:
                   try:
-                      ownership_mode(partial)
+                      ownership_mode(subset)
                   except AssertionError:
-                      pass
+                      shortage_partials_denied += 1
                   else:
-                      raise AssertionError(f"Partial ShortageGroup #859 admitted: {missing}")
+                      raise AssertionError(f"Partial ShortageGroup #859 admitted: {sorted(subset)}")
               else:
-                  assert ownership_mode(partial) != "SHORTAGE_GROUP_859_EXACT"
+                  assert ownership_mode(subset) != "SHORTAGE_GROUP_859_EXACT"
+          assert shortage_partials_denied == 29
           for foreign in (
               "wa_backend/main.py", "wa_backend/api/dispatch_shortages_group.py",
-              "wa_backend/api/driver.py", "dashboard/src/lib/authStorage.ts",
+              "wa_backend/api/driver.py", "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              "dashboard/src/lib/authStorage.ts",
               "dashboard/src/features/dispatch/shopForm/contract.ts",
               "dashboard/src/features/dispatch/shopOrder/scope.ts",
               ".github/scripts/live_stock_ci_ownership.py",
@@ -451,11 +463,22 @@ jobs:
                   pass
               else:
                   raise AssertionError(f"Foreign ShortageGroup #859 path admitted: {foreign}")
+          # F06's five-file Backend shop-create gate must never be mistaken
+          # for a grouped-shortage UI scope or a combined authorization.
+          f06_shop_create_exact = {
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/domains/dispatch_shop_create.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shop_create_f06_postgres.py",
+          }
+          assert len(f06_shop_create_exact) == 5
           for mixed in (
               shortage_group_859_exact | shop_form_850_exact,
               shortage_group_859_exact | shop_order_843_exact,
               shortage_group_859_exact | ci_policy_847_exact,
               shortage_group_859_exact | ci_policy_856_exact,
+              shortage_group_859_exact | f06_shop_create_exact,
           ):
               try:
                   ownership_mode(mixed)
@@ -463,7 +486,10 @@ jobs:
                   pass
               else:
                   raise AssertionError("Mixed ShortageGroup/ShopForm/ShopOrder/CI admitted")
-          print("INFLIGHT_859_SCOPE_SELFTEST=PASS exact=5 partial=5 foreign=9 mixed=4")
+          print(
+              "INFLIGHT_859_SCOPE_SELFTEST=PASS "
+              "exact=5 partial_with_new=29 foreign=12 mixed=5 f06_cross=DENIED"
+          )
 
           # Both governance sizes must remain independently enforceable:
           # three-file #847 is an established mode, not partial #856 approval.
