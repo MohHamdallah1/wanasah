@@ -496,6 +496,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
       (params: typeof props) => useShopFormCommit(params),
       { initialProps: props },
     );
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(false); });
     expect(hooked.result.current.needsVerification).toBe(true);
     hooked.rerender({ ...props, language: "ar", canViewFinances: true });
@@ -594,6 +595,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
       });
       return { ...formHook, open, busy };
     });
+    await waitFor(() => expect(hooked.result.current.restoring).toBe(false));
     await act(async () => { expect(await hooked.result.current.save()).toBe(true); });
     expect(closed).toHaveBeenCalledOnce();
     expect(hooked.result.current.open).toBe(false);
@@ -608,6 +610,7 @@ describe("Shop authenticated save/readback & financial denial", () => {
         new Promise(resolve => { late = resolve; }));
     const props = args(fetch, { form: { ...form, name: "Changed" } });
     const { result, unmount } = renderHook(() => useShopFormCommit(props));
+    await waitFor(() => expect(result.current.restoring).toBe(false));
     let promise!: Promise<boolean>;
     await act(async () => { promise = result.current.save(); await Promise.resolve(); });
     auth.current = false;
