@@ -119,11 +119,22 @@ export function parseGroupResponse(raw: unknown, requestId: string): GroupRespon
  * mismatched server receipt remain UNKNOWN. A changed readback confirms only
  * the original commit, and must NOT claim its rows are still pending/current.
  */
+const isAuthorizedShortageRow = (raw: unknown): raw is Shortage => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return false;
+  const row = raw as Partial<Shortage>;
+  return numberId(row.id) !== null && numberId(row.productId) !== null &&
+    numberId(row.shopId) !== null && numberId(row.zoneId) !== null &&
+    Number.isSafeInteger(row.quantity) && Number(row.quantity) > 0 &&
+    (row.status === "pending" || row.status === "fulfilled") &&
+    typeof row.productName === "string" && typeof row.shopName === "string" &&
+    typeof row.zoneName === "string";
+};
+
 export function groupReadbackVerdict(
   raw: unknown, intent: GroupIntent, receipt: GroupResponse,
 ): "exact" | "subsequently-changed" | null {
   if (!Array.isArray(raw) || receipt.shortageIds.length !== intent.items.length ||
-    raw.some(row => !row || typeof row !== "object" || numberId(row.id) === null)) return null;
+    !raw.every(isAuthorizedShortageRow)) return null;
   const all = raw as Shortage[];
   if (new Set(all.map(r => Number(r.id))).size !== all.length ||
       all.some(r => intent.shortageIds.includes(Number(r.id)))) return null;
