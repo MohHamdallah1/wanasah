@@ -28,7 +28,7 @@ jobs:
       WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://d08_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
       WANASAH_DISPATCH_D08_STATE: /tmp/dispatch-d08-journey.json
-            PYTHONPATH: ${{ github.workspace }}/wa_backend
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
     steps:
       - uses: actions/checkout@v4
         with:
