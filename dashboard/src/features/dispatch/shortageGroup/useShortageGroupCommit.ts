@@ -110,6 +110,7 @@ export function useShortageGroupCommit({
     inFlight.current = true;
     setBusy(true);
     let sent = false;
+    let preflightStarted = false;
     let command: DurableCommand<GroupIntent> | null = null;
     try {
       const result = await navigator.locks.request(
@@ -140,7 +141,9 @@ export function useShortageGroupCommit({
             }
             // A failed preflight proves that no PUT was sent. This cannot
             // consume a command UUID or install an uncertain operation.
+            preflightStarted = true;
             const snapshot = await fetch("/dispatch/shortages", { cache: "no-store" });
+            preflightStarted = false;
             if (!live()) return false;
             if (!readSelected(snapshot, intent.shortageIds)) {
               setFeedback(groupText(language, "stale"));
@@ -211,8 +214,12 @@ export function useShortageGroupCommit({
       // Local storage/canonical lock failures never turn an uncertain
       // mutation into success and never make a new UUID for the same intent.
       if (live()) {
-        setFeedback(groupText(language, "unknown"));
-        if (!sent) setBlocked(true); // storage read/write failure: fail closed
+        const denied = [401, 403].includes(apiErrorStatus(error) ?? 0);
+        setFeedback(groupText(language, denied ? "denied" : "unknown"));
+        // A network failure during the authorized preflight is definitely
+        // UNSENT and must permit an ordinary fresh attempt after reconnection.
+        // Durable storage/lock failures and revoked GET authority fail closed.
+        if (!sent && (!preflightStarted || denied)) setBlocked(true);
       }
       return false;
     } finally {
