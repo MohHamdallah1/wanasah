@@ -53,6 +53,113 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   expect((await scheduled).status()).toBe(200);
   await expect(schedule).not.toBeVisible();
 
+  // Owner-visible Shop actions on the same real company, not API-only claims.
+  await page.getByRole("button", { name: "إضافة محل" }).click();
+  let shopDialog = page.getByRole("dialog");
+  const uiShop = "D08 UI Shop " + Date.now();
+  await shopDialog.locator("#shop-form input[type='text']").first().fill(uiShop);
+  await shopDialog.locator("#shop-form input[type='tel']").fill("5551000821");
+  const createdShop = page.waitForResponse(r => new URL(r.url()).pathname === "/dispatch/shops"
+    && r.request().method() === "POST");
+  await shopDialog.locator('button[form="shop-form"]').click();
+  const shopCreateResponse = await createdShop;
+  expect(shopCreateResponse.status()).toBe(201);
+  const uiShopId = String((await shopCreateResponse.json()).shop_id);
+  await expect(shopDialog).not.toBeVisible();
+
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  let shopRow = page.locator(".dispatch-shop-table tbody tr").filter({ hasText: uiShop });
+  await expect(shopRow).toBeVisible();
+  await shopRow.getByRole("button", { name: "Edit " + uiShop }).click();
+  shopDialog = page.getByRole("dialog");
+  const uiShopEdited = uiShop + " edited";
+  await shopDialog.locator("#shop-form input[type='text']").first().fill(uiShopEdited);
+  const editedShop = page.waitForResponse(r =>
+    new URL(r.url()).pathname === "/dispatch/shops/" + uiShopId &&
+    r.request().method() === "PUT");
+  await shopDialog.locator('button[form="shop-form"]').click();
+  expect((await editedShop).status()).toBe(200);
+  await expect(shopDialog).not.toBeVisible();
+
+  shopRow = page.locator(".dispatch-shop-table tbody tr").filter({ hasText: uiShopEdited });
+  await expect(shopRow).toBeVisible();
+  await shopRow.locator('input[type="number"]').fill("7");
+  await shopRow.locator('input[type="number"]').press("Tab");
+  const reorderResponse = page.waitForResponse(r =>
+    new URL(r.url()).pathname === "/dispatch/shops/bulk_update" &&
+    r.request().method() === "PUT");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await reorderResponse).status()).toBe(200);
+
+  // Shop archiving in edit mode is a draft until the explicit Save confirmation.
+  shopRow = page.locator(".dispatch-shop-table tbody tr").filter({ hasText: uiShopEdited });
+  await shopRow.getByRole("button", { name: "Archive " + uiShopEdited }).click();
+  const hideConfirm = page.getByRole("dialog", { name: "تأكيد الإخفاء" });
+  await hideConfirm.getByRole("button", { name: "تأكيد" }).click();
+  const archivedShop = page.waitForResponse(r =>
+    new URL(r.url()).pathname === "/dispatch/shops/bulk_update" &&
+    r.request().method() === "PUT");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  expect((await archivedShop).status()).toBe(200);
+
+  await page.getByTitle("فتح أرشيف المحلات المؤرشفة").click();
+  const bin = page.getByRole("dialog", { name: /سلة المحذوفات/ });
+  await expect(bin.getByText(uiShopEdited)).toBeVisible();
+  const restoredShop = page.waitForResponse(r =>
+    new URL(r.url()).pathname === "/dispatch/shops/bulk_update" &&
+    r.request().method() === "PUT");
+  await bin.getByRole("button", { name: /استعادة/ }).click();
+  expect((await restoredShop).status()).toBe(200);
+  await bin.locator(".app-modal-header button").click();
+
+  // Actual bilingual paste-import UI maps to the canonical bulk_import endpoint.
+  await page.getByRole("button", { name: /استيراد المحلات الذكي/ }).click();
+  const importDialog = page.getByRole("dialog", { name: "Import shops" });
+  await importDialog.getByRole("button", { name: "Choose a zone" }).click();
+  await importDialog.getByRole("button", { name: browserZone }).click();
+  const importedName = "D08 UI Imported " + Date.now();
+  await importDialog.getByRole("textbox", { name: "Paste spreadsheet data" })
+    .fill(importedName + "\t5551000822");
+  await importDialog.getByRole("button", { name: "Read pasted data" }).click();
+  const importedShop = page.waitForResponse(r => new URL(r.url()).pathname ===
+    "/dispatch/shops/bulk_import" && r.request().method() === "POST");
+  await importDialog.getByRole("button", { name: "Review and upload shops" }).click();
+  expect((await importedShop).status()).toBe(201);
+  if (await importDialog.isVisible()) {
+    await importDialog.locator(".app-modal-header button").click();
+  }
+
+  // Zone edit/archive/restore uses real browser buttons and same-zone shop provenance.
+  const zoneList = page.locator(".dispatch-zones-workbench > div:first-child");
+  const zoneHeading = zoneList.getByText(browserZone, { exact: true }).first();
+  await zoneHeading.locator("xpath=../..").locator("button").first().click();
+  const renameDialog = page.getByRole("dialog");
+  const renamedUiZone = browserZone + " updated";
+  await renameDialog.locator('#zone-form input[type="text"]').fill(renamedUiZone);
+  const zoneRename = page.waitForResponse(r => new URL(r.url()).pathname.startsWith(
+    "/dispatch/zones/") && r.request().method() === "PUT");
+  await renameDialog.locator('button[form="zone-form"]').click();
+  expect((await zoneRename).status()).toBe(200);
+  await expect(renameDialog).not.toBeVisible();
+
+  const renamedHeading = zoneList.getByText(renamedUiZone, { exact: true }).first();
+  await renamedHeading.locator("xpath=../..")
+    .getByTitle("أرشفة المنطقة بمسح شامل (سوبر أدمن)").click();
+  const archiveZoneModal = page.getByRole("dialog", { name: /أرشفة منطقة/ });
+  await archiveZoneModal.getByPlaceholder("اكتب اسم المنطقة هنا...").fill(renamedUiZone);
+  const archivedZone = page.waitForResponse(r => new URL(r.url()).pathname.startsWith(
+    "/dispatch/zones/") && r.request().method() === "DELETE");
+  await archiveZoneModal.getByRole("button", { name: /تأكيد المسح الشامل/ }).click();
+  expect((await archivedZone).status()).toBe(200);
+  await page.getByRole("button", { name: /الأرشيف/ }).first().click();
+  const zoneBin = page.getByRole("dialog", { name: /الأرشيف \(المناطق المحذوفة\)/ });
+  await expect(zoneBin.getByText(renamedUiZone)).toBeVisible();
+  const restoredZone = page.waitForResponse(r => new URL(r.url()).pathname.endsWith(
+    "/restore") && r.request().method() === "PUT");
+  await zoneBin.getByRole("button", { name: /استعادة المنطقة ومحلاتها/ }).click();
+  expect((await restoredZone).status()).toBe(200);
+  await expect(zoneBin).not.toBeVisible();
+
   await page.getByRole("tab", { name: /الخطوط النشطة/ }).click();
   const row = page.locator(".dispatch-route-row").first();
   await expect(row.getByRole("button", { name: "متابعة الحمولة" })).toBeEnabled();
