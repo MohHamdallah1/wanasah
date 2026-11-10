@@ -144,10 +144,17 @@ export function ShopBulkImportModal({
 
   const draftKey = actorScope ? scopedImportDraftKey(actorScope) : null;
   const readerRef = useRef<FileReader | null>(null);
+  const firstGridInputRef = useRef<HTMLInputElement>(null);
   const latest = useRef({ actorScope, isOpen, session });
   latest.current = { actorScope, isOpen, session };
   const admitted = () => Boolean(actorScope && latest.current.actorScope === actorScope &&
     latest.current.isOpen && isDashboardSessionCurrent(session));
+
+  useEffect(() => {
+    if (step !== 2 || !isOpen || !admitted()) return;
+    const frame = requestAnimationFrame(() => firstGridInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [step, isOpen, actorScope]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -646,6 +653,7 @@ export function ShopBulkImportModal({
                   <FileDown className="w-4 h-4" /> {text("importDownload")}
                 </button>
                 <input
+                  aria-label={text("importUpload")}
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileUpload}
@@ -691,7 +699,7 @@ export function ShopBulkImportModal({
         )}
 
         {step === 2 && (
-          <div className="space-y-4">
+          <div className="space-y-4" dir={i18n.dir()}>
             <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 p-3 sm:p-4 rounded-xl border border-slate-200">
               <div className="flex flex-wrap gap-4">
                 <div className="flex flex-col">
@@ -825,6 +833,7 @@ export function ShopBulkImportModal({
                         <td className="p-2">
                           <input
                             aria-label={`${text("importName")} ${index + 1}`}
+                            ref={index === 0 ? firstGridInputRef : undefined}
                             aria-invalid={row.errors.length > 0}
                             aria-describedby={row.errors.length ? `import-errors-${row._id}` : undefined}
                             value={row.name}
