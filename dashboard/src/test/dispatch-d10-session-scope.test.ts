@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { beginDashboardSession, captureDashboardSession, notifyDashboardSessionChange } from "@/lib/authStorage";
 import type { InventoryCapabilities } from "@/hooks/useInventoryAccess";
 import {
@@ -30,7 +31,8 @@ const data = {
 };
 
 describe("Dispatch D10 actor session preferences and async fence", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => { localStorage.clear(); vi.stubGlobal("crypto", webcrypto); });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("accepts only a current exact canonical company/principal/Backoffice identity", () => {
     const session = login(1, 2, 3);
