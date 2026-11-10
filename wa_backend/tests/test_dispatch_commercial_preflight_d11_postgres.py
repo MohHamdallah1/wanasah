@@ -1,15 +1,13 @@
 """D11 genuine restricted PG16 and Backoffice Bearer advisory, no launch side effects."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import os
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
-from models import (
-    InventoryLock, PricePublication, StocktakeSession, TenantOperationalPolicy,
-)
+from decimal import Decimal
+from models import InventoryLock, StocktakeSession
 from domains.taxation.models import TaxRuleComponent, TaxRuleSetVersion
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import (
@@ -64,7 +62,7 @@ async def test_d11_authoritative_published_zero_tax_read_no_mutation(pg):
                 TaxRuleSetVersion.company_id == tenant.company_id,
                 TaxRuleSetVersion.status == "PUBLISHED",
             ))).all()
-        assert components and all(str(c.rate) == "0.000000" for c in components)
+        assert components and all(c.rate == Decimal("0") for c in components)
         # Anonymous is never allowed to see company readiness.
         anonymous = await client.get(_path(body))
         assert anonymous.status_code == 401
@@ -77,86 +75,66 @@ async def test_d11_authoritative_published_zero_tax_read_no_mutation(pg):
 
 
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
-async def test_d11_real_409_authorities_price_tax_rounding_and_full_audit_lock(pg):
+async def test_d11_missing_canonical_publications_are_not_assumed_zero(pg):
+    # An untouched second company is the real absence-of-publication case.
+    # Never UPDATE an immutable PUBLISHED Pricing/Tax version just for a test.
+    from models import Zone
+    from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
+    tenant = pg.tenants[1]
+    field = await _seed_mobile_uom_and_field(pg, tenant)
+    vehicle, _ = await _vehicle(pg, tenant)
+    async with pg.session() as db:
+        zone = Zone(
+            company_id=tenant.company_id, name="D11 unconfigured " + uuid4().hex[:8],
+            is_active=True,
+        )
+        db.add(zone)
+        await db.flush()
+        zone_id = int(zone.id)
+        await db.commit()
+    body = {
+        "zone_id": zone_id, "driver_id": int(field.driver.id),
+        "vehicle_id": vehicle, "source_location_id": tenant.location_id,
+    }
+    async with _real_http() as client:
+        owner = await _owner(client, pg, tenant)
+        unconfigured = await client.get(_path(body), headers=owner)
+        assert unconfigured.status_code == 200, unconfigured.text
+        checks = unconfigured.json()["checks"]
+        assert unconfigured.json()["ready"] is False
+        assert checks["pricing"]["code"] == "PRICE_NOT_RESOLVED"
+        assert checks["tax"]["code"] == "TAX_CONFIGURATION_REQUIRED"
+        assert checks["rounding"]["code"] == "COMMERCIAL_ROUNDING_NOT_CONFIGURED"
+        assert checks["warehouse"]["ready"] is True
+        assert checks["vehicle"]["ready"] is True
+
+
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+async def test_d11_real_full_warehouse_audit_lock_blocks_launch_without_side_effect(pg):
     tenant = pg.tenants[0]
     key, body, vehicle_location = await _prepared_route(pg, tenant)
     before = await _state(pg, tenant, key, vehicle_location)
-    future = datetime.now(timezone.utc) + timedelta(days=2)
+    async with pg.session() as db:
+        stocktake = StocktakeSession(
+            company_id=tenant.company_id, location_id=tenant.location_id,
+            reference_number="D11-STK-" + uuid4().hex[:12],
+            stocktake_type="FULL_COUNT", status="COUNTING",
+            started_by=tenant.owner.driver_id,
+        )
+        db.add(stocktake)
+        await db.flush()
+        db.add(InventoryLock(
+            company_id=tenant.company_id,
+            stocktake_session_id=stocktake.id,
+            location_id=tenant.location_id,
+            product_variant_id=None, batch_id=None,
+            created_by=tenant.owner.driver_id,
+        ))
+        await db.commit()
     async with _real_http() as client:
         owner = await _owner(client, pg, tenant)
-        # Missing published tax is NOT valid 0%; use real current revision.
-        async with pg.session() as db:
-            version = await db.scalar(select(TaxRuleSetVersion).where(
-                TaxRuleSetVersion.company_id == tenant.company_id,
-                TaxRuleSetVersion.status == "PUBLISHED",
-            ))
-            assert version is not None
-            original_tax_at = version.published_at
-            version.published_at = future
-            await db.commit()
-        no_tax = await client.get(_path(body), headers=owner)
-        assert no_tax.status_code == 200 and no_tax.json()["ready"] is False
-        assert no_tax.json()["checks"]["tax"]["code"] == "TAX_CONFIGURATION_REQUIRED"
-        assert no_tax.json()["checks"]["pricing"]["ready"] is True
-        async with pg.session() as db:
-            version = await db.get(TaxRuleSetVersion, version.id)
-            version.published_at = original_tax_at
-            await db.commit()
-
-        async with pg.session() as db:
-            publication = await db.scalar(select(PricePublication).where(
-                PricePublication.company_id == tenant.company_id,
-                PricePublication.status == "PUBLISHED",
-            ))
-            assert publication is not None
-            original_price_at = publication.published_at
-            publication.published_at = future
-            await db.commit()
-        no_price = await client.get(_path(body), headers=owner)
-        assert no_price.status_code == 200 and no_price.json()["ready"] is False
-        assert no_price.json()["checks"]["pricing"]["code"] == "PRICE_NOT_RESOLVED"
-        async with pg.session() as db:
-            publication = await db.get(PricePublication, publication.id)
-            publication.published_at = original_price_at
-            await db.commit()
-
-        async with pg.session() as db:
-            rounding = await db.scalar(select(TenantOperationalPolicy).where(
-                TenantOperationalPolicy.company_id == tenant.company_id,
-                TenantOperationalPolicy.status == "PUBLISHED",
-            ))
-            assert rounding is not None
-            original_end = rounding.effective_to
-            rounding.effective_to = datetime.now(timezone.utc) - timedelta(seconds=1)
-            await db.commit()
-        no_rounding = await client.get(_path(body), headers=owner)
-        assert no_rounding.status_code == 200 and no_rounding.json()["ready"] is False
-        assert no_rounding.json()["checks"]["rounding"]["code"] == "COMMERCIAL_ROUNDING_NOT_CONFIGURED"
-        async with pg.session() as db:
-            rounding = await db.get(TenantOperationalPolicy, rounding.id)
-            rounding.effective_to = original_end
-            await db.commit()
-
-        async with pg.session() as db:
-            stocktake = StocktakeSession(
-                company_id=tenant.company_id, location_id=tenant.location_id,
-                reference_number="D11-STK-" + uuid4().hex[:12],
-                stocktake_type="FULL_COUNT", status="COUNTING",
-                started_by=tenant.owner.driver_id,
-            )
-            db.add(stocktake)
-            await db.flush()
-            db.add(InventoryLock(
-                company_id=tenant.company_id,
-                stocktake_session_id=stocktake.id,
-                location_id=tenant.location_id,
-                product_variant_id=None, batch_id=None,
-                created_by=tenant.owner.driver_id,
-            ))
-            await db.commit()
         locked = await client.get(_path(body), headers=owner)
         assert locked.status_code == 200 and locked.json()["ready"] is False
         assert locked.json()["checks"]["warehouse"]["code"] == "SOURCE_WAREHOUSE_AUDIT_LOCK"
         assert locked.json()["checks"]["warehouse"]["context"]["stocktake_reference"].startswith("D11-STK-")
-    # No preflight request is a POST, reserves an idempotency key or moves stock.
     assert await _state(pg, tenant, key, vehicle_location) == before
