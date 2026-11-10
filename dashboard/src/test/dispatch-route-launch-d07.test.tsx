@@ -301,7 +301,7 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
 
   it.each([
     ["ar", "التحقق من الإطلاق"],
-    ["en", "Verify original launch"],
+    ["en", "Retry original request"],
   ])("%s: physical launch loses 201, visible original UUID verifies after reentry with one POST", async (language, verifyLabel) => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
     vi.stubGlobal("WebSocket", class {
@@ -351,7 +351,10 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
       if (path.startsWith("/dispatch/route/create-operations/")) {
         const requestId = path.split("/").at(-1)!;
         lookups++;
-        if (lookups === 1) return { request_id: requestId, state: "UNKNOWN" };
+        // AR uses verified GET. EN explicitly retries when two GETs remain
+        // UNKNOWN, with the same canonical UUID and original body.
+        if (lookups === 1 || (language === "en" && lookups === 2))
+          return { request_id: requestId, state: "UNKNOWN" };
         return { request_id: requestId, state: "COMMITTED", response: original };
       }
       return [];
@@ -378,7 +381,8 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
     expect(pointer).toMatchObject({ requestId: posts[0].request_id, warehouseId: 20, vehicleId: 31 });
     fireEvent.click(screen.getByRole("button", { name: verifyLabel }));
     await waitFor(() => expect(localStorage.getItem(routeLaunchPendingKey("1:3:13"))).toBeNull());
-    expect(posts).toHaveLength(1);
+    expect(posts).toHaveLength(language === "en" ? 2 : 1);
+    if (language === "en") expect(posts[1]).toEqual(posts[0]);
     expect(lookups).toBe(2);
     expect(screen.queryByTestId("d07-route-recovery")).not.toBeInTheDocument();
     expect(launch).toBeDisabled(); // D10 form selection cleared on verified original
