@@ -111,11 +111,15 @@ jobs:
           npm ci --no-audit --no-fund
           npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
           npx playwright install --with-deps chromium
-      - name: Build production Dashboard
-        working-directory: dashboard
+      - name: Build exact MAIN as true BEFORE baseline (read-only Git object)
         env:
           VITE_API_URL: http://127.0.0.1:4174
-        run: npm run build
+        run: |
+          cp dashboard/src/pages/DispatchBoard.tsx /tmp/d15-zero-flash-head-Board.tsx
+          cp dashboard/src/components/operations/DashboardLayout.tsx /tmp/d15-zero-flash-head-Layout.tsx
+          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
+          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/components/operations/DashboardLayout.tsx > dashboard/src/components/operations/DashboardLayout.tsx
+          npm --prefix dashboard run build
       - name: Serve built Dashboard
         working-directory: dashboard
         run: |
@@ -126,14 +130,25 @@ jobs:
           done
           cat /tmp/dispatch-d14-ui.log
           exit 1
-      - name: Genuine first cold and all three tab returns in Chromium AR EN 1440 390
+      - name: BEFORE exact MAIN signed PG16 and real Chromium frames
         working-directory: dashboard
         env:
           D15_ZERO_FLASH_ENFORCE: "0"
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq openbox
-          xvfb-run -a sh -c 'openbox > /tmp/dispatch-d15-wm.log 2>&1 & npx playwright test e2e/dispatch-d15-zero-flash.spec.ts --headed --workers=1 --reporter=list --output=node_modules/.cache/dispatch-d15-zero-flash'
+          xvfb-run -a npx playwright test e2e/dispatch-d15-zero-flash.spec.ts --headed --workers=1 --reporter=list --output=node_modules/.cache/dispatch-d15-zero-flash-before
+      - name: Restore tested HEAD and build production AFTER
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: |
+          cp /tmp/d15-zero-flash-head-Board.tsx dashboard/src/pages/DispatchBoard.tsx
+          cp /tmp/d15-zero-flash-head-Layout.tsx dashboard/src/components/operations/DashboardLayout.tsx
+          npm --prefix dashboard run build
+      - name: AFTER same signed PG16 + real Chromium zero-flash and security guard
+        working-directory: dashboard
+        env:
+          D15_ZERO_FLASH_ENFORCE: "1"
+        run: |
+          xvfb-run -a npx playwright test e2e/dispatch-d15-zero-flash.spec.ts --headed --workers=1 --reporter=list --output=node_modules/.cache/dispatch-d15-zero-flash-after
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -141,7 +156,8 @@ jobs:
           name: dispatch-d15-zero-flash-${{ github.run_id }}
           path: |
             wa_backend/d14-real-pg16.xml
-            dashboard/node_modules/.cache/dispatch-d15-zero-flash/
+            dashboard/node_modules/.cache/dispatch-d15-zero-flash-before/
+            dashboard/node_modules/.cache/dispatch-d15-zero-flash-after/
             dashboard/node_modules/.cache/dispatch-d14-browser/
             /tmp/dispatch-d14-api.log
             /tmp/dispatch-d14-ui.log
