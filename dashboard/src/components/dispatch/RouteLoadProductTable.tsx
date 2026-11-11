@@ -50,7 +50,9 @@ export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, 
     </tr>;
   };
 
-  return <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
+  // The table has its OWN intentional 820px scrollport. Prevent that intrinsic
+  // width from expanding the entire Launch flex-column into a second x-scroller.
+  return <section className="w-full min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
     <ProductSearchControls search={search} onChange={setSearch} page={page} enabled={!!endpoint} />
     <button type="button" disabled={!custodyReady} onClick={onClear}>{t("dispatchProductSearch.clear")}</button>
     <div className="overflow-x-auto">
