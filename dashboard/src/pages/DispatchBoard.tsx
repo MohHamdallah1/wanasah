@@ -1838,7 +1838,7 @@ function DispatchSession() {
           {activeTab === "routes" ? (
             <div key="routes" data-testid="dispatch-routes-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
               <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
-                
+
                 {/* الشريطة العائمة */}
                 <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
