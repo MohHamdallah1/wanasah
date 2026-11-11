@@ -520,6 +520,8 @@ jobs:
           def ownership_mode(candidate):
               # D15 #908: one exact secure reentry+genuine browser PR.
               # Worker2 CSS and any foreign/missing files are denied.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_reentry_ci_scope.py")["d15_overflow_mode"](candidate):
+                  return "DISPATCH_D15_909_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_reentry_ci_scope.py")["d15_reentry_mode"](candidate):
                   return "DISPATCH_D15_908_EXACT"
               # D15 #899 Batch 1A: one exact PR scope. Missing/foreign files
