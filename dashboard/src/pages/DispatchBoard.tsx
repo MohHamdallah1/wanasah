@@ -1903,7 +1903,8 @@ function DispatchSession() {
   }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
     grants.zoneManage, grants.routes, grants.zones, grants.launch,
     shortages.length, handleTabChange, zones, pendingRoutes, driverShortagesMap,
-    archiveRouteFocus, tabReady, canonicalRoutesTable, readParts.shops, authenticatedFetch, actorScope, drivers, clearDispatchPrivateState]);
+    archiveRouteFocus, tabReady, canonicalRoutesTable, readParts.shops, readParts.shortages,
+    grants.shortageCreate, authenticatedFetch, actorScope, drivers, clearDispatchPrivateState]);
 
   const hostedRoutes = Boolean(chromeBridge && activeTab === "routes");
   return (
