@@ -312,6 +312,9 @@ if (process.env.D15_ZERO_FLASH_ENFORCE === "1") {
       await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
       await expect(page.getByTestId("dispatch-routes-workspace")).toBeVisible();
       await expect(page.getByRole("tab", { name: "الخطوط النشطة" })).toHaveAttribute("aria-selected", "true", { timeout: 30000 });
+      // Selection stays gold during auth; wait for the independent signed
+      // enabled state before completing the cold-JS pending→admitted witness.
+      await expect(page.getByRole("tab", { name: "الخطوط النشطة" })).toBeEnabled({ timeout: 30000 });
       await page.waitForTimeout(250);
       await page.screenshot({ path: imageDir + "/" + language + "-" + width + "-js-restored-same-panel.png" });
       const frames = await page.evaluate(() => (window as any).__d15ColdImportFrames as Array<{
