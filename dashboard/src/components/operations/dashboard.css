@@ -360,15 +360,6 @@
   min-width: 0;
 }
 
-.dispatch-command-bar {
-  color: #fff;
-  border-color: rgb(255 255 255 / 0.12) !important;
-  background:
-    radial-gradient(circle at 10% 0%, rgb(40 151 202 / 0.25), transparent 22rem),
-    linear-gradient(135deg, #142844, #0d1b30 68%);
-  box-shadow: 0 18px 42px -32px rgb(13 27 48 / 0.95);
-}
-
 .dispatch-tab-list {
   max-width: 100%;
   overflow-x: auto;
@@ -392,10 +383,6 @@
   color: #14233a !important;
   background: var(--dashboard-gold) !important;
   box-shadow: 0 9px 20px -15px rgb(245 189 52 / 0.9);
-}
-
-.dispatch-command-bar > div:last-child button {
-  border-color: rgb(255 255 255 / 0.14);
 }
 
 .dispatch-content {
@@ -551,15 +538,6 @@
     min-height: 30rem;
   }
 
-  .dispatch-command-bar > div,
-  .dispatch-command-bar > div:first-child {
-    width: 100%;
-  }
-
-  .dispatch-command-bar > div:last-child {
-    justify-content: flex-end;
-  }
-
   .settlement-grid {
     grid-template-areas:
       "financial"
@@ -587,9 +565,6 @@
     width: 100%;
   }
 
-  .dispatch-command-bar > div:last-child {
-    flex-wrap: wrap;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

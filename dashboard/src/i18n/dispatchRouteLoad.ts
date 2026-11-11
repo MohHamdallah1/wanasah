@@ -11,7 +11,6 @@ export const dispatchRouteLoad = {
     loading: "تحميل معلومات الوحدات...",
     blocked: "تعذر التحقق من وحدة المنتج. لا يمكن الإطلاق.",
     invalid: "راجع كمية الحمولة المستهدفة ووحدة المنتج.",
-    review: "تتم حركة الفرق تلقائيًا عبر المستودع المختار.",
     currentBase: "الكمية بالوحدة الأساسية",
   },
   en: {
@@ -26,7 +25,6 @@ export const dispatchRouteLoad = {
     loading: "Loading unit information...",
     blocked: "Cannot verify product unit. Route launch blocked.",
     invalid: "Review the target quantity and product unit.",
-    review: "The difference is moved automatically through the selected warehouse.",
     currentBase: "Canonical base quantity",
   },
 } as const;
