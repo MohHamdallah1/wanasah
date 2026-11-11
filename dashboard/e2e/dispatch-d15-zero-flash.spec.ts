@@ -196,7 +196,7 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
         pendingImage = name + "-" + destination;
         if (width === 390) await page.locator(".dashboard-mobile-menu").click();
         await page.locator(".operations-nav button").nth(1).click();
-        await expect(page).toHaveURL(/\\/dispatch$/);
+        await expect(page).toHaveURL(new RegExp("/dispatch$"));
         await capture(page, network, mark, "return:" + name + ":" + destination + ":" + language + ":" + width, enforce);
         await page.screenshot({ path: `${imageDir}/${language}-${width}-${name}-${destination}-ready.png` });
         expect(await page.evaluate(node =>
