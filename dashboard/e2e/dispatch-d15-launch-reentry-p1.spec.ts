@@ -30,7 +30,7 @@ async function selectAuthorizedChoices(page: Page) {
   let selected = 0;
   for (const index of [3, 0, 1, 2]) {
     const slot = slots.nth(index);
-    const button = slot.locator("> div.relative > button");
+    const button = slot.locator(":scope > div.relative > button");
     if (await button.isDisabled()) continue;
     await button.click();
     const choices = slot.locator("div.absolute.top-full button");
