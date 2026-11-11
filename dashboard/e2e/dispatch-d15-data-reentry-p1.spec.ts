@@ -78,6 +78,7 @@ async function sample(page: Page, tab: Tab, label: string) {
           falseZero:tab === "zones" && /المناطق \(0\)/.test(text),
           falseShops:tab === "zones" && text.includes("لا توجد محلات في هذه المنطقة"),
           falseRoutes:tab === "routes" && text.includes("لا توجد خطوط سير تشغيلية حالياً"),
+          falseProductContext:tab === "launch" && text.includes("اختر السيارة ومستودع المصدر للبحث"),
           workspaceX:target ? Math.max(0,target.scrollWidth-target.clientWidth) : -1,
           frameX:wrapper ? Math.max(0,wrapper.scrollWidth-wrapper.clientWidth) : -1,
           configX:launch ? Math.max(0,launch.scrollWidth-launch.clientWidth) : -1,
@@ -139,6 +140,7 @@ for (const width of [1440, 390] as const) {
         falseZero:frames.filter(f=>f.falseZero).length,
         falseShops:frames.filter(f=>f.falseShops).length,
         falseRoutes:frames.filter(f=>f.falseRoutes).length,
+        falseProductContext:frames.filter(f=>f.falseProductContext).length,
         maxWorkspaceX:Math.max(0,...frames.map(f=>f.workspaceX)),
         maxFrameX:Math.max(0,...frames.map(f=>f.frameX)),
         maxConfigX:Math.max(0,...frames.map(f=>f.configX)),
@@ -149,6 +151,7 @@ for (const width of [1440, 390] as const) {
         expect(report.falseZero).toBe(0);
         expect(report.falseShops).toBe(0);
         expect(report.falseRoutes).toBe(0);
+        expect(report.falseProductContext).toBe(0);
         expect(report.maxWorkspaceX,"No horizontal Launch page scrollbar").toBeLessThanOrEqual(2);
         expect(report.maxFrameX,"No extra page-wide Dispatch content scrollbar").toBeLessThanOrEqual(2);
         expect(report.maxConfigX).toBeLessThanOrEqual(2);
