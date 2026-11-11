@@ -518,6 +518,10 @@ jobs:
           assert len(dispatch_d11_881_exact) == 16
 
           def ownership_mode(candidate):
+              # D15 #913: exact twelve-file, public-chrome-only first paint
+              # with real signed browser proof. No missing/foreign files.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_zero_flash_scope.py")["d15_zero_flash_mode"](candidate):
+                  return "DISPATCH_D15_913_EXACT"
               # D15 #908: one exact secure reentry+genuine browser PR.
               # Worker2 CSS and any foreign/missing files are denied.
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_reentry_ci_scope.py")["d15_overflow_mode"](candidate):

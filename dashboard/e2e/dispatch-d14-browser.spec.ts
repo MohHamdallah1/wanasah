@@ -51,6 +51,8 @@ async function shopsTab(page: Page, zone: string) {
   await page.goto("/dispatch");
   const tab = page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ });
   await expect(tab).toBeVisible({ timeout: 45000 });
+  // D15: visible static tab is disabled until the real PG16 signed reads pass.
+  await expect(tab).toBeEnabled({ timeout: 45000 });
   await tab.focus();
   await page.keyboard.press("Enter");
   await expect(tab).toHaveAttribute("aria-selected", "true");

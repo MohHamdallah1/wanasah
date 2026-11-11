@@ -16,6 +16,8 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
+import { DispatchChromeHost } from "@/features/dispatch/stableUi/DispatchChrome";
+import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
@@ -84,7 +86,7 @@ const DashboardLayout = () => {
     return <Navigate to="/login" replace />;
   }
 
-  if (access.isPending) {
+  if (access.isPending && !isDispatchRoute) {
     return (
       <div
         className="dashboard-access-state"
@@ -98,7 +100,7 @@ const DashboardLayout = () => {
     );
   }
 
-  if (access.isError) {
+  if (access.isError && !isDispatchRoute) {
     return (
       <div
         className="dashboard-access-state dashboard-access-state--error"
@@ -131,6 +133,8 @@ const DashboardLayout = () => {
     );
   }
   if (
+    !access.isPending &&
+    !access.isError &&
     !access.isCompanyOwner &&
     location.pathname ===
       "/dispatch" &&
@@ -245,34 +249,30 @@ const DashboardLayout = () => {
         ) : null}
 
         <main className="dashboard-content mt-2 flex min-h-0 flex-1 flex-col gap-4">
-          <Suspense
-            fallback={
-              <div
-                className="grid min-h-0 flex-1 place-items-center rounded-2xl border border-white/50 bg-white/35 text-sm font-bold text-slate-500"
-                role="status"
-              >
-                {t("common.loading")}
-              </div>
-            }
-          >
+          {/* The public dispatch toolbar is a stable sibling of all Suspense boundaries. */}
+          {(dispatchMounted || isDispatchRoute) ? (
+            <div className={isDispatchRoute ? "contents" : "hidden"}
+              aria-hidden={!isDispatchRoute} data-persistent-dispatch-host="true">
+              <DispatchChromeHost active={isDispatchRoute}>
+                <Suspense fallback={
+                  <div className="dispatch-content flex min-h-0 w-full flex-1 flex-col pt-2">
+                    <DispatchWorkspaceStructure activeTab="routes" />
+                  </div>
+                }>
+                  <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+                </Suspense>
+              </DispatchChromeHost>
+            </div>
+          ) : null}
+          <Suspense fallback={
+            <div className="grid min-h-0 flex-1 place-items-center rounded-2xl border border-white/50 bg-white/35 text-sm font-bold text-slate-500" role="status">
+              {t("common.loading")}
+            </div>
+          }>
             {inventoryMounted ? (
-              <div
-                className={isInventoryRoute ? "contents" : "hidden"}
-                aria-hidden={!isInventoryRoute}
-                data-persistent-inventory-host="true"
-              >
-                <MainInventory
-                  key={`${session.generation}:${session.identity}:inventory`}
-                />
-              </div>
-            ) : null}
-            {(dispatchMounted || isDispatchRoute) ? (
-              <div
-                className={isDispatchRoute ? "contents" : "hidden"}
-                aria-hidden={!isDispatchRoute}
-                data-persistent-dispatch-host="true"
-              >
-                <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+              <div className={isInventoryRoute ? "contents" : "hidden"}
+                aria-hidden={!isInventoryRoute} data-persistent-inventory-host="true">
+                <MainInventory key={`${session.generation}:${session.identity}:inventory`} />
               </div>
             ) : null}
             {!isInventoryRoute && !isDispatchRoute ? (
