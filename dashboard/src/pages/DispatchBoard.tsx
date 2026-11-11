@@ -247,33 +247,6 @@ function DispatchSession() {
   const dispatchDeniedRef = useRef(false);
   const lastAuthorizedTabsRef = useRef<TabId[]>([]);
 
-  // Preserve this session's React workspace between Dashboard pages. Immediately
-  // fence the hidden route (including portals and asynchronous commands) BEFORE
-  // paint. On return, check genuine signed /inventory/access/me; no old company,
-  // Warehouse or finance rows can appear before this read and fresh Dispatch GETs.
-  useLayoutEffect(() => {
-    const wasVisible = wasOnDispatchRouteRef.current;
-    wasOnDispatchRouteRef.current = onDispatchRoute;
-    if (!onDispatchRoute) {
-      dispatchFenceRef.current.revoke();
-      asyncEpochRef.current.revoke();
-      setNavigationVerified(false);
-      setDispatchReadState("loading");
-    } else if (!wasVisible) {
-      setNavigationVerified(false);
-      // The access hook remains Backend-authoritative, with global focus
-      // refetch semantics untouched. This is the one reentry authorization.
-      let disposed = false;
-      // Join any focus-triggered React Query request instead of cancelling it
-      // and sending a second /inventory/access/me for the same session.
-      void inventoryAccess.refetch({ cancelRefetch: false }).finally(() => {
-        if (!disposed && isDashboardSessionCurrent(session!)) {
-          setNavigationVerified(true);
-        }
-      });
-      return () => { disposed = true; };
-    }
-  }, [onDispatchRoute, inventoryAccess.refetch, session]);
   const tabAllowed = (tab: TabId) =>
     tab === "routes" ? grants.routes : tab === "zones" ? grants.zones : grants.launch;
   useEffect(() => {
@@ -306,6 +279,42 @@ function DispatchSession() {
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
   const sourceAccess = useInventoryAccess(selectedSourceWarehouseId ? Number(selectedSourceWarehouseId) : null);
+  // Preserve this session's React workspace between Dashboard pages. Immediately
+  // fence the hidden route (including portals and asynchronous commands) BEFORE
+  // paint. On return, check genuine signed /inventory/access/me; no old company,
+  // Warehouse or finance rows can appear before this read and fresh Dispatch GETs.
+  useLayoutEffect(() => {
+    const wasVisible = wasOnDispatchRouteRef.current;
+    wasOnDispatchRouteRef.current = onDispatchRoute;
+    if (!onDispatchRoute) {
+      dispatchFenceRef.current.revoke();
+      asyncEpochRef.current.revoke();
+      setNavigationVerified(false);
+      setDispatchReadState("loading");
+    } else if (!wasVisible) {
+      setNavigationVerified(false);
+      // The access hook remains Backend-authoritative, with global focus
+      // refetch semantics untouched. This is the one reentry authorization.
+      let disposed = false;
+      // Join any focus-triggered React Query request instead of cancelling it
+      // and sending a second /inventory/access/me for the same session.
+      void Promise.all([
+        inventoryAccess.refetch({ cancelRefetch: false }),
+        // Warehouse-scoped execution authority can be independently revoked
+        // without removing company-wide Dispatch read. Refresh that exact
+        // selected source too, never promote its old grant on route return.
+        selectedSourceWarehouseId
+          ? sourceAccess.refetch({ cancelRefetch: false })
+          : Promise.resolve(),
+      ]).finally(() => {
+        if (!disposed && isDashboardSessionCurrent(session!)) {
+          setNavigationVerified(true);
+        }
+      });
+      return () => { disposed = true; };
+    }
+  }, [onDispatchRoute, inventoryAccess.refetch, sourceAccess.refetch,
+    selectedSourceWarehouseId, session]);
   const canLaunch = Boolean(grants.launch && selectedSourceWarehouseId && sourceAccess.can('dispatch.execute') &&
     warehouses.some(w => w.id === selectedSourceWarehouseId && w.can_execute === true) &&
     vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true));
