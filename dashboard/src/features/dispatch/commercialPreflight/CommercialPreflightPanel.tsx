@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RotateCcw } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   PREFLIGHT_AREAS, preflightCopy, preflightLabel, preflightReason,
@@ -17,8 +17,8 @@ export function CommercialPreflightPanel({
   const text = (key: Parameters<typeof preflightCopy>[1]) =>
     preflightCopy(language, key);
 
-  // Incomplete selections cannot be checked; no empty card or instruction.
-  if (status === "choose") return null;
+  // The real readiness slot always reserves its single-line footprint. A
+  // background signed read must never insert a temporary line or expose approval.
 
   const failures = status === "blocked" && evidence
     ? PREFLIGHT_AREAS.filter(area => !evidence.checks[area].ready) : [];
@@ -33,14 +33,9 @@ export function CommercialPreflightPanel({
 
   return (
     <section data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
-      aria-label={text("title")} className="w-full min-w-0">
-      {status === "loading" ? (
-        <div role="status" aria-live="polite"
-          className="inline-flex max-w-full min-w-0 items-center gap-2 py-1 text-xs text-slate-500">
-          <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin" />
-          <span className="min-w-0 truncate" title={text("checking")}>{text("checking")}</span>
-        </div>
-      ) : confirmedReady ? (
+      aria-label={text("title")} aria-busy={status === "loading"}
+      className="w-full min-w-0 min-h-6">
+      {status === "loading" || status === "choose" ? null : confirmedReady ? (
         <div role="status" aria-live="polite" aria-label={text("ready")}
           className="inline-flex max-w-full min-w-0 items-center gap-1.5 py-1 text-xs font-semibold text-emerald-700">
           <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
