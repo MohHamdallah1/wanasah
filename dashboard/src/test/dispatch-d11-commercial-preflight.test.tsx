@@ -133,20 +133,33 @@ describe("D15 compact preflight presentation — independent panel states", () =
     return state;
   };
 
-  it("hides the entire empty card and explanatory text before all selections exist", () => {
+  it("preserves the real compact readiness footprint without a fake choice message", () => {
     const view = renderPanel("choose", "ar", server());
-    expect(view.container).toBeEmptyDOMElement();
+    expect(view.container.querySelector("section")).toHaveClass("min-h-6");
+    expect(view.container.querySelector("section")).toHaveAttribute("aria-busy", "false");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders a neutral inline busy indicator with live status, not a header or card", () => {
+  it("keeps a silent aria-busy slot during true revalidation without shifting the layout", () => {
     const view = renderPanel("loading");
-    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
-    expect(screen.getByRole("status")).toHaveTextContent("جاري التحقق");
+    const section = view.container.querySelector("section");
+    expect(section).toHaveAttribute("aria-busy", "true");
+    expect(section).toHaveClass("min-h-6");
+    expect(view.container).not.toHaveTextContent("جاري التحقق");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(view.container.querySelector(".shadow-sm, .rounded-2xl, .border-slate-200"))
-      .not.toBeInTheDocument();
+    const evidence = server();
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
+      status="ready" evidence={evidence} onRefresh={vi.fn()} /></MemoryRouter>);
+    expect(view.container.querySelector("section")).toBe(section);
+    expect(section).toHaveClass("min-h-6");
+    expect(screen.getByRole("status")).toHaveTextContent("تم التحقق");
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
+      status="loading" evidence={null} onRefresh={vi.fn()} /></MemoryRouter>);
+    expect(view.container.querySelector("section")).toBe(section);
+    expect(section).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText("تم التحقق")).not.toBeInTheDocument();
   });
 
   it("shows only the compact ready check for authoritative published 0%-tax READY", () => {
