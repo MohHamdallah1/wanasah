@@ -50,6 +50,7 @@ import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
 import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
+import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
 import {
@@ -596,7 +597,21 @@ function DispatchSession() {
 
   useEffect(() => {
     if (accessState === "ready") return;
+    // A fresh permission read must hide all previously authorized rows BEFORE
+    // it resolves. A soft window-focus refetch is not a logout, however:
+    // retaining only non-rendered selector/draft state prevents four selectors,
+    // the current tab and pending D07 recovery from restarting every focus.
     dispatchFenceRef.current.revoke();
+    asyncEpochRef.current.revoke();
+    if (accessState === "loading") {
+      setZones([]); setShops([]); setShortages([]); setPendingRoutes([]);
+      setDrivers([]); setVehicles([]); setWarehouses([]);
+      savedShopsRef.current = [];
+      setDispatchReadState("loading");
+      return;
+    }
+    // Actual 401/403, malformed principal, or failed authorization still
+    // destroys ALL private state including drafts and dialog identities.
     clearDispatchPrivateState();
     setDispatchReadState(accessState);
   }, [accessState, clearDispatchPrivateState]);
@@ -611,6 +626,10 @@ function DispatchSession() {
       if (!wasAway || document.visibilityState === "hidden" ||
           !isDashboardSessionCurrent(session!)) return;
       wasAway = false;
+      // React Query revalidates /inventory/access/me on window focus.
+      // Never launch a second, potentially stale, four-endpoint read while
+      // that fresh grant/revoke check is still in flight.
+      if (inventoryAccess.isFetching) return;
       setShops([]);
       setShortages([]);
       fetchInitialData();
@@ -628,7 +647,7 @@ function DispatchSession() {
       window.removeEventListener("focus", revalidate);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [accessState, actorScope, fetchInitialData, session]);
+  }, [accessState, actorScope, fetchInitialData, inventoryAccess.isFetching, session]);
 
   // Warehouse lock is scoped to the explicitly selected source warehouse.
   useEffect(() => {
@@ -1599,35 +1618,94 @@ function DispatchSession() {
     setEditingShortageIds([]);
   };
 
-  if (accessState !== "ready" || dispatchReadState !== "ready") {
+  const dispatchAdmitted = accessState === "ready" && dispatchReadState === "ready";
+  // The shared Products page primitive owns the exact full-width dock geometry.
+  // This chrome is mounted immediately, but no old shop, warehouse, role or
+  // route data is rendered until both fresh Backend checks have succeeded.
+  const dispatchTopBar = (
+    <WorkspaceTopBar variant="page" className="shrink-0" data-testid="dispatch-shared-topbar">
+      <header className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        {dispatchAdmitted ? (
+          <>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="dispatch-tab-list flex max-w-full min-w-0 overflow-x-auto rounded-xl bg-white/10 p-1"
+                role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
+                {([
+                  { id: "routes", label: "الخطوط النشطة", icon: Truck },
+                  { id: "launch", label: "إطلاق خط جديد", icon: Plus },
+                  { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid },
+                ] as const).filter(tab => tabAllowed(tab.id)).map(tab => (
+                  <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id}
+                    onClick={() => handleTabChange(tab.id)}
+                    className={`dispatch-tab flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold transition-all sm:px-3 sm:text-sm ${
+                      activeTab === tab.id
+                        ? "bg-white text-[#125d85] shadow-sm"
+                        : "text-slate-200 hover:bg-white/10 hover:text-white"
+                    }`}>
+                    <tab.icon className="h-4 w-4 shrink-0" /> {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex min-w-0 shrink-0 items-center gap-2">
+              {grants.shortages && (
+                <button type="button" onClick={() => setIsShortageModalOpen(true)}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-colors sm:text-sm ${
+                    shortages.length > 0
+                      ? "border-amber-300 bg-amber-500 text-slate-950"
+                      : "border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  }`}>
+                  <ClipboardList className="h-4 w-4 shrink-0" />
+                  طلبات ونواقص
+                </button>
+              )}
+              {grants.zoneManage && activeTab === "zones" && (
+                <button type="button"
+                  onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1e87bb] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#166a94] sm:text-sm">
+                  <Calendar className="h-4 w-4 shrink-0" />
+                  الجدولة الشاملة
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <div aria-hidden="true" data-testid="dispatch-neutral-topbar"
+            className="flex h-9 w-full items-center gap-3">
+            <div className="h-8 w-36 rounded-lg bg-white/10" />
+            <div className="h-8 w-20 rounded-lg bg-white/5" />
+          </div>
+        )}
+      </header>
+    </WorkspaceTopBar>
+  );
+
+  if (!dispatchAdmitted) {
     const display = accessState !== "ready" ? accessState : dispatchReadState;
-    return <DispatchAccessNotice state={display === "ready" ? "loading" : display}
-      onRetry={() => { dispatchDeniedRef.current = false; setDispatchReadState("loading"); retryAccess(); }} />;
+    return (
+      <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
+        {dispatchTopBar}
+        {display === "loading" ? (
+          <div data-testid="dispatch-quiet-loading" aria-busy="true"
+            className="flex min-h-0 flex-1 flex-col gap-3 p-3" role="status">
+            <div aria-hidden="true" className="h-12 w-full rounded-xl bg-slate-100/60" />
+            <div aria-hidden="true" className="min-h-40 flex-1 rounded-xl bg-slate-100/50" />
+          </div>
+        ) : (
+          <DispatchAccessNotice state={display === "ready" ? "error" : display}
+            onRetry={() => {
+              dispatchDeniedRef.current = false;
+              setDispatchReadState("loading");
+              retryAccess();
+            }} />
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className="dispatch-board w-full h-full flex flex-col flex-1 min-h-0 animate-in fade-in duration-200">
-      {/* +++ الكي الجراحي: إزالة التثبيت (sticky) لكي يصعد البار مع السكرول ولا يتداخل مع المحتوى +++ */}
-      <div className="dispatch-command-bar glass-card rounded-2xl min-h-16 md:min-h-20 px-4 md:px-6 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 relative z-20">
-        <div className="flex items-center gap-6">
-          <div className="dispatch-tab-list flex max-w-full overflow-x-auto bg-slate-100 p-1 rounded-xl" role="tablist" aria-label="أقسام إدارة التوزيع">
-            {/* +++  فصل الإطلاق عن المراقبة בـ 3 تبويبات +++ */}
-            {([
-              { id: "routes", label: "الخطوط النشطة", icon: Truck },
-              { id: "launch", label: "إطلاق خط جديد", icon: Plus },
-              { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid }
-            ] as const).filter(tab => tabAllowed(tab.id)).map(tab => (
-              <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} onClick={() => handleTabChange(tab.id)} className={`dispatch-tab flex shrink-0 items-center gap-2 px-3 sm:px-6 py-2 rounded-lg text-sm font-bold transition-all ${activeTab === tab.id ? "bg-white text-[#1e87bb] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
-                <tab.icon className="w-4 h-4" /> {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          {grants.shortages && <button onClick={() => setIsShortageModalOpen(true)} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-sm ${shortages.length > 0 ? "bg-amber-500 text-white animate-pulse" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}><ClipboardList className="w-4 h-4" /> 📦 طلبات ونواقص</button>}
-          {grants.zoneManage && activeTab === "zones" && <button onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-colors shadow-sm"><Calendar className="w-4 h-4" /> 🗓️ الجدولة الشاملة</button>}
-        </div>
-      </div>
+    <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
+      {dispatchTopBar}
 
       {/* CS-WH-03: Warehouse audit lock warning banner */}
       {archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
@@ -1860,12 +1938,17 @@ function DispatchSession() {
                   onChange={changeSourceWarehouse}
                   placeholder="اختر مستودع المصدر"
                 />
+                {/* Commercial readiness belongs to the same four-selector
+                    launch configuration, not a second full-width page card.
+                    Worker2 owns the panel internals; its real props and
+                    Backend verification stay unchanged. */}
+                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0">
+                  <CommercialPreflightPanel language={i18n.language}
+                    status={commercialPreflight.status}
+                    evidence={commercialPreflight.evidence}
+                    onRefresh={commercialPreflight.refresh} />
+                </div>
               </div>
-
-              <CommercialPreflightPanel language={i18n.language}
-                status={commercialPreflight.status}
-                evidence={commercialPreflight.evidence}
-                onRefresh={commercialPreflight.refresh} />
 
               <RouteLoadProductTable vehicleId={selectedVehicleId} warehouseId={selectedSourceWarehouseId} scope={productScope}
                 current={vehicleCustodyReady ? routeLoadCurrent : {}} targets={vehicleCustodyReady ? routeLoadTargets : {}}
@@ -1879,7 +1962,6 @@ function DispatchSession() {
 
               {/* Keep the primary launch action reachable on short viewports. */}
               <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
-                <p className="mb-2 text-sm text-slate-600">{t("dispatchRouteLoad.review")}</p>
                 <div className="flex justify-end">
                   <button
                     disabled={!canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||

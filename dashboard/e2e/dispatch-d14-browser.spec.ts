@@ -49,7 +49,7 @@ async function signIn(page: Page, who: Identity, language: Language) {
 
 async function shopsTab(page: Page, zone: string) {
   await page.goto("/dispatch");
-  const tab = page.getByRole("tab", { name: /هيكلة المناطق/ });
+  const tab = page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ });
   await expect(tab).toBeVisible({ timeout: 45000 });
   await tab.focus();
   await page.keyboard.press("Enter");
@@ -93,8 +93,8 @@ async function revisitRealBrowserTab(page: Page, selectedZone: string) {
   await elsewhere.bringToFront();
   await page.bringToFront();
   await elsewhere.close();
-  const routes = page.getByRole("tab", { name: /الخطوط النشطة/ });
-  const zones = page.getByRole("tab", { name: /هيكلة المناطق/ });
+  const routes = page.getByRole("tab", { name: /الخطوط النشطة|Active routes/ });
+  const zones = page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ });
   await routes.click();
   await zones.click();
   await expect(zones).toHaveAttribute("aria-selected", "true");
@@ -129,8 +129,33 @@ for (const language of ["ar", "en"] as const) {
           }
         });
 
-        // 1. Owner company-wide Shop identity + actual 3-decimal receivables.
+        // D15 1A: real fresh login, same physical shared Products topbar
+        // frame, no verbose permissions banner and no old separate card.
+        // These are real built-Dashboard DOM checks; no mocked endpoints.
         await signIn(page, "owner", language);
+        await page.goto("/dispatch", { waitUntil: "domcontentloaded" });
+        const bar = page.getByTestId("dispatch-shared-topbar");
+        await expect(bar).toBeVisible({ timeout: 45000 });
+        await expect(bar.locator(".workspace-top-bar--page")).toBeVisible();
+        await expect(page.locator(".dispatch-command-bar")).toHaveCount(0);
+        await expect(page.getByText(/جارٍ التحقق من صلاحيات الوصول|Checking access permissions/)).toHaveCount(0);
+        const dispatchFrame = await bar.boundingBox();
+        expect(dispatchFrame).not.toBeNull();
+        await page.goto("/products");
+        const productFrame = page.locator(".workspace-top-bar-frame");
+        await expect(productFrame).toBeVisible({ timeout: 45000 });
+        const productsBox = await productFrame.boundingBox();
+        expect(productsBox).not.toBeNull();
+        expect(Math.abs(dispatchFrame!.x - productsBox!.x)).toBeLessThanOrEqual(2);
+        expect(Math.abs(dispatchFrame!.width - productsBox!.width)).toBeLessThanOrEqual(2);
+        await page.goto("/dispatch");
+        const launch = page.getByRole("tab", { name: /إطلاق خط جديد|Launch route/ });
+        await expect(launch).toBeVisible({ timeout: 45000 });
+        await launch.click();
+        await expect(page.locator(".dispatch-launch-config [data-testid='dispatch-launch-readiness']")).toBeVisible();
+        await expect(page.locator(".dispatch-launch-config")).toBeVisible();
+        await expect(page.getByText("تتم حركة الفرق تلقائيًا عبر المستودع المختار")).toHaveCount(0);
+        // The real final launch verification path is untouched.
         await shopsTab(page, state.zones.a1);
         await visibleMoney(page, state.shops.assigned.name, "181.125", language);
         await shopsTab(page, state.zones.a2);
@@ -168,6 +193,8 @@ for (const language of ["ar", "en"] as const) {
         toggle("reader", "off");
         await revisitRealBrowserTab(page, state.zones.a2);
         await unavailable(page, state.shops.a2.name, language);
+        // The old full-page auth notice never flashes during real tab reentry.
+        await expect(page.getByText(/جارٍ التحقق من صلاحيات الوصول|Checking access permissions/)).toHaveCount(0);
 
         // 4. A1 warehouse-restricted *Backoffice*, active Visit only.
         await signIn(page, "limited", language);
@@ -198,8 +225,8 @@ for (const language of ["ar", "en"] as const) {
         // 5. Company/account switch: rendered A1 Shop must vanish in foreign B.
         await signIn(page, "foreign", language);
         await page.goto("/dispatch");
-        await expect(page.getByRole("tab", { name: /هيكلة المناطق/ })).toBeVisible();
-        await page.getByRole("tab", { name: /هيكلة المناطق/ }).click();
+        await expect(page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ })).toBeVisible();
+        await page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ }).click();
         await expect(shopRow(page, state.shops.assigned.name)).toHaveCount(0);
         await expect(shopRow(page, state.shops.a2.name)).toHaveCount(0);
         const foreign = await browserApi<any[]>(page, "/dispatch/shops");
