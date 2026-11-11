@@ -25,8 +25,9 @@ export function CommercialPreflightPanel({
   // Display success only for an actual positive advisory from the caller.
   // Launch authorization and the fresh pre-POST read remain in the existing hook.
   const confirmedReady = status === "ready" && evidence?.ready === true;
-  const retryable = status === "blocked" || status === "error" ||
-    (status === "ready" && !confirmedReady);
+  // Blocked evidence is rechecked automatically while the launch tab is visible.
+  // Manual recovery is only for a failed read, never an extra launch step.
+  const retryable = status === "error" || (status === "ready" && !confirmedReady);
   const warning = status === "blocked" ? text("blocked")
     : status === "denied" ? text("denied") : text("unavailable");
 
