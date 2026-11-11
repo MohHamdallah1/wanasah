@@ -187,7 +187,7 @@ export default function DispatchBoard() {
   const parentChrome = useDispatchChromeBridge();
   if (!session) return null;
   const page = <DispatchSession key={JSON.stringify(session)} />;
-  return parentChrome ? page : <DispatchChromeHost active>{page}</DispatchChromeHost>;
+  return parentChrome ? page : <DispatchChromeHost key={JSON.stringify(session)} active>{page}</DispatchChromeHost>;
 }
 
 function DispatchSession() {
