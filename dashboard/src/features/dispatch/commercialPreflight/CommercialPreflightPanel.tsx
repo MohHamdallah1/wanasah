@@ -1,3 +1,4 @@
+import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { Link } from "react-router-dom";
 import {
   PREFLIGHT_AREAS, preflightCopy, preflightLabel, preflightReason,
@@ -13,47 +14,73 @@ export function CommercialPreflightPanel({
   onRefresh: () => void;
 }) {
   const isArabic = language.toLowerCase().startsWith("ar");
-  const failures = evidence
-    ? PREFLIGHT_AREAS.filter(area => !evidence.checks[area].ready) : [];
   const text = (key: Parameters<typeof preflightCopy>[1]) =>
     preflightCopy(language, key);
+
+  // Incomplete selections cannot be checked; no empty card or instruction.
+  if (status === "choose") return null;
+
+  const failures = status === "blocked" && evidence
+    ? PREFLIGHT_AREAS.filter(area => !evidence.checks[area].ready) : [];
+  // Display success only for an actual positive advisory from the caller.
+  // Launch authorization and the fresh pre-POST read remain in the existing hook.
+  const confirmedReady = status === "ready" && evidence?.ready === true;
+  const retryable = status === "blocked" || status === "error" ||
+    (status === "ready" && !confirmedReady);
+  const warning = status === "blocked" ? text("blocked")
+    : status === "denied" ? text("denied") : text("unavailable");
+
   return (
     <section data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
-      aria-label={text("title")}
-      className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:px-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-bold text-slate-800">{text("title")}</h2>
-        <button type="button" onClick={onRefresh} disabled={status === "choose" || status === "loading"}
-          className="min-h-11 rounded-xl border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[#1e87bb] disabled:opacity-50">
-          {text("refresh")}
-        </button>
-      </div>
-      <div role="status" aria-live="polite" className="mt-2 text-sm text-slate-700">
-        {status === "choose" ? text("choose") :
-          status === "loading" ? text("checking") :
-          status === "denied" ? text("denied") :
-          status === "error" ? text("unavailable") :
-          status === "ready" ? text("ready") : text("blocked")}
-      </div>
-      {status === "blocked" && evidence && (
-        <ul className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-2" aria-label={text("blocked")}>
-          {failures.map(area => {
-            const reason = preflightReason(language, evidence.checks[area].code);
-            return (
-              <li key={area} className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm">
-                <p className="font-bold text-amber-950">{preflightLabel(language, area)}</p>
-                <p className="mt-1 text-amber-900">{reason.text}</p>
-                {reason.path && (
-                  <Link to={reason.path} className="mt-2 inline-flex min-h-10 items-center rounded-lg
-                    border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-900
-                    underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
-                    {text("fix")}
-                  </Link>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+      aria-label={text("title")} className="w-full min-w-0">
+      {status === "loading" ? (
+        <div role="status" aria-live="polite"
+          className="inline-flex max-w-full min-w-0 items-center gap-2 py-1 text-xs text-slate-500">
+          <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          <span className="min-w-0 truncate" title={text("checking")}>{text("checking")}</span>
+        </div>
+      ) : confirmedReady ? (
+        <div role="status" aria-live="polite" aria-label={text("ready")}
+          className="inline-flex max-w-full min-w-0 items-center gap-1.5 py-1 text-xs font-semibold text-emerald-700">
+          <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
+          <span>{text("review")}</span>
+        </div>
+      ) : (
+        <div role="status" aria-live="polite"
+          className="min-w-0 space-y-1.5 py-1 text-xs text-amber-900">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+            <div className="flex min-w-0 items-start gap-2">
+              <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <span className="min-w-0 break-words font-semibold">{warning}</span>
+            </div>
+            {retryable && (
+              <button type="button" onClick={onRefresh}
+                className="inline-flex min-h-9 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-amber-900 underline underline-offset-2 hover:bg-amber-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+                <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+                {text("refresh")}
+              </button>
+            )}
+          </div>
+          {status === "blocked" && evidence && failures.length > 0 && (
+            <ul className="min-w-0 space-y-1.5 ps-6" aria-label={text("blocked")}>
+              {failures.map(area => {
+                const reason = preflightReason(language, evidence.checks[area].code);
+                return (
+                  <li key={area} className="min-w-0 break-words">
+                    <span className="font-semibold">{preflightLabel(language, area)}: </span>
+                    <span>{reason.text}</span>
+                    {reason.path && (
+                      <Link to={reason.path}
+                        className="ms-2 inline-flex min-h-9 items-center rounded-md px-1 font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+                        {text("fix")}
+                      </Link>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       )}
     </section>
   );
