@@ -5,9 +5,9 @@ const fixture = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER
 const paths = new Set(["/inventory/access/me", "/dispatch/init", "/dispatch/shops", "/dispatch/shortages", "/dispatch/active_routes"]);
 type Frame = { ms: number; shell: boolean; tabs: number; visibleTabs: number; neutral: boolean; structural: boolean; pending: boolean; pageReady: boolean; animations: number; bodyPresent: boolean };
 async function signIn(page: Page, language: "ar" | "en") {
-  await page.goto("/");
+  await page.goto("http://127.0.0.1:4173/");
   await page.evaluate(lang => { localStorage.clear(); localStorage.setItem("wanasah.language", lang); }, language);
-  await page.goto("/login");
+  await page.goto("http://127.0.0.1:4173/login");
   await page.reload();
   const owner = fixture.credentials.owner;
   await page.locator("#company-code").fill(owner.code);
@@ -95,7 +95,7 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     // Document-start instrumentation captures cold component import and first
     // actual Dashboard render, rather than starting after the toolbar appears.
     await page.addInitScript(beginProbe);
-    await page.goto("/dispatch");
+    await page.goto("http://127.0.0.1:4173/dispatch");
     await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible({ timeout: 35000 });
     await capture(page, network, 0, "cold:" + language + ":" + width, enforce);
     const routes = page.getByRole("tab", { name: "الخطوط النشطة" });
