@@ -27,11 +27,15 @@ function beginProbe() {
         const board = document.querySelector(".dispatch-board");
         const shell = board?.querySelector('[data-testid="dispatch-shared-topbar"]');
         const tabs = shell?.querySelectorAll('[role="tab"]');
+        // Persistent Dispatch remains mounted but CSS-hidden while Products
+        // still owns the visible route frame. Never count that hidden ancestor
+        // as a flashing *visible* toolbar while React commits navigation.
+        const visibleShell = Boolean(shell && (shell as HTMLElement).getClientRects().length > 0);
         const visibleTabs = [...(tabs ?? [])].filter(el => (el as HTMLElement).getClientRects().length > 0).length;
         const activeAnimations = board ? [...board.getAnimations({ subtree: true })].filter(a => a.playState === "running").length : 0;
         w.__d15ZeroFrames.push({
           ms: Math.round(performance.now() - w.__d15ZeroStart),
-          shell: Boolean(shell), tabs: tabs?.length ?? 0, visibleTabs,
+          shell: visibleShell, tabs: visibleShell ? tabs?.length ?? 0 : 0, visibleTabs,
           neutral: Boolean(shell?.querySelector('[data-testid="dispatch-neutral-topbar"]')),
           structural: Boolean(board?.querySelector('[data-testid="dispatch-structural-workspace"]')),
           pending: Boolean(board?.querySelector('[data-testid="dispatch-quiet-loading"]')),
