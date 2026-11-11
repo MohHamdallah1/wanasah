@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { expect, test, type Page } from "playwright/test";
+import { expect, test, type Page, type Request } from "playwright/test";
 
 // Same restricted PG16/real signed FastAPI seed as accepted D14: never mock API.
 const state = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER_STATE!, "utf8"));
@@ -99,10 +99,16 @@ for (const language of ["ar", "en"] as const) {
       await page.setViewportSize({ width, height: 900 });
       await signIn(page, language);
       const seen: {path: string; at: number}[] = [];
+      const inFlight = new Set<Request>();
       page.on("request", request => {
         const path = apiPath(request.url());
-        if (allPaths.has(path)) seen.push({ path, at: Date.now() });
+        if (allPaths.has(path)) {
+          seen.push({ path, at: Date.now() });
+          inFlight.add(request);
+        }
       });
+      page.on("requestfinished", request => { inFlight.delete(request); });
+      page.on("requestfailed", request => { inFlight.delete(request); });
       await page.goto("/dispatch");
       // This is an actual same-Dashboard-identity host, not remount-per-route.
       await expect(page.locator("[data-persistent-dispatch-host='true']")).toHaveCount(1);
@@ -117,6 +123,10 @@ for (const language of ["ar", "en"] as const) {
         await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
         await navigateInApp(page, 4, mobile);
         await expect(page.locator(".workspace-top-bar-frame:visible").first()).toBeVisible();
+        // Exclude an independent Products authorization from the Dispatch
+        // return budget. Never suppress either page's genuine Backend check.
+        await page.waitForTimeout(120);
+        await expect.poll(() => inFlight.size, { timeout: 10000 }).toBe(0);
         const begin = Date.now();
         await probe(page);
         await navigateInApp(page, 1, mobile);
