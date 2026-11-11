@@ -1,5 +1,4 @@
 import { useTranslation } from "react-i18next";
-import { DispatchChrome } from "./DispatchChrome";
 import "./dispatchNoMotion.css";
 import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import type { TabId } from "@/types/dispatch";
@@ -9,18 +8,27 @@ export function DispatchWorkspaceStructure({ activeTab }: { activeTab: TabId }) 
   const { i18n } = useTranslation();
   const zone = dispatchUiText(i18n.language, "zone");
   const shop = dispatchUiText(i18n.language, "shop");
+  // Concrete safe column headings, no fabricated data or financial values.
+  const cols = activeTab === "zones"
+    ? [shop, zone, i18n.language.startsWith("ar") ? "صاحب المحل" : "Shop owner",
+       i18n.language.startsWith("ar") ? "الإجراءات" : "Actions"]
+    : activeTab === "routes"
+      ? [zone, i18n.language.startsWith("ar") ? "المندوب" : "Representative",
+        i18n.language.startsWith("ar") ? "الحالة" : "Status",
+        i18n.language.startsWith("ar") ? "الإجراءات" : "Actions"]
+      : [zone, i18n.language.startsWith("ar") ? "المندوب" : "Representative",
+        i18n.language.startsWith("ar") ? "المركبة" : "Vehicle",
+        i18n.language.startsWith("ar") ? "المستودع" : "Warehouse"];
   const table = (
     <div className="min-h-0 flex-1 overflow-hidden rounded-b-2xl bg-white">
-      <div className="grid grid-cols-4 gap-3 border-b border-slate-100 px-4 py-3" aria-hidden="true">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-4 rounded bg-slate-100" />
-        ))}
-      </div>
-      <div className="grid grid-cols-4 gap-3 px-4 py-4" aria-hidden="true">
-        {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-7 rounded bg-slate-50" />
-        ))}
-      </div>
+      <table className="w-full table-fixed text-start text-sm" aria-label={i18n.language.startsWith("ar") ? "هيكل جدول التوزيع" : "Dispatch table structure"}>
+        <thead className="bg-slate-50 text-slate-600"><tr>
+          {cols.map(column => <th key={column} scope="col" className="border-b border-slate-100 px-3 py-3 text-start font-semibold">{column}</th>)}
+        </tr></thead>
+        <tbody><tr><td colSpan={cols.length} className="h-16 px-4 py-3 text-sm text-slate-500">
+          {i18n.language.startsWith("ar") ? "جارٍ التحقق من البيانات..." : "Verifying data..."}
+        </td></tr></tbody>
+      </table>
     </div>
   );
   return (
@@ -61,14 +69,3 @@ export function DispatchWorkspaceStructure({ activeTab }: { activeTab: TabId }) 
   );
 }
 
-/** Same lightweight shared chrome during first lazy Dispatch chunk download. */
-export function DispatchColdFrame() {
-  return (
-    <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
-      <DispatchChrome activeTab="routes" admitted={false} permissionKnown={false} />
-      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
-        <DispatchWorkspaceStructure activeTab="routes" />
-      </div>
-    </div>
-  );
-}

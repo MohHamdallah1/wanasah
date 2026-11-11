@@ -49,7 +49,7 @@ import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
 import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
-import { DispatchChrome } from "@/features/dispatch/stableUi/DispatchChrome";
+import { DispatchChromeHost, useDispatchChromeBridge } from "@/features/dispatch/stableUi/DispatchChrome";
 import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
@@ -184,10 +184,14 @@ const sortZones = (zones: Zone[]) => {
 
 export default function DispatchBoard() {
   const session = useDashboardSession();
-  return session ? <DispatchSession key={JSON.stringify(session)} /> : null;
+  const parentChrome = useDispatchChromeBridge();
+  if (!session) return null;
+  const page = <DispatchSession key={JSON.stringify(session)} />;
+  return parentChrome ? page : <DispatchChromeHost active>{page}</DispatchChromeHost>;
 }
 
 function DispatchSession() {
+  const chromeBridge = useDispatchChromeBridge();
   const { t, i18n } = useTranslation();
   const session = useDashboardSession();
   const routeLocation = useLocation();
@@ -245,7 +249,6 @@ function DispatchSession() {
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
   const dispatchFenceRef = useRef(createDispatchReadFence());
   const dispatchDeniedRef = useRef(false);
-  const lastAuthorizedTabsRef = useRef<TabId[]>([]);
 
   const tabAllowed = (tab: TabId) =>
     tab === "routes" ? grants.routes : tab === "zones" ? grants.zones : grants.launch;
@@ -1650,34 +1653,31 @@ function DispatchSession() {
 
   const dispatchAdmitted = onDispatchRoute && navigationVerified &&
     accessState === "ready" && dispatchReadState === "ready";
-  // Tab presentation can persist within the SAME session, never as authority.
-  if (dispatchAdmitted) {
-    lastAuthorizedTabsRef.current = (["routes", "launch", "zones"] as const)
-      .filter(tab => tabAllowed(tab));
-  }
   const visiblePermissionTabs = accessState === "ready"
-    ? (["routes", "launch", "zones"] as const).filter(tab => tabAllowed(tab))
-    : lastAuthorizedTabsRef.current.length ? lastAuthorizedTabsRef.current : undefined;
+    ? (["routes", "launch", "zones"] as const).filter(tab => tabAllowed(tab)) : [];
   const display = accessState !== "ready" ? accessState : dispatchReadState;
+  // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
+  useLayoutEffect(() => {
+    chromeBridge?.publish({
+      activeTab, admitted: dispatchAdmitted, permissionKnown: accessState === "ready",
+      allowedTabs: visiblePermissionTabs,
+      canShortages: grants.shortages, canZoneManage: grants.zoneManage,
+      hasShortages: dispatchAdmitted && shortages.length > 0,
+    }, {
+      onTabChange: handleTabChange,
+      onShortages: () => setIsShortageModalOpen(true),
+      onBulkSchedule: () => {
+        setSchedulingType("bulk");
+        setSelectedBulkZoneIds(zones.map(z => z.id));
+        setIsSchedulingModalOpen(true);
+      },
+    });
+  }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
+    grants.zoneManage, grants.routes, grants.zones, grants.launch,
+    shortages.length, handleTabChange, zones]);
 
-  // Single permanently mounted toolbar; independent secure data hydration.
   return (
-    <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
-      <DispatchChrome
-        activeTab={activeTab} admitted={dispatchAdmitted}
-        permissionKnown={accessState === "ready"}
-        allowedTabs={visiblePermissionTabs}
-        canShortages={grants.shortages}
-        canZoneManage={grants.zoneManage}
-        hasShortages={dispatchAdmitted && shortages.length > 0}
-        onTabChange={handleTabChange}
-        onShortages={() => setIsShortageModalOpen(true)}
-        onBulkSchedule={() => {
-          setSchedulingType("bulk");
-          setSelectedBulkZoneIds(zones.map(z => z.id));
-          setIsSchedulingModalOpen(true);
-        }}
-      />
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
       {!dispatchAdmitted ? (
         <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
           {display === "loading" ? (

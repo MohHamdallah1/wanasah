@@ -3,7 +3,7 @@ import { expect, test, type Page } from "playwright/test";
 
 const fixture = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER_STATE!, "utf8"));
 const paths = new Set(["/inventory/access/me", "/dispatch/init", "/dispatch/shops", "/dispatch/shortages", "/dispatch/active_routes"]);
-type Frame = { ms: number; shell: boolean; tabs: number; visibleTabs: number; neutral: boolean; structural: boolean; pending: boolean; pageReady: boolean; animations: number; bodyPresent: boolean };
+type Frame = { ms: number; shell: boolean; tabs: number; visibleTabs: number; neutral: boolean; structural: boolean; pending: boolean; pageReady: boolean; animations: number; bodyPresent: boolean; mainStage: boolean; priorRouteVisible: boolean; visibleMainBlank: boolean; preReactDocument: boolean };
 async function signIn(page: Page, language: "ar" | "en") {
   await page.goto("http://127.0.0.1:4173/");
   await page.evaluate(lang => { localStorage.clear(); localStorage.setItem("wanasah.language", lang); }, language);
@@ -33,6 +33,15 @@ function beginProbe() {
         const visibleShell = Boolean(shell && (shell as HTMLElement).getClientRects().length > 0);
         const visibleTabs = [...(tabs ?? [])].filter(el => (el as HTMLElement).getClientRects().length > 0).length;
         const activeAnimations = board ? [...board.getAnimations({ subtree: true })].filter(a => a.playState === "running").length : 0;
+        const stage = document.querySelector(".dashboard-main-stage");
+        const main = document.querySelector(".dashboard-content");
+        const priorRouteVisible = Boolean(main && [...main.children].some(child =>
+          !child.contains(board) && (child as HTMLElement).getClientRects().length > 0 &&
+          (child as HTMLElement).getBoundingClientRect().height > 0));
+        const preReactDocument = !document.querySelector(".dashboard-shell");
+        const visibleMainBlank = Boolean(stage && !visibleShell && !priorRouteVisible &&
+          !stage.querySelector('[role="status"]') &&
+          !stage.querySelector(".dashboard-access-state"));
         w.__d15ZeroFrames.push({
           ms: Math.round(performance.now() - w.__d15ZeroStart),
           shell: visibleShell, tabs: visibleShell ? tabs?.length ?? 0 : 0, visibleTabs,
@@ -41,6 +50,7 @@ function beginProbe() {
           pending: Boolean(board?.querySelector('[data-testid="dispatch-quiet-loading"]')),
           pageReady: Boolean(board && shell), animations: activeAnimations,
           bodyPresent: Boolean(document.querySelector(".dispatch-content")),
+          mainStage: Boolean(stage), priorRouteVisible, visibleMainBlank, preReactDocument,
         });
       }
       if (performance.now() - w.__d15ZeroStart < 1700) requestAnimationFrame(loop);
@@ -69,6 +79,13 @@ async function capture(page: Page, network: string[], marker: number, label: str
       neutralFrames: frames.filter(x => x.neutral).length,
       tabsMissingWhileShell: missing.length, disappearedAfterShown: flicker,
       fullShellMissing: frames.filter(x => !x.shell).length,
+      preReactDocumentFrames: frames.filter(x => x.preReactDocument).length,
+      priorRouteFrames: frames.filter(x => x.priorRouteVisible && !x.shell).length,
+      genuineEmptyMainFrames: frames.filter(x => x.visibleMainBlank).length,
+      missingShellSamples: frames.filter(x => !x.shell).slice(0, 8).map(x => ({
+        ms: x.ms, preReact: x.preReactDocument, prior: x.priorRouteVisible,
+        empty: x.visibleMainBlank, main: x.mainStage,
+      })),
       structuralFrames: frames.filter(x => x.structural).length,
       animationFrames: frames.filter(x => x.animations > 0).length,
       blankWorkspaceFrames: frames.filter(x => x.shell && !x.bodyPresent).length,
@@ -80,6 +97,7 @@ async function capture(page: Page, network: string[], marker: number, label: str
   const result = { label, ...data, network: byPath };
   console.log("D15_ZERO_FLASH=" + JSON.stringify(result));
   if (enforce) {
+    expect(data.genuineEmptyMainFrames, label + ": dashboard main must never be visibly empty").toBe(0);
     expect(data.tabsMissingWhileShell, label + ": tabs must exist while server reads").toBe(0);
     expect(data.disappearedAfterShown, label + ": header cannot blink after display").toBe(0);
     expect(data.blankWorkspaceFrames, label + ": permanent layout must remain").toBe(0);

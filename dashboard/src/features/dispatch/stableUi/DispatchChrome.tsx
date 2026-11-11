@@ -1,4 +1,6 @@
 import { Calendar, ClipboardList, LayoutGrid, Plus, Truck } from "lucide-react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import "./dispatchNoMotion.css";
 import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import type { TabId } from "@/types/dispatch";
@@ -29,11 +31,10 @@ export function DispatchChrome({
   onTabChange, onShortages, onBulkSchedule,
 }: Props) {
   const { i18n } = useTranslation();
-  const visibleTabs = permissionKnown
-    ? ALL_TABS.filter(tab => allowedTabs?.includes(tab.id))
-    : ALL_TABS;
-  const showShortages = permissionKnown ? canShortages : true;
-  const showScheduling = permissionKnown ? canZoneManage : true;
+  // Never unmount public tab positions when a scoped permission response arrives.
+  const visibleTabs = ALL_TABS;
+  const showShortages = true;
+  const showScheduling = true;
 
   return (
     <WorkspaceTopBar variant="page" className="shrink-0" data-testid="dispatch-shared-topbar">
@@ -43,11 +44,11 @@ export function DispatchChrome({
             role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
             {visibleTabs.map(tab => (
               <button key={tab.id} type="button" role="tab"
-                aria-selected={activeTab === tab.id}
-                disabled={!admitted}
-                onClick={() => { if (admitted) onTabChange?.(tab.id); }}
+                aria-selected={admitted && activeTab === tab.id}
+                disabled={!admitted || (permissionKnown && !allowedTabs?.includes(tab.id))}
+                onClick={() => { if (admitted && allowedTabs?.includes(tab.id)) onTabChange?.(tab.id); }}
                 className={`dispatch-tab flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold sm:px-3 sm:text-sm ${
-                  activeTab === tab.id
+                  admitted && activeTab === tab.id
                     ? "bg-white text-[#125d85] shadow-sm"
                     : "text-slate-200 hover:bg-white/10 hover:text-white"
                 }`}>
@@ -80,5 +81,53 @@ export function DispatchChrome({
         </div>
       </header>
     </WorkspaceTopBar>
+  );
+}
+
+type ChromeView = Pick<Props, "activeTab" | "admitted" | "permissionKnown" | "allowedTabs" |
+  "canShortages" | "canZoneManage" | "hasShortages">;
+type ChromeActions = Pick<Props, "onTabChange" | "onShortages" | "onBulkSchedule">;
+type ChromeBridge = { publish: (view: ChromeView, actions: ChromeActions) => void };
+const ChromeContext = createContext<ChromeBridge | null>(null);
+const initialView: ChromeView = {
+  activeTab: "routes", admitted: false, permissionKnown: false, allowedTabs: [],
+  canShortages: false, canZoneManage: false, hasShortages: false,
+};
+export const useDispatchChromeBridge = () => useContext(ChromeContext);
+
+/** One permanent toolbar owned above Dispatch lazy hydration, not a cold duplicate. */
+export function DispatchChromeHost({ active, children }: { active: boolean; children: ReactNode }) {
+  const [view, setView] = useState<ChromeView>(initialView);
+  const handlers = useRef<ChromeActions>({});
+  const publish = useCallback((next: ChromeView, callbacks: ChromeActions) => {
+    handlers.current = callbacks;
+    setView(current =>
+      current.activeTab === next.activeTab && current.admitted === next.admitted &&
+      current.permissionKnown === next.permissionKnown &&
+      current.canShortages === next.canShortages &&
+      current.canZoneManage === next.canZoneManage &&
+      current.hasShortages === next.hasShortages &&
+      current.allowedTabs?.join("|") === next.allowedTabs?.join("|")
+        ? current : next,
+    );
+  }, []);
+  const bridge = useMemo(() => ({ publish }), [publish]);
+  // On navigation away revoke actions before paint; keep only the public tab preference.
+  useLayoutEffect(() => {
+    if (!active) {
+      handlers.current = {};
+      setView(current => ({ ...initialView, activeTab: current.activeTab }));
+    }
+  }, [active]);
+  return (
+    <ChromeContext.Provider value={bridge}>
+      <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
+        <DispatchChrome {...view} admitted={active && view.admitted}
+          onTabChange={tab => handlers.current.onTabChange?.(tab)}
+          onShortages={() => handlers.current.onShortages?.()}
+          onBulkSchedule={() => handlers.current.onBulkSchedule?.()} />
+        {children}
+      </div>
+    </ChromeContext.Provider>
   );
 }
