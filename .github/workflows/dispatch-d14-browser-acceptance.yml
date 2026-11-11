@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 jobs:
-  real-d08-journey:
+  real-d14-browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -96,12 +96,12 @@ jobs:
       - name: Start real FastAPI
         working-directory: wa_backend
         run: |
-          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-d08-api.log 2>&1 &
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-d14-api.log 2>&1 &
           for attempt in $(seq 1 40); do
             if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/dispatch-d08-api.log
+          cat /tmp/dispatch-d14-api.log
           exit 1
       - name: Install Dashboard and real Chromium
         working-directory: dashboard
@@ -117,12 +117,12 @@ jobs:
       - name: Serve built Dashboard
         working-directory: dashboard
         run: |
-          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-d08-ui.log 2>&1 &
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-d14-ui.log 2>&1 &
           for attempt in $(seq 1 40); do
             if curl --fail --silent http://127.0.0.1:4173/dispatch >/dev/null; then exit 0; fi
             sleep 1
           done
-          cat /tmp/dispatch-d08-ui.log
+          cat /tmp/dispatch-d14-ui.log
           exit 1
       - name: Verify real signed Chromium AR EN desktop 1440 and mobile 390 Shop security
         working-directory: dashboard
@@ -131,10 +131,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dispatch-d08-real-journey-${{ github.run_id }}
+          name: dispatch-d14-real-privacy-${{ github.run_id }}
           path: |
             wa_backend/d14-real-pg16.xml
             dashboard/node_modules/.cache/dispatch-d14-browser/
-            /tmp/dispatch-d08-api.log
-            /tmp/dispatch-d08-ui.log
+            /tmp/dispatch-d14-api.log
+            /tmp/dispatch-d14-ui.log
           if-no-files-found: warn
