@@ -518,6 +518,9 @@ jobs:
           assert len(dispatch_d11_881_exact) == 16
 
           def ownership_mode(candidate):
+              # D15 #918: exact real-panel presentation correction only.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_real_content_scope.py")["d15_real_content_mode"](candidate):
+                  return "DISPATCH_D15_918_REAL_CONTENT_EXACT"
               # D15 #913: exact twelve-file, public-chrome-only first paint
               # with real signed browser proof. No missing/foreign files.
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_zero_flash_scope.py")["d15_zero_flash_mode"](candidate):

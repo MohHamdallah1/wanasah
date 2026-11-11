@@ -127,6 +127,8 @@ jobs:
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
               assert (files == d07_complete_exact or __import__("runpy").run_path(
+                  ".github/scripts/dispatch_d15_real_content_scope.py"
+              )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
               )["d06_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_visual_ci_scope.py"
