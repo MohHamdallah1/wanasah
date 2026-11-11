@@ -134,7 +134,7 @@ async function inspect(page: Page, label: string, held: { access: number; init: 
     scrollDelta: number; overflow: number; tabs: number; busy: string | null;
   }>);
   const outcome = {
-    label, selectedCount, samples: frames.length, held, 
+    label, selectedCount, samples: frames.length, held,
     lostGold: frames.filter(x => !x.selected || !x.gold || x.selectedCount !== 1).length,
     remount: frames.filter(x => !x.sameWorkspace || !x.sameConfig || !x.sameProduct || !x.sameFields).length,
     checking: frames.filter(x => x.checkingText).length,
