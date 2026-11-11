@@ -1723,7 +1723,7 @@ function DispatchSession() {
                 {/* شريط الأدوات */}
                 <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
                   {(() => {
-                    const hasPostponed = pendingRoutes.some(r => r.status === "postponed");
+                    const hasPostponed = tabReady && pendingRoutes.some(r => r.status === "postponed");
                     return (
                       <button
                         onClick={() => setIsShowPostponedModalOpen(true)}
@@ -1738,7 +1738,7 @@ function DispatchSession() {
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
                           </span>
                         )}
-                        عرض المؤجل ({pendingRoutes.filter(r => r.status === "postponed").length})
+                        عرض المؤجل ({tabReady ? pendingRoutes.filter(r => r.status === "postponed").length : 0})
                       </button>
                     );
                   })()}
@@ -2101,7 +2101,7 @@ function DispatchSession() {
         </>
       </div>
 
-      {grants.shortages && isShortageModalOpen && (
+      {dispatchAdmitted && grants.shortages && isShortageModalOpen && (
       <ShortageModal
         canCreate={grants.shortageCreate && grants.routes}
         canCancel={grants.shortageCancel}
@@ -2152,8 +2152,8 @@ function DispatchSession() {
         }}
       />
       )}
-      <ScheduleModal isOpen={isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
-      {isRouteModalOpen && (
+      <ScheduleModal isOpen={dispatchAdmitted && isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
+      {dispatchAdmitted && isRouteModalOpen && (
       <RouteManagementModal
         isOpen={isRouteModalOpen}
         onClose={() => setIsRouteModalOpen(false)}
@@ -2174,7 +2174,7 @@ function DispatchSession() {
         onConfirmAction={handleConfirmRouteAction}
       />
       )}
-      <ShopFormModal isOpen={grants.zoneManage && isShopModalOpen} onClose={() => {
+      <ShopFormModal isOpen={dispatchAdmitted && grants.zoneManage && isShopModalOpen} onClose={() => {
         if (canCloseShopForm(isSaving, shopNeedsVerification)) setIsShopModalOpen(false);
       }}
         editingShopId={editingShopId} shopForm={shopForm}
@@ -2188,7 +2188,7 @@ function DispatchSession() {
         saving={isSaving} needsVerification={shopNeedsVerification} canViewFinances={canReadShopFinances}
         finance={shopFinance} financeLoading={shopFinanceLoading} feedback={shopFormFeedback} />
       <RecycleBinModal
-        isOpen={grants.zoneManage && showRecycleBin}
+        isOpen={dispatchAdmitted && grants.zoneManage && showRecycleBin}
         onClose={() => setShowRecycleBin(false)}
         recycleSearchQuery={recycleSearchQuery}
         onRecycleSearchQueryChange={setRecycleSearchQuery}
@@ -2217,12 +2217,12 @@ function DispatchSession() {
           } catch (err: unknown) { if (admitted()) toast.error(getErrorMessage(err)); }
         }}
       />
-      <BulkTransferModal isOpen={grants.zoneManage && isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
+      <BulkTransferModal isOpen={dispatchAdmitted && grants.zoneManage && isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
         companyId={sourceAccess.data?.company_id}
         principalId={sourceAccess.data?.principal_id}
-        isOpen={isInventoryModalOpen}
+        isOpen={dispatchAdmitted && isInventoryModalOpen}
         onClose={() => setIsInventoryModalOpen(false)}
         route={pendingRoutes.find((route) => route.id === inventoryRoute?.id) ?? inventoryRoute}
         onSuccess={() => { fetchInitialData(); }}
@@ -2230,7 +2230,7 @@ function DispatchSession() {
 
       {/* +++ رادار الحوالات المصفح +++ */}
       <TransfersRadarModal
-        isOpen={isRadarModalOpen}
+        isOpen={dispatchAdmitted && isRadarModalOpen}
         onClose={() => {
           setIsRadarModalOpen(false);
           setRadarFocusTransferId(null);
@@ -2241,24 +2241,24 @@ function DispatchSession() {
         openCancelForFocus={radarOpenCancel}
       />
 
-      <ZoneModal isOpen={grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { const admitted = captureUiRead(); try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
+      <ZoneModal isOpen={dispatchAdmitted && grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
+      <PostponedRoutesModal isOpen={dispatchAdmitted && isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { const admitted = captureUiRead(); try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
           route?.sessionBound
             ? { status: "waiting" }
             : { status: "waiting", driverId: route?.driverId }
         ) }); if (!admitted()) return; setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { if (admitted()) toast.error(getErrorMessage(e)); } }} />
-      <ZoneRecycleBinModal isOpen={isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
+      <ZoneRecycleBinModal isOpen={dispatchAdmitted && isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
         key={actorScope ?? "no-actor"}
         actorScope={actorScope}
         session={session!}
-        isOpen={grants.zoneManage && isBulkImportModalOpen}
+        isOpen={dispatchAdmitted && grants.zoneManage && isBulkImportModalOpen}
         onClose={() => setIsBulkImportModalOpen(false)}
         zones={zones}
         existingShops={shops}
         onSuccess={fetchInitialData}
       />
-      {confirmDialog.isOpen && (
+      {dispatchAdmitted && confirmDialog.isOpen && (
         <Modal
           isOpen={confirmDialog.isOpen}
           onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
@@ -2278,7 +2278,7 @@ function DispatchSession() {
         </Modal>
       )}
 
-      {duplicateWarning && (
+      {dispatchAdmitted && duplicateWarning && (
         <Modal
           isOpen={Boolean(duplicateWarning)}
           onClose={() => clearDuplicateWarning()}
@@ -2310,7 +2310,7 @@ function DispatchSession() {
         </Modal>
       )}
 
-      {unsavedTabPrompt && (
+      {dispatchAdmitted && unsavedTabPrompt && (
         <Modal
           isOpen={!!unsavedTabPrompt}
           onClose={() => setUnsavedTabPrompt(null)}
@@ -2351,7 +2351,7 @@ function DispatchSession() {
         </Modal>
       )}
 
-      {restorePromptShop && (
+      {dispatchAdmitted && restorePromptShop && (
         <Modal
           isOpen={!!restorePromptShop}
           onClose={() => setRestorePromptShop(null)}
@@ -2415,7 +2415,7 @@ function DispatchSession() {
 
       {/* +++ مودال أرشفة المنطقة بمسح شامل (سوبر أدمن) +++ */}
       <Modal
-        isOpen={isSuicideModalOpen}
+        isOpen={dispatchAdmitted && isSuicideModalOpen}
         onClose={() => setIsSuicideModalOpen(false)}
         title={`⚠️ أرشفة منطقة: ${zoneToKill?.name}`}
         footer={
