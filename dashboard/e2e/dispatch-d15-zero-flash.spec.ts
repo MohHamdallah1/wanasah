@@ -51,8 +51,11 @@ function beginProbe() {
           ? visible(workspace?.querySelector(".dispatch-route-list"))
           : targetTab === "launch"
             ? visible(workspace?.querySelector(".dispatch-launch-config")) &&
-              visible(workspace?.querySelector('[data-testid="dispatch-launch-readiness"]')) &&
-              Boolean(workspace?.querySelector("table th"))
+              // Real preflight has no visible message until a complete selection.
+              // Its reserved node is correct and MUST NOT be a fabricated panel.
+              Boolean(workspace?.querySelector('[data-testid="dispatch-launch-readiness"]')) &&
+              (workspace?.querySelectorAll(".dispatch-launch-config button[type=button]").length ?? 0) >= 4 &&
+              visible(workspace?.querySelector("table"))
             : visible(workspace?.querySelector(".dispatch-shop-table")) &&
               visible(workspace?.querySelector(".dispatch-zones-workbench") ?? workspace));
         const fakePanel = ["[data-testid=dispatch-quiet-loading]",
