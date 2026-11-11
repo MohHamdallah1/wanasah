@@ -1014,7 +1014,13 @@ function DispatchSession() {
       return;
     }
     setActiveTab(tabId);
-  }, [activeTab, hasUnsavedChanges, needsReconciliation]);
+    // D14: entering the Shop/Zone tab is a new authorization read boundary.
+    // Never show receivables cached before an independent finance grant/revoke.
+    if (tabId === "zones") {
+      setShops([]);
+      fetchInitialData();
+    }
+  }, [activeTab, hasUnsavedChanges, needsReconciliation, fetchInitialData]);
 
   const handleDispatchRoute = async () => {
     const admitted = captureUiRead();
