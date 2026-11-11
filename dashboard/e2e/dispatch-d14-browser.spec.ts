@@ -147,6 +147,12 @@ for (const language of ["ar", "en"] as const) {
         // 3. Only explicit COMPANY finance permission changes displayed money.
         const originalReaderToken = await page.evaluate(() => localStorage.getItem("admin_token"));
         toggle("reader", "on");
+        const grantedReader = await browserApi<any[]>(page, "/dispatch/shops");
+        const grantedRow = grantedReader.data.find(s => s.name === state.shops.a2.name);
+        expect(grantedReader.status).toBe(200);
+        expect(grantedRow?.financeRedacted).toBe(false);
+        expect(Number(grantedRow?.initialDebt)).toBe(901.125);
+        console.log("D14_READER_FINANCE_HTTP_AFTER_GRANT=PASS");
         await revisitRealBrowserTab(page);
         await visibleMoney(page, state.shops.a2.name, "901.125", language);
         expect(await page.evaluate(() => localStorage.getItem("admin_token")))
@@ -168,6 +174,10 @@ for (const language of ["ar", "en"] as const) {
         expect(a1.data.map(s => s.name)).toEqual([state.shops.assigned.name]);
         const initialLimitedToken = await page.evaluate(() => localStorage.getItem("admin_token"));
         toggle("limited", "on");
+        const grantedA1 = await browserApi<any[]>(page, "/dispatch/shops");
+        expect(grantedA1.status).toBe(200);
+        expect(grantedA1.data.map(s => s.name)).toEqual([state.shops.assigned.name]);
+        expect(Number(grantedA1.data[0].initialDebt)).toBe(181.125);
         await revisitRealBrowserTab(page);
         await visibleMoney(page, state.shops.assigned.name, "181.125", language);
         await ownScopedRows(page); // Finance grant never confers A2/whole directory.
