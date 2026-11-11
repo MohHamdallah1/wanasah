@@ -131,6 +131,8 @@ jobs:
               )["d06_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_visual_ci_scope.py"
               )["d15_visual_mode"](files) or __import__("runpy").run_path(
+                  ".github/scripts/dispatch_d15_zero_flash_scope.py"
+              )["d15_zero_flash_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_reentry_ci_scope.py"
               )["d15_overflow_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_reentry_ci_scope.py"
