@@ -140,9 +140,13 @@ jobs:
           import gzip, json, os, re
           assets = Path("dashboard/dist/assets")
           html = Path("dashboard/dist/index.html").read_text()
-          entry = list(assets.glob("index-*.js"))
+          entry_tags = re.findall(r'<script\b[^>]*>', html)
+          entry_urls = [m.group(1) for tag in entry_tags
+                        if (m := re.search(r'src=["\x27]([^"\x27]+\.js)', tag))]
+          assert len(entry_urls) == 1, ("unexpected HTML module entry", entry_urls)
+          entry = [Path("dashboard/dist") / entry_urls[0].lstrip("/")]
+          assert entry[0].is_file(), entry[0]
           dispatch = list(assets.glob("DispatchBoard-*.js"))
-          assert len(entry) == 1, ("unexpected Vite entry", entry)
           assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
           preloads = []
           for tag in re.findall(r'<link\b[^>]*>', html):
@@ -208,9 +212,13 @@ jobs:
           import gzip, json, os, re
           assets = Path("dashboard/dist/assets")
           html = Path("dashboard/dist/index.html").read_text()
-          entry = list(assets.glob("index-*.js"))
+          entry_tags = re.findall(r'<script\b[^>]*>', html)
+          entry_urls = [m.group(1) for tag in entry_tags
+                        if (m := re.search(r'src=["\x27]([^"\x27]+\.js)', tag))]
+          assert len(entry_urls) == 1, ("unexpected HTML module entry", entry_urls)
+          entry = [Path("dashboard/dist") / entry_urls[0].lstrip("/")]
+          assert entry[0].is_file(), entry[0]
           dispatch = list(assets.glob("DispatchBoard-*.js"))
-          assert len(entry) == 1, ("unexpected Vite entry", entry)
           assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
           preloads = []
           for tag in re.findall(r'<link\b[^>]*>', html):
