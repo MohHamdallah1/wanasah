@@ -133,6 +133,8 @@ const DashboardLayout = () => {
     );
   }
   if (
+    !access.isPending &&
+    !access.isError &&
     !access.isCompanyOwner &&
     location.pathname ===
       "/dispatch" &&
