@@ -517,6 +517,10 @@ jobs:
           assert len(dispatch_d11_881_exact) == 16
 
           def ownership_mode(candidate):
+              # D14 #891 only: exact ten-file Chromium/PG16 evidence plus its
+              # narrowly scoped actual P1 UI fixes; no wildcard exclusions.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d14_ci_scope.py")["d14_mode"](candidate):
+                  return "DISPATCH_D14_891_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"](candidate):
                   return "DISPATCH_D06_889_EXACT"
               if candidate == dispatch_d11_881_exact:
