@@ -246,6 +246,12 @@ function DispatchSession() {
   const hydratedScopeRef = useRef<string | null>(null);
   const asyncEpochRef = useRef(createDispatchAsyncEpoch(session!));
   const [dispatchReadState, setDispatchReadState] = useState<DispatchGateStatus>("loading");
+  // Independent current-Bearer response admission. None of these bits grants
+  // a permission: /inventory/access/me and the backend still control access.
+  const [readParts, setReadParts] = useState({
+    init: false, shops: false, routes: false, shortages: false,
+  });
+  const shortageDraftHydratedRef = useRef<string | null>(null);
   const dispatchFenceRef = useRef(createDispatchReadFence());
   const dispatchDeniedRef = useRef(false);
 
@@ -293,6 +299,7 @@ function DispatchSession() {
       asyncEpochRef.current.revoke();
       setNavigationVerified(false);
       setDispatchReadState("loading");
+      setReadParts({ init: false, shops: false, routes: false, shortages: false });
       // Keep tab/chooser preferences, never resurrect prior Route, Shop,
       // custody or dialog actions after a hidden Dashboard navigation.
       setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
@@ -565,6 +572,8 @@ function DispatchSession() {
     savedShopsRef.current = [];
     setSelectedShopIds([]); setIsEditMode(false); setHasUnsavedChanges(false);
     hydratedScopeRef.current = null;
+    shortageDraftHydratedRef.current = null;
+    setReadParts({ init: false, shops: false, routes: false, shortages: false });
     asyncEpochRef.current.revoke();
     setActiveTab("routes"); setSelectedZoneIdForZones(""); setSelectedZoneId("");
     setSelectedDriverId(""); setSelectedVehicleId(""); setSelectedSourceWarehouseId("");
@@ -588,13 +597,13 @@ function DispatchSession() {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: () => {} });
   }, []);
 
-  const fetchInitialData = useCallback(() => {
+  const fetchInitialData = useCallback((requestedTab?: TabId) => {
+    const tab = requestedTab ?? choicesRef.current.activeTab;
     const snapshot = captureDashboardSession();
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
     if (accessState !== "ready" || !actorScope) {
       admission.abort();
       if (accessState === "ready" && !actorScope) {
-        // Permission payload and authenticated principal disagree: no UI, stream or old drafts.
         dispatchDeniedRef.current = true;
         dispatchFenceRef.current.revoke();
         clearDispatchPrivateState();
@@ -602,49 +611,71 @@ function DispatchSession() {
       }
       return admission;
     }
+    // Each response is published only while the ORIGINAL signed read fence is
+    // current. A slow Shops GET can neither delay Routes nor restore old rows.
+    let freshInit: DispatchInitPayload | null = null;
+    let freshShops: Shop[] | null = null;
     void loadDispatchRead({
-      fetch: authenticatedFetch, grants, signal: admission.signal, isCurrent: admission.isCurrent,
-      onData: ({ init, shops: freshShops, routes, shortages: freshShortages }) => {
-        const data = (init ?? {}) as DispatchInitPayload;
-        const sorted = sortZones(Array.isArray(data.zones) ? data.zones : []);
-        const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
-        const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
-        const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
-        setZones(sorted);
-        setShopScope(data.shopScope === "company" ? "company" : "authorized_routes");
-        setDrivers(nextDrivers); setVehicles(nextVehicles); setWarehouses(nextWarehouses);
-        setShops(grants.routes ? normalizeShops(freshShops) : []);
-        setPendingRoutes(grants.routes && Array.isArray(routes) ? routes : []);
-        setShortages(grants.shortages && Array.isArray(freshShortages) ? freshShortages : []);
-        const hydrate = Boolean(actorScope && hydratedScopeRef.current !== actorScope);
-        if (hydrate) clearLegacyDispatchPreferences();
-        const prefs = hydrate ? readDispatchPreferences(actorScope) : choicesRef.current;
-        const valid = reconcileDispatchPreferences(prefs, {
-          zones: sorted, drivers: nextDrivers, vehicles: nextVehicles, warehouses: nextWarehouses,
-        }, grants.launch);
-        if (hydrate) {
-          setActiveTab(valid.activeTab === "launch" && !grants.launch ? "routes" : valid.activeTab);
-          hydratedScopeRef.current = actorScope;
-        }
-        setSelectedZoneIdForZones(valid.zoneForShops);
-        setSelectedZoneId(valid.launchZone); setSelectedDriverId(valid.driver);
-        setSelectedVehicleId(valid.vehicle); setSelectedSourceWarehouseId(valid.sourceWarehouse);
-        if (hydrate && actorScope && grants.shortages && grants.shortageCreate && grants.routes &&
-            !activeShortageEditRef.current) {
-          const recovered = restoreShortageDraft(actorScope, sorted, normalizeShops(freshShops), nextDrivers);
-          if (recovered) {
-            setShortageZoneId(recovered.zoneId);
-            setShortageShopId(recovered.shopId);
-            setShortageDriverId(recovered.driverId);
-            setShortageDraft(recovered.rows);
-          } else {
-            clearShortageDraft(actorScope);
+      fetch: authenticatedFetch, grants, tab,
+      signal: admission.signal, isCurrent: admission.isCurrent,
+      onData: () => {}, // older atomic callers retain their contract
+      onPart: (kind, raw) => {
+        if (!admission.isCurrent()) return;
+        if (kind === "init") {
+          const data = (raw ?? {}) as DispatchInitPayload;
+          freshInit = data;
+          const sorted = sortZones(Array.isArray(data.zones) ? data.zones : []);
+          const nextDrivers = Array.isArray(data.drivers) ? data.drivers : [];
+          const nextVehicles = Array.isArray(data.vehicles) ? data.vehicles : [];
+          const nextWarehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
+          setZones(sorted);
+          setShopScope(data.shopScope === "company" ? "company" : "authorized_routes");
+          setDrivers(nextDrivers); setVehicles(nextVehicles); setWarehouses(nextWarehouses);
+          const hydrate = hydratedScopeRef.current !== actorScope;
+          if (hydrate) clearLegacyDispatchPreferences();
+          const prefs = hydrate ? readDispatchPreferences(actorScope) : choicesRef.current;
+          const valid = reconcileDispatchPreferences(prefs, {
+            zones: sorted, drivers: nextDrivers, vehicles: nextVehicles, warehouses: nextWarehouses,
+          }, grants.launch);
+          if (hydrate) {
+            setActiveTab(valid.activeTab === "launch" && !grants.launch ? "routes" : valid.activeTab);
+            hydratedScopeRef.current = actorScope;
           }
+          setSelectedZoneIdForZones(valid.zoneForShops);
+          setSelectedZoneId(valid.launchZone); setSelectedDriverId(valid.driver);
+          setSelectedVehicleId(valid.vehicle); setSelectedSourceWarehouseId(valid.sourceWarehouse);
+        } else if (kind === "shops") {
+          freshShops = grants.routes ? normalizeShops(raw) : [];
+          setShops(freshShops);
+        } else if (kind === "routes") {
+          setPendingRoutes(grants.routes && Array.isArray(raw) ? raw : []);
+        } else if (kind === "shortages") {
+          setShortages(grants.shortages && Array.isArray(raw) ? raw : []);
+        }
+        setReadParts(previous => ({ ...previous, [kind]: true }));
+      },
+      onReady: () => {
+        if (!admission.isCurrent()) return;
+        // Only recover a private shortage draft after both current signed
+        // source reads exist; Routes and Launch do NOT need an all-Shops GET.
+        if (tab === "zones" && freshInit && freshShops &&
+            grants.shortages && grants.shortageCreate && grants.routes &&
+            shortageDraftHydratedRef.current !== actorScope &&
+            !activeShortageEditRef.current) {
+          const restored = restoreShortageDraft(actorScope,
+            sortZones(Array.isArray(freshInit.zones) ? freshInit.zones : []),
+            freshShops, Array.isArray(freshInit.drivers) ? freshInit.drivers : []);
+          if (restored) {
+            setShortageZoneId(restored.zoneId); setShortageShopId(restored.shopId);
+            setShortageDriverId(restored.driverId); setShortageDraft(restored.rows);
+          } else clearShortageDraft(actorScope);
+          shortageDraftHydratedRef.current = actorScope;
         }
         dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
       },
       onError: error => {
+        if (!admission.isCurrent()) return;
         const status = (error as { status?: number } | null)?.status;
         dispatchDeniedRef.current = true;
         dispatchFenceRef.current.revoke();
@@ -664,9 +695,10 @@ function DispatchSession() {
     dispatchFenceRef.current.revoke();
     asyncEpochRef.current.revoke();
     if (accessState === "loading") {
-      setZones([]); setShops([]); setShortages([]); setPendingRoutes([]);
-      setDrivers([]); setVehicles([]); setWarehouses([]);
-      savedShopsRef.current = [];
+      // Do not destroy React's in-memory rows on a normal focus/route return.
+      // Read-admission bits and tabReady mask all private data until the fresh
+      // exact-actor Bearer response. Actual 401/403 clears everything below.
+      setReadParts({ init: false, shops: false, routes: false, shortages: false });
       setDispatchReadState("loading");
       return;
     }
@@ -1067,10 +1099,9 @@ function DispatchSession() {
     setActiveTab(tabId);
     // D14: entering the Shop/Zone tab is a new authorization read boundary.
     // Never show receivables cached before an independent finance grant/revoke.
-    if (tabId === "zones") {
-      setShops([]);
-      fetchInitialData();
-    }
+    // Independently refresh only the destination's real prerequisites.
+    // Routes are not held behind /shops and Launch requires /init, not Shops.
+    fetchInitialData(tabId);
   }, [activeTab, hasUnsavedChanges, needsReconciliation, fetchInitialData]);
 
   const handleDispatchRoute = async () => {
@@ -1657,7 +1688,13 @@ function DispatchSession() {
   const display = accessState !== "ready" ? accessState : dispatchReadState;
   // Keep canonical selected-tab geometry mounted; admission alone controls
   // protected data, current commands and server-backed selections.
-  const tabReady = dispatchAdmitted && tabAllowed(activeTab);
+  const tabDataReady = activeTab === "routes" ? readParts.routes :
+    activeTab === "launch" ? readParts.init : readParts.init && readParts.shops;
+  const tabReady = dispatchAdmitted && tabAllowed(activeTab) && tabDataReady;
+  // Zones are safe to paint after their own signed /init, even when the
+  // separate signed /shops GET is still pending.
+  const zoneListReady = onDispatchRoute && navigationVerified &&
+    accessState === "ready" && grants.zones && readParts.init;
   const realWorkspaceRef = useRef<HTMLDivElement | null>(null);
   // React's installed DOM typings predate the inert JSX prop. Set the native
   // inert attribute in layout commit, before any restricted panel can paint.
@@ -1996,7 +2033,7 @@ function DispatchSession() {
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
-                      <h2 className="font-bold text-slate-800">المناطق ({tabReady ? zones.length : 0})</h2>
+                      <h2 className="font-bold text-slate-800">المناطق ({zoneListReady ? zones.length : "—"})</h2>
                       <div className="flex items-center gap-2">
                         {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 ">🗑️ الأرشيف</button>}
                         {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 ">[+ منطقة جديدة]</button>}
@@ -2013,8 +2050,8 @@ function DispatchSession() {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                    {!tabReady && <p role="status" data-testid="dispatch-zones-read-status" className="p-4 text-sm text-slate-500">{i18n.language.startsWith("ar") ? "جارٍ التحقق من البيانات..." : "Verifying data..."}</p>}
-                    {(tabReady ? zones : []).filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
+                    {!zoneListReady && <p role="status" data-testid="dispatch-zones-read-status" className="p-4 text-sm text-slate-500">{i18n.language.startsWith("ar") ? "جارٍ التحقق من البيانات..." : "Verifying data..."}</p>}
+                    {(zoneListReady ? zones : []).filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
                       <div key={zone.id} onClick={() => {
                         if (isSaving || zone.id === selectedZoneIdForZones) return;
                         if (isEditMode && (hasUnsavedChanges || needsReconciliation)) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
@@ -2071,7 +2108,7 @@ function DispatchSession() {
                     selectedZoneName={tabReady ? (zones.find(z => z.id === selectedZoneIdForZones)?.name || "") : ""}
                     hasOutsideZoneMatches={tabReady && shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={tabReady && isEditMode} />
-                  <ShopTable shops={tabReady ? shopsInSelectedZone : []} zones={tabReady ? zones : []} isEditMode={tabReady && grants.zoneManage && isEditMode && !recoveryBlocked}
+                  <ShopTable pending={!tabReady} shops={tabReady ? shopsInSelectedZone : []} zones={tabReady ? zones : []} isEditMode={tabReady && grants.zoneManage && isEditMode && !recoveryBlocked}
                     language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={tabReady && shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
                        if (!grants.zoneManage) return;
                        if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
