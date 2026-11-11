@@ -4,10 +4,14 @@ import { expect, test, type Page } from "playwright/test";
 // Same restricted PG16/real signed FastAPI seed as accepted D14: never mock API.
 const state = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER_STATE!, "utf8"));
 const apiPath = (url: string) => {
-  try { return new URL(url).pathname; } catch { return ""; }
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname === "/inventory/access/me" && parsed.searchParams.has("location_id")
+      ? "/inventory/access/me?location_id" : parsed.pathname;
+  } catch { return ""; }
 };
 const dispatchPaths = new Set(["/dispatch/init", "/dispatch/shops", "/dispatch/active_routes", "/dispatch/shortages"]);
-const allPaths = new Set([...dispatchPaths, "/inventory/access/me"]);
+const allPaths = new Set([...dispatchPaths, "/inventory/access/me", "/inventory/access/me?location_id"]);
 
 async function signIn(page: Page, lang: "ar" | "en") {
   await page.goto("/");
@@ -119,7 +123,9 @@ for (const language of ["ar", "en"] as const) {
         await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true", { timeout: 45000 });
         const m = await measure(page, begin, seen);
         expect(m.fullBlankFrames, tab + " whole workspace blank").toBe(0);
-        expect(m.network["/inventory/access/me"], tab + " signed access GET").toBeLessThanOrEqual(1);
+        expect(m.network["/inventory/access/me"], tab + " signed company capability GET").toBeLessThanOrEqual(1);
+        expect(m.network["/inventory/access/me?location_id"], tab + " signed Warehouse authority GET")
+          .toBeLessThanOrEqual(1);
         expect(m.dispatchReads, tab + " duplicate four-endpoint read").toBeLessThanOrEqual(4);
         expect(m.docWidth, tab + " document horizontal overflow").toBe(width);
         await expect(page.locator('[data-persistent-dispatch-host="true"][data-d15-mounted="once"]'))
