@@ -246,3 +246,103 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     }));
     await otherTab.close();  });
 }
+
+
+// The original D15 probe starts only once the real Board is imported. This
+// independent cold-import gate instruments from DOCUMENT START and holds the
+// ORIGINAL JS asset (not API responses) in Playwright's network layer.
+if (process.env.D15_ZERO_FLASH_ENFORCE === "1") {
+  for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as const) {
+    test("D15 cold JS asset hold retains exact REAL DOM " + language + " " + width, async ({ page }) => {
+      test.setTimeout(90000);
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, language);
+      const imageDir = "node_modules/.cache/dispatch-d15-zero-flash-after";
+      mkdirSync(imageDir, { recursive: true });
+      let heldChunks = 0;
+      await page.route(/\/assets\/DispatchBoard-[^/]+\.js(?:\?.*)?$/, async route => {
+        heldChunks++;
+        // TEST-ONLY: let the real parent frame render and capture it.
+        await page.waitForTimeout(900);
+        await page.screenshot({ path: imageDir + "/" + language + "-" + width + "-js-held-real-panel.png" });
+        await page.waitForTimeout(600);
+        await route.continue();
+      });
+      await page.addInitScript(() => {
+        const w = window as any;
+        const ids = new WeakMap<Element, number>();
+        let counter = 0;
+        const idOf = (node: Element | null) => {
+          if (!node) return null;
+          if (!ids.has(node)) ids.set(node, ++counter);
+          return ids.get(node);
+        };
+        w.__d15ColdImportFrames = [];
+        const begin = performance.now();
+        const capture = () => {
+          if (location.pathname === "/dispatch") {
+            const frame = document.querySelector('[data-dispatch-real-route-frame="true"]');
+            const content = frame?.querySelector(".dispatch-content") ?? null;
+            const list = frame?.querySelector(".dispatch-route-list") ?? null;
+            const realWorkspace = frame?.querySelector('[data-testid="dispatch-routes-workspace"]') ?? null;
+            const tabs = document.querySelectorAll('[data-testid="dispatch-shared-topbar"] [role="tab"]');
+            const admitted = Boolean(document.querySelector('[role="tab"][aria-selected="true"]'));
+            w.__d15ColdImportFrames.push({
+              ms: Math.round(performance.now() - begin),
+              hasFrame: Boolean(frame), contentId: idOf(content), listId: idOf(list),
+              workspaceId: idOf(realWorkspace),
+              contentCount: document.querySelectorAll(".dispatch-content").length,
+              routesWorkspaceCount: document.querySelectorAll('[data-testid="dispatch-routes-workspace"]').length,
+              hasPendingStatus: Boolean(frame?.querySelector('[data-testid="dispatch-routes-read-status"]')),
+              admitted, tabs: tabs.length,
+              wrongPanels: document.querySelectorAll('[data-testid="dispatch-launch-workspace"],[data-testid="dispatch-zones-workspace"],[data-testid="dispatch-structural-workspace"],[data-testid="dispatch-quiet-loading"]').length,
+              oldFakeTables: document.querySelectorAll('[aria-label="هيكل جدول التوزيع"],[aria-label="Dispatch table structure"]').length,
+              privateRoutes: frame?.querySelectorAll(".dispatch-route-row").length ?? 0,
+              runningAnimations: frame ? [...frame.getAnimations({ subtree: true })].filter(a => a.playState === "running").length : 0,
+              documentOverflow: document.documentElement.scrollWidth - innerWidth,
+            });
+          }
+          if (performance.now() - begin < 9000) requestAnimationFrame(capture);
+        };
+        requestAnimationFrame(capture);
+      });
+      await page.goto("http://127.0.0.1:4173/dispatch");
+      await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
+      await expect(page.getByTestId("dispatch-routes-workspace")).toBeVisible();
+      await expect(page.getByRole("tab", { name: "الخطوط النشطة" })).toHaveAttribute("aria-selected", "true", { timeout: 30000 });
+      await page.waitForTimeout(250);
+      await page.screenshot({ path: imageDir + "/" + language + "-" + width + "-js-restored-same-panel.png" });
+      const frames = await page.evaluate(() => (window as any).__d15ColdImportFrames as Array<{
+        ms: number; hasFrame: boolean; contentId: number | null; listId: number | null;
+        workspaceId: number | null; contentCount: number; routesWorkspaceCount: number;
+        hasPendingStatus: boolean; admitted: boolean; tabs: number; wrongPanels: number;
+        oldFakeTables: number; privateRoutes: number; runningAnimations: number; documentOverflow: number;
+      }>);
+      const actual = frames.filter(x => x.hasFrame);
+      const unique = (name: "contentId" | "listId" | "workspaceId") =>
+        [...new Set(actual.map(x => x[name]).filter(x => x !== null))];
+      const result = {
+        language, width, heldChunks, frames: actual.length,
+        pendingFrames: actual.filter(x => !x.admitted).length,
+        admittedFrames: actual.filter(x => x.admitted).length,
+        contentIds: unique("contentId"), listIds: unique("listId"),
+        workspaceIds: unique("workspaceId"),
+        bad: actual.filter(x => x.contentCount !== 1 || x.routesWorkspaceCount !== 1 ||
+          x.wrongPanels !== 0 || x.oldFakeTables !== 0 ||
+          x.runningAnimations !== 0 || x.documentOverflow !== 0).length,
+        leakedBeforeAdmit: actual.filter(x => !x.admitted && x.privateRoutes > 0).length,
+        first: actual[0], last: actual.at(-1),
+      };
+      console.log("D15_COLD_JS_IDENTITY=" + JSON.stringify(result));
+      expect(heldChunks, "real DispatchBoard*.js request must be held once").toBe(1);
+      expect(actual.length, "real pending and ready frames must be observed").toBeGreaterThan(15);
+      expect(result.pendingFrames).toBeGreaterThan(10);
+      expect(result.admittedFrames).toBeGreaterThan(0);
+      expect(result.contentIds).toHaveLength(1);
+      expect(result.listIds).toHaveLength(1);
+      expect(result.workspaceIds).toHaveLength(1);
+      expect(result.bad).toBe(0);
+      expect(result.leakedBeforeAdmit).toBe(0);
+    });
+  }
+}
