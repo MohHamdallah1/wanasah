@@ -14,6 +14,7 @@ D15_VISUAL_1A = frozenset({
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     "dashboard/e2e/dispatch-d14-browser.spec.ts",
     "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
 })
 
 D15_ONLY_MARKER = ".github/scripts/dispatch_d15_visual_ci_scope.py"
@@ -66,7 +67,7 @@ def selftest() -> None:
         "dashboard/src/pages/DispatchBoard.tsx",
         "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
     }), "Worker2 mixed files must not become authorized"
-    print("D15_VISUAL_1A_EXACT_SCOPE=PASS exact=6 missing=6 foreign=8 Worker2=DENIED")
+    print("D15_VISUAL_1A_EXACT_SCOPE=PASS exact=7 missing=7 foreign=8 Worker2=DENIED")
 
 
 if __name__ == "__main__":
