@@ -10,6 +10,7 @@ interface PendingRoutesTableProps {
   onCloseZone: (route: PendingRoute) => void;
   onForceWithdraw: (route: PendingRoute) => void;
   driverShortagesMap: Record<string, number>;
+  pending?: boolean;
   onAdjustInventory: (route: PendingRoute) => void;
   onOpenRadar: (route: PendingRoute) => void;
 }
@@ -30,11 +31,23 @@ export function PendingRoutesTable({
   onCloseZone,
   onForceWithdraw,
   driverShortagesMap,
+  pending = false,
   onAdjustInventory,
   onOpenRadar,
 }: PendingRoutesTableProps) {
+  // Keep the actual flex-card list container mounted through reauthorization.
+  // Never assert an empty route list before fresh signed reads complete.
   if (routes.length === 0) {
-    return <p className="text-sm text-slate-500 p-6 text-center">لا توجد خطوط سير تشغيلية حالياً.</p>;
+    return (
+      <div className="dispatch-route-list bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
+        <p data-testid="dispatch-routes-read-status" role={pending ? "status" : undefined}
+          className="text-sm text-slate-500 p-6 text-center">
+          {pending
+            ? (currentLocale().startsWith("ar") ? "جارٍ التحقق من بيانات الخطوط..." : "Verifying routes...")
+            : "لا توجد خطوط سير تشغيلية حالياً."}
+        </p>
+      </div>
+    );
   }
 
   const renderActionButtons = (route: PendingRoute) => {

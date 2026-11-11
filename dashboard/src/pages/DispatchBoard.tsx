@@ -50,7 +50,6 @@ import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
 import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
 import { DispatchChromeHost, useDispatchChromeBridge } from "@/features/dispatch/stableUi/DispatchChrome";
-import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
 import {
@@ -1656,6 +1655,10 @@ function DispatchSession() {
   const visiblePermissionTabs = accessState === "ready"
     ? (["routes", "launch", "zones"] as const).filter(tab => tabAllowed(tab)) : [];
   const display = accessState !== "ready" ? accessState : dispatchReadState;
+  // Keep canonical selected-tab geometry mounted; admission alone controls
+  // protected data, current commands and server-backed selections.
+  const tabReady = dispatchAdmitted && tabAllowed(activeTab);
+  const workspaceStatus = !tabReady ? (display === "ready" ? "denied" : display) : null;
   // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
   useLayoutEffect(() => {
     chromeBridge?.publish({
@@ -1678,27 +1681,12 @@ function DispatchSession() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      {!dispatchAdmitted ? (
-        <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
-          {display === "loading" ? (
-            <DispatchWorkspaceStructure activeTab={activeTab} />
-          ) : (
-            <DispatchAccessNotice state={display === "ready" ? "error" : display}
-              onRetry={() => {
-                dispatchDeniedRef.current = false;
-                setDispatchReadState("loading");
-                retryAccess();
-              }} />
-          )}
-        </div>
-      ) : (
-        <>
       {/* CS-WH-03: Warehouse audit lock warning banner */}
-      {archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
+      {tabReady && archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
         {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
         <button type="button" onClick={() => setArchiveRouteFocus(null)} className="ms-3 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("archiveOwners.showAll")}</button>
       </div>}
-      {isWarehouseLocked && (
+      {tabReady && isWarehouseLocked && (
         <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
           <div className="flex items-center gap-3">
             <span className="text-2xl">🔒</span>
@@ -1712,12 +1700,19 @@ function DispatchSession() {
 
       {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
       {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
-      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
+      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col"
+        data-dispatch-workspace={activeTab} aria-busy={workspaceStatus === "loading"}>
+        {workspaceStatus && workspaceStatus !== "loading" && (
+          <DispatchAccessNotice state={workspaceStatus}
+            onRetry={() => {
+              dispatchDeniedRef.current = false;
+              setDispatchReadState("loading");
+              retryAccess();
+            }} />
+        )}
         <>
-          {!tabAllowed(activeTab) ? (
-            <DispatchAccessNotice state="denied" onRetry={retryAccess} />
-          ) : activeTab === "routes" ? (
-            <div key="routes" className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+          {activeTab === "routes" ? (
+            <div key="routes" data-testid="dispatch-routes-workspace" inert={!tabReady} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
               <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                 
                 {/* الشريطة العائمة */}
@@ -1732,6 +1727,7 @@ function DispatchSession() {
                     return (
                       <button
                         onClick={() => setIsShowPostponedModalOpen(true)}
+                        disabled={!tabReady}
                         /* +++ تكبير الزر عبر px-4 py-2 text-sm +++ */
                         className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm  ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
                       >
@@ -1751,7 +1747,8 @@ function DispatchSession() {
                 {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول حسب المساحة المتاحة فقط +++ */}
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
                   <PendingRoutesTable
-                    routes={pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))}
+                    routes={tabReady ? pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus)) : []}
+                    pending={!tabReady}
                     onAdjustInventory={(route) => {
                       setInventoryRoute(route);
                       setIsInventoryModalOpen(true);
@@ -1847,11 +1844,11 @@ function DispatchSession() {
               </div>
             </div>
           ) : activeTab === "launch" ? (
-            <div key="launch" className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2">
+            <div key="launch" data-testid="dispatch-launch-workspace" inert={!tabReady} className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2">
               
               {/* D07: unresolved original UUID survives lost 201 and a full reload.
                   No new route can be started until authoritative readback settles it. */}
-              {grants.launch && actorScope && (routeLaunchPendingOwner || routeLaunch.hasUnresolved) && (
+              {tabReady && grants.launch && actorScope && (routeLaunchPendingOwner || routeLaunch.hasUnresolved) && (
                 <div data-testid="d07-route-recovery" role="status" aria-live="polite"
                   className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-slate-800">
                   <p className="font-bold">
@@ -1913,15 +1910,16 @@ function DispatchSession() {
                 </div>
                 
                 {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
-                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus }))} value={selectedZoneId} onChange={setSelectedZoneId} placeholder="اختر المنطقة" />
-                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={drivers.map(d => ({ id: d.id, label: d.name }))} value={selectedDriverId} onChange={setSelectedDriverId} placeholder="اختر المندوب" />
-                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={vehicles.map(v => ({ id: v.id, label: v.label }))} value={selectedVehicleId} onChange={setSelectedVehicleId} placeholder="اختر السيارة" />
+                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!tabReady} placeholder="اختر المنطقة" />
+                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!tabReady} placeholder="اختر المندوب" />
+                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!tabReady} placeholder="اختر السيارة" />
                 <CustomSelect
                   labelBg="bg-slate-50"
                   label="مستودع المصدر"
-                  options={warehouses}
-                  value={selectedSourceWarehouseId}
+                  options={tabReady ? warehouses : []}
+                  value={tabReady ? selectedSourceWarehouseId : ""}
                   onChange={changeSourceWarehouse}
+                  disabled={!tabReady}
                   placeholder="اختر مستودع المصدر"
                 />
                 {/* Commercial readiness belongs to the same four-selector
@@ -1930,15 +1928,15 @@ function DispatchSession() {
                     Backend verification stay unchanged. */}
                 <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0">
                   <CommercialPreflightPanel language={i18n.language}
-                    status={commercialPreflight.status}
-                    evidence={commercialPreflight.evidence}
+                    status={tabReady ? commercialPreflight.status : "loading"}
+                    evidence={tabReady ? commercialPreflight.evidence : null}
                     onRefresh={commercialPreflight.refresh} />
                 </div>
               </div>
 
-              <RouteLoadProductTable vehicleId={selectedVehicleId} warehouseId={selectedSourceWarehouseId} scope={productScope}
-                current={vehicleCustodyReady ? routeLoadCurrent : {}} targets={vehicleCustodyReady ? routeLoadTargets : {}}
-                units={vehicleCustodyReady ? routeLoadUnits : {}} names={vehicleCustodyReady ? routeLoadNames : {}} custodyReady={vehicleCustodyReady}
+              <RouteLoadProductTable vehicleId={tabReady ? selectedVehicleId : ""} warehouseId={tabReady ? selectedSourceWarehouseId : ""} scope={tabReady ? productScope : null}
+                current={tabReady && vehicleCustodyReady ? routeLoadCurrent : {}} targets={tabReady && vehicleCustodyReady ? routeLoadTargets : {}}
+                units={tabReady && vehicleCustodyReady ? routeLoadUnits : {}} names={tabReady && vehicleCustodyReady ? routeLoadNames : {}} custodyReady={tabReady && vehicleCustodyReady}
                 onClear={() => setRouteLoadTargets({})}
                 onTargetChange={(id, name, unit, value) => {
                   setRouteLoadTargets((previous) => ({ ...previous, [id]: value }));
@@ -1950,7 +1948,7 @@ function DispatchSession() {
               <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
                 <div className="flex justify-end">
                   <button
-                    disabled={!canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
+                    disabled={!tabReady || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg  active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
@@ -1962,18 +1960,18 @@ function DispatchSession() {
 
             </div>
           ) : (
-            <div key="zones" className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
+            <div key="zones" data-testid="dispatch-zones-workspace" inert={!tabReady} className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
               <div className="w-full xl:w-[29%] flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
                     <div className="flex items-center justify-between">
-                      <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
+                      <h2 className="font-bold text-slate-800">المناطق ({tabReady ? zones.length : 0})</h2>
                       <div className="flex items-center gap-2">
                         {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 ">🗑️ الأرشيف</button>}
                         {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 ">[+ منطقة جديدة]</button>}
                       </div>
                     </div>
-                    {shopScope === "authorized_routes" && (
+                    {tabReady && shopScope === "authorized_routes" && (
                       <p role="status" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
                         {dispatchUiText(i18n.language, "shopRestrictedScope")}
                       </p>
@@ -1984,7 +1982,8 @@ function DispatchSession() {
                     </div>
                   </div>
                   <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                    {zones.filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
+                    {!tabReady && <p role="status" data-testid="dispatch-zones-read-status" className="p-4 text-sm text-slate-500">{i18n.language.startsWith("ar") ? "جارٍ التحقق من البيانات..." : "Verifying data..."}</p>}
+                    {(tabReady ? zones : []).filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
                       <div key={zone.id} onClick={() => {
                         if (isSaving || zone.id === selectedZoneIdForZones) return;
                         if (isEditMode && (hasUnsavedChanges || needsReconciliation)) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
@@ -2038,11 +2037,11 @@ function DispatchSession() {
                     setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
                   }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm "><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
                   <ShopOrderScopeNotice language={i18n.language}
-                    selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
-                    hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
-                    isEditMode={isEditMode} />
-                  <ShopTable shops={shopsInSelectedZone} zones={zones} isEditMode={grants.zoneManage && isEditMode && !recoveryBlocked}
-                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
+                    selectedZoneName={tabReady ? (zones.find(z => z.id === selectedZoneIdForZones)?.name || "") : ""}
+                    hasOutsideZoneMatches={tabReady && shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
+                    isEditMode={tabReady && isEditMode} />
+                  <ShopTable shops={tabReady ? shopsInSelectedZone : []} zones={tabReady ? zones : []} isEditMode={tabReady && grants.zoneManage && isEditMode && !recoveryBlocked}
+                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={tabReady && shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
                        if (!grants.zoneManage) return;
                        if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
                          toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
@@ -2085,7 +2084,7 @@ function DispatchSession() {
                       });
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
-                  {grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 "><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 "><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></div>)}
+                  {tabReady && grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 "><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 "><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></div>)}
 {grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
                     <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50  group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
@@ -2453,8 +2452,6 @@ function DispatchSession() {
           />
         </div>
       </Modal>
-        </>
-      )}
     </div>
   );
 }

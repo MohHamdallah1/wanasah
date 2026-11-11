@@ -15,9 +15,9 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
+import { loadInventoryPage } from "@/routes/routePreloaders";
+import DispatchBoard from "@/pages/DispatchBoard";
 import { DispatchChromeHost } from "@/features/dispatch/stableUi/DispatchChrome";
-import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
@@ -26,7 +26,7 @@ const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
   "wanasah:layout:operations-sidebar-collapsed";
 
 const MainInventory = lazy(loadInventoryPage);
-const PersistentDispatch = lazy(loadDispatchBoard);
+const PersistentDispatch = DispatchBoard;
 
 const DashboardLayout = () => {
   const { t, i18n } =
@@ -254,13 +254,7 @@ const DashboardLayout = () => {
             <div className={isDispatchRoute ? "contents" : "hidden"}
               aria-hidden={!isDispatchRoute} data-persistent-dispatch-host="true">
               <DispatchChromeHost active={isDispatchRoute}>
-                <Suspense fallback={
-                  <div className="dispatch-content flex min-h-0 w-full flex-1 flex-col pt-2">
-                    <DispatchWorkspaceStructure activeTab="routes" />
-                  </div>
-                }>
-                  <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
-                </Suspense>
+                <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
               </DispatchChromeHost>
             </div>
           ) : null}
