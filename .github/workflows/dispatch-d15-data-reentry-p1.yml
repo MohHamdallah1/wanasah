@@ -116,7 +116,7 @@ jobs:
         working-directory: dashboard
         run: |
           npm ci --no-audit --no-fund
-          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
           npx playwright install --with-deps chromium
       - name: Focused unit signed staged-read and denial tests
         working-directory: dashboard
