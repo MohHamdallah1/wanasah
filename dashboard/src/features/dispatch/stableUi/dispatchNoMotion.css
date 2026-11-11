@@ -1,0 +1,9 @@
+/* D15: Dispatch-only no-motion policy. No opacity/visibility hiding and no auth changes. */
+.dispatch-board,
+.dispatch-board *,
+.dispatch-board *::before,
+.dispatch-board *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
