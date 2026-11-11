@@ -1,0 +1,183 @@
+name: D15 #923 Worker2 independent visual frame evidence
+
+on:
+  push:
+    branches:
+      - "worker2/d15-923-independent-before"
+      - "worker2/d15-923-independent-after"
+
+permissions:
+  contents: read
+
+jobs:
+  real-d15-worker2-923:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      WANASAH_DISPATCH_D14_BROWSER_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      ENVIRONMENT: test
+      SECRET_KEY: D14SyntheticRealBrowserPG16Key1234567890123456789012345
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://d14_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://d14_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_DISPATCH_D14_BROWSER_STATE: /tmp/dispatch-d14-browser-private.json
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Check exact immutable production snapshot and independent-only test files
+        run: |
+          git diff --check
+          python - <<'PY'
+          import os,subprocess
+          stage=os.environ["GITHUB_REF_NAME"].rsplit("-",1)[-1]
+          base={"before":"4062d0c123abff18c8250389a0a2d8f8c92ce7af","after":"42ea7e4dff4ce379793fc7adc17fd7e6bd92c439"}[stage]
+          files=subprocess.check_output(["git","diff","--name-only",base,"HEAD"],text=True).splitlines()
+          expected=[".github/workflows/dispatch-d15-923-independent.yml","dashboard/e2e/dispatch-d15-923-independent-frames.spec.ts"]
+          assert sorted(files)==sorted(expected),(base,files)
+          print("D15_923_INDEPENDENT_SOURCE="+base+"; changed="+str(files))
+          PY
+      - name: Install canonical dependencies
+        run: |
+          python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+          python -m py_compile wa_backend/tests/test_dispatch_d14_browser_fixture.py
+      - name: Start temporary PostgreSQL16
+        run: |
+          docker run --detach --name dispatch-d14-pg \
+            --env POSTGRES_USER=d14_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec dispatch-d14-pg pg_isready -U d14_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-d14-pg
+          exit 1
+      - name: Create restricted non-bypass database role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate canonical schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Seed ONE real PG16 company Shop finance and route-scoped fixture
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_d14_browser_fixture.py
+          --junitxml=d14-real-pg16.xml
+      - name: Start real FastAPI
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-d14-api.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-d14-api.log
+          exit 1
+      - name: Install Dashboard and real Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build actual immutable source production dashboard
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: |
+          npm run build
+      - name: Independent real Vite gzip and lazy-dispatch boundary
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip,json,re,os
+          dist=Path("dashboard/dist")
+          html=(dist/"index.html").read_text()
+          assets=dist/"assets"
+          tags=re.findall(r'<script\b[^>]*>',html)
+          entries=[m.group(1) for tag in tags if (m:=re.search(r'src="([^"]+\.js)"',tag))]
+          preloads=re.findall(r'<link\b[^>]*rel="modulepreload"[^>]*href="([^"]+\.js)"',html)
+          if len(entries)!=1:raise AssertionError(entries)
+          main=dist/entries[0].lstrip("/")
+          dispatch=list(assets.glob("DispatchBoard-*.js"))
+          if len(dispatch)!=1:raise AssertionError(dispatch)
+          def record(p):return {"name":p.name,"raw":p.stat().st_size,"gzip9":len(gzip.compress(p.read_bytes(),compresslevel=9,mtime=0))}
+          result={"phase":os.environ["GITHUB_REF_NAME"].rsplit("-",1)[-1],"entry":record(main),
+            "dispatch":record(dispatch[0]),"htmlPreload":preloads,
+            "products":[record(p) for p in assets.glob("ProductsPage-*.js")],
+            "inventory":[record(p) for p in assets.glob("InventoryPage-*.js")]}
+          assert not any("DispatchBoard" in x for x in entries+preloads),result
+          print("D15_923_BUNDLE="+json.dumps(result,ensure_ascii=False))
+          PY
+      - name: Serve real built Dashboard
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/d15-923-ui.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -sf http://127.0.0.1:4173/dispatch >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/d15-923-ui.log
+          exit 1
+      - name: REAL independent per-rAF Chromium Launch visual before or after
+        working-directory: dashboard
+        env:
+          D15_923_PHASE: ${{ endsWith(github.ref_name, '-before') && 'before' || 'after' }}
+        run: |
+          xvfb-run -a npx playwright test e2e/dispatch-d15-923-independent-frames.spec.ts --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-923-playwright
+      - name: Independent real scoped PG16 D14 Chromium security negatives
+        if: ${{ success() && endsWith(github.ref_name, '-after') }}
+        working-directory: dashboard
+        run: |
+          npx playwright test --config e2e/dispatch-d14-browser.config.ts --workers=1
+      - name: Save real pixel screenshots, every-frame JSON, source and network evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-d15-923-independent-${{ github.run_id }}
+          path: |
+            wa_backend/d14-real-pg16.xml
+            dashboard/node_modules/.cache/d15-923-independent-before/
+            dashboard/node_modules/.cache/d15-923-independent-after/
+            dashboard/node_modules/.cache/d15-923-playwright/
+            dashboard/node_modules/.cache/dispatch-d14-browser/
+            /tmp/d15-923-ui.log
+            /tmp/dispatch-d14-api.log
+          if-no-files-found: warn
