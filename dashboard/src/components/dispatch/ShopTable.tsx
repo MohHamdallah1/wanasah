@@ -9,6 +9,7 @@ import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 import { formatLocaleMoney } from "@/lib/localeNumbers";
 
 interface ShopTableProps {
+  pending?: boolean;
   shops: Shop[];
   zones: Zone[];
   isEditMode: boolean;
@@ -27,6 +28,7 @@ interface ShopTableProps {
 }
 
 export function ShopTable({
+  pending = false,
   shops,
   zones,
   isEditMode,
@@ -80,7 +82,11 @@ export function ShopTable({
         <tbody className="divide-y divide-slate-50">
           {shops.length === 0 ? (
             <tr>
-              <td colSpan={isEditMode ? 7 : 5} className="p-12 text-center text-slate-400">{label("shopEmpty")}</td>
+              <td colSpan={isEditMode ? 7 : 6} className="p-12 text-center text-slate-400"
+                role={pending ? "status" : undefined}
+                data-testid={pending ? "dispatch-shops-read-status" : undefined}>
+                {pending ? (language.startsWith("ar") ? "جارٍ التحقق من بيانات المحلات..." : "Verifying shops...") : label("shopEmpty")}
+              </td>
             </tr>
           ) : (
             shops.map((shop) => {
