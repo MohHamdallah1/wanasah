@@ -52,6 +52,10 @@ async function probe(page: Page) {
         tabs: document.querySelectorAll('[role="tab"]').length,
         skeleton: Boolean(document.querySelector('[data-testid="dispatch-quiet-loading"]')),
         privateRows: document.querySelectorAll(".dispatch-shop-table tbody tr, .dispatch-route-row").length,
+        anyVisibleTopbar: Array.from(document.querySelectorAll(".workspace-top-bar-frame")).some(
+          el => el.getClientRects().length > 0 &&
+            getComputedStyle(el).display !== "none" && getComputedStyle(el).visibility !== "hidden"
+        ),
       });
       if (now - target.start < 2200) requestAnimationFrame(tick);
       else observer.disconnect();
@@ -66,13 +70,14 @@ async function measure(page: Page, begin: number, requests: {path: string; at: n
     const frames = target?.frames ?? [];
     const first = frames.find((row: any) => row.shell);
     const missing = frames.filter((row: any) => !row.board || !row.shell || !row.tabs).length;
+    const fullBlankFrames = frames.filter((row: any) => !row.anyVisibleTopbar).length;
     let longest = 0, stretch = 0;
     for (const row of frames) {
       if (!row.board || !row.shell || !row.tabs) stretch += 16;
       else { longest = Math.max(stretch, longest); stretch = 0; }
     }
     longest = Math.max(stretch, longest);
-    return { shellMs: first?.ms ?? null, blankFrames: missing,
+    return { shellMs: first?.ms ?? null, blankFrames: missing, fullBlankFrames,
       longestBlankMs: longest, shifts: target?.shifts ?? 0, frameCount: frames.length,
       viewport: window.innerWidth, docWidth: document.documentElement.scrollWidth };
   }, { begin, requests: [] }).then(async metrics => {
@@ -95,6 +100,11 @@ for (const language of ["ar", "en"] as const) {
         if (allPaths.has(path)) seen.push({ path, at: Date.now() });
       });
       await page.goto("/dispatch");
+      // This is an actual same-Dashboard-identity host, not remount-per-route.
+      await expect(page.locator("[data-persistent-dispatch-host='true']")).toHaveCount(1);
+      await page.evaluate(() =>
+        document.querySelector("[data-persistent-dispatch-host='true']")?.setAttribute("data-d15-mounted", "once")
+      );
       const tabs = page.getByRole("tab");
       await expect(tabs).toHaveCount(3, { timeout: 45000 });
       const results = [];
@@ -108,6 +118,12 @@ for (const language of ["ar", "en"] as const) {
         await navigateInApp(page, 1, mobile);
         await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true", { timeout: 45000 });
         const m = await measure(page, begin, seen);
+        expect(m.fullBlankFrames, tab + " whole workspace blank").toBe(0);
+        expect(m.network["/inventory/access/me"], tab + " signed access GET").toBeLessThanOrEqual(1);
+        expect(m.dispatchReads, tab + " duplicate four-endpoint read").toBeLessThanOrEqual(4);
+        expect(m.docWidth, tab + " document horizontal overflow").toBe(width);
+        await expect(page.locator('[data-persistent-dispatch-host="true"][data-d15-mounted="once"]'))
+          .toHaveCount(1); // proves identical mounted subtree survives route navigation
         results.push({ tab, ...m });
       }
       // Genuine browser tab background + foreground, not mocked visibility events.
