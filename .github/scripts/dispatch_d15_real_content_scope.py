@@ -35,12 +35,26 @@ D15_922 = frozenset({
     "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
 })
 
+# #925: exact DATA-only progressive signed reentry scope. No auth/backend/other pages.
+D15_925 = frozenset({
+    ".github/scripts/dispatch_d15_real_content_scope.py",
+    ".github/workflows/dispatch-d15-data-reentry-p1.yml",
+    "dashboard/e2e/dispatch-d15-data-reentry-p1.spec.ts",
+    "dashboard/src/features/dispatch/loadDispatchRead.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/components/dispatch/ShopTable.tsx",
+    "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+    "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
+})
+
 MARKER = ".github/scripts/dispatch_d15_real_content_scope.py"
 
 def d15_real_content_mode(paths: set[str] | frozenset[str]) -> bool:
     actual = set(paths)
     if MARKER not in actual:
         return False
+    if actual == D15_925:
+        return True
     if actual == D15_922:
         return True
     assert actual == D15_918, (
@@ -52,6 +66,22 @@ def d15_real_content_mode(paths: set[str] | frozenset[str]) -> bool:
 def selftest() -> None:
     assert d15_real_content_mode(set(D15_918))
     assert d15_real_content_mode(set(D15_922))
+    assert d15_real_content_mode(set(D15_925))
+    for missing in D15_925:
+        candidate = set(D15_925 - {missing})
+        if missing == MARKER:
+            assert d15_real_content_mode(candidate) is False
+        else:
+            try: d15_real_content_mode(candidate)
+            except AssertionError: pass
+            else: raise AssertionError("D15 #925 partial admitted " + missing)
+    for foreign in ("wa_backend/api/dispatch.py", "dashboard/src/App.tsx",
+                    "dashboard/src/hooks/useInventoryAccess.ts",
+                    "dashboard/src/features/dispatch/commercialPreflight/useCommercialPreflight.ts"):
+        try: d15_real_content_mode(set(D15_925 | {foreign}))
+        except AssertionError: pass
+        else: raise AssertionError("D15 #925 foreign admitted " + foreign)
+
     for absent in D15_922:
         candidate = set(D15_922 - {absent})
         if absent == MARKER:
@@ -85,6 +115,7 @@ def selftest() -> None:
         else: raise AssertionError("Foreign scope accepted: " + extra)
     print("D15_918_REAL_CONTENT_SCOPE=PASS total=13 missing=13 foreign=7")
     print("D15_922_LAUNCH_P1_SCOPE=PASS total=8 missing=8 foreign=4")
+    print("D15_925_DATA_REENTRY_SCOPE=PASS total=8 missing=8 foreign=4")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]: raise SystemExit("Only --selftest")
