@@ -45,11 +45,13 @@ export function DispatchChrome({
             role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
             {visibleTabs.map(tab => (
               <button key={tab.id} type="button" role="tab"
-                aria-selected={admitted && activeTab === tab.id}
+                // The selected tab is a public workspace preference, not an
+                // authorization assertion. Genuine permissions still gate every action.
+                aria-selected={activeTab === tab.id}
                 disabled={!admitted || (permissionKnown && !allowedTabs?.includes(tab.id))}
                 onClick={() => { if (admitted && allowedTabs?.includes(tab.id)) onTabChange?.(tab.id); }}
                 className={`dispatch-tab flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold sm:px-3 sm:text-sm ${
-                  admitted && activeTab === tab.id
+                  activeTab === tab.id
                     ? "bg-white text-[#125d85] shadow-sm"
                     : "text-slate-200 hover:bg-white/10 hover:text-white"
                 }`}>
