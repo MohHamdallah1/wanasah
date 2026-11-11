@@ -212,6 +212,20 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
         await expect(page.getByRole("tab", { name: tab === routes ? "الخطوط النشطة" : tab === launch ? "إطلاق خط جديد" : "هيكلة المناطق" })).toBeVisible();
       }
     }
+    // Browser history is a distinct navigation owner; verify actual Back and
+    // Forward, not only clickable sidebar navigation, on the third real tab.
+    await page.goBack();
+    await expect(page).toHaveURL(new RegExp("/inventory$"));
+    const historyMark = network.length;
+    await armFrames(page, "zones");
+    pendingImage = "zones-history-forward";
+    await page.goForward();
+    await expect(page).toHaveURL(new RegExp("/dispatch$"));
+    await capture(page, network, historyMark,
+      "history-forward:zones:" + language + ":" + width, enforce);
+    expect(await page.evaluate(node =>
+      node === document.querySelector('[data-testid="dispatch-shared-topbar"]'), permanentToolbar)).toBe(true);
+    await page.screenshot({ path: `${imageDir}/${language}-${width}-zones-history-forward-ready.png` });
     // Real tab switching, not artificial visibilitychange events. Browser may
     // not produce a native hidden event in headless/Xvfb; disclose that case.
     await page.evaluate(() => {
