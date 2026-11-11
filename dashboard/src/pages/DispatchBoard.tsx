@@ -6,7 +6,6 @@ import { buildRouteStatusOnlyPayload } from "@/features/dispatch/routeStatusPayl
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
@@ -50,7 +49,8 @@ import { TransfersRadarModal } from "@/components/dispatch/TransfersRadarModal";
 import { parseDispatchNavigationState } from "@/features/dispatch/navigation";
 import { createDispatchReadFence } from "@/features/dispatch/dispatchAccess";
 import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
-import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
+import { DispatchChrome } from "@/features/dispatch/stableUi/DispatchChrome";
+import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
 import {
@@ -1650,102 +1650,38 @@ function DispatchSession() {
 
   const dispatchAdmitted = onDispatchRoute && navigationVerified &&
     accessState === "ready" && dispatchReadState === "ready";
-  // Tab labels are public chrome, not Shop/Route/finance rows. During a routine
-  // same-account capability refresh keep the last authorized labels visible but
-  // non-interactive. Never reuse them on a denied/error or new login.
+  // Tab presentation can persist within the SAME session, never as authority.
   if (dispatchAdmitted) {
     lastAuthorizedTabsRef.current = (["routes", "launch", "zones"] as const)
       .filter(tab => tabAllowed(tab));
   }
-  const chromeTabs = dispatchAdmitted ? lastAuthorizedTabsRef.current
-    : accessState === "loading" ? lastAuthorizedTabsRef.current : [];
-  // The shared Products page primitive owns the exact full-width dock geometry.
-  // This chrome is mounted immediately, but no old shop, warehouse, role or
-  // route data is rendered until both fresh Backend checks have succeeded.
-  const dispatchTopBar = (
-    <WorkspaceTopBar variant="page" className="shrink-0" data-testid="dispatch-shared-topbar">
-      <header className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        {chromeTabs.length > 0 ? (
-          <>
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="dispatch-tab-list flex max-w-full min-w-0 overflow-x-auto rounded-xl bg-white/10 p-1"
-                role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
-                {([
-                  { id: "routes", label: "الخطوط النشطة", icon: Truck },
-                  { id: "launch", label: "إطلاق خط جديد", icon: Plus },
-                  { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid },
-                ] as const).filter(tab => chromeTabs.includes(tab.id)).map(tab => (
-                  <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id}
-                    disabled={!dispatchAdmitted}
-                    onClick={() => { if (dispatchAdmitted) handleTabChange(tab.id); }}
-                    className={`dispatch-tab flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold transition-all sm:px-3 sm:text-sm ${
-                      activeTab === tab.id
-                        ? "bg-white text-[#125d85] shadow-sm"
-                        : "text-slate-200 hover:bg-white/10 hover:text-white"
-                    }`}>
-                    <tab.icon className="h-4 w-4 shrink-0" /> {tab.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex min-w-0 shrink-0 items-center gap-2">
-              {dispatchAdmitted && grants.shortages && (
-                <button type="button" onClick={() => setIsShortageModalOpen(true)}
-                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-colors sm:text-sm ${
-                    shortages.length > 0
-                      ? "border-amber-300 bg-amber-500 text-slate-950"
-                      : "border-white/20 bg-white/10 text-white hover:bg-white/20"
-                  }`}>
-                  <ClipboardList className="h-4 w-4 shrink-0" />
-                  طلبات ونواقص
-                </button>
-              )}
-              {dispatchAdmitted && grants.zoneManage && activeTab === "zones" && (
-                <button type="button"
-                  onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#1e87bb] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#166a94] sm:text-sm">
-                  <Calendar className="h-4 w-4 shrink-0" />
-                  الجدولة الشاملة
-                </button>
-              )}
-            </div>
-          </>
-        ) : (
-          <div aria-hidden="true" data-testid="dispatch-neutral-topbar"
-            className="flex h-9 w-full items-center gap-3">
-            <div className="h-8 w-36 rounded-lg bg-white/10" />
-            <div className="h-8 w-20 rounded-lg bg-white/5" />
-          </div>
-        )}
-      </header>
-    </WorkspaceTopBar>
-  );
+  const visiblePermissionTabs = accessState === "ready"
+    ? (["routes", "launch", "zones"] as const).filter(tab => tabAllowed(tab))
+    : lastAuthorizedTabsRef.current.length ? lastAuthorizedTabsRef.current : undefined;
+  const display = accessState !== "ready" ? accessState : dispatchReadState;
 
-  if (!dispatchAdmitted) {
-    const display = accessState !== "ready" ? accessState : dispatchReadState;
-    return (
-      <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
-        {dispatchTopBar}
-        <div className="dispatch-content flex h-full min-h-0 w-full flex-1 flex-col pt-2">
+  // Single permanently mounted toolbar; independent secure data hydration.
+  return (
+    <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
+      <DispatchChrome
+        activeTab={activeTab} admitted={dispatchAdmitted}
+        permissionKnown={accessState === "ready"}
+        allowedTabs={visiblePermissionTabs}
+        canShortages={grants.shortages}
+        canZoneManage={grants.zoneManage}
+        hasShortages={dispatchAdmitted && shortages.length > 0}
+        onTabChange={handleTabChange}
+        onShortages={() => setIsShortageModalOpen(true)}
+        onBulkSchedule={() => {
+          setSchedulingType("bulk");
+          setSelectedBulkZoneIds(zones.map(z => z.id));
+          setIsSchedulingModalOpen(true);
+        }}
+      />
+      {!dispatchAdmitted ? (
+        <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col">
           {display === "loading" ? (
-            <div data-testid="dispatch-quiet-loading" role="status" aria-busy="true"
-              className={activeTab === "zones"
-                ? "dispatch-zones-workbench flex min-h-0 w-full flex-1 flex-col gap-4 xl:flex-row"
-                : activeTab === "launch"
-                  ? "flex min-h-0 w-full flex-1 flex-col gap-4"
-                  : "flex min-h-0 w-full flex-1 flex-col gap-4"}>
-              {activeTab === "zones" ? (
-                <>
-                  <div aria-hidden="true" className="min-h-40 w-full shrink-0 rounded-2xl bg-slate-100/70 xl:w-[29%]" />
-                  <div aria-hidden="true" className="min-h-40 min-w-0 flex-1 rounded-2xl bg-slate-100/50" />
-                </>
-              ) : (
-                <>
-                  <div aria-hidden="true" className="h-12 w-full shrink-0 rounded-xl bg-slate-100/50" />
-                  <div aria-hidden="true" className="min-h-40 flex-1 rounded-2xl bg-slate-100/60" />
-                </>
-              )}
-            </div>
+            <DispatchWorkspaceStructure activeTab={activeTab} />
           ) : (
             <DispatchAccessNotice state={display === "ready" ? "error" : display}
               onRetry={() => {
@@ -1755,14 +1691,8 @@ function DispatchSession() {
               }} />
           )}
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
-      {dispatchTopBar}
-
+      ) : (
+        <>
       {/* CS-WH-03: Warehouse audit lock warning banner */}
       {archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
         {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
@@ -1803,12 +1733,12 @@ function DispatchSession() {
                       <button
                         onClick={() => setIsShowPostponedModalOpen(true)}
                         /* +++ تكبير الزر عبر px-4 py-2 text-sm +++ */
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm transition-all ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm  ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
                       >
                         <Eye className="w-4 h-4" />
                         {hasPostponed && (
                           <span className="relative flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                            <span className=" absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
                           </span>
                         )}
@@ -1977,7 +1907,7 @@ function DispatchSession() {
               )}
 
               {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
-              <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm transition-all hover:border-[#1e87bb]/30 mt-3">
+              <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm  hover:border-[#1e87bb]/30 mt-3">
                 <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
                   <Rocket className="w-4 h-4" /> إطلاق خط سير جديد
                 </div>
@@ -2023,7 +1953,7 @@ function DispatchSession() {
                     disabled={!canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
-                    className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
+                    className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg  active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
                   >
                     <Rocket className="w-5 h-5" /> {preflightCopy(i18n.language, "launch")}
                   </button>
@@ -2039,8 +1969,8 @@ function DispatchSession() {
                     <div className="flex items-center justify-between">
                       <h2 className="font-bold text-slate-800">المناطق ({zones.length})</h2>
                       <div className="flex items-center gap-2">
-                        {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">🗑️ الأرشيف</button>}
-                        {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors">[+ منطقة جديدة]</button>}
+                        {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 ">🗑️ الأرشيف</button>}
+                        {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 ">[+ منطقة جديدة]</button>}
                       </div>
                     </div>
                     {shopScope === "authorized_routes" && (
@@ -2061,11 +1991,11 @@ function DispatchSession() {
                         setSelectedZoneIdForZones(zone.id);
                         setIsEditMode(false);
                         setSelectedShopIds([]);
-                      }} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between transition-all group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
+                      }} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between  group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
                         <span className="flex items-center gap-2">
                           {zone.name}
                           {(!zone.startDate || !zone.intervalDays) && (
-                            <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5 animate-pulse cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
+                            <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5  cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
                           )}
                         </span>
                         <p className="text-[10px] mt-1 flex items-center gap-1">
@@ -2076,7 +2006,7 @@ function DispatchSession() {
                           <span className="text-slate-300">•</span>
                           <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
                         </p>
-                      </div>{grants.zoneManage && <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
+                      </div>{grants.zoneManage && <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100  shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
                         onClick={e => {
                           e.stopPropagation();
                           setZoneToKill(zone);
@@ -2094,9 +2024,9 @@ function DispatchSession() {
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-full min-w-0 xl:flex-1 flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">المحلات</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 transition-all" /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 animate-spin" /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <button
+                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">المحلات</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 " /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 " /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <button
                     onClick={() => setShowRecycleBin(true)}
-                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm transition-all hover:text-blue-600"
+                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm  hover:text-blue-600"
                     title="فتح أرشيف المحلات المؤرشفة"
                   >
                     <Archive className="w-5 h-5" />
@@ -2106,7 +2036,7 @@ function DispatchSession() {
                       return;
                     }
                     setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
-                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm transition-colors"><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
+                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm "><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
                   <ShopOrderScopeNotice language={i18n.language}
                     selectedZoneName={zones.find(z => z.id === selectedZoneIdForZones)?.name || ""}
                     hasOutsideZoneMatches={shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
@@ -2155,9 +2085,9 @@ function DispatchSession() {
                       });
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
-                  <AnimatePresence>{grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<motion.div initial={{ opacity: 0, y: 50, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 50, x: "-50%" }} className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 transition-all"><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all"><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></motion.div>)}</AnimatePresence>
+                  {grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 "><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 "><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></div>)}
 {grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
-                    <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50 transition-all group shadow-sm">
+                    <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50  group shadow-sm">
                       <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
                       <div className="text-start">
                         <p className="text-base font-bold text-slate-700 group-hover:text-[#1e87bb]">استيراد المحلات الذكي (Excel / Paste)</p>
@@ -2336,8 +2266,8 @@ function DispatchSession() {
           title={confirmDialog.title}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
-              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94] transition-colors shadow-lg">تأكيد</button>
+              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">إلغاء</button>
+              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94]  shadow-lg">تأكيد</button>
             </div>
           }
         >
@@ -2356,8 +2286,8 @@ function DispatchSession() {
           title={shopFormText(i18n.language, "duplicateTitle")}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => clearDuplicateWarning()} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">{shopFormText(i18n.language, "cancel")}</button>
-              <button onClick={confirmDuplicateShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition-colors shadow-lg">{shopFormText(i18n.language, "duplicateProceed")}</button>
+              <button onClick={() => clearDuplicateWarning()} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">{shopFormText(i18n.language, "cancel")}</button>
+              <button onClick={confirmDuplicateShop} className="flex-1 bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600  shadow-lg">{shopFormText(i18n.language, "duplicateProceed")}</button>
             </div>
           }
         >
@@ -2388,7 +2318,7 @@ function DispatchSession() {
           title="⚠️ تعديلات غير محفوظة"
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setUnsavedTabPrompt(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
+              <button onClick={() => setUnsavedTabPrompt(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">إلغاء</button>
               <button
                 onClick={async () => {
                   const discarded = await handleCancelReorder();
@@ -2397,7 +2327,7 @@ function DispatchSession() {
                     setUnsavedTabPrompt(null);
                   }
                 }}
-                className="flex-1 bg-red-50 text-red-600 border border-red-200 py-2 rounded-xl font-bold hover:bg-red-100 transition-colors"
+                className="flex-1 bg-red-50 text-red-600 border border-red-200 py-2 rounded-xl font-bold hover:bg-red-100 "
               >
                 تجاهل وخروج
               </button>
@@ -2409,7 +2339,7 @@ function DispatchSession() {
                     setUnsavedTabPrompt(null);
                   }
                 }}
-                className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 transition-colors shadow-lg"
+                className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600  shadow-lg"
               >
                 حفظ وخروج
               </button>
@@ -2429,14 +2359,14 @@ function DispatchSession() {
           title="⚠️ المنطقة مؤرشفة"
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setRestorePromptShop(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl transition-colors">إلغاء</button>
+              <button onClick={() => setRestorePromptShop(null)} className="px-4 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">إلغاء</button>
               <button
                 onClick={() => {
                   setRestorePromptShop(null);
                   setSelectedShopIds([restorePromptShop.id]);
                   setIsBulkTransferModalOpen(true);
                 }}
-                className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#156a94] transition-colors"
+                className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#156a94] "
                 title="نقل المحل لمنطقة أخرى نشطة قبل تفعيله"
               >
                 نقل لمنطقة نشطة 🔄
@@ -2468,7 +2398,7 @@ function DispatchSession() {
                     toast.success("تم استعادة المنطقة والمحل بنجاح ✅");
                   } catch (e: unknown) { toast.error("خطأ: " + getErrorMessage(e)); }
                 }}
-                className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 transition-colors"
+                className="flex-1 bg-emerald-500 text-white py-2 rounded-xl font-bold hover:bg-emerald-600 "
               >
                 استعادة المنطقة والمحل ♻️
               </button>
@@ -2503,7 +2433,7 @@ function DispatchSession() {
                   toast.success(`تم أرشفة المنطقة (${zoneToKill?.name}) وكل محلاتها بنجاح ✅`);
                 } catch (err: unknown) { toast.error(getErrorMessage(err)); }
               }}
-              className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-30 transition-all shadow-lg"
+              className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-30  shadow-lg"
             >
               تأكيد المسح الشامل 🧨
             </button>
@@ -2518,11 +2448,13 @@ function DispatchSession() {
           <input
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
-            className="w-full rounded-xl border-2 border-red-100 p-3 text-center font-black text-slate-800 focus:border-red-500 outline-none transition-all"
+            className="w-full rounded-xl border-2 border-red-100 p-3 text-center font-black text-slate-800 focus:border-red-500 outline-none "
             placeholder="اكتب اسم المنطقة هنا..."
           />
         </div>
       </Modal>
+        </>
+      )}
     </div>
   );
 }
