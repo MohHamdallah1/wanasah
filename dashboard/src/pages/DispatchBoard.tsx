@@ -1959,7 +1959,7 @@ function DispatchSession() {
                     Backend verification stay unchanged. */}
                 <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0">
                   <CommercialPreflightPanel language={i18n.language}
-                    status={tabReady ? commercialPreflight.status : "loading"}
+                    status={tabReady ? commercialPreflight.status : "choose"}
                     evidence={tabReady ? commercialPreflight.evidence : null}
                     onRefresh={commercialPreflight.refresh} />
                 </div>
