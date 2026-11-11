@@ -120,15 +120,18 @@ async def test_seed_actual_authorized_shops_for_chromium(pg):
         assert all(r["financeRedacted"] and r["initialDebt"] is None
                    for r in company_rows.json())
 
+    # Tenant B identity must be read only under Tenant B's RLS context.
+    async with pg.session(1) as foreign_db:
+        foreign_code = await foreign_db.scalar(select(Company.company_code).where(
+            Company.id == foreign.company_id,
+        ))
+        foreign_username = await _username(foreign_db, foreign.owner.context.principal_id)
     async with pg.session() as db:
         a2_name = await db.scalar(select(Shop.name).where(Shop.id == a2))
         unassigned_name = await db.scalar(select(Shop.name).where(Shop.id == unassigned))
         a2_zone_name = await db.scalar(select(Zone.name).where(Zone.id == second_zone))
         code = await db.scalar(select(Company.company_code).where(
             Company.id == home.company_id,
-        ))
-        foreign_code = await db.scalar(select(Company.company_code).where(
-            Company.id == foreign.company_id,
         ))
         field_username = await db.scalar(select(CompanyPrincipal.username).where(
             CompanyPrincipal.company_id == home.company_id,
@@ -155,8 +158,8 @@ async def test_seed_actual_authorized_shops_for_chromium(pg):
                     db, reader.context.principal_id), "password": READER_PASSWORD},
                 "limited": {"code": code, "username": await _username(
                     db, home.ordinary.context.principal_id), "password": "SyntheticFixture123"},
-                "foreign": {"code": foreign_code, "username": await _username(
-                    db, foreign.owner.context.principal_id), "password": OWNER_PASSWORD},
+                "foreign": {"code": foreign_code, "username": foreign_username,
+                            "password": OWNER_PASSWORD},
                 "field": {"code": code, "username": field_username,
                           "password": FIELD_PASSWORD},
             },
