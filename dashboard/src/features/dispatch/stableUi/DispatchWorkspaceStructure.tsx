@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { DispatchChrome } from "./DispatchChrome";
+import "./dispatchNoMotion.css";
 import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import type { TabId } from "@/types/dispatch";
 
