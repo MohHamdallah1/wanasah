@@ -1,4 +1,4 @@
-import { Menu, WifiOff } from "lucide-react";
+import { Eye, Menu, Truck, WifiOff } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -38,9 +38,14 @@ const DispatchImportPending = () => (
       <div className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
         <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
           <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
-            مناطق قيد العمل (الخطوط النشطة)
+            <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl pt-3">
+          <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
+            <button type="button" disabled className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm bg-white border border-slate-200 text-slate-600">
+              <Eye className="w-4 h-4" /> عرض المؤجل (0)
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
             <PendingRoutesTable
               routes={[]}
               pending
