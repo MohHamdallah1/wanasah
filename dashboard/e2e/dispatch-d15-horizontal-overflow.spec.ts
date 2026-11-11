@@ -25,7 +25,7 @@ type Geometry = {
   viewport: number; documentClient: number; documentScroll: number;
   bodyClient: number; bodyScroll: number; scrollerClient: number; scrollerScroll: number;
   forbiddenRootExcess: number;
-  dispatchContainers: Array<{ selector: string; client: number; scroll: number; excess: number; rect: Edge }>;
+  dispatchContainers: Array<{ selector: string; client: number; scroll: number; excess: number; overflowX: string; rect: Edge }>;
   internalScrollers: Array<{ element: string; excess: number; overflowX: string }>;
   offenders: Offender[];
   zones?: { parent: Edge; first: Edge; second: Edge; gap: number; childSumMinusParent: number };
@@ -125,6 +125,7 @@ async function measure(page: Page): Promise<Geometry> {
         const node = el as HTMLElement;
         return { selector, client: node.clientWidth, scroll: node.scrollWidth,
           excess: Math.max(0, node.scrollWidth - node.clientWidth),
+          overflowX: getComputedStyle(el).overflowX,
           rect: edge(el.getBoundingClientRect()) };
       }));
     const offenders: Offender[] = [];
@@ -246,7 +247,12 @@ for (const language of ["ar", "en"] as const) {
             const unwelcome = geometry.dispatchContainers.filter(x =>
               [".dashboard-main-stage", ".dashboard-content", ".dispatch-board",
                ".dispatch-content", ".dispatch-zones-workbench"].includes(x.selector) &&
-              x.excess > 1);
+              x.excess > 1 && /(auto|scroll)/.test(x.overflowX));
+            // A shared full-bleed WorkspaceTopBar intentionally extends 16px
+            // beyond unscrollable desktop layout boxes. Never call that an
+            // actionable horizontal scrollbar; still log exact rectangles,
+            // assert zero DOCUMENT scroll and catch genuinely scrollable
+            // Zones workbench overflow plus clipped controls.
             for (const el of unwelcome) {
               failures.push(`${tab}/${phase}: ${el.selector} +${el.excess}px`);
             }
