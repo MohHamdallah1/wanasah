@@ -13,6 +13,7 @@ on:
       - "dashboard/src/components/dispatch/RouteLoadProductTable.tsx"
       - "dashboard/src/components/dispatch/ProductSearchControls.tsx"
       - "dashboard/src/test/dispatch-capability-denied-v1.test.ts"
+      - "dashboard/src/test/auth-session-consumer-isolation.test.tsx"
 
 permissions:
   contents: read
@@ -119,7 +120,7 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Focused unit signed staged-read and denial tests
         working-directory: dashboard
-        run: npx vitest run src/test/dispatch-capability-denied-v1.test.ts --reporter=default
+        run: npx vitest run src/test/dispatch-capability-denied-v1.test.ts src/test/auth-session-consumer-isolation.test.tsx --reporter=default
       - name: Build exact original #925 MAIN baseline from immutable Git blobs
         working-directory: dashboard
         env:
