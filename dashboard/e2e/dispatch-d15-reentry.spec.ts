@@ -132,6 +132,10 @@ for (const language of ["ar", "en"] as const) {
         await navigateInApp(page, 1, mobile);
         await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true", { timeout: 45000 });
         const m = await measure(page, begin, seen);
+        console.log("D15_ONE_RETURN_NETWORK=" + JSON.stringify({
+          language, width, tab, requests: seen.filter(request => request.at >= begin),
+          metrics: m,
+        }));
         expect(m.fullBlankFrames, tab + " whole workspace blank").toBe(0);
         expect(m.network["/inventory/access/me"], tab + " signed company capability GET").toBeLessThanOrEqual(1);
         expect(m.network["/inventory/access/me?location_id"], tab + " signed Warehouse authority GET")
@@ -142,19 +146,29 @@ for (const language of ["ar", "en"] as const) {
           .toHaveCount(1); // proves identical mounted subtree survives route navigation
         results.push({ tab, ...m });
       }
-      // Genuine browser tab background + foreground, not mocked visibility events.
-      const other = await page.context().newPage();
-      await other.goto("about:blank");
-      await other.bringToFront();
-      await page.waitForTimeout(450); // let real headless browser tab visibility settle
-      const hiddenVisibility = await page.evaluate(() => document.visibilityState);
+      // Xvfb's virtual window manager leaves every tab "visible". Drive the
+      // REAL Chromium page lifecycle through CDP instead of dispatching fake
+      // JS visibility events or mocking authenticated API requests.
+      await page.evaluate(() => {
+        (window as any).__d15VisibilityEvents = [];
+        document.addEventListener("visibilitychange", () => {
+          (window as any).__d15VisibilityEvents.push(document.visibilityState);
+        }, { once: false });
+      });
+      const cdp = await page.context().newCDPSession(page);
+      await cdp.send("Page.enable");
+      await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
+      await page.waitForTimeout(300);
       const focusedAt = Date.now();
-      await probe(page);
+      await cdp.send("Page.setWebLifecycleState", { state: "active" });
       await page.bringToFront();
-      await other.close();
+      await probe(page);
       await expect(page.getByRole("tab", { name: "هيكلة المناطق" })).toBeVisible();
       const focused = await measure(page, focusedAt, seen);
-      expect(hiddenVisibility, "real headed Chromium must hide the background Dispatch tab").toBe("hidden");
+      const events = await page.evaluate(() => (window as any).__d15VisibilityEvents as string[]);
+      const hiddenVisibility = events.includes("hidden") ? "hidden" : "visible";
+      await cdp.detach();
+      expect(hiddenVisibility, "Chromium engine must publish a real hidden lifecycle").toBe("hidden");
       const summary = { language, width, pageReturns: results, browserFocus: {
         ...focused, hiddenVisibility,
         returnVisibility: await page.evaluate(() => document.visibilityState),
