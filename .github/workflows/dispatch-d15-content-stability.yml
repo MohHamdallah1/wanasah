@@ -135,6 +135,7 @@ jobs:
           cat /tmp/d15-919-ui.log
           exit 1
       - name: Independent real Chromium three-tab every-rAF visual comparison
+        if: ${{ !endsWith(github.ref_name, '-after') }}
         working-directory: dashboard
         run: |
           if [[ "$GITHUB_REF_NAME" == *-after ]]; then
@@ -147,7 +148,15 @@ jobs:
         if: ${{ success() && endsWith(github.ref_name, '-after') }}
         working-directory: dashboard
         run: |
-          xvfb-run -a npx playwright test e2e/dispatch-d14-browser.spec.ts --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-919-d14-security
+          # Original D14 spec uses page.goto("/") relative URLs. Its standalone
+          # Playwright invocation needs an explicit origin, unlike its usual CI.
+          cat > /tmp/d15-919-playwright.config.cjs <<'JS'
+          module.exports = {
+            testDir: process.cwd(),
+            use: { baseURL: "http://127.0.0.1:4173" },
+          };
+          JS
+          xvfb-run -a npx playwright test e2e/dispatch-d14-browser.spec.ts --config=/tmp/d15-919-playwright.config.cjs --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-919-d14-security
       - name: Preserve every-frame JSON/screenshots and independent security results
         if: always()
         uses: actions/upload-artifact@v4
