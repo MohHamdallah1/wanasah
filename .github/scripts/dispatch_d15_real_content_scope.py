@@ -44,6 +44,7 @@ D15_925 = frozenset({
     "dashboard/src/pages/DispatchBoard.tsx",
     "dashboard/src/components/dispatch/ShopTable.tsx",
     "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+    "dashboard/src/components/dispatch/ProductSearchControls.tsx",
     "dashboard/src/test/dispatch-capability-denied-v1.test.ts",
 })
 
@@ -115,7 +116,7 @@ def selftest() -> None:
         else: raise AssertionError("Foreign scope accepted: " + extra)
     print("D15_918_REAL_CONTENT_SCOPE=PASS total=13 missing=13 foreign=7")
     print("D15_922_LAUNCH_P1_SCOPE=PASS total=8 missing=8 foreign=4")
-    print("D15_925_DATA_REENTRY_SCOPE=PASS total=8 missing=8 foreign=4")
+    print("D15_925_DATA_REENTRY_SCOPE=PASS total=9 missing=9 foreign=4")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]: raise SystemExit("Only --selftest")
