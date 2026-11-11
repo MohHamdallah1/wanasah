@@ -2050,7 +2050,7 @@ function DispatchSession() {
                 }} />
 
               {/* Keep the primary launch action reachable on short viewports. */}
-              <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
+              <div className="sticky bottom-0 z-30 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
                 <div className="flex justify-end">
                   <button
                     disabled={!tabReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
