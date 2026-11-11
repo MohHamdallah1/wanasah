@@ -68,13 +68,7 @@ async def test_seed_actual_authorized_shops_for_chromium(pg):
         assigned_id, assigned_name = int(assigned.id), assigned.name
         zone_name = await db.scalar(select(Zone.name).where(Zone.id == assigned.zone_id))
         await db.commit()
-    second_zone, unassigned, a2 = await _second_zone_shops(
-        pg, home, route_request["zone_id"],
-    )
     async with pg.session() as db:
-        a2_name = await db.scalar(select(Shop.name).where(Shop.id == a2))
-        unassigned_name = await db.scalar(select(Shop.name).where(Shop.id == unassigned))
-        a2_zone_name = await db.scalar(select(Zone.name).where(Zone.id == second_zone))
         reader = await seed_ordinary_backoffice_fixture(
             db, home.company_id, password=READER_PASSWORD,
         )
@@ -108,6 +102,10 @@ async def test_seed_actual_authorized_shops_for_chromium(pg):
         reader_headers = await _token(client, pg, home, reader, READER_PASSWORD)
         launch = await client.post("/dispatch/route", json=route_request, headers=owner_headers)
         assert launch.status_code == 201, launch.text
+        # D06 exact fixture rule: Shops created AFTER launch have no active Visit.
+        second_zone, unassigned, a2 = await _second_zone_shops(
+            pg, home, route_request["zone_id"],
+        )
         assert (await client.get("/dispatch/shops", headers=owner_headers)).status_code == 200
         limited = await client.get("/dispatch/shops", headers=limited_headers)
         assert limited.status_code == 200
@@ -123,6 +121,9 @@ async def test_seed_actual_authorized_shops_for_chromium(pg):
                    for r in company_rows.json())
 
     async with pg.session() as db:
+        a2_name = await db.scalar(select(Shop.name).where(Shop.id == a2))
+        unassigned_name = await db.scalar(select(Shop.name).where(Shop.id == unassigned))
+        a2_zone_name = await db.scalar(select(Zone.name).where(Zone.id == second_zone))
         code = await db.scalar(select(Company.company_code).where(
             Company.id == home.company_id,
         ))
