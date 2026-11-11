@@ -202,9 +202,9 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
         expect(await page.evaluate(node =>
           node === document.querySelector('[data-testid="dispatch-shared-topbar"]'), permanentToolbar)).toBe(true);
         if (enforce) {
-          expect(await page.evaluate((node, tabName) =>
+          expect(await page.evaluate(({ node, tabName }) =>
             node === document.querySelector(`[data-testid="dispatch-${tabName}-workspace"]`),
-            originalPanel, name)).toBe(true);
+            { node: originalPanel, tabName: name })).toBe(true);
         }
         await expect(page.getByRole("tab", { name: tab === routes ? "الخطوط النشطة" : tab === launch ? "إطلاق خط جديد" : "هيكلة المناطق" })).toBeVisible();
       }
