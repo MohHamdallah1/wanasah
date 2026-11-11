@@ -523,11 +523,12 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   expect(requests.some(request => request.company === "2" && request.path === "/dispatch/init")).toBe(true);
   expect(requests.filter(request => request.company === "1" && request.path === "/dispatch/init")
     .every(request => request.signal?.aborted)).toBe(true);
-  // D09: during B's pending permission/data read, no old or new tab is exposed.
-  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
-  // D15: permission verification remains mandatory; only its verbose text is
-  // replaced by a quiet non-sensitive workspace skeleton.
-  expect(screen.getByTestId("dispatch-neutral-topbar")).toBeInTheDocument();
+  // D15: the public tab structure stays on screen, but NONE can execute
+  // during B's pending permission/data read, and all A private rows were fenced.
+  for (const tab of screen.getAllByRole("tab")) expect(tab).toBeDisabled();
+  expect(screen.getAllByRole("tab")).toHaveLength(3);
+  expect(screen.getByTestId("dispatch-shared-topbar")).toBeInTheDocument();
+  expect(screen.getByTestId("dispatch-structural-workspace")).toBeInTheDocument();
   expect(screen.getByTestId("dispatch-quiet-loading")).toHaveAttribute("aria-busy", "true");
   expect(document.body.textContent).not.toContain("Checking access permissions");
   await act(async () => lateA.resolve());
