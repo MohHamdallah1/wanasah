@@ -8,6 +8,7 @@ D15_913_SCOPE = frozenset({
     ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/App.tsx",
     "dashboard/e2e/dispatch-d14-browser.spec.ts",
     "dashboard/e2e/dispatch-d15-zero-flash.spec.ts",
     "dashboard/src/components/operations/DashboardLayout.tsx",
@@ -44,7 +45,6 @@ def selftest() -> None:
             else:
                 raise AssertionError(f"Partial D15 scope admitted: {missing}")
     for foreign in (
-        "dashboard/src/App.tsx",
         "dashboard/src/hooks/useInventoryAccess.ts",
         "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
         "dashboard/src/components/dashboard/WorkspaceTopBar.css",
@@ -62,7 +62,7 @@ def selftest() -> None:
         else:
             raise AssertionError(f"Foreign D15 scope admitted: {foreign}")
     assert not d15_zero_flash_mode({"dashboard/src/pages/DispatchBoard.tsx"})
-    print("D15_913_EXACT_SCOPE=PASS total=13 missing=13 foreign=10 no_worker2_or_auth_scope")
+    print("D15_913_EXACT_SCOPE=PASS total=14 missing=14 foreign=9 no_worker2_or_auth_scope")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]:

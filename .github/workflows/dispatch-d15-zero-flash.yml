@@ -9,6 +9,7 @@ on:
       - "dashboard/src/features/dispatch/stableUi/**"
       - "dashboard/src/pages/DispatchBoard.tsx"
       - "dashboard/src/components/operations/DashboardLayout.tsx"
+      - "dashboard/src/App.tsx"
 
 permissions:
   contents: read
@@ -119,8 +120,10 @@ jobs:
         run: |
           cp dashboard/src/pages/DispatchBoard.tsx /tmp/d15-zero-flash-head-Board.tsx
           cp dashboard/src/components/operations/DashboardLayout.tsx /tmp/d15-zero-flash-head-Layout.tsx
+          cp dashboard/src/App.tsx /tmp/d15-zero-flash-head-App.tsx
           git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
           git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/components/operations/DashboardLayout.tsx > dashboard/src/components/operations/DashboardLayout.tsx
+          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/App.tsx > dashboard/src/App.tsx
           npm --prefix dashboard run build
       - name: Serve built Dashboard
         working-directory: dashboard
@@ -144,6 +147,7 @@ jobs:
         run: |
           cp /tmp/d15-zero-flash-head-Board.tsx dashboard/src/pages/DispatchBoard.tsx
           cp /tmp/d15-zero-flash-head-Layout.tsx dashboard/src/components/operations/DashboardLayout.tsx
+          cp /tmp/d15-zero-flash-head-App.tsx dashboard/src/App.tsx
           npm --prefix dashboard run build
       - name: AFTER same signed PG16 + real Chromium zero-flash and security guard
         working-directory: dashboard

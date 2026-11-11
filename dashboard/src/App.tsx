@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { toast } from "sonner"; // +++  (E-11): استدعاء الـ Toast لعرض الأخطاء +++
 import { readPlatformSession } from "@/features/platform/session";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
+import DashboardLayout from "@/components/operations/DashboardLayout";
 import {
   loadCommercialRulesDashboard,
   loadDispatchBoard,
@@ -17,7 +18,6 @@ import {
 } from "@/routes/routePreloaders";
 
 // +++ الكي الجراحي: تحميل ديناميكي للصفحات لتفكيك الكتلة الضخمة في ملف index +++
-const DashboardLayout = lazy(() => import("@/components/operations/DashboardLayout"));
 const OperationsDashboard = lazy(loadOperationsDashboard);
 const DispatchBoard = lazy(loadDispatchBoard);
 const ProductsPage = lazy(loadProductsPage);
