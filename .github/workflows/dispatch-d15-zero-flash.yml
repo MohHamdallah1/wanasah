@@ -122,10 +122,12 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp dashboard/src/pages/DispatchBoard.tsx /tmp/d15-zero-flash-head-Board.tsx
+          cp dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx /tmp/d15-zero-flash-head-Chrome.tsx
           cp dashboard/src/components/operations/DashboardLayout.tsx /tmp/d15-zero-flash-head-Layout.tsx
           cp dashboard/src/components/dispatch/PendingRoutesTable.tsx /tmp/d15-zero-flash-head-Routes.tsx
           cp dashboard/src/App.tsx /tmp/d15-zero-flash-head-App.tsx
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx > dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/components/operations/DashboardLayout.tsx > dashboard/src/components/operations/DashboardLayout.tsx
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/components/dispatch/PendingRoutesTable.tsx > dashboard/src/components/dispatch/PendingRoutesTable.tsx
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx > dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
@@ -198,6 +200,7 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp /tmp/d15-zero-flash-head-Board.tsx dashboard/src/pages/DispatchBoard.tsx
+          cp /tmp/d15-zero-flash-head-Chrome.tsx dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
           cp /tmp/d15-zero-flash-head-Layout.tsx dashboard/src/components/operations/DashboardLayout.tsx
           cp /tmp/d15-zero-flash-head-Routes.tsx dashboard/src/components/dispatch/PendingRoutesTable.tsx
           rm dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
