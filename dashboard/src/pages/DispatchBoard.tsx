@@ -1658,6 +1658,15 @@ function DispatchSession() {
   // Keep canonical selected-tab geometry mounted; admission alone controls
   // protected data, current commands and server-backed selections.
   const tabReady = dispatchAdmitted && tabAllowed(activeTab);
+  const realWorkspaceRef = useRef<HTMLDivElement | null>(null);
+  // React's installed DOM typings predate the inert JSX prop. Set the native
+  // inert attribute in layout commit, before any restricted panel can paint.
+  useLayoutEffect(() => {
+    const node = realWorkspaceRef.current;
+    if (!node) return;
+    if (tabReady) node.removeAttribute("inert");
+    else node.setAttribute("inert", "");
+  }, [tabReady, activeTab]);
   const workspaceStatus = !tabReady ? (display === "ready" ? "denied" : display) : null;
   // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
   useLayoutEffect(() => {
@@ -1712,7 +1721,7 @@ function DispatchSession() {
         )}
         <>
           {activeTab === "routes" ? (
-            <div key="routes" data-testid="dispatch-routes-workspace" inert={!tabReady} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+            <div key="routes" data-testid="dispatch-routes-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
               <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                 
                 {/* الشريطة العائمة */}
@@ -1844,7 +1853,7 @@ function DispatchSession() {
               </div>
             </div>
           ) : activeTab === "launch" ? (
-            <div key="launch" data-testid="dispatch-launch-workspace" inert={!tabReady} className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2">
+            <div key="launch" data-testid="dispatch-launch-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2">
               
               {/* D07: unresolved original UUID survives lost 201 and a full reload.
                   No new route can be started until authoritative readback settles it. */}
@@ -1960,7 +1969,7 @@ function DispatchSession() {
 
             </div>
           ) : (
-            <div key="zones" data-testid="dispatch-zones-workspace" inert={!tabReady} className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
+            <div key="zones" data-testid="dispatch-zones-workspace" ref={realWorkspaceRef} className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
               <div className="w-full xl:w-[29%] flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
                   <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
