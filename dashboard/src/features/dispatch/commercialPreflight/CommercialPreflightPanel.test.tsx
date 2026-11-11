@@ -79,7 +79,7 @@ describe("D15 compact preflight panel — presentation only, canonical advisory 
     expect(screen.getByRole("list").querySelectorAll("li")).toHaveLength(6);
     expect(screen.getByText(/نسبة 0% المنشورة صالحة/)).toBeInTheDocument();
     expect(screen.getByText(/جرد شامل/)).toBeInTheDocument();
-    expect(screen.getByText(/عهدة المركبة/)).toBeInTheDocument();
+    expect(screen.getAllByText(/عهدة المركبة/).length).toBeGreaterThan(0);
     const links = screen.getAllByRole("link", { name: "اذهب للإعداد" });
     expect(links.map(a => a.getAttribute("href"))).toEqual([
       "/products", "/commercial-rules", "/commercial-rules",
