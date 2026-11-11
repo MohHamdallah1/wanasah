@@ -124,6 +124,8 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     const launch = page.getByRole("tab", { name: "إطلاق خط جديد" });
     const zones = page.getByRole("tab", { name: "هيكلة المناطق" });
     await expect(routes).toBeVisible();
+    const permanentToolbar = await page.getByTestId("dispatch-shared-topbar").elementHandle();
+    expect(permanentToolbar).not.toBeNull();
     for (const [tab,name] of [[routes,"routes"],[launch,"launch"],[zones,"zones"]] as const) {
       await tab.click();
       await expect(tab).toHaveAttribute("aria-selected","true");
@@ -136,6 +138,9 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
       await page.locator(".operations-nav button").nth(1).click();
       await expect(page).toHaveURL(/\/dispatch$/);
       await capture(page, network, mark, "return:" + name + ":" + language + ":" + width, enforce);
+      // Exact DOM node identity: the lazy board is forbidden to replace the topbar.
+      expect(await page.evaluate(node =>
+        node === document.querySelector('[data-testid="dispatch-shared-topbar"]'), permanentToolbar)).toBe(true);
       await expect(page.getByRole("tab", { name: tab === routes ? "الخطوط النشطة" : tab === launch ? "إطلاق خط جديد" : "هيكلة المناطق" })).toBeVisible();
     }
   });
