@@ -28,6 +28,7 @@ D15_922 = frozenset({
     ".github/scripts/dispatch_d15_real_content_scope.py",
     ".github/workflows/dispatch-d15-launch-reentry-p1.yml",
     "dashboard/e2e/dispatch-d15-launch-reentry-p1.spec.ts",
+    "dashboard/e2e/dispatch-d15-zero-flash.spec.ts",
     "dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx",
     "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
     "dashboard/src/pages/DispatchBoard.tsx",
@@ -83,7 +84,7 @@ def selftest() -> None:
         except AssertionError: pass
         else: raise AssertionError("Foreign scope accepted: " + extra)
     print("D15_918_REAL_CONTENT_SCOPE=PASS total=13 missing=13 foreign=7")
-    print("D15_922_LAUNCH_P1_SCOPE=PASS total=7 missing=7 foreign=4")
+    print("D15_922_LAUNCH_P1_SCOPE=PASS total=8 missing=8 foreign=4")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]: raise SystemExit("Only --selftest")
