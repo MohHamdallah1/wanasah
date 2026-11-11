@@ -49,7 +49,8 @@ jobs:
           source="73f790ee94b931fdd5e36b92ced39bb0512855b0" if branch.endswith("-baseline") else "db1b73cbdcbbe908d2c17b1226d0a329bf35e3ac"
           changed=subprocess.check_output(["git","diff","--name-only",source,"HEAD"], text=True).splitlines()
           expected=[".github/workflows/dispatch-d15-content-stability.yml",
-                    "dashboard/e2e/dispatch-d15-content-stability.spec.ts"]
+                    "dashboard/e2e/dispatch-d15-content-stability.spec.ts",
+                    "dashboard/e2e/dispatch-d15-content-security-frames.spec.ts"]
           assert sorted(changed)==sorted(expected),(branch,changed)
           print("D15_919_SOURCE="+source+"; changed="+str(changed))
           PY
@@ -144,19 +145,17 @@ jobs:
             export D15_CONTENT_ENFORCE=0
           fi
           xvfb-run -a npx playwright test e2e/dispatch-d15-content-stability.spec.ts --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-919-playwright
-      - name: Existing D14 independent signed PG16 scope and revoked finance security
+      - name: Independent same-token revocation and cross-actor every-frame negative
         if: ${{ success() && endsWith(github.ref_name, '-after') }}
         working-directory: dashboard
         run: |
-          # Original D14 spec uses page.goto("/") relative URLs. Its standalone
-          # Playwright invocation needs an explicit origin, unlike its usual CI.
           cat > /tmp/d15-919-playwright.config.cjs <<'JS'
           module.exports = {
             testDir: process.cwd(),
             use: { baseURL: "http://127.0.0.1:4173" },
           };
           JS
-          xvfb-run -a npx playwright test e2e/dispatch-d14-browser.spec.ts --config=/tmp/d15-919-playwright.config.cjs --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-919-d14-security
+          xvfb-run -a npx playwright test e2e/dispatch-d15-content-security-frames.spec.ts --config=/tmp/d15-919-playwright.config.cjs --headed --workers=1 --reporter=line --output=node_modules/.cache/d15-919-frame-security
       - name: Preserve every-frame JSON/screenshots and independent security results
         if: always()
         uses: actions/upload-artifact@v4
@@ -166,7 +165,8 @@ jobs:
             wa_backend/d14-real-pg16.xml
             dashboard/node_modules/.cache/dispatch-d15-independent-content/
             dashboard/node_modules/.cache/d15-919-playwright/
-            dashboard/node_modules/.cache/d15-919-d14-security/
+            dashboard/node_modules/.cache/d15-919-frame-security/
+            dashboard/node_modules/.cache/dispatch-d15-independent-security/
             /tmp/d15-919-ui.log
             /tmp/dispatch-d14-api.log
           if-no-files-found: warn
