@@ -40,7 +40,7 @@ export async function loadDispatchRead({
     if (grants.routes) {
       wanted.push(["init", "/dispatch/init"]);
       if (tab === "routes") wanted.push(["routes", "/dispatch/active_routes"]);
-      if (tab === "zones") wanted.push(["shops", "/dispatch/shops"]);
+      if (tab === "zones" || tab === "launch") wanted.push(["shops", "/dispatch/shops"]);// Launch validates target-zone live shops; it just does not wait to show selectors.
     }
     if (grants.shortages) wanted.push(["shortages", "/dispatch/shortages"]);
     const primary: (keyof DispatchReadResult)[] = !grants.routes
