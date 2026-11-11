@@ -11,6 +11,7 @@ on:
       - "dashboard/src/pages/DispatchBoard.tsx"
       - "dashboard/src/components/dispatch/ShopTable.tsx"
       - "dashboard/src/components/dispatch/RouteLoadProductTable.tsx"
+      - "dashboard/src/components/dispatch/ProductSearchControls.tsx"
       - "dashboard/src/test/dispatch-capability-denied-v1.test.ts"
 
 permissions:
@@ -125,7 +126,7 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           mkdir -p /tmp/d15-925-head
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx; do
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "$file" "/tmp/d15-925-head/$(basename "$file")"
             git show 3fe78a93b443d362e291a9a9c02429d49d50187a:"dashboard/$file" > "$file"
           done
@@ -160,7 +161,7 @@ jobs:
         env:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx; do
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "/tmp/d15-925-head/$(basename "$file")" "$file"
           done
           npm run build
