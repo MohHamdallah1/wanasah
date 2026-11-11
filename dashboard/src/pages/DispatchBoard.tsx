@@ -1656,7 +1656,7 @@ function DispatchSession() {
                       : "border-white/20 bg-white/10 text-white hover:bg-white/20"
                   }`}>
                   <ClipboardList className="h-4 w-4 shrink-0" />
-                  {i18n.language.startsWith("ar") ? "طلبات ونواقص" : "Requests & shortages"}
+                  طلبات ونواقص
                 </button>
               )}
               {grants.zoneManage && activeTab === "zones" && (
@@ -1664,7 +1664,7 @@ function DispatchSession() {
                   onClick={() => { setSchedulingType("bulk"); setSelectedBulkZoneIds(zones.map(z => z.id)); setIsSchedulingModalOpen(true); }}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-[#1e87bb] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#166a94] sm:text-sm">
                   <Calendar className="h-4 w-4 shrink-0" />
-                  {i18n.language.startsWith("ar") ? "الجدولة الشاملة" : "Bulk schedule"}
+                  الجدولة الشاملة
                 </button>
               )}
             </div>
