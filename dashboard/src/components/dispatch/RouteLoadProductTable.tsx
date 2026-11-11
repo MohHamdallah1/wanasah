@@ -9,9 +9,9 @@ import { ProductSearchControls } from "./ProductSearchControls";
 import { MeasuredProductTableBody } from "./DispatchProductWindow";
 import { useDispatchWindowSentinels } from "@/features/dispatch/useDispatchWindowSentinels";
 
-export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, targets, units, names, onTargetChange, onClear, custodyReady = true }: {
+export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, targets, units, names, onTargetChange, onClear, custodyReady = true, pending = false }: {
   vehicleId: string; warehouseId: string; scope: string | null; current: Record<string, Quantity>; targets: Record<string, Quantity>;
-  units: Record<string, RouteLoadUom>; names: Record<string, string>;
+  units: Record<string, RouteLoadUom>; names: Record<string, string>; pending?: boolean;
   onTargetChange: (id: string, name: string, unit: RouteLoadUom, value: string) => void; onClear: () => void;
   custodyReady?: boolean;
 }) {
@@ -53,7 +53,7 @@ export function RouteLoadProductTable({ vehicleId, warehouseId, scope, current, 
   // The table has its OWN intentional 820px scrollport. Prevent that intrinsic
   // width from expanding the entire Launch flex-column into a second x-scroller.
   return <section className="w-full min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-    <ProductSearchControls search={search} onChange={setSearch} page={page} enabled={!!endpoint} />
+    <ProductSearchControls search={search} onChange={setSearch} page={page} enabled={!!endpoint} pending={pending} />
     <button type="button" disabled={!custodyReady} onClick={onClear}>{t("dispatchProductSearch.clear")}</button>
     <div className="overflow-x-auto">
       <table className="w-full min-w-[820px] text-sm">
