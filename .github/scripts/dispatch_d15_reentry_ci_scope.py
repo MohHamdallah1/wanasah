@@ -12,6 +12,7 @@ D15_908 = frozenset({
     ".github/workflows/dispatch-p0-route-stock-safety.yml",
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     "dashboard/e2e/dispatch-d15-reentry.config.ts",
+    "dashboard/e2e/dispatch-d14-browser.spec.ts",
     "dashboard/e2e/dispatch-d15-reentry.spec.ts",
     "dashboard/src/components/operations/DashboardLayout.tsx",
     "dashboard/src/pages/DispatchBoard.tsx",
@@ -53,7 +54,7 @@ def selftest() -> None:
         try: d15_reentry_mode(set(D15_908 | {foreign}))
         except AssertionError: pass
         else: raise AssertionError(f"Admitted foreign path: {foreign}")
-    print("D15_908_EXACT_SCOPE=PASS ten=10 missing=10 foreign=8 Worker2_CSS=DENIED")
+    print("D15_908_EXACT_SCOPE=PASS eleven=11 missing=11 foreign=8 Worker2_CSS=DENIED")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]:
