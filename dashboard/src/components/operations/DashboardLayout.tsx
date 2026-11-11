@@ -15,8 +15,8 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { loadInventoryPage } from "@/routes/routePreloaders";
-import DispatchBoard from "@/pages/DispatchBoard";
+import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
+import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { DispatchChromeHost } from "@/features/dispatch/stableUi/DispatchChrome";
 
 import "./dashboard.css";
@@ -26,7 +26,38 @@ const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
   "wanasah:layout:operations-sidebar-collapsed";
 
 const MainInventory = lazy(loadInventoryPage);
-const PersistentDispatch = DispatchBoard;
+// Defer the business board until Dispatch is actually visited. Other pages must
+// not pay for its route/product/finance dependencies at bootstrap.
+const PersistentDispatch = lazy(loadDispatchBoard);
+
+// Reuse the SAME canonical route-list presentation as the ready board:
+// no invented table, fake rows or unauthorized data during module loading.
+const DispatchImportPending = () => (
+  <div className="flex h-full min-h-0 w-full flex-1 flex-col">
+    <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col" aria-busy="true">
+      <div className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+        <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
+          <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+            مناطق قيد العمل (الخطوط النشطة)
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl pt-3">
+            <PendingRoutesTable
+              routes={[]}
+              pending
+              driverShortagesMap={{}}
+              onOpenRouteModal={() => {}}
+              onPostponeRoute={() => {}}
+              onCloseZone={() => {}}
+              onForceWithdraw={() => {}}
+              onAdjustInventory={() => {}}
+              onOpenRadar={() => {}}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 const DashboardLayout = () => {
   const { t, i18n } =
@@ -254,7 +285,9 @@ const DashboardLayout = () => {
             <div className={isDispatchRoute ? "contents" : "hidden"}
               aria-hidden={!isDispatchRoute} data-persistent-dispatch-host="true">
               <DispatchChromeHost active={isDispatchRoute}>
-                <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+                <Suspense fallback={<DispatchImportPending />}>
+                  <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+                </Suspense>
               </DispatchChromeHost>
             </div>
           ) : null}
