@@ -464,6 +464,10 @@ jobs:
           assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
           assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
+              # D15 #899: exact reviewed visual scope only. All negative
+              # probes and prior frozen ownership modes remain enforced.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_visual_ci_scope.py")["d15_visual_mode"](candidate):
+                  return "DISPATCH_D15_899_EXACT"
               # #891: exact D14 real-browser approval; partial or foreign paths
               # still fail within this independent security ownership gate.
               if __import__("runpy").run_path(".github/scripts/dispatch_d14_ci_scope.py")["d14_mode"](candidate):
