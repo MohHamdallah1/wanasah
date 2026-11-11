@@ -1668,93 +1668,10 @@ function DispatchSession() {
     else node.setAttribute("inert", "");
   }, [tabReady, activeTab]);
   const workspaceStatus = !tabReady ? (display === "ready" ? "denied" : display) : null;
-  // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
-  useLayoutEffect(() => {
-    chromeBridge?.publish({
-      activeTab, admitted: dispatchAdmitted, permissionKnown: accessState === "ready",
-      allowedTabs: visiblePermissionTabs,
-      canShortages: grants.shortages, canZoneManage: grants.zoneManage,
-      hasShortages: dispatchAdmitted && shortages.length > 0,
-    }, {
-      onTabChange: handleTabChange,
-      onShortages: () => setIsShortageModalOpen(true),
-      onBulkSchedule: () => {
-        setSchedulingType("bulk");
-        setSelectedBulkZoneIds(zones.map(z => z.id));
-        setIsSchedulingModalOpen(true);
-      },
-    });
-  }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
-    grants.zoneManage, grants.routes, grants.zones, grants.launch,
-    shortages.length, handleTabChange, zones]);
-
-  return (
-    <div className="flex h-full min-h-0 w-full flex-1 flex-col">
-      {/* CS-WH-03: Warehouse audit lock warning banner */}
-      {tabReady && archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
-        {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
-        <button type="button" onClick={() => setArchiveRouteFocus(null)} className="ms-3 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("archiveOwners.showAll")}</button>
-      </div>}
-      {tabReady && isWarehouseLocked && (
-        <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">🔒</span>
-            <div>
-              <p className="text-amber-800 font-bold text-sm">المستودع مقفل حالياً — جرد مخزني قيد التنفيذ</p>
-              <p className="text-amber-600 text-xs mt-1">عمليات إطلاق خطوط السير وتعديل الحمولات معلقة حتى انتهاء الجرد. يرجى مراجعة مشرف المستودع.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
-      {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
-      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col"
-        data-dispatch-workspace={activeTab} aria-busy={workspaceStatus === "loading"}>
-        {workspaceStatus && workspaceStatus !== "loading" && (
-          <DispatchAccessNotice state={workspaceStatus}
-            onRetry={() => {
-              dispatchDeniedRef.current = false;
-              setDispatchReadState("loading");
-              retryAccess();
-            }} />
-        )}
-        <>
-          {activeTab === "routes" ? (
-            <div key="routes" data-testid="dispatch-routes-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
-              <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
-                
-                {/* الشريطة العائمة */}
-                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
-                  <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
-                </div>
-
-                {/* شريط الأدوات */}
-                <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
-                  {(() => {
-                    const hasPostponed = tabReady && pendingRoutes.some(r => r.status === "postponed");
-                    return (
-                      <button
-                        onClick={() => setIsShowPostponedModalOpen(true)}
-                        disabled={!tabReady}
-                        /* +++ تكبير الزر عبر px-4 py-2 text-sm +++ */
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm  ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
-                      >
-                        <Eye className="w-4 h-4" />
-                        {hasPostponed && (
-                          <span className="relative flex h-2 w-2">
-                            <span className=" absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
-                          </span>
-                        )}
-                        عرض المؤجل ({tabReady ? pendingRoutes.filter(r => r.status === "postponed").length : 0})
-                      </button>
-                    );
-                  })()}
-                </div>
-
-                {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول حسب المساحة المتاحة فقط +++ */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
+  // The same real PendingRoutesTable element drives the persistent parent
+  // during and after signed read admission. The list DOM stays mounted from
+  // first paint, even when the business JS chunk is held at the network.
+  const canonicalRoutesTable = (
                   <PendingRoutesTable
                     routes={tabReady ? pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus)) : []}
                     pending={!tabReady}
@@ -1849,6 +1766,111 @@ function DispatchSession() {
                     }}
                     driverShortagesMap={driverShortagesMap}
                   />
+  );
+  const canonicalRouteNotices = (
+    <>
+      {/* CS-WH-03: Warehouse audit lock warning banner */}
+      {tabReady && archiveRouteFocus && <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3" dir={i18n.dir()}>
+        {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
+        <button type="button" onClick={() => setArchiveRouteFocus(null)} className="ms-3 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("archiveOwners.showAll")}</button>
+      </div>}
+      {tabReady && isWarehouseLocked && (
+        <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🔒</span>
+            <div>
+              <p className="text-amber-800 font-bold text-sm">المستودع مقفل حالياً — جرد مخزني قيد التنفيذ</p>
+              <p className="text-amber-600 text-xs mt-1">عمليات إطلاق خطوط السير وتعديل الحمولات معلقة حتى انتهاء الجرد. يرجى مراجعة مشرف المستودع.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </>
+  );
+  const canonicalAccessNotice = workspaceStatus && workspaceStatus !== "loading" ? (
+    <DispatchAccessNotice state={workspaceStatus}
+      onRetry={() => {
+        dispatchDeniedRef.current = false;
+        setDispatchReadState("loading");
+        retryAccess();
+      }} />
+  ) : null;
+  // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
+  useLayoutEffect(() => {
+    chromeBridge?.publish({
+      activeTab, admitted: dispatchAdmitted, permissionKnown: accessState === "ready",
+      allowedTabs: visiblePermissionTabs,
+      canShortages: grants.shortages, canZoneManage: grants.zoneManage,
+      hasShortages: dispatchAdmitted && shortages.length > 0,
+    }, {
+      onTabChange: handleTabChange,
+      onShortages: () => setIsShortageModalOpen(true),
+      onBulkSchedule: () => {
+        setSchedulingType("bulk");
+        setSelectedBulkZoneIds(zones.map(z => z.id));
+        setIsSchedulingModalOpen(true);
+      },
+    }, {
+      table: canonicalRoutesTable,
+      notices: canonicalRouteNotices,
+      accessNotice: canonicalAccessNotice,
+      postponedCount: tabReady ? pendingRoutes.filter(r => r.status === "postponed").length : null,
+      hasPostponed: tabReady && pendingRoutes.some(r => r.status === "postponed"),
+      onShowPostponed: () => setIsShowPostponedModalOpen(true),
+    });
+  }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
+    grants.zoneManage, grants.routes, grants.zones, grants.launch,
+    shortages.length, handleTabChange, zones, pendingRoutes, driverShortagesMap,
+    archiveRouteFocus, tabReady, canonicalRoutesTable]);
+
+  const hostedRoutes = Boolean(chromeBridge && activeTab === "routes");
+  return (
+    <div className={hostedRoutes ? "contents" : "flex h-full min-h-0 w-full flex-1 flex-col"}>
+      {!hostedRoutes && canonicalRouteNotices}
+      {/* +++  تقليل الـ padding الخارجي ليتمدد المحتوى لليمين واليسار +++ */}
+      {/* +++ الكي الجراحي: تحويل الحاوية لـ flex-1 لتمتص المساحة وإزالة الـ padding السفلي الزائد الذي يضرب القائمة الجانبية +++ */}
+      {!hostedRoutes && (
+      <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col"
+        data-dispatch-workspace={activeTab} aria-busy={workspaceStatus === "loading"}>
+        {canonicalAccessNotice}
+        <>
+          {activeTab === "routes" ? (
+            <div key="routes" data-testid="dispatch-routes-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+              <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
+                
+                {/* الشريطة العائمة */}
+                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                  <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
+                </div>
+
+                {/* شريط الأدوات */}
+                <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
+                  {(() => {
+                    const hasPostponed = tabReady && pendingRoutes.some(r => r.status === "postponed");
+                    return (
+                      <button
+                        onClick={() => setIsShowPostponedModalOpen(true)}
+                        disabled={!tabReady}
+                        /* +++ تكبير الزر عبر px-4 py-2 text-sm +++ */
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm  ${hasPostponed ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100" : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                      >
+                        <Eye className="w-4 h-4" />
+                        {hasPostponed && (
+                          <span className="relative flex h-2 w-2">
+                            <span className=" absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500" />
+                          </span>
+                        )}
+                        عرض المؤجل ({tabReady ? pendingRoutes.filter(r => r.status === "postponed").length : 0})
+                      </button>
+                    );
+                  })()}
+                </div>
+
+                {/* +++ الكي الجراحي: نسف الـ vh واستخدام flex-1 min-h-0 ليتمدد الجدول حسب المساحة المتاحة فقط +++ */}
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
+                  {canonicalRoutesTable}
                 </div>
               </div>
             </div>
@@ -2109,6 +2131,7 @@ function DispatchSession() {
           )}
         </>
       </div>
+      )}
 
       {dispatchAdmitted && grants.shortages && isShortageModalOpen && (
       <ShortageModal
