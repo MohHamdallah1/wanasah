@@ -130,9 +130,12 @@ jobs:
           done
           cat /tmp/dispatch-d14-ui.log
           exit 1
-      - name: Measure real signed Chromium baseline and after AR EN 1440 390 transitions
+      - name: Measure real headed Chromium AR EN 1440 390 and actual tab blur/refocus
         working-directory: dashboard
-        run: npx playwright test --config e2e/dispatch-d15-reentry.config.ts
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openbox
+          xvfb-run -a sh -c 'openbox > /tmp/dispatch-openbox.log 2>&1 & npx playwright test --config e2e/dispatch-d15-reentry.config.ts --headed'
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
