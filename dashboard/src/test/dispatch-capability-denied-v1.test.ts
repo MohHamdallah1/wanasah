@@ -182,7 +182,7 @@ describe("D15 #925 progressive signed Dispatch reads — no slow Shops barrier",
     expect(stages).toContain("shops");
   });
 
-  it("Launch requires init but never loads the global Shop list or route cards", async () => {
+  it("Launch shows init separately while fetching required live zone Shops for POST validation", async () => {
     const seen: string[] = [];
     await loadDispatchRead({
       tab: "launch", grants: privileges,
@@ -191,7 +191,7 @@ describe("D15 #925 progressive signed Dispatch reads — no slow Shops barrier",
       onData: vi.fn(), onPart: vi.fn(), onReady: vi.fn(), onError: vi.fn(),
     });
     expect(seen).toContain("/dispatch/init");
-    expect(seen).not.toContain("/dispatch/shops");
+    expect(seen).toContain("/dispatch/shops");
     expect(seen).not.toContain("/dispatch/active_routes");
   });
 
