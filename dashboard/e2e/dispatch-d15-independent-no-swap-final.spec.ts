@@ -186,7 +186,13 @@ for(const language of ["ar","en"] as const)for(const width of [1440,390] as cons
       await page.goto(origin+"/dispatch",{waitUntil:"domcontentloaded"});
       await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible({timeout:30000});
       await expect(page.getByTestId("dispatch-routes-workspace")).toBeVisible({timeout:30000});
-      await page.waitForTimeout(1750);
+      // This workspace is intentionally visible BEFORE the module is loaded.
+      // Wait for the first *genuine signed* admission before cutting the
+      // frame trace; otherwise desktop can finish the 1.5s JS hold a few
+      // frames after our snapshot and create a false missing-ready result.
+      await expect(page.getByRole("tab",{name:tabLabels.routes}))
+        .toHaveAttribute("aria-selected","true",{timeout:30000});
+      await page.waitForTimeout(450);
       const label="lazy-"+language+"-"+width;
       const result=await save(page,label);
       await page.screenshot({path:root+"/import-resolved-"+language+"-"+width+".png",fullPage:true});
