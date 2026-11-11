@@ -161,7 +161,8 @@ async function measure(page: Page): Promise<Geometry> {
             nearestOverflowX: ancestorOverflow });
         }
       }
-      if (el instanceof HTMLButtonElement && clippedButtons.length < 40) {
+      if (el instanceof HTMLButtonElement && el.closest(".dispatch-board") &&
+          !el.closest('[aria-hidden="true"]') && clippedButtons.length < 40) {
         let ancestor = el.parentElement;
         while (ancestor) {
           const overflow = getComputedStyle(ancestor).overflowX;
