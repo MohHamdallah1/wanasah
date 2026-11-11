@@ -9,6 +9,7 @@ import { useCommercialPreflight } from
   "@/features/dispatch/commercialPreflight/useCommercialPreflight";
 import { CommercialPreflightPanel } from
   "@/features/dispatch/commercialPreflight/CommercialPreflightPanel";
+import { DispatchChrome } from "@/features/dispatch/stableUi/DispatchChrome";
 
 const selection = { zoneId: "7", driverId: "9", vehicleId: "31", warehouseId: "20" };
 const server = (broken?: [typeof PREFLIGHT_AREAS[number], string]): CommercialPreflight => {
@@ -482,5 +483,36 @@ describe("D15 automatic commercial preflight: bounded visible evidence only", ()
     await advance(240_000);
     act(() => { window.dispatchEvent(new Event("focus")); });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+
+describe("D15 P1 tab selection versus genuine authorization", () => {
+  it("keeps the chosen Launch tab selected with the SAME node while all commands remain disabled on reentry", () => {
+    const onTabChange = vi.fn();
+    const view = render(<DispatchChrome
+      activeTab="launch" admitted={true} permissionKnown allowedTabs={["routes", "launch", "zones"]}
+      onTabChange={onTabChange} />);
+    const launch = screen.getByRole("tab", { name: "إطلاق خط جديد" });
+    const routes = screen.getByRole("tab", { name: "الخطوط النشطة" });
+    expect(launch).toHaveAttribute("aria-selected", "true");
+    expect(launch).not.toBeDisabled();
+    view.rerender(<DispatchChrome
+      activeTab="launch" admitted={false} permissionKnown={false} allowedTabs={[]}
+      onTabChange={onTabChange} />);
+    expect(screen.getByRole("tab", { name: "إطلاق خط جديد" })).toBe(launch);
+    expect(launch).toHaveAttribute("aria-selected", "true");
+    expect(launch).toHaveClass("bg-white");
+    expect(launch).toBeDisabled();
+    expect(routes).toHaveAttribute("aria-selected", "false");
+    fireEvent.click(routes);
+    expect(onTabChange).not.toHaveBeenCalled();
+    view.rerender(<DispatchChrome
+      activeTab="launch" admitted={true} permissionKnown allowedTabs={["routes"]}
+      onTabChange={onTabChange} />);
+    expect(launch).toHaveAttribute("aria-selected", "true");
+    expect(launch).toBeDisabled();
+    fireEvent.click(launch);
+    expect(onTabChange).not.toHaveBeenCalled();
   });
 });
