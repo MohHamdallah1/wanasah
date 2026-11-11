@@ -18,8 +18,7 @@ async function signIn(page: Page, language: "ar" | "en") {
     page.locator('button[type="submit"]').click(),
   ]);
 }
-async function armFrames(page: Page) {
-  await page.evaluate(() => {
+function beginProbe() {
     const w = window as any;
     w.__d15ZeroFrames = [];
     w.__d15ZeroStart = performance.now();
@@ -43,7 +42,9 @@ async function armFrames(page: Page) {
       if (performance.now() - w.__d15ZeroStart < 1700) requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
-  });
+}
+async function armFrames(page: Page) {
+  await page.evaluate(beginProbe);
 }
 async function capture(page: Page, network: string[], marker: number, label: string, enforce: boolean) {
   await page.waitForTimeout(1750);
@@ -91,9 +92,11 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     const network: string[] = [];
     page.on("request", r => { const p = new URL(r.url()).pathname; if (paths.has(p)) network.push(p); });
     const enforce = process.env.D15_ZERO_FLASH_ENFORCE === "1";
+    // Document-start instrumentation captures cold component import and first
+    // actual Dashboard render, rather than starting after the toolbar appears.
+    await page.addInitScript(beginProbe);
     await page.goto("/dispatch");
     await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible({ timeout: 35000 });
-    await armFrames(page);
     await capture(page, network, 0, "cold:" + language + ":" + width, enforce);
     const routes = page.getByRole("tab", { name: "الخطوط النشطة" });
     const launch = page.getByRole("tab", { name: "إطلاق خط جديد" });
