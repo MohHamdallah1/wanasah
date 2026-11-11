@@ -346,6 +346,9 @@ describe("D09 actual DispatchBoard effective grants and revoked view", () => {
       });
       render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
       const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
+      // Public chrome exists immediately, but dispatch data/actions still
+      // await fresh signed Backend admission before becoming interactive.
+      await waitFor(() => expect(tab).toBeEnabled());
       fireEvent.click(tab);
       await screen.findAllByText("Scoped Zone");
       await screen.findByText("Scoped Shop");
