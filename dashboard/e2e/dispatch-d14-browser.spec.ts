@@ -85,14 +85,22 @@ async function unavailable(page: Page, shop: string, language: Language) {
   await expect(moneyCell(page, shop)).toContainText(labels[language], { timeout: 20000 });
 }
 
-async function revisitRealBrowserTab(page: Page) {
-  // Real Chromium visibility + focus; no manual visibilitychange injection.
+async function revisitRealBrowserTab(page: Page, selectedZone: string) {
+  // Real Chromium browser tab away/return and real Dashboard navigation.
+  // Do not emulate visibilitychange or intercept any authenticated requests.
   const elsewhere = await page.context().newPage();
   await elsewhere.goto("about:blank");
   await elsewhere.bringToFront();
   await page.bringToFront();
   await elsewhere.close();
+  const routes = page.getByRole("tab", { name: /الخطوط النشطة/ });
+  const zones = page.getByRole("tab", { name: /هيكلة المناطق/ });
+  await routes.click();
+  await zones.click();
+  await expect(zones).toHaveAttribute("aria-selected", "true");
   await expect(shopTable(page)).toBeVisible({ timeout: 25000 });
+  await page.locator(".dispatch-zones-workbench > div").first()
+    .getByText(selectedZone, { exact: true }).first().click();
 }
 
 async function browserApi<T>(page: Page, path: string): Promise<{ status: number; data: T }> {
@@ -153,12 +161,12 @@ for (const language of ["ar", "en"] as const) {
         expect(grantedRow?.financeRedacted).toBe(false);
         expect(Number(grantedRow?.initialDebt)).toBe(901.125);
         console.log("D14_READER_FINANCE_HTTP_AFTER_GRANT=PASS");
-        await revisitRealBrowserTab(page);
+        await revisitRealBrowserTab(page, state.zones.a2);
         await visibleMoney(page, state.shops.a2.name, "901.125", language);
         expect(await page.evaluate(() => localStorage.getItem("admin_token")))
           .toBe(originalReaderToken);
         toggle("reader", "off");
-        await revisitRealBrowserTab(page);
+        await revisitRealBrowserTab(page, state.zones.a2);
         await unavailable(page, state.shops.a2.name, language);
 
         // 4. A1 warehouse-restricted *Backoffice*, active Visit only.
@@ -178,11 +186,11 @@ for (const language of ["ar", "en"] as const) {
         expect(grantedA1.status).toBe(200);
         expect(grantedA1.data.map(s => s.name)).toEqual([state.shops.assigned.name]);
         expect(Number(grantedA1.data[0].initialDebt)).toBe(181.125);
-        await revisitRealBrowserTab(page);
+        await revisitRealBrowserTab(page, state.zones.a1);
         await visibleMoney(page, state.shops.assigned.name, "181.125", language);
         await ownScopedRows(page); // Finance grant never confers A2/whole directory.
         toggle("limited", "off");
-        await revisitRealBrowserTab(page);
+        await revisitRealBrowserTab(page, state.zones.a1);
         await unavailable(page, state.shops.assigned.name, language);
         expect(await page.evaluate(() => localStorage.getItem("admin_token")))
           .toBe(initialLimitedToken);
