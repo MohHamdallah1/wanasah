@@ -598,7 +598,8 @@ function DispatchSession() {
   }, []);
 
   const fetchInitialData = useCallback((requestedTab?: TabId) => {
-    const tab = requestedTab ?? choicesRef.current.activeTab;
+    const tab: TabId = requestedTab === "routes" || requestedTab === "launch" || requestedTab === "zones"
+      ? requestedTab : choicesRef.current.activeTab;
     const snapshot = captureDashboardSession();
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
     if (accessState !== "ready" || !actorScope) {
@@ -1838,12 +1839,12 @@ function DispatchSession() {
     chromeBridge?.publish({
       activeTab, admitted: dispatchAdmitted, permissionKnown: accessState === "ready",
       allowedTabs: visiblePermissionTabs,
-      canShortages: grants.shortages, canZoneManage: grants.zoneManage,
+      canShortages: grants.shortages && readParts.shortages, canZoneManage: grants.zoneManage,
       hasShortages: dispatchAdmitted && shortages.length > 0,
     }, {
       onTabChange: handleTabChange,
       onShortages: () => {
-        if (!dispatchAdmitted || !grants.shortages) return;
+        if (!dispatchAdmitted || !grants.shortages || !readParts.shortages) return;
         if (readParts.shops || !grants.routes) {
           setIsShortageModalOpen(true);
           return;
@@ -2052,7 +2053,7 @@ function DispatchSession() {
               <div className="sticky bottom-0 z-30 -mx-1 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
                 <div className="flex justify-end">
                   <button
-                    disabled={!tabReady || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
+                    disabled={!tabReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg  active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
