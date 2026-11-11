@@ -152,7 +152,10 @@ for (const language of ["ar", "en"] as const) {
         const launch = page.getByRole("tab", { name: /إطلاق خط جديد|Launch route/ });
         await expect(launch).toBeVisible({ timeout: 45000 });
         await launch.click();
-        await expect(page.locator(".dispatch-launch-config [data-testid='dispatch-launch-readiness']")).toBeVisible();
+        // D15 compact component intentionally renders NOTHING while selectors
+        // are incomplete. Its owned in-grid mount remains, but a zero-height
+        // wrapper is not required to be visibly painted before selection.
+        await expect(page.locator(".dispatch-launch-config [data-testid='dispatch-launch-readiness']")).toHaveCount(1);
         await expect(page.locator(".dispatch-launch-config")).toBeVisible();
         await expect(page.getByText("تتم حركة الفرق تلقائيًا عبر المستودع المختار")).toHaveCount(0);
         // The real final launch verification path is untouched.

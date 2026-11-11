@@ -131,6 +131,8 @@ jobs:
               )["d06_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_visual_ci_scope.py"
               )["d15_visual_mode"](files) or __import__("runpy").run_path(
+                  ".github/scripts/dispatch_d15_reentry_ci_scope.py"
+              )["d15_reentry_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d14_ci_scope.py"
               )["d14_mode"](files)), (
                   f"D07/D06 exact scope denied files={sorted(files)}"

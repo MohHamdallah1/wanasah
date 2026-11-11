@@ -464,6 +464,10 @@ jobs:
           assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
           assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
+              # D15 #908: exact ten-file secure reentry acceptance, not an
+              # exception for Backend, Field, global permissions or Worker2 CSS.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_reentry_ci_scope.py")["d15_reentry_mode"](candidate):
+                  return "DISPATCH_D15_908_EXACT"
               # D15 #899: exact reviewed visual scope only. All negative
               # probes and prior frozen ownership modes remain enforced.
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_visual_ci_scope.py")["d15_visual_mode"](candidate):

@@ -15,7 +15,7 @@ import {
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { loadInventoryPage } from "@/routes/routePreloaders";
+import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
@@ -24,6 +24,7 @@ const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
   "wanasah:layout:operations-sidebar-collapsed";
 
 const MainInventory = lazy(loadInventoryPage);
+const PersistentDispatch = lazy(loadDispatchBoard);
 
 const DashboardLayout = () => {
   const { t, i18n } =
@@ -45,6 +46,10 @@ const DashboardLayout = () => {
     useLocation();
   const isInventoryRoute =
     location.pathname === "/inventory";
+  const isDispatchRoute = location.pathname === "/dispatch";
+  // Like Inventory, keep the expensive Dispatch workspace mounted only after its
+  // first visit. Its own active-route gate reauthorizes on every reentry.
+  const [dispatchMounted, setDispatchMounted] = useState(isDispatchRoute);
   const [
     inventoryMounted,
     setInventoryMounted,
@@ -70,6 +75,10 @@ const DashboardLayout = () => {
       setInventoryMounted(true);
     }
   }, [isInventoryRoute]);
+
+  useEffect(() => {
+    if (isDispatchRoute) setDispatchMounted(true);
+  }, [isDispatchRoute]);
 
   if (!session) {
     return <Navigate to="/login" replace />;
@@ -257,7 +266,16 @@ const DashboardLayout = () => {
                 />
               </div>
             ) : null}
-            {!isInventoryRoute ? (
+            {(dispatchMounted || isDispatchRoute) ? (
+              <div
+                className={isDispatchRoute ? "contents" : "hidden"}
+                aria-hidden={!isDispatchRoute}
+                data-persistent-dispatch-host="true"
+              >
+                <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+              </div>
+            ) : null}
+            {!isInventoryRoute && !isDispatchRoute ? (
               <Outlet key={`${session.generation}:${session.identity}`} />
             ) : null}
           </Suspense>
