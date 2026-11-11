@@ -102,7 +102,7 @@ for (const language of ["ar", "en"] as const) {
         await page.getByRole("tab", { name: tab }).click();
         await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
         await navigateInApp(page, 4, mobile);
-        await expect(page.locator(".workspace-top-bar-frame")).toBeVisible();
+        await expect(page.locator(".workspace-top-bar-frame:visible").first()).toBeVisible();
         const begin = Date.now();
         await probe(page);
         await navigateInApp(page, 1, mobile);
@@ -114,13 +114,18 @@ for (const language of ["ar", "en"] as const) {
       const other = await page.context().newPage();
       await other.goto("about:blank");
       await other.bringToFront();
+      await page.waitForTimeout(450); // let real headless browser tab visibility settle
+      const hiddenVisibility = await page.evaluate(() => document.visibilityState);
       const focusedAt = Date.now();
       await probe(page);
       await page.bringToFront();
       await other.close();
       await expect(page.getByRole("tab", { name: "هيكلة المناطق" })).toBeVisible();
       const focused = await measure(page, focusedAt, seen);
-      const summary = { language, width, pageReturns: results, browserFocus: focused };
+      const summary = { language, width, pageReturns: results, browserFocus: {
+        ...focused, hiddenVisibility,
+        returnVisibility: await page.evaluate(() => document.visibilityState),
+      } };
       console.log("D15_REENTRY_METRICS=" + JSON.stringify(summary));
       await expect(page.locator("[data-testid='dispatch-shared-topbar']")).toBeVisible();
       await expect(page.getByRole("tab")).toHaveCount(3);
