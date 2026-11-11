@@ -291,6 +291,19 @@ function DispatchSession() {
       asyncEpochRef.current.revoke();
       setNavigationVerified(false);
       setDispatchReadState("loading");
+      // Keep tab/chooser preferences, never resurrect prior Route, Shop,
+      // custody or dialog actions after a hidden Dashboard navigation.
+      setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
+      setVehicleInventoryLoadedForContext(null);
+      setIsInventoryModalOpen(false); setIsRadarModalOpen(false);
+      setIsRouteModalOpen(false); setIsShortageModalOpen(false);
+      setIsZoneModalOpen(false); setIsShopModalOpen(false);
+      setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
+      setIsBulkTransferModalOpen(false); setIsShowPostponedModalOpen(false);
+      setIsZoneRecycleBinOpen(false); setShowRecycleBin(false);
+      setIsEditMode(false); setHasUnsavedChanges(false); setSelectedShopIds([]);
+      setInventoryRoute(null); setRadarRoute(null); setActiveRoute(null);
+      setUnsavedTabPrompt(null);
     } else if (!wasVisible) {
       setNavigationVerified(false);
       // The access hook remains Backend-authoritative, with global focus
