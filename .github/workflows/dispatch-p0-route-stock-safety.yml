@@ -517,6 +517,10 @@ jobs:
           assert len(dispatch_d11_881_exact) == 16
 
           def ownership_mode(candidate):
+              # D15 #899 Batch 1A: one exact PR scope. Missing/foreign files
+              # (including Worker2's CommercialPreflightPanel) still DENIED.
+              if __import__("runpy").run_path(".github/scripts/dispatch_d15_visual_ci_scope.py")["d15_visual_mode"](candidate):
+                  return "DISPATCH_D15_899_EXACT"
               # D14 #891 only: exact ten-file Chromium/PG16 evidence plus its
               # narrowly scoped actual P1 UI fixes; no wildcard exclusions.
               if __import__("runpy").run_path(".github/scripts/dispatch_d14_ci_scope.py")["d14_mode"](candidate):
