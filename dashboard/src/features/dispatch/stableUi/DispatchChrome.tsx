@@ -1,8 +1,9 @@
-import { Calendar, ClipboardList, LayoutGrid, Plus, Truck } from "lucide-react";
+import { Calendar, ClipboardList, Eye, LayoutGrid, Plus, Truck } from "lucide-react";
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import "./dispatchNoMotion.css";
 import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
+import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import type { TabId } from "@/types/dispatch";
 
 const ALL_TABS = [
@@ -87,7 +88,16 @@ export function DispatchChrome({
 type ChromeView = Pick<Props, "activeTab" | "admitted" | "permissionKnown" | "allowedTabs" |
   "canShortages" | "canZoneManage" | "hasShortages">;
 type ChromeActions = Pick<Props, "onTabChange" | "onShortages" | "onBulkSchedule">;
-type ChromeBridge = { publish: (view: ChromeView, actions: ChromeActions) => void };
+type RealRoutes = {
+  // Parent and lazy board render the SAME canonical list component type.
+  table: ReactNode;
+  notices: ReactNode;
+  accessNotice: ReactNode;
+  postponedCount: number | null;
+  hasPostponed: boolean;
+  onShowPostponed: () => void;
+};
+type ChromeBridge = { publish: (view: ChromeView, actions: ChromeActions, routes?: RealRoutes) => void };
 const ChromeContext = createContext<ChromeBridge | null>(null);
 const initialView: ChromeView = {
   activeTab: "routes", admitted: false, permissionKnown: false, allowedTabs: [],
@@ -99,7 +109,10 @@ export const useDispatchChromeBridge = () => useContext(ChromeContext);
 export function DispatchChromeHost({ active, children }: { active: boolean; children: ReactNode }) {
   const [view, setView] = useState<ChromeView>(initialView);
   const handlers = useRef<ChromeActions>({});
-  const publish = useCallback((next: ChromeView, callbacks: ChromeActions) => {
+  const [realRoutes, setRealRoutes] = useState<RealRoutes | null>(null);
+  const routeWorkspaceRef = useRef<HTMLDivElement>(null);
+  const publish = useCallback((next: ChromeView, callbacks: ChromeActions, routes?: RealRoutes) => {
+    setRealRoutes(routes ?? null);
     handlers.current = callbacks;
     setView(current =>
       current.activeTab === next.activeTab && current.admitted === next.admitted &&
@@ -116,9 +129,16 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
   useLayoutEffect(() => {
     if (!active) {
       handlers.current = {};
+      setRealRoutes(null);
       setView(current => ({ ...initialView, activeTab: current.activeTab }));
     }
   }, [active]);
+  useLayoutEffect(() => {
+    const node = routeWorkspaceRef.current;
+    if (!node) return;
+    if (active && view.admitted) node.removeAttribute("inert");
+    else node.setAttribute("inert", "");
+  }, [active, view.admitted, view.activeTab]);
   return (
     <ChromeContext.Provider value={bridge}>
       <div className="dispatch-board flex h-full min-h-0 w-full flex-1 flex-col">
@@ -126,6 +146,46 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
           onTabChange={tab => handlers.current.onTabChange?.(tab)}
           onShortages={() => handlers.current.onShortages?.()}
           onBulkSchedule={() => handlers.current.onBulkSchedule?.()} />
+        {view.activeTab === "routes" && (
+          <div className="flex h-full min-h-0 w-full flex-1 flex-col" data-dispatch-real-route-frame="true">
+            {active && realRoutes?.notices}
+            <div className="dispatch-content pt-2 pb-0 px-0 w-full h-full flex-1 min-h-0 flex flex-col"
+              data-dispatch-workspace="routes" aria-busy={!active || !view.admitted}>
+              {active && realRoutes?.accessNotice}
+              <div key="routes" data-testid="dispatch-routes-workspace" ref={routeWorkspaceRef}
+                className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
+                <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
+                  <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
+                    <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
+                  </div>
+                  <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
+                    <button type="button"
+                      disabled={!active || !view.admitted}
+                      onClick={() => { if (active && view.admitted) realRoutes?.onShowPostponed(); }}
+                      className={"flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold shadow-sm " +
+                        (active && view.admitted && realRoutes?.hasPostponed
+                          ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50")}>
+                      <Eye className="w-4 h-4" />
+                      {"عرض المؤجل" + (active && view.admitted && realRoutes?.postponedCount != null
+                        ? " (" + realRoutes.postponedCount + ")" : "")}
+                    </button>
+                  </div>
+                  <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
+                    {active && view.admitted && realRoutes?.table
+                      ? realRoutes.table
+                      : <PendingRoutesTable
+                          routes={[]} pending driverShortagesMap={{}}
+                          onOpenRouteModal={() => {}} onPostponeRoute={() => {}}
+                          onCloseZone={() => {}} onForceWithdraw={() => {}}
+                          onAdjustInventory={() => {}} onOpenRadar={() => {}}
+                        />}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {children}
       </div>
     </ChromeContext.Provider>

@@ -8,6 +8,8 @@ on:
       - "dashboard/e2e/dispatch-d15-zero-flash.spec.ts"
       - "dashboard/src/features/dispatch/stableUi/**"
       - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/components/dispatch/PendingRoutesTable.tsx"
+      - "dashboard/src/test/auth-session-consumer-isolation.test.tsx"
       - "dashboard/src/components/operations/DashboardLayout.tsx"
       - "dashboard/src/App.tsx"
 
@@ -48,6 +50,7 @@ jobs:
       - name: Exact D15 #913 ownership and whitespace
         run: |
           python .github/scripts/dispatch_d15_zero_flash_scope.py --selftest
+          python .github/scripts/dispatch_d15_real_content_scope.py --selftest
           git diff --check
       - name: Install canonical dependencies
         run: |
@@ -119,12 +122,63 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp dashboard/src/pages/DispatchBoard.tsx /tmp/d15-zero-flash-head-Board.tsx
+          cp dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx /tmp/d15-zero-flash-head-Chrome.tsx
           cp dashboard/src/components/operations/DashboardLayout.tsx /tmp/d15-zero-flash-head-Layout.tsx
+          cp dashboard/src/components/dispatch/PendingRoutesTable.tsx /tmp/d15-zero-flash-head-Routes.tsx
           cp dashboard/src/App.tsx /tmp/d15-zero-flash-head-App.tsx
-          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
-          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/components/operations/DashboardLayout.tsx > dashboard/src/components/operations/DashboardLayout.tsx
-          git show e3af1656ee578af69ee22a8a9fe1576c3dcd9028:dashboard/src/App.tsx > dashboard/src/App.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx > dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/components/operations/DashboardLayout.tsx > dashboard/src/components/operations/DashboardLayout.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/components/dispatch/PendingRoutesTable.tsx > dashboard/src/components/dispatch/PendingRoutesTable.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx > dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
+          git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/App.tsx > dashboard/src/App.tsx
           npm --prefix dashboard run build
+      - name: Measure original MAIN initial JS and separate Dispatch bundle
+        env:
+          D15_BUNDLE_PHASE: before
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip, json, os, re
+          assets = Path("dashboard/dist/assets")
+          html = Path("dashboard/dist/index.html").read_text()
+          entry_tags = re.findall(r'<script\b[^>]*>', html)
+          entry_urls = [m.group(1) for tag in entry_tags
+                        if (m := re.search(r'src=["\x27]([^"\x27]+\.js)', tag))]
+          assert len(entry_urls) == 1, ("unexpected HTML module entry", entry_urls)
+          entry = [Path("dashboard/dist") / entry_urls[0].lstrip("/")]
+          assert entry[0].is_file(), entry[0]
+          dispatch = list(assets.glob("DispatchBoard-*.js"))
+          assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
+          preloads = []
+          for tag in re.findall(r'<link\b[^>]*>', html):
+              if 'modulepreload' not in tag: continue
+              url = re.search(r'href=["\x27]([^"\x27]+)', tag)
+              if url and url.group(1).endswith(".js"):
+                  dest = Path("dashboard/dist") / url.group(1).lstrip("/")
+                  assert dest.is_file(), dest
+                  preloads.append(dest)
+          def stats(path):
+              raw = path.read_bytes()
+              return {"file": path.name, "raw": len(raw), "gzip": len(gzip.compress(raw, compresslevel=9, mtime=0))}
+          critical = [entry[0]] + sorted(set(preloads) - {entry[0]})
+          result = {
+              "phase": os.environ["D15_BUNDLE_PHASE"],
+              "entry": stats(entry[0]),
+              "dispatch_chunk": stats(dispatch[0]),
+              "critical_files": [stats(p) for p in critical],
+              "products_inventory_bootstrap_gzip": sum(stats(p)["gzip"] for p in critical),
+              "products_inventory_bootstrap_raw": sum(stats(p)["raw"] for p in critical),
+          }
+          Path("/tmp/d15-bundle-" + result["phase"] + ".json").write_text(json.dumps(result, indent=2))
+          print("D15_BUNDLE=" + json.dumps(result))
+          if result["phase"] == "after":
+              before = json.loads(Path("/tmp/d15-bundle-before.json").read_text())
+              delta = result["products_inventory_bootstrap_gzip"] - before["products_inventory_bootstrap_gzip"]
+              print("D15_BUNDLE_DELTA_GZIP_BYTES=" + str(delta))
+              assert delta <= 30 * 1024, "Cross-page startup JS regression >30 KiB gzip"
+              assert result["entry"]["gzip"] - before["entry"]["gzip"] <= 30 * 1024, "Main entry JS regression >30 KiB gzip"
+          PY
       - name: Serve built Dashboard
         working-directory: dashboard
         run: |
@@ -146,15 +200,68 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp /tmp/d15-zero-flash-head-Board.tsx dashboard/src/pages/DispatchBoard.tsx
+          cp /tmp/d15-zero-flash-head-Chrome.tsx dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
           cp /tmp/d15-zero-flash-head-Layout.tsx dashboard/src/components/operations/DashboardLayout.tsx
+          cp /tmp/d15-zero-flash-head-Routes.tsx dashboard/src/components/dispatch/PendingRoutesTable.tsx
+          rm dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
           cp /tmp/d15-zero-flash-head-App.tsx dashboard/src/App.tsx
           npm --prefix dashboard run build
+      - name: Prove Products and Inventory initial transfer has no bundle regression
+        env:
+          D15_BUNDLE_PHASE: after
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip, json, os, re
+          assets = Path("dashboard/dist/assets")
+          html = Path("dashboard/dist/index.html").read_text()
+          entry_tags = re.findall(r'<script\b[^>]*>', html)
+          entry_urls = [m.group(1) for tag in entry_tags
+                        if (m := re.search(r'src=["\x27]([^"\x27]+\.js)', tag))]
+          assert len(entry_urls) == 1, ("unexpected HTML module entry", entry_urls)
+          entry = [Path("dashboard/dist") / entry_urls[0].lstrip("/")]
+          assert entry[0].is_file(), entry[0]
+          dispatch = list(assets.glob("DispatchBoard-*.js"))
+          assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
+          preloads = []
+          for tag in re.findall(r'<link\b[^>]*>', html):
+              if 'modulepreload' not in tag: continue
+              url = re.search(r'href=["\x27]([^"\x27]+)', tag)
+              if url and url.group(1).endswith(".js"):
+                  dest = Path("dashboard/dist") / url.group(1).lstrip("/")
+                  assert dest.is_file(), dest
+                  preloads.append(dest)
+          def stats(path):
+              raw = path.read_bytes()
+              return {"file": path.name, "raw": len(raw), "gzip": len(gzip.compress(raw, compresslevel=9, mtime=0))}
+          critical = [entry[0]] + sorted(set(preloads) - {entry[0]})
+          result = {
+              "phase": os.environ["D15_BUNDLE_PHASE"],
+              "entry": stats(entry[0]),
+              "dispatch_chunk": stats(dispatch[0]),
+              "critical_files": [stats(p) for p in critical],
+              "products_inventory_bootstrap_gzip": sum(stats(p)["gzip"] for p in critical),
+              "products_inventory_bootstrap_raw": sum(stats(p)["raw"] for p in critical),
+          }
+          Path("/tmp/d15-bundle-" + result["phase"] + ".json").write_text(json.dumps(result, indent=2))
+          print("D15_BUNDLE=" + json.dumps(result))
+          if result["phase"] == "after":
+              before = json.loads(Path("/tmp/d15-bundle-before.json").read_text())
+              delta = result["products_inventory_bootstrap_gzip"] - before["products_inventory_bootstrap_gzip"]
+              print("D15_BUNDLE_DELTA_GZIP_BYTES=" + str(delta))
+              assert delta <= 30 * 1024, "Cross-page startup JS regression >30 KiB gzip"
+              assert result["entry"]["gzip"] - before["entry"]["gzip"] <= 30 * 1024, "Main entry JS regression >30 KiB gzip"
+          PY
       - name: AFTER same signed PG16 + real Chromium zero-flash and security guard
         working-directory: dashboard
         env:
           D15_ZERO_FLASH_ENFORCE: "1"
         run: |
           xvfb-run -a npx playwright test e2e/dispatch-d15-zero-flash.spec.ts --headed --workers=1 --reporter=list --output=node_modules/.cache/dispatch-d15-zero-flash-after
+      - name: AFTER real signed D14 scoped finance, revoke, FIELD and cross-tenant Chromium
+        working-directory: dashboard
+        run: |
+          npx playwright test --config e2e/dispatch-d14-browser.config.ts --workers=1
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -167,4 +274,6 @@ jobs:
             dashboard/node_modules/.cache/dispatch-d14-browser/
             /tmp/dispatch-d14-api.log
             /tmp/dispatch-d14-ui.log
+            /tmp/d15-bundle-before.json
+            /tmp/d15-bundle-after.json
           if-no-files-found: warn

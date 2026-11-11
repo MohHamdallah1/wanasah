@@ -9,6 +9,24 @@ import {
 } from "@/features/dispatch/productWindow";
 
 describe("Dispatch large-catalog containment", () => {
+  it("keeps the full Dispatch business module out of every other page's eager bootstrap", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/operations/DashboardLayout.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("const PersistentDispatch = lazy(loadDispatchBoard)");
+    expect(source).toContain("<Suspense fallback={null}>");
+    expect(source).not.toContain("DispatchImportPending");
+    const chrome = readFileSync(join(process.cwd(), "src/features/dispatch/stableUi/DispatchChrome.tsx"), "utf8");
+    expect(chrome).toContain('data-dispatch-real-route-frame="true"');
+    expect(chrome).toContain("<PendingRoutesTable");
+    const board = readFileSync(join(process.cwd(), "src/pages/DispatchBoard.tsx"), "utf8");
+    expect(board).toContain("const canonicalRoutesTable = (");
+    expect(board).toContain("!hostedRoutes && (");
+    expect(source).not.toMatch(/import\s+DispatchBoard\s+from\s+["']@\/pages\/DispatchBoard["']/);
+    expect(source).not.toContain("DispatchWorkspaceStructure");
+  });
+
   it("merges the current server window with explicit selected pins only, without duplicates", () => {
     const selected = selectedDispatchProducts(new Map([["999", { id: "999", name: "Selected" }]]), { "999": 4 });
     const window = Array.from({ length: 80 }, (_, i) => ({ id: String(i + 1), name: `Page ${i + 1}` }));
@@ -51,8 +69,8 @@ describe("Dispatch large-catalog containment", () => {
       "utf8",
     );
 
-    expect(source).toContain("{grants.shortages && isShortageModalOpen && (");
-    expect(source).toContain("{isRouteModalOpen && (");
+    expect(source).toContain("{dispatchAdmitted && grants.shortages && isShortageModalOpen && (");
+    expect(source).toContain("{dispatchAdmitted && isRouteModalOpen && (");
     expect(source).toContain("<RouteLoadProductTable");
     expect(source).not.toContain("initData.products");
     expect(source).not.toContain("setProducts(");

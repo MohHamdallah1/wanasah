@@ -17,7 +17,6 @@ import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
 import { DispatchChromeHost } from "@/features/dispatch/stableUi/DispatchChrome";
-import { DispatchWorkspaceStructure } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
@@ -26,6 +25,8 @@ const OPERATIONS_SIDEBAR_COLLAPSED_KEY =
   "wanasah:layout:operations-sidebar-collapsed";
 
 const MainInventory = lazy(loadInventoryPage);
+// Defer the business board until Dispatch is actually visited. Other pages must
+// not pay for its route/product/finance dependencies at bootstrap.
 const PersistentDispatch = lazy(loadDispatchBoard);
 
 const DashboardLayout = () => {
@@ -254,11 +255,7 @@ const DashboardLayout = () => {
             <div className={isDispatchRoute ? "contents" : "hidden"}
               aria-hidden={!isDispatchRoute} data-persistent-dispatch-host="true">
               <DispatchChromeHost active={isDispatchRoute}>
-                <Suspense fallback={
-                  <div className="dispatch-content flex min-h-0 w-full flex-1 flex-col pt-2">
-                    <DispatchWorkspaceStructure activeTab="routes" />
-                  </div>
-                }>
+                <Suspense fallback={null}>
                   <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
                 </Suspense>
               </DispatchChromeHost>

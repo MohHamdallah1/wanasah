@@ -531,8 +531,12 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   for (const tab of screen.getAllByRole("tab")) expect(tab).toBeDisabled();
   expect(screen.getAllByRole("tab")).toHaveLength(3);
   expect(screen.getByTestId("dispatch-shared-topbar")).toBeInTheDocument();
-  expect(screen.getByTestId("dispatch-structural-workspace")).toBeInTheDocument();
-  expect(screen.getByTestId("dispatch-quiet-loading")).toHaveAttribute("aria-busy", "true");
+  // #918: same real FLEX-card route surface throughout B's pending signed reads.
+  expect(screen.getByTestId("dispatch-routes-workspace")).toBeInTheDocument();
+  expect(screen.getByTestId("dispatch-routes-read-status")).toHaveTextContent(/Verifying routes/);
+  expect(screen.queryByTestId("dispatch-structural-workspace")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("dispatch-quiet-loading")).not.toBeInTheDocument();
+  expect(document.querySelector('[aria-label="هيكل جدول التوزيع"]')).toBeNull();
   expect(document.body.textContent).not.toContain("Checking access permissions");
   await act(async () => lateA.resolve());
   expect(document.body.textContent).not.toContain("A-LATE");
