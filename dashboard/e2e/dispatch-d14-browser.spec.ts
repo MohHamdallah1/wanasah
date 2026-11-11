@@ -29,11 +29,13 @@ function toggle(kind: "reader" | "limited" | "reset", value?: "on" | "off") {
 }
 
 async function signIn(page: Page, who: Identity, language: Language) {
-  await page.goto("/login");
+  // Clear the previous true Dashboard session before navigating to Login.
+  await page.goto("/");
   await page.evaluate((lang) => {
     localStorage.clear();
     localStorage.setItem("wanasah.language", lang);
   }, language);
+  await page.goto("/login");
   await page.reload();
   const credentials = actor(who);
   await page.locator("#company-code").fill(credentials.code);
