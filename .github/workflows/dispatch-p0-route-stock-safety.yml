@@ -154,6 +154,7 @@ jobs:
           src/test/dispatch-product-discovery.test.tsx
       - name: Ownership and whitespace
         run: |
+          python .github/scripts/dispatch_d15_visual_ci_scope.py --selftest
           base="$(git merge-base origin/main HEAD)"
           git diff --check "$base" HEAD --
           BASE="$base" python - <<'PY'
