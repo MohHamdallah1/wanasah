@@ -132,7 +132,7 @@ jobs:
           exit 1
       - name: Measure real signed Chromium baseline and after AR EN 1440 390 transitions
         working-directory: dashboard
-        run: xvfb-run -a npx playwright test --config e2e/dispatch-d15-reentry.config.ts --headed
+        run: npx playwright test --config e2e/dispatch-d15-reentry.config.ts
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
