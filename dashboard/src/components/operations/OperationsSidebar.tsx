@@ -287,7 +287,9 @@ export function OperationsSidebar({
           ${
             open
               ? "translate-x-0"
-              : "translate-x-full lg:translate-x-0"
+              : isRtl
+                ? "-translate-x-full lg:translate-x-0"
+                : "translate-x-full lg:translate-x-0"
           }
         `}
       >
