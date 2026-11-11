@@ -131,6 +131,48 @@ jobs:
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx > dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
           git show 73f790ee94b931fdd5e36b92ced39bb0512855b0:dashboard/src/App.tsx > dashboard/src/App.tsx
           npm --prefix dashboard run build
+      - name: Measure original MAIN initial JS and separate Dispatch bundle
+        env:
+          D15_BUNDLE_PHASE: before
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip, json, os, re
+          assets = Path("dashboard/dist/assets")
+          html = Path("dashboard/dist/index.html").read_text()
+          entry = list(assets.glob("index-*.js"))
+          dispatch = list(assets.glob("DispatchBoard-*.js"))
+          assert len(entry) == 1, ("unexpected Vite entry", entry)
+          assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
+          preloads = []
+          for tag in re.findall(r'<link\b[^>]*>', html):
+              if 'modulepreload' not in tag: continue
+              url = re.search(r'href=["\x27]([^"\x27]+)', tag)
+              if url and url.group(1).endswith(".js"):
+                  dest = Path("dashboard/dist") / url.group(1).lstrip("/")
+                  assert dest.is_file(), dest
+                  preloads.append(dest)
+          def stats(path):
+              raw = path.read_bytes()
+              return {"file": path.name, "raw": len(raw), "gzip": len(gzip.compress(raw, compresslevel=9, mtime=0))}
+          critical = [entry[0]] + sorted(set(preloads) - {entry[0]})
+          result = {
+              "phase": os.environ["D15_BUNDLE_PHASE"],
+              "entry": stats(entry[0]),
+              "dispatch_chunk": stats(dispatch[0]),
+              "critical_files": [stats(p) for p in critical],
+              "products_inventory_bootstrap_gzip": sum(stats(p)["gzip"] for p in critical),
+              "products_inventory_bootstrap_raw": sum(stats(p)["raw"] for p in critical),
+          }
+          Path("/tmp/d15-bundle-" + result["phase"] + ".json").write_text(json.dumps(result, indent=2))
+          print("D15_BUNDLE=" + json.dumps(result))
+          if result["phase"] == "after":
+              before = json.loads(Path("/tmp/d15-bundle-before.json").read_text())
+              delta = result["products_inventory_bootstrap_gzip"] - before["products_inventory_bootstrap_gzip"]
+              print("D15_BUNDLE_DELTA_GZIP_BYTES=" + str(delta))
+              assert delta <= 30 * 1024, "Cross-page startup JS regression >30 KiB gzip"
+              assert result["entry"]["gzip"] - before["entry"]["gzip"] <= 30 * 1024, "Main entry JS regression >30 KiB gzip"
+          PY
       - name: Serve built Dashboard
         working-directory: dashboard
         run: |
@@ -157,6 +199,48 @@ jobs:
           rm dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx
           cp /tmp/d15-zero-flash-head-App.tsx dashboard/src/App.tsx
           npm --prefix dashboard run build
+      - name: Prove Products and Inventory initial transfer has no bundle regression
+        env:
+          D15_BUNDLE_PHASE: after
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import gzip, json, os, re
+          assets = Path("dashboard/dist/assets")
+          html = Path("dashboard/dist/index.html").read_text()
+          entry = list(assets.glob("index-*.js"))
+          dispatch = list(assets.glob("DispatchBoard-*.js"))
+          assert len(entry) == 1, ("unexpected Vite entry", entry)
+          assert len(dispatch) == 1, ("DispatchBoard lost its lazy chunk", dispatch)
+          preloads = []
+          for tag in re.findall(r'<link\b[^>]*>', html):
+              if 'modulepreload' not in tag: continue
+              url = re.search(r'href=["\x27]([^"\x27]+)', tag)
+              if url and url.group(1).endswith(".js"):
+                  dest = Path("dashboard/dist") / url.group(1).lstrip("/")
+                  assert dest.is_file(), dest
+                  preloads.append(dest)
+          def stats(path):
+              raw = path.read_bytes()
+              return {"file": path.name, "raw": len(raw), "gzip": len(gzip.compress(raw, compresslevel=9, mtime=0))}
+          critical = [entry[0]] + sorted(set(preloads) - {entry[0]})
+          result = {
+              "phase": os.environ["D15_BUNDLE_PHASE"],
+              "entry": stats(entry[0]),
+              "dispatch_chunk": stats(dispatch[0]),
+              "critical_files": [stats(p) for p in critical],
+              "products_inventory_bootstrap_gzip": sum(stats(p)["gzip"] for p in critical),
+              "products_inventory_bootstrap_raw": sum(stats(p)["raw"] for p in critical),
+          }
+          Path("/tmp/d15-bundle-" + result["phase"] + ".json").write_text(json.dumps(result, indent=2))
+          print("D15_BUNDLE=" + json.dumps(result))
+          if result["phase"] == "after":
+              before = json.loads(Path("/tmp/d15-bundle-before.json").read_text())
+              delta = result["products_inventory_bootstrap_gzip"] - before["products_inventory_bootstrap_gzip"]
+              print("D15_BUNDLE_DELTA_GZIP_BYTES=" + str(delta))
+              assert delta <= 30 * 1024, "Cross-page startup JS regression >30 KiB gzip"
+              assert result["entry"]["gzip"] - before["entry"]["gzip"] <= 30 * 1024, "Main entry JS regression >30 KiB gzip"
+          PY
       - name: AFTER same signed PG16 + real Chromium zero-flash and security guard
         working-directory: dashboard
         env:
@@ -179,4 +263,6 @@ jobs:
             dashboard/node_modules/.cache/dispatch-d14-browser/
             /tmp/dispatch-d14-api.log
             /tmp/dispatch-d14-ui.log
+            /tmp/d15-bundle-before.json
+            /tmp/d15-bundle-after.json
           if-no-files-found: warn
