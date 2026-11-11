@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - ".github/scripts/dispatch_d14_ci_scope.py"
       - "wa_backend/tests/test_dispatch_d14_browser_fixture.py"
       - "dashboard/e2e/dispatch-d14-browser.spec.ts"
       - "dashboard/e2e/dispatch-d14-browser.config.ts"
@@ -44,6 +45,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
+      - name: Protect exact D14 scope with missing and foreign negative probes
+        run: |
+          python .github/scripts/dispatch_d14_ci_scope.py --selftest
+          git diff --check
       - name: Install canonical dependencies
         run: |
           python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
