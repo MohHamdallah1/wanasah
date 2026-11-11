@@ -22,7 +22,7 @@ const tabLabels:Record<Tab,RegExp>={
   zones:/هيكلة المناطق|Zones & shops/,
 };
 test.use({browserName:"chromium",trace:"retain-on-failure"});
-test.describe.configure({mode:"serial"});
+// Independent cases must ALL run even when the first visual import is a blocker.
 
 async function ownerState(browser:Browser, lang:Language) {
   const c=await browser.newContext({viewport:{width:1440,height:900}});
@@ -174,7 +174,30 @@ for(const language of ["ar","en"] as const)for(const width of [1440,390] as cons
       const label="lazy-"+language+"-"+width;
       const result=await save(page,label);
       await page.screenshot({path:root+"/import-resolved-"+language+"-"+width+".png",fullPage:true});
+      // After genuine Board hydration, verify the other TWO canonical panels.
+      // A fresh document starts on Routes in the real source (no cross-document
+      // saved-tab preference); do not fabricate a cold Launch/Zones selection.
+      const launchTab=page.getByRole("tab",{name:tabLabels.launch});
+      await expect(launchTab).toBeEnabled({timeout:30000});
+      await launchTab.click();
+      await expect(page.getByTestId("dispatch-launch-workspace")).toBeVisible();
+      await expect(page.locator(".dispatch-launch-config")).toBeVisible();
+      const realLaunchSelects=await page.locator('.dispatch-launch-config button[type="button"]').count();
+      const realLaunchReadiness=await page.getByTestId("dispatch-launch-readiness").count();
+      await page.screenshot({path:root+"/real-launch-"+language+"-"+width+".png",fullPage:true});
+      const zonesTab=page.getByRole("tab",{name:tabLabels.zones});
+      await expect(zonesTab).toBeEnabled({timeout:30000});
+      await zonesTab.click();
+      await expect(page.getByTestId("dispatch-zones-workspace")).toBeVisible();
+      await expect(page.locator(".dispatch-zones-workbench")).toBeVisible();
+      await expect(page.locator(".dispatch-shop-table")).toBeVisible();
+      const zoneRows=await page.locator(".dispatch-shop-table tbody tr").count();
+      await page.screenshot({path:root+"/real-zones-"+language+"-"+width+".png",fullPage:true});
+      console.log("D15_919_POST_IMPORT_PANELS="+JSON.stringify({label,
+        realLaunchSelects,realLaunchReadiness,zonesTablePresent:true,zoneRows}));
       console.log("D15_919_LAZY_IMPORT="+JSON.stringify({label,heldRequests:delayed,fetched}));
+      expect(realLaunchSelects,"real launch requires four selectors").toBeGreaterThanOrEqual(4);
+      expect(realLaunchReadiness).toBe(1);
       expect(delayed,"TEST MUST ACTUALLY HOLD REAL DispatchBoard chunk").toBeGreaterThan(0);
       expect(fetched.length).toBeGreaterThan(0);
       expect(result.firstRealAt).not.toBeNull();
