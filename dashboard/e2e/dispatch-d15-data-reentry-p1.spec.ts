@@ -74,7 +74,7 @@ async function sample(page: Page, tab: Tab, label: string) {
         const text = target?.textContent || "";
         w.__d15DataFrames.push({
           tab,label,ms:Math.round(performance.now()-started),
-          present:!!target, selected:!!tabNode, 
+          present:!!target, selected:!!tabNode,
           falseZero:tab === "zones" && /المناطق \(0\)/.test(text),
           falseShops:tab === "zones" && text.includes("لا توجد محلات في هذه المنطقة"),
           falseRoutes:tab === "routes" && text.includes("لا توجد خطوط سير تشغيلية حالياً"),
