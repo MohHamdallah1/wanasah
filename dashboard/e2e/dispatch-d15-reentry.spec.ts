@@ -146,29 +146,29 @@ for (const language of ["ar", "en"] as const) {
           .toHaveCount(1); // proves identical mounted subtree survives route navigation
         results.push({ tab, ...m });
       }
-      // Xvfb's virtual window manager leaves every tab "visible". Drive the
-      // REAL Chromium page lifecycle through CDP instead of dispatching fake
-      // JS visibility events or mocking authenticated API requests.
+      // Genuine Chromium second browser TAB in a headed Xvfb + Openbox window
+      // manager. Do not mock visibility events or intercept signed requests.
       await page.evaluate(() => {
         (window as any).__d15VisibilityEvents = [];
         document.addEventListener("visibilitychange", () => {
           (window as any).__d15VisibilityEvents.push(document.visibilityState);
-        }, { once: false });
+        });
       });
-      const cdp = await page.context().newCDPSession(page);
-      await cdp.send("Page.enable");
-      await cdp.send("Page.setWebLifecycleState", { state: "frozen" });
-      await page.waitForTimeout(300);
+      const other = await page.context().newPage();
+      await other.goto("about:blank");
+      await other.bringToFront();
+      await page.waitForTimeout(350);
+      const hiddenVisibility = await page.evaluate(() => document.visibilityState);
       const focusedAt = Date.now();
-      await cdp.send("Page.setWebLifecycleState", { state: "active" });
       await page.bringToFront();
+      await other.close();
       await probe(page);
       await expect(page.getByRole("tab", { name: "هيكلة المناطق" })).toBeVisible();
       const focused = await measure(page, focusedAt, seen);
       const events = await page.evaluate(() => (window as any).__d15VisibilityEvents as string[]);
-      const hiddenVisibility = events.includes("hidden") ? "hidden" : "visible";
-      await cdp.detach();
-      expect(hiddenVisibility, "Chromium engine must publish a real hidden lifecycle").toBe("hidden");
+      expect(hiddenVisibility, "real background tab must be hidden with WM").toBe("hidden");
+      expect(events, "true Chromium visibility events").toContain("hidden");
+      expect(events).toContain("visible");
       const summary = { language, width, pageReturns: results, browserFocus: {
         ...focused, hiddenVisibility,
         returnVisibility: await page.evaluate(() => document.visibilityState),
