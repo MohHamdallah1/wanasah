@@ -598,8 +598,15 @@ function DispatchSession() {
   }, []);
 
   const fetchInitialData = useCallback((requestedTab?: TabId) => {
-    const tab: TabId = requestedTab === "routes" || requestedTab === "launch" || requestedTab === "zones"
-      ? requestedTab : choicesRef.current.activeTab;
+    // First signed actor admission must load the actor's actual saved tab,
+    // not the temporary default Routes tab. Otherwise a saved Launch/Zones
+    // workspace could never receive its own Shops read until clicked again.
+    const preferred = actorScope && hydratedScopeRef.current !== actorScope
+      ? readDispatchPreferences(actorScope).activeTab : choicesRef.current.activeTab;
+    const desired = requestedTab === "routes" || requestedTab === "launch" || requestedTab === "zones"
+      ? requestedTab : preferred;
+    const tab: TabId = desired === "launch" && !grants.launch ? "routes"
+      : desired === "zones" && !grants.zones ? "routes" : desired;
     const snapshot = captureDashboardSession();
     const admission = dispatchFenceRef.current.start(() => isDashboardSessionCurrent(snapshot));
     if (accessState !== "ready" || !actorScope) {
