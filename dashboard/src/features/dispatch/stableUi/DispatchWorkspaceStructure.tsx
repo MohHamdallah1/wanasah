@@ -68,4 +68,3 @@ export function DispatchWorkspaceStructure({ activeTab }: { activeTab: TabId }) 
     </div>
   );
 }
-
