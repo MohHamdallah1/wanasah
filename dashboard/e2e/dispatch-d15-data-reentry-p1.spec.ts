@@ -152,7 +152,8 @@ for (const width of [1440, 390] as const) {
         expect(report.maxWorkspaceX,"No horizontal Launch page scrollbar").toBeLessThanOrEqual(2);
         expect(report.maxFrameX,"No extra page-wide Dispatch content scrollbar").toBeLessThanOrEqual(2);
         expect(report.maxConfigX).toBeLessThanOrEqual(2);
-        if (tab !== "zones") expect(report.requests.shops,"No unrelated Shops GET").toBe(0);
+        if (tab === "routes") expect(report.requests.shops,"Routes must not request the global Shops list").toBe(0);
+        if (tab === "launch") expect(report.requests.shops,"Launch must read real Shops for its POST precondition").toBeGreaterThan(0);
         if (tab === "routes") expect(report.requests.routes).toBeGreaterThan(0);
       }
       const now = page.getByTestId("dispatch-" + tab + "-workspace");
