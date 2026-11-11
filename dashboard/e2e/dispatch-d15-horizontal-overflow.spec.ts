@@ -196,6 +196,7 @@ async function measure(page: Page): Promise<Geometry> {
       bodyClient: body.clientWidth, bodyScroll: body.scrollWidth,
       scrollerClient: scroller.clientWidth, scrollerScroll: scroller.scrollWidth,
       forbiddenRootExcess: Math.max(0, root.scrollWidth - root.clientWidth,
+        body.scrollWidth - body.clientWidth,
         scroller.scrollWidth - scroller.clientWidth),
       dispatchContainers, internalScrollers: internalScrollers.slice(0, 80),
       offenders: offenders.sort((a, b) => Math.max(b.excessLeft, b.excessRight) -
@@ -213,29 +214,45 @@ for (const language of ["ar", "en"] as const) {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         await signIn(page, language);
-        const results: Array<{ tab: DispatchTab; geometry: Geometry }> = [];
+        const results: Array<{ tab: DispatchTab; phase: "normal" | "refocus"; geometry: Geometry }> = [];
         const failures: string[] = [];
         for (const tab of ["routes", "launch", "zones"] as const) {
           await selectTab(page, tab);
-          const geometry = await measure(page);
-          results.push({ tab, geometry });
-          await page.screenshot({ path: info.outputPath(
-            `d15-${language}-${width}-${tab}.png`), fullPage: true });
-          console.log("D15_REAL_GEOMETRY=" + JSON.stringify({
-            language, width, tab, ...geometry,
-          }));
-          if (geometry.forbiddenRootExcess > 0) {
-            failures.push(`${tab}: root +${geometry.forbiddenRootExcess}px`);
-          }
-          const unwelcome = geometry.dispatchContainers.filter(x =>
-            [".dashboard-main-stage", ".dashboard-content", ".dispatch-board",
-             ".dispatch-content", ".dispatch-zones-workbench"].includes(x.selector) &&
-            x.excess > 1);
-          for (const el of unwelcome) {
-            failures.push(`${tab}: ${el.selector} +${el.excess}px`);
-          }
-          if (geometry.clippedButtons.length) {
-            failures.push(`${tab}: ${geometry.clippedButtons.length} clipped buttons`);
+          for (const phase of ["normal", "refocus"] as const) {
+            if (phase === "refocus") {
+              const elsewhere = await page.context().newPage();
+              await elsewhere.goto("about:blank");
+              await elsewhere.bringToFront();
+              await page.bringToFront();
+              await elsewhere.close();
+              await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
+              if (tab === "zones") {
+                await expect(page.locator(".dispatch-shop-table tbody tr")
+                  .filter({ hasText: fixture.shops.assigned.name }))
+                  .toHaveCount(1, { timeout: 30_000 });
+              }
+              await page.waitForTimeout(120);
+            }
+            const geometry = await measure(page);
+            results.push({ tab, phase, geometry });
+            await page.screenshot({ path: info.outputPath(
+              `d15-${language}-${width}-${tab}-${phase}.png`), fullPage: true });
+            console.log("D15_REAL_GEOMETRY=" + JSON.stringify({
+              language, width, tab, phase, ...geometry,
+            }));
+            if (geometry.forbiddenRootExcess > 0) {
+              failures.push(`${tab}/${phase}: root +${geometry.forbiddenRootExcess}px`);
+            }
+            const unwelcome = geometry.dispatchContainers.filter(x =>
+              [".dashboard-main-stage", ".dashboard-content", ".dispatch-board",
+               ".dispatch-content", ".dispatch-zones-workbench"].includes(x.selector) &&
+              x.excess > 1);
+            for (const el of unwelcome) {
+              failures.push(`${tab}/${phase}: ${el.selector} +${el.excess}px`);
+            }
+            if (geometry.clippedButtons.length) {
+              failures.push(`${tab}/${phase}: ${geometry.clippedButtons.length} clipped buttons`);
+            }
           }
         }
         // One complete JSON matrix per authentic signed fixture, even on fail.
