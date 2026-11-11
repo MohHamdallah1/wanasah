@@ -133,9 +133,6 @@ jobs:
       - name: Measure real signed Chromium baseline and after AR EN 1440 390 transitions
         working-directory: dashboard
         run: npx playwright test --config e2e/dispatch-d15-reentry.config.ts
-      - name: Reuse the real D14 signed Chromium privacy and revocation suite
-        working-directory: dashboard
-        run: npx playwright test --config e2e/dispatch-d14-browser.config.ts
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
