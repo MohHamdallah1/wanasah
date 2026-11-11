@@ -154,6 +154,7 @@ for (const language of ["ar", "en"] as const) {
       await other.close();
       await expect(page.getByRole("tab", { name: "هيكلة المناطق" })).toBeVisible();
       const focused = await measure(page, focusedAt, seen);
+      expect(hiddenVisibility, "real headed Chromium must hide the background Dispatch tab").toBe("hidden");
       const summary = { language, width, pageReturns: results, browserFocus: {
         ...focused, hiddenVisibility,
         returnVisibility: await page.evaluate(() => document.visibilityState),
