@@ -1631,9 +1631,9 @@ function DispatchSession() {
               <div className="dispatch-tab-list flex max-w-full min-w-0 overflow-x-auto rounded-xl bg-white/10 p-1"
                 role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
                 {([
-                  { id: "routes", label: i18n.language.startsWith("ar") ? "الخطوط النشطة" : "Active routes", icon: Truck },
-                  { id: "launch", label: i18n.language.startsWith("ar") ? "إطلاق خط جديد" : "Launch route", icon: Plus },
-                  { id: "zones", label: i18n.language.startsWith("ar") ? "هيكلة المناطق" : "Zones & shops", icon: LayoutGrid },
+                  { id: "routes", label: "الخطوط النشطة", icon: Truck },
+                  { id: "launch", label: "إطلاق خط جديد", icon: Plus },
+                  { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid },
                 ] as const).filter(tab => tabAllowed(tab.id)).map(tab => (
                   <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id}
                     onClick={() => handleTabChange(tab.id)}
