@@ -113,3 +113,118 @@ describe("D11 canonical commercial route-launch evidence", () => {
     expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
+
+
+describe("D15 compact preflight presentation — independent panel states", () => {
+  const renderPanel = (
+    status: "choose" | "loading" | "ready" | "blocked" | "error" | "denied",
+    language = "ar", evidence: CommercialPreflight | null = null, onRefresh = vi.fn(),
+  ) => render(<MemoryRouter><CommercialPreflightPanel language={language}
+    status={status} evidence={evidence} onRefresh={onRefresh} /></MemoryRouter>);
+
+  const blockers = (failures: Partial<Record<typeof PREFLIGHT_AREAS[number], string>>) => {
+    const state = server();
+    for (const area of PREFLIGHT_AREAS) {
+      if (failures[area]) state.checks[area] = {
+        ready: false, code: failures[area]!, context: {},
+      };
+    }
+    state.ready = false;
+    return state;
+  };
+
+  it("hides the entire empty card and explanatory text before all selections exist", () => {
+    const view = renderPanel("choose", "ar", server());
+    expect(view.container).toBeEmptyDOMElement();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("renders a neutral inline busy indicator with live status, not a header or card", () => {
+    const view = renderPanel("loading");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByRole("status")).toHaveTextContent("جاري التحقق");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(view.container.querySelector(".shadow-sm, .rounded-2xl, .border-slate-200"))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows only the compact ready check for authoritative published 0%-tax READY", () => {
+    const verified = server();
+    verified.checks.tax = { ready: true, code: "READY", context: { published_rate: "0" } };
+    const view = renderPanel("ready", "ar", verified);
+    expect(screen.getByRole("status")).toHaveAttribute("aria-label", expect.stringContaining("التحقق ناجح"));
+    expect(screen.getByRole("status")).toHaveTextContent("تم التحقق");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(view.container.querySelector(".shadow-sm, .rounded-2xl")).not.toBeInTheDocument();
+  });
+
+  it("does not display a fake successful check without authoritative ready evidence", () => {
+    const retry = vi.fn();
+    renderPanel("ready", "ar", null, retry);
+    expect(screen.queryByText("تم التحقق")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("تعذّر التحقق");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق" }));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("AR 390px preserves ALL price, tax, rounding, warehouse, vehicle and custody blockers", () => {
+    const priorWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    try {
+      const retry = vi.fn();
+      const view = renderPanel("blocked", "ar", blockers({
+        pricing: "PRICE_NOT_RESOLVED",
+        tax: "TAX_CONFIGURATION_REQUIRED",
+        rounding: "COMMERCIAL_ROUNDING_NOT_CONFIGURED",
+        warehouse: "SOURCE_WAREHOUSE_AUDIT_LOCK",
+        vehicle: "VEHICLE_NOT_OPERATIONAL",
+        custody: "VEHICLE_CUSTODY_UNAVAILABLE",
+      }), retry);
+      expect(screen.getByRole("status")).toHaveTextContent("الإطلاق ممنوع");
+      expect(screen.getByRole("list").querySelectorAll("li")).toHaveLength(6);
+      expect(screen.getByText(/نسبة 0% المنشورة صالحة/)).toBeInTheDocument();
+      expect(screen.getByText(/جرد شامل/)).toBeInTheDocument();
+      expect(screen.getAllByText(/عهدة المركبة/).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole("link", { name: "اذهب للإعداد" })
+        .map(a => a.getAttribute("href"))).toEqual([
+          "/products", "/commercial-rules", "/commercial-rules", "/inventory",
+          "/representatives-vehicles", "/representatives-vehicles",
+        ]);
+      expect(view.container.querySelector("section")).toHaveAttribute("dir", "rtl");
+      expect(view.container.querySelector("ul")).toHaveClass("min-w-0");
+      expect(view.container.textContent).not.toContain("PRICE_NOT_RESOLVED");
+      fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق" }));
+      expect(retry).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: priorWidth });
+    }
+  });
+
+  it("EN LTR preserves specific failed tax and custody reasons and keyboard focus", () => {
+    const view = renderPanel("blocked", "en", blockers({
+      tax: "TAX_CONFIGURATION_REQUIRED", custody: "VEHICLE_CUSTODY_LOCATION_MISSING",
+    }));
+    expect(view.container.querySelector("section")).toHaveAttribute("dir", "ltr");
+    expect(screen.getByRole("status")).toHaveTextContent("Launch is blocked");
+    expect(screen.getByText(/published 0% tax is valid/)).toBeInTheDocument();
+    const links = screen.getAllByRole("link", { name: "Open settings" });
+    expect(links).toHaveLength(2);
+    links[0].focus();
+    expect(links[0]).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Recheck readiness" })).toBeEnabled();
+  });
+
+  it("provides retry on read errors but no misleading retry or success after permission denial", () => {
+    const retry = vi.fn();
+    const view = renderPanel("error", "ar", null, retry);
+    expect(screen.getByRole("status")).toHaveTextContent("تعذّر التحقق");
+    fireEvent.click(screen.getByRole("button", { name: "إعادة التحقق" }));
+    expect(retry).toHaveBeenCalledOnce();
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="en"
+      status="denied" evidence={null} onRefresh={retry} /></MemoryRouter>);
+    expect(screen.getByRole("status")).toHaveTextContent("Access was revoked");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByText("Verified")).not.toBeInTheDocument();
+  });
+});
