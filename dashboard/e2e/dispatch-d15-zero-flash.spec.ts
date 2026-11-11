@@ -286,7 +286,9 @@ if (process.env.D15_ZERO_FLASH_ENFORCE === "1") {
             const list = frame?.querySelector(".dispatch-route-list") ?? null;
             const realWorkspace = frame?.querySelector('[data-testid="dispatch-routes-workspace"]') ?? null;
             const tabs = document.querySelectorAll('[data-testid="dispatch-shared-topbar"] [role="tab"]');
-            const admitted = Boolean(document.querySelector('[role="tab"][aria-selected="true"]'));
+            // Selected gold is a public preference, NOT an authorization signal.
+            // Assert genuine enabled state under current signed grant.
+            const admitted = Boolean(document.querySelector('[role="tab"][aria-selected="true"]:not(:disabled)'));
             w.__d15ColdImportFrames.push({
               ms: Math.round(performance.now() - begin),
               hasFrame: Boolean(frame), contentId: idOf(content), listId: idOf(list),
