@@ -213,7 +213,7 @@ describe("SEC-WS-01 actual DispatchBoard socket callbacks", () => {
       readCompanies.push(localStorage.getItem("company_id")!);
       return path === "/dispatch/init" ? { zones: [], drivers: [], vehicles: [], warehouses: [] } : [];
     });
-    render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
+    render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
     await act(async () => {});
     return Socket.instances[0];
   }
@@ -344,7 +344,7 @@ describe("D09 actual DispatchBoard effective grants and revoked view", () => {
         }];
         return [];
       });
-      render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
+      render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
       const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
       fireEvent.click(tab);
       await screen.findAllByText("Scoped Zone");
@@ -487,7 +487,7 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
     }
     return data(company, path);
   });
-  render(<MemoryRouter><DispatchBoard /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
   await act(async () => {});
   expect(screen.getByRole("option", { name: "A-zone" })).toBeInTheDocument();
   expect(screen.getByRole("option", { name: "A-driver" })).toBeInTheDocument();
