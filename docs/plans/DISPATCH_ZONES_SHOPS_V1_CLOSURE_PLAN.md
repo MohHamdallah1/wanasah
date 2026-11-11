@@ -1,6 +1,6 @@
 # Dispatch / Zones / Shops — V1 audited closure plan
 
-**Status:** ACTIVE — Stage 0 source audits AND Stage 2 executable Backend/Chromium tests complete on unmodified exact MAIN; **confirmed P0/P1 failures block V1**. Audited triage and first isolated implementation issues are ready; D03 owner-policy decisions, remaining coverage, corrective PRs, exact merged-main acceptance and visual sign-off remain OPEN.  
+**Status (2026-11-11):** D00–D14 technically **ACCEPTED, MERGED and synced**; **15/16 = 93.75%**. Final **D15 OWNER visual acceptance is still OPEN**, so V1 is **NOT yet 100% approved**. No accepted technical P0/P1 remains demonstrated within the D14-tested scope. The dated §9 source-audit failures and original assignments are **historical evidence, not live unresolved root checkboxes**; see each D00–D14 accepted outcome and §9.3 disposition. Do not delete this authoritative plan, close #831, or mark RUN.txt complete until the owner explicitly accepts D15.  
 **Baseline:** `1fed2cd0934609104d55b43621329dccaae345b2` (2026-11-09). This is an auditable **execution** plan after the completed Stage 0 audits, not an assertion that all defects have been runtime-reproduced or that V1 is release-ready.  
 **Canonical tracker:** this file; coordination and evidence in [#831](https://github.com/MohHamdallah1/wanasah/issues/831). Backend audit [#832](https://github.com/MohHamdallah1/wanasah/issues/832#issuecomment-6728452873), Dashboard audit [#833](https://github.com/MohHamdallah1/wanasah/issues/833#issuecomment-6728496188). Historical performance audit: `DISPATCH_V1_AUDIT_NOTES.md`, especially **§7**.
 
@@ -48,7 +48,7 @@
   - **Finance editing:** ordinary Shop metadata/name/contact/Zone updates NEVER edit posted/current debt or limit (D04 protected). Allow guarded initial opening balance at authorized onboarding; later manual correction is a separate explicit Finance-owned immutable audited process, not a generic Shop PATCH. Do not invent an adjustment ledger in Dispatch; if no existing authorized workflow, defer new manual corrections to post-V1 and expose no unsafe edit.
   - **Shortages and retries:** Group Edit/Delete All uses accepted atomic authorized D05 UUID replay; lost-201 route intent/recovery uses accepted D07 original UUID + immutable commercial/physical authority. No new competing commands.
   - **Route cancel/history/unschedule:** V1 keeps proven waiting/active/postponed/closed + existing Operations/Settlement handoff; dedicated cancel/history and extra manual financial adjustment UI defer to V2 unless a measured launch-critical P1 is demonstrated; no phantom endpoint or settlement posting.
-  **Execution gate:** D06 stays [ ] until exact above field- and assignment-scoped protection is actually implemented, merged and proven by genuine restricted PG16+Bearer and client. D14 final EXACT-MAIN follows D06; D15 owner visual last. Explicit owner prohibition means **NO Codex** even if an earlier checklist expected it; use independent LEAD diff/review + focused CI evidence.
+  **Execution gate — fulfilled (2026-11-11):** D06 protection was implemented and merged with 48/48 checks; D14 final signed PG16/Chromium technical acceptance merged with 23/23 checks and independent LEAD review. Only actual OWNER D15 visual approval remains; no Codex.
 
 ## 4. Stage 2 — highest-risk V1 corrections (separate, evidence-led PRs)
 
@@ -90,7 +90,7 @@
 
 **SCOPE EXCLUSIONS:** full refactor of Driver/Dispatch god-files, generic fleet management, novel route optimization, large BI/reporting, unproven 50k *shop* scale, arbitrary deleted-customer financial adjustments, duplicated Vehicle Load/Settlement, brand-new general IAM framework. Do not classify a legitimate V1 security/data-integrity failure as V2 because it happens to touch a deferred refactor area.
 
-## 8. Worker / lead execution protocol
+## 8. Historical worker / lead execution protocol (original assignments completed)
 
 - Stage 0 Worker 1 #832 and Worker 2 #833 have completed source-only audit. **They did not execute fresh PG16, HTTP or browser tests**, and neither made code changes.
 - First next work, after lead freezing D03 decision interfaces: Worker 1 backend/PG16 ownership for **one** P1 item; Worker 2 independent UI parity/React ownership **only after** Backend contract is frozen. For parallel tasks use fully disjoint code and exact current MAIN. Do not assign two workers `DispatchBoard.tsx` or `dispatch.py` writes at the same time. Sequence dependent PRs.
@@ -98,9 +98,9 @@
 - Each merged item is explicitly checked here with verification evidence, progress summarized on #831; after V1 closure retain the approved minimal historical audit record and retire the active plan only through an owner-approved later cleanup.
 
 
-## 9. STAGE 2 — verified CURRENT-MAIN evidence and implementation readiness (2026-11-09)
+## 9. HISTORICAL STAGE 2 — pre-fix audit and original implementation candidates (2026-11-09)
 
-This is the **one source of truth** for the executable defect backlog. All findings below were checked by LEAD against the two test-only PR final HEADs and actual Actions job state/logs. **The application source under test remains unchanged at** `c71121dabdd7566806f29a768d4fb0af4b5ee78e`. The test PRs are DRAFT and **must remain unmerged/RED** until failures are repaired, split into appropriate focused accepted tests, or independently justified. **Neither 11 backend failures nor 44 browser failures is a count of distinct code defects.**
+**Historical, not a current OPEN defect list.** These were verified pre-fix observations on MAIN `c71121dabdd7566806f29a768d4fb0af4b5ee78e` (2026-11-09), not today's source. The intentionally red audit PRs [#839](https://github.com/MohHamdallah1/wanasah/pull/839) and [#840](https://github.com/MohHamdallah1/wanasah/pull/840) are now **closed unmerged as superseded**, with exact commit snapshots safely archived under `archive/pre-d15-20261111/`; their red results must **not** be read as red current MAIN. Actual fixes and relevant tests were accepted separately in D00–D14; source-only audit candidates not definitively proven remain **non-asserted**, with the owner D15 gate and V2 explicitly distinguished below. The 11 original Backend failures and 44 original Browser failures were not counts of unique production bugs.
 
 | Evidence layer | Final test-only HEAD / PR | Real execution | Actual result |
 | --- | --- | --- | --- |
@@ -111,7 +111,7 @@ This is the **one source of truth** for the executable defect backlog. All findi
 
 **Confidence key:** `PROVEN FAIL` = test actually measured wrong HTTP/DB/UI outcome; `PROVEN PASS` = narrow stated assertion passed; `POLICY OPEN` = behavior observed but contract needs owner decision; `UNPROVEN` = not yet executed. Do NOT label a missing test as success, treat red CI as harness failure if tests and fixtures passed, or label every repeated viewport failure a new defect.
 
-### 9.1 Authoritative grouped gap register (update each row when its own fix is merged)
+### 9.1 Frozen historical gap register — the OPEN labels below refer to the 2026-11-09 audit, not current release status
 
 | Defect ID → plan | Priority & status | Real observation / current requirement | Implementation / proof gate |
 | --- | --- | --- | --- |
@@ -133,7 +133,7 @@ This is the **one source of truth** for the executable defect backlog. All findi
 
 **Important:** F01 is confirmed corruption of legitimate customer receivable, but **no evidence that these tests mutated real company money**; all examples use disposable synthetic PG16 data. F05 is a proven same-company visibility *fact*, **not** a proven breach without D03 policy. F12 10% tax test passed rather than failed. F04 and F09 Shortage replay gaps are operational-recovery failures, not proven duplicate custody.
 
-### 9.2 D03 — minimum safe operating contracts for Lead/Owner freeze
+### 9.2 D03 — historical policy proposals (superseded by the adopted D03 freeze above)
 
 These are **proposed V1 invariants**, not an assertion that the owner has agreed to change commercial policy. They should not block independent first P0 investigation, but **block shipping any new ambiguous money/permission behavior**.
 
@@ -144,21 +144,24 @@ These are **proposed V1 invariants**, not an assertion that the owner has agreed
 5. **Tax**: successful 10% after A→B is not itself a defect; *owner to decide whether Shop's jurisdiction is frozen at route launch*. Do not guess tax or silently hardcode rate.
 6. **V1 vs V2**: lack of closed-route history/cancel dedicated endpoint, explicit zone unschedule UI, or large-reporting features are not presumed launch blockers; only promote if required operator flow is actually blocked. D15 owner visual acceptance **LAST**.
 
-### 9.3 Coverage remaining — tests required before D14 exact-MAIN closure
+### 9.3 D14 audit-wishlist reconciliation — disposition, not seven new release gates (2026-11-11)
 
-- [ ] **Role/privacy matrix:** permitted non-Owner with `dispatch.execute`, separately `shortage.read/create/cancel`, A/B Warehouse, company A/B, revoked in already-open modal; exact 401/403, no stale financial rows or local import drafts on principal changes.
-- [ ] **Full route and custody journeys:** launch/adjust/recovery/transfer/return/visit/receiving settlement via actual authorized Field/Backoffice, Warehouse/Vehicle multi-source, sealed session, FEFO/RECALL/expiry/UOM, audit-lock, concurrent changes, tax publication, correct ledger/COGS. Existing 11+34 stock tests count only within their proved boundaries.
-- [ ] **Every business-critical UI action:** Routes (follow-up/reassign/postpone/close), Launch, Zones scheduling/unschedule/archive/restore, Shops create/edit/duplicate/bulk import/reorder/move/archive/restore, Shortages new/edit/delete/recover, Transfers Radar, error/reload/reentry/confirm and session handoff; AR/EN desktop/tablet/mobile with test evidence.
-- [ ] **Browser responsive blocker:** Arabic Routes tab row missing at 700/390 in smoke test; determine fixture/late-data/timing vs genuine mobile usability before classifying.
-- [ ] **Late failure/races:** real concurrent Field sale vs Shop archive, import failure after Processing log commit, credit-version conflicts, permission revoke during open modal and two simultaneous writes, retry after lost 201 with actual readback.
-- [ ] **Scale:** repeated UI fetch/reentry, 100–2000 Shops/Shortages, first-company network payload and render responsiveness, keyboard/focus and company currency; promote only measured business blockers.
-- [ ] **Final merged-main GREEN:** after defects fixed, re-run focused tests from **red draft evidence PRs** on actual merged MAIN; merge or port relevant focused regression tests safely, retaining truthful failures until fixed. Complete required CI, manual Lead review, and owner **D15 last**.
+The original seven unchecked audit *wish-list* bullets here were written **before** D04–D14 fixes. Retaining them as live unchecked checkboxes after D14 acceptance made the plan misleading. The table distinguishes proven V1 acceptance from unproved/extreme scenarios, without marking unexecuted tests as PASS. A newly observed P0/P1 must still block D15.
+
+| Original 2026-11-09 audit wish | Evidence and current disposition |
+| --- | --- |
+| Role/privacy matrix | **D06 + D09/D10 + D14 ACCEPTED:** real PG16 restricted Bearer Owner/company-wide/A1-only/foreign B, FIELD denied, explicit finance grant/revoke same token; D14 real browser AR/EN on desktop/390. This does **not** assert every imaginable mid-modal race was simulated. |
+| Full route/custody scenarios | **D04/D05/D07/D08/D11 + D14 ACCEPTED:** canonical source-Warehouse/Vehicle route, idempotent replay, physical load/unload/Visit/FEFO/UOM/cost, D11 tax/published rounding and [D14 real settlement HTTP #893](https://github.com/MohHamdallah1/wanasah/pull/893). Exotic multi-source/concurrent configurations not independently tested are not labelled PASS and are not proven launch blockers. |
+| Every UI action across all viewports | **D08/D13 + D14 ACCEPTED** for actually exercised production actions and real 1440/390 Chromium; **D15 OWNER observation OPEN** for final usability. Extra unschedule/cancel/history controls not required for V1 were deliberately deferred to V2; do not invent their availability. |
+| Old Arabic 700/390 missing-route smoke | Subsequent **D12 + D14** real 390px/1440px Chromium PASS, including route/Shop visibility and overflow; the specific historical 700px scenario was **not independently re-run**, so no blanket 700px PASS is claimed. Owner D15 checks actual mobile/tablet usability; elevate any reproduced blocker. |
+| Late failures and races | **D04 stale-finance; D05 atomic shortage group; D07 lost-201 original UUID; D10 auth/late response** fixed with focused accepted evidence. The old broader simultaneous-race wish-list was **not exhaustively executed**; unproved edge cases cannot be recorded as passes, and genuinely observed P0/P1 remain release blockers. |
+| First-company scale | **D12 ACCEPTED:** real representative 1,000 Shops/100 Routes/300 Shortages PG16/Bearer, actual Desktop/390 Chromium; no demonstrated day-one P1. Earlier 2,000-row audit remains historical V2 capacity input, **not** proof of a current first-company blocker or a 2,000-row browser PASS. |
+| Final merged-MAIN green | **D14 ACCEPTED:** [PR #896](https://github.com/MohHamdallah1/wanasah/pull/896) 23/23 exact final-HEAD CI SUCCESS, independent ten-file safety review, real signed PG16+Chromium 4/4; merged source then only plan-document edits. Original audit drafts were closed as superseded, **not** merged as permanently red CI. D15 manual owner acceptance is the final separate gate. |
 
 **Operational progress (2026-11-11):** D00–D14 are [x] (**15/16 = 93.75%**). D15 OWNER visual signoff alone remains [ ] until the owner actually checks current merged Dashboard desktop/mobile, records P0/P1 resolution or explicit acceptance, and authorizes closure. Do not close parent #831 or mark RUN.txt complete before owner approval. **No test-only PR or source-only report satisfies a production fix item.**
 
-## 10. Next action — implementation begins from this audited baseline
+## 10. Current next action — OWNER D15 visual acceptance ONLY (2026-11-11)
 
-1. **Worker 1 [#842](https://github.com/MohHamdallah1/wanasah/issues/842)** — first **Backend financial safety implementation**, F01 P0 + F10 cap lost-update. Narrow Shop metadata/financial seam, fail-closed explicit intent/concurrency, preserve Finance/FIELD truth; no new business code inside giant router. New **implementation PR**, separate from the evidence PR #839; do not merge without verified new PG16+Bearer and Codex. Any new manual adjustment authorization policy returns to owner.
-2. **Worker 2 [#843](https://github.com/MohHamdallah1/wanasah/issues/843)** — first **independent UI false-success fix**, N2 cross-zone reorder. Extract focused testable Shop-order module, selected-zone-only mutations, no fake success. New isolated implementation PR separate from evidence PR #840. **No overlapping Worker1 files**.
-3. Lead reviews #842 and #843 PRs and decides their exact merge order on current MAIN, safely syncs owner PC, updates F01/F10/N2 evidence in this plan only after merged-main proof. Worker 2 then handles Shop finance form intentional adjustment after backend contract, followed by shortage group F02 and archive F03, then replay F04/F06/import, scope and remaining business/visual gates.
-4. Keep independent red draft [#839](https://github.com/MohHamdallah1/wanasah/pull/839) / [#840](https://github.com/MohHamdallah1/wanasah/pull/840) as regression evidence; **never merge all-red audit tests to main without corresponding accepted fixes**, and do not create production CI that has intentional permanent false gates. Close each issue by merged test **and** real fixed business outcome.
+1. Use the [12-step real UI owner checklist on #831](https://github.com/MohHamdallah1/wanasah/issues/831#issuecomment-6783724318) on the **exact currently merged Dashboard**, desktop and 390px mobile, preferably in a disposable test company; inspect actual operations, Arabic/English, Shop visibility, unavailable balances and responsive interaction. **No visual test has been claimed on the owner's behalf.**
+2. If the owner reproduces a genuine V1 P0/P1 security, finance, stock or required workflow/interaction problem, keep D15 [ ], assign one isolated corrective PR, and retest only the affected source with owner readback. Nonblocking cosmetic/operator preferences go to V2.
+3. **Only after explicit owner acceptance:** mark D15 [x], update RUN.txt, close [parent #831](https://github.com/MohHamdallah1/wanasah/issues/831), and safely fast-forward the owner's PC. Then, with owner agreement, **archive/retire this active plan** while preserving its source evidence and decisions; do **not** silently delete the audit history or original files.
