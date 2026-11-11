@@ -163,6 +163,10 @@ jobs:
           D15_ZERO_FLASH_ENFORCE: "1"
         run: |
           xvfb-run -a npx playwright test e2e/dispatch-d15-zero-flash.spec.ts --headed --workers=1 --reporter=list --output=node_modules/.cache/dispatch-d15-zero-flash-after
+      - name: AFTER real signed D14 scoped finance, revoke, FIELD and cross-tenant Chromium
+        working-directory: dashboard
+        run: |
+          npx playwright test --config e2e/dispatch-d14-browser.config.ts --workers=1
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
