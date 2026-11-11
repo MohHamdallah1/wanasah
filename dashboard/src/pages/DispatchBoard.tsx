@@ -2022,9 +2022,9 @@ function DispatchSession() {
                 </div>
                 
                 {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
-                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!tabReady} placeholder="اختر المنطقة" />
-                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!tabReady} placeholder="اختر المندوب" />
-                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!tabReady} placeholder="اختر السيارة" />
+                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!tabReady} placeholder={tabReady ? "اختر المنطقة" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!tabReady} placeholder={tabReady ? "اختر المندوب" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!tabReady} placeholder={tabReady ? "اختر السيارة" : "—"} />
                 <CustomSelect
                   labelBg="bg-slate-50"
                   label="مستودع المصدر"
@@ -2032,7 +2032,7 @@ function DispatchSession() {
                   value={tabReady ? selectedSourceWarehouseId : ""}
                   onChange={changeSourceWarehouse}
                   disabled={!tabReady}
-                  placeholder="اختر مستودع المصدر"
+                  placeholder={tabReady ? "اختر مستودع المصدر" : "—"}
                 />
                 {/* Commercial readiness belongs to the same four-selector
                     launch configuration, not a second full-width page card.
@@ -2046,7 +2046,7 @@ function DispatchSession() {
                 </div>
               </div>
 
-              <RouteLoadProductTable vehicleId={tabReady ? selectedVehicleId : ""} warehouseId={tabReady ? selectedSourceWarehouseId : ""} scope={tabReady ? productScope : null}
+              <RouteLoadProductTable pending={!tabReady} vehicleId={tabReady ? selectedVehicleId : ""} warehouseId={tabReady ? selectedSourceWarehouseId : ""} scope={tabReady ? productScope : null}
                 current={tabReady && vehicleCustodyReady ? routeLoadCurrent : {}} targets={tabReady && vehicleCustodyReady ? routeLoadTargets : {}}
                 units={tabReady && vehicleCustodyReady ? routeLoadUnits : {}} names={tabReady && vehicleCustodyReady ? routeLoadNames : {}} custodyReady={tabReady && vehicleCustodyReady}
                 onClear={() => setRouteLoadTargets({})}
