@@ -110,6 +110,9 @@ async function startProbe(page: Page) {
       const shopRows = [...document.querySelectorAll(".dispatch-shop-table tbody tr")]
         .filter(visible).map(el => el.textContent || "");
       const rowText = shopRows.join(" ");
+      const latinMoney = rowText.replace(/[٠-٩]/g,c=>String(c.charCodeAt(0)-0x660))
+        .replace(/[۰-۹]/g,c=>String(c.charCodeAt(0)-0x6f0))
+        .replace(/٫/g,".").replace(/٬/g,",");
       const root = document.documentElement;
       probe.frames.push({
         ms: Math.round(performance.now() - probe.start),
@@ -127,8 +130,7 @@ async function startProbe(page: Page) {
           visible(document.querySelector(".dispatch-zones-workbench")),
         rows: shopRows.length,
         assigned: rowText.includes(assigned), unassigned: rowText.includes(unassigned),
-        a2: rowText.includes(a2), moneyA2: rowText.includes("901.125") ||
-          rowText.includes("٩٠١٫١٢٥") || rowText.includes("۹۰۱٫۱۲۵"),
+        a2: rowText.includes(a2), moneyA2: latinMoney.includes("901.125"),
         docWidth: root.scrollWidth, clientWidth: root.clientWidth,
       } as Frame);
       if (performance.now() - probe.start < 2800) requestAnimationFrame(capture);
@@ -320,8 +322,13 @@ for(const [lang,width] of [["ar",390],["en",1440]] as const) {
       const token=await page.evaluate(()=>localStorage.getItem("admin_token"));
       toggle("reader","on");
       await selectTab(page,"routes"); await shopsTab(page,state.zones.a2);
-      await expect(page.locator(".dispatch-shop-table tbody tr")
-        .filter({hasText:state.shops.a2.name}).first()).toContainText("901", {timeout:20000});
+      await expect.poll(async() => {
+        const text = await page.locator(".dispatch-shop-table tbody tr")
+          .filter({hasText:state.shops.a2.name}).first().innerText();
+        return text.replace(/[٠-٩]/g,c=>String(c.charCodeAt(0)-0x660))
+          .replace(/[۰-۹]/g,c=>String(c.charCodeAt(0)-0x6f0))
+          .replace(/٫/g,".");
+      },{timeout:20000}).toContain("901.125");
       expect(await page.evaluate(()=>localStorage.getItem("admin_token"))).toBe(token);
       toggle("reader","off");
       const revoked=await record(page,lang+"-"+width+"-revoke-same-token",
@@ -332,14 +339,21 @@ for(const [lang,width] of [["ar",390],["en",1440]] as const) {
         (x:Frame)=>({ms:x.ms,tabs:x.tabs,rows:x.rows}))}));
       // Record the exact pre- and post-refresh frames; fail on any old money
       // after the route has returned to its Zones workspace.
-      const firstReturned=revoked.frames.findIndex((x:Frame)=>x.route==="/dispatch"&&x.rows>0);
-      if(firstReturned>=0) expect(revoked.frames.slice(firstReturned)
-        .every((x:Frame)=>!x.moneyA2)).toBe(true);
+      // Ignore the deliberate pre-click snapshot of the old active tab.
+      // Assert after the first Route-tab frame (Shop table unmounted).
+      const firstLeftZones=revoked.frames.findIndex((x:Frame,i:number)=>
+        i>0&&x.route==="/dispatch"&&x.rows===0);
+      expect(firstLeftZones,"route tab must mount before re-entering Zones").toBeGreaterThanOrEqual(0);
+      expect(revoked.frames.slice(firstLeftZones)
+        .every((x:Frame)=>!x.moneyA2),
+        "no revoked finance value may appear after leaving previous Zones view").toBe(true);
       expect(await page.evaluate(()=>localStorage.getItem("admin_token"))).toBe(token);
 
       await signIn(page,"foreign",lang);
+      await page.goto("/products");
+      await expect(page.locator(".workspace-top-bar-frame")).toBeVisible({timeout:45000});
       const foreign=await record(page,lang+"-"+width+"-foreign-first-paint",
-        async()=>{await page.goto("/dispatch");await shopsTab(page,state.zones.a1).catch(()=>{});},
+        async()=>{await go(page,"dispatch",width===390);await selectTab(page,"zones");},
         network,info);
       expect(foreign.frames.every((x:Frame)=>!x.assigned&&!x.unassigned&&!x.a2),
         "Company B cannot inherit Shop rows from company A").toBe(true);
