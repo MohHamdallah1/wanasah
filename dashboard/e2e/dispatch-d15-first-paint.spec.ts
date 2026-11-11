@@ -18,6 +18,13 @@ type Frame = {
   fallback: boolean; workspace: boolean; surface: boolean; rows: number;
   assigned: boolean; unassigned: boolean; a2: boolean; moneyA2: boolean;
   docWidth: number; clientWidth: number;
+  shell: boolean; stage: boolean; mainStage: boolean;
+  priorProducts: boolean; priorInventory: boolean; priorHeader: boolean;
+  layoutFallback: boolean; accessFallback: boolean; previousVisible: boolean;
+  dispatchNeutral: boolean; structuralPlaceholder: boolean;
+  contentVisible: boolean; visibleBlank: boolean; source: string;
+  topbarDomId: number | null; boardDomId: number | null;
+  foregroundTarget: string;
 };
 type RequestEntry = { path: string; at: number; ms?: number; status?: number; failed?: boolean };
 const state = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER_STATE!, "utf8"));
@@ -82,11 +89,18 @@ function traceNetwork(page: Page) {
   return all;
 }
 
-async function startProbe(page: Page) {
-  await page.evaluate(({ assigned, unassigned, a2 }) => {
+function installFirstPaintProbe({ assigned, unassigned, a2 }:
+  { assigned: string; unassigned: string; a2: string }) {
     const host = window as any;
     host.__d15FirstPaint?.stop?.();
     const probe: any = { start: performance.now(), frames: [], shifts: 0, stopped: false };
+    const identities = new WeakMap<Element, number>();
+    let nextId = 1;
+    const nodeId = (el: Element | null): number | null => {
+      if (!el) return null;
+      if (!identities.has(el)) identities.set(el, nextId++);
+      return identities.get(el)!;
+    };
     host.__d15FirstPaint = probe;
     const visible = (el: Element | null): el is Element => {
       if (!el || el.closest('[aria-hidden="true"]')) return false;
@@ -114,6 +128,37 @@ async function startProbe(page: Page) {
         .replace(/[۰-۹]/g,c=>String(c.charCodeAt(0)-0x6f0))
         .replace(/٫/g,".").replace(/٬/g,",");
       const root = document.documentElement;
+      const shell = visible(document.querySelector(".dashboard-shell"));
+      const stage = visible(document.querySelector(".dashboard-main-stage"));
+      const mainStage = visible(document.querySelector(".dashboard-content"));
+      const priorProducts = visible(document.querySelector(".products-a11y-scope"));
+      const priorInventory = visible(document.querySelector(".inventory-workspace")) ||
+        visible(document.querySelector(".inventory-data-panel")) ||
+        visible(document.querySelector("[data-inventory-pending-surface]"));
+      const priorHeader = priorProducts &&
+        visible(document.querySelector(".products-a11y-scope .workspace-top-bar-frame"));
+      const layoutFallback = visible(document.querySelector(".dashboard-content > [role=status]"));
+      const accessFallback = visible(document.querySelector(".dashboard-access-state"));
+      const dispatchNeutral = visible(document.querySelector("[data-testid=dispatch-neutral-topbar]"));
+      const structuralPlaceholder = visible(document.querySelector(
+        "[data-testid=dispatch-structural-workspace]")) ||
+        visible(document.querySelector('[data-testid-workspace="dispatch-structure"]'));
+      const previousVisible = priorProducts || priorInventory;
+      // Content visibility is stricter than the existence of the unpainted main container.
+      // Do not misclassify a route change as blank while old Products or Inventory still paints.
+      const contentVisible = previousVisible || visible(top) || visible(document.querySelector(".dispatch-content")) ||
+        structuralPlaceholder || layoutFallback || accessFallback;
+      const visibleBlank = !contentVisible;
+      const source = previousVisible ? priorProducts ? "previous-products-visible" : "previous-inventory-visible"
+        : visible(top) ? tabs.length > 0 ? "dispatch-live-tabs" : dispatchNeutral ? "dispatch-neutral-topbar" : "dispatch-topbar-no-tabs"
+        : layoutFallback ? "layout-suspense-fallback"
+        : accessFallback ? "layout-access-fallback"
+        : structuralPlaceholder ? "dispatch-cold-structure"
+        : visible(document.querySelector(".dispatch-content")) ? "dispatch-content-without-topbar"
+        : stage && mainStage ? "empty-dashboard-main-stage"
+        : shell ? "dashboard-shell-no-main-content"
+        : "root-route-suspense-null-or-no-dashboard-shell";
+      const center = document.elementFromPoint(window.innerWidth/2, window.innerHeight/2);
       probe.frames.push({
         ms: Math.round(performance.now() - probe.start),
         route: location.pathname,
@@ -132,14 +177,26 @@ async function startProbe(page: Page) {
         assigned: rowText.includes(assigned), unassigned: rowText.includes(unassigned),
         a2: rowText.includes(a2), moneyA2: latinMoney.includes("901.125"),
         docWidth: root.scrollWidth, clientWidth: root.clientWidth,
+        shell, stage, mainStage,
+        priorProducts, priorInventory, priorHeader,
+        layoutFallback, accessFallback, previousVisible,
+        dispatchNeutral, structuralPlaceholder,
+        contentVisible, visibleBlank, source,
+        topbarDomId: visible(top) ? nodeId(top) : null,
+        boardDomId: visible(board) ? nodeId(board) : null,
+        foregroundTarget: center ? center.tagName.toLowerCase() +
+          "." + [...center.classList].slice(0,2).join(".") : "none",
       } as Frame);
       if (performance.now() - probe.start < 2800) requestAnimationFrame(capture);
       else observer.disconnect();
     };
     probe.stop = () => { probe.stopped = true; observer.disconnect(); };
     requestAnimationFrame(capture);
-  }, { assigned: state.shops.assigned.name,
-    unassigned: state.shops.unassigned.name, a2: state.shops.a2.name });
+}
+const sampleIdentity = { assigned: state.shops.assigned.name,
+  unassigned: state.shops.unassigned.name, a2: state.shops.a2.name };
+async function startProbe(page: Page) {
+  await page.evaluate(installFirstPaintProbe, sampleIdentity);
 }
 
 async function readProbe(page: Page) {
@@ -181,6 +238,14 @@ function summarize(frames: Frame[]) {
     routeFrames.slice(index, index + 4).length === 4 &&
     routeFrames.slice(index, index + 4).every(x => x.topbar && x.tabs > 0 && x.workspace && x.surface));
   const totalBlank = routeFrames.filter(x => !x.topbar && !x.workspace).length;
+  const stageBlank = routeFrames.filter(x => x.visibleBlank);
+  const emptyStage = routeFrames.filter(x => x.source === "empty-dashboard-main-stage");
+  const firstDispatch = routeFrames[0]?.ms ?? null;
+  const labelsBefore = frames.filter(x => x.route !== "/dispatch" &&
+    (x.priorProducts || x.priorInventory)).length;
+  const topbarIds = [...new Set(routeFrames.map(x => x.topbarDomId).filter((x):x is number => x !== null))];
+  const bySource: Record<string, number> = {};
+  for (const x of routeFrames) bySource[x.source] = (bySource[x.source] || 0) + 1;
   return {
     frames: frames.length, dispatchFrames: routeFrames.length,
     firstDispatchFrameMs: routeFrames[0]?.ms ?? null,
@@ -193,13 +258,28 @@ function summarize(frames: Frame[]) {
     neutralSkeletonFrames: routeFrames.filter(x => x.skeleton).length,
     fullBlankFrames: totalBlank,
     removedTabsAfterFirstSeen: removedAfterPresent,
+    visibleBlankFrames: stageBlank.length, emptyMainStageFrames: emptyStage.length,
+    previousRouteVisibleAfterPathCommit: routeFrames.filter(x => x.previousVisible).length,
+    layoutFallbackFrames: routeFrames.filter(x => x.layoutFallback).length,
+    accessFallbackFrames: routeFrames.filter(x => x.accessFallback).length,
+    neutralTopbarFrames: routeFrames.filter(x => x.dispatchNeutral).length,
+    structuralPlaceholderFrames: routeFrames.filter(x => x.structuralPlaceholder).length,
+    priorPagePaintFrames: labelsBefore, firstDispatch,
+    topbarMountIds: topbarIds, topbarRemounts: Math.max(0,topbarIds.length - 1),
+    rootNoShellFrames: stageBlank.filter(x => !x.shell).length,
+    sourceCounts: bySource,
+    firstBlankFrames: stageBlank.slice(0,10).map(x => ({
+      ms:x.ms, source:x.source, stage:x.stage, shell:x.shell,
+      priorProducts:x.priorProducts, priorInventory:x.priorInventory,
+      mainStage:x.mainStage, foregroundTarget:x.foregroundTarget
+    })),
     maxRootOverflow: Math.max(0,...routeFrames.map(x => x.docWidth - x.clientWidth)),
   };
 }
 
 async function record(page: Page, label: string, action: () => Promise<void>,
-  network: RequestEntry[], info: any) {
-  await startProbe(page);
+  network: RequestEntry[], info: any, initAlready = false) {
+  if (!initAlready) await startProbe(page);
   const started = Date.now();
   await action();
   await page.waitForTimeout(2850);
@@ -219,6 +299,13 @@ async function record(page: Page, label: string, action: () => Promise<void>,
     motion: result.motion,
   }));
   await page.screenshot({ path: info.outputPath("d15-" + label + ".png"), fullPage: true });
+  if (process.env.D15_INDEPENDENT_ENFORCE === "1" &&
+      /(cold|back-products|back-inventory|hard-reload)/.test(label)) {
+    expect(result.visibleBlankFrames, label + " has physically empty visible frames").toBe(0);
+    expect(result.removedTabsAfterFirstSeen, label + " tabs disappeared after showing").toBe(0);
+    expect(result.motion.length, label + " active Dispatch motion remains").toBe(0);
+    expect(result.maxRootOverflow, label + " exterior page overflow").toBe(0);
+  }
   writeFileSync(info.outputPath("d15-" + label + ".json"), JSON.stringify(result,null,2));
   return result;
 }
@@ -261,11 +348,18 @@ for (const lang of ["ar","en"] as const) for (const width of [1440,390]) {
         () => selectTab(page,tab),network,info));
     }
     for(const pageName of ["products","inventory"] as const) {
-      await go(page,pageName,mobile);
+      evidence.push(await record(page,lang+"-"+width+"-dispatch-to-"+pageName,
+        () => go(page,pageName,mobile),network,info));
       await expect(page.locator(".dashboard-content")).toBeVisible();
       evidence.push(await record(page,lang+"-"+width+"-back-"+pageName,
         () => go(page,"dispatch",mobile),network,info));
     }
+    // Unlike SPA cold, this exercises App.tsx global Suspense during an actual
+    // hard document navigation. The witness is installed before any app bundle.
+    await page.addInitScript(installFirstPaintProbe, sampleIdentity);
+    evidence.push(await record(page,lang+"-"+width+"-hard-reload",
+      async () => { await page.reload({waitUntil:"domcontentloaded"});
+        await expect(page).toHaveURL(/\/dispatch$/); },network,info,true));
     await page.evaluate(() => {
       (window as any).__d15NativeVisibility = [];
       document.addEventListener("visibilitychange",()=>
