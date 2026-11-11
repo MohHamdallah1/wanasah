@@ -15,8 +15,14 @@ describe("Dispatch large-catalog containment", () => {
       "utf8",
     );
     expect(source).toContain("const PersistentDispatch = lazy(loadDispatchBoard)");
-    expect(source).toContain("<Suspense fallback={<DispatchImportPending />}>");
-    expect(source).toContain("<PendingRoutesTable");
+    expect(source).toContain("<Suspense fallback={null}>");
+    expect(source).not.toContain("DispatchImportPending");
+    const chrome = readFileSync(join(process.cwd(), "src/features/dispatch/stableUi/DispatchChrome.tsx"), "utf8");
+    expect(chrome).toContain('data-dispatch-real-route-frame="true"');
+    expect(chrome).toContain("<PendingRoutesTable");
+    const board = readFileSync(join(process.cwd(), "src/pages/DispatchBoard.tsx"), "utf8");
+    expect(board).toContain("const canonicalRoutesTable = (");
+    expect(board).toContain("!hostedRoutes && (");
     expect(source).not.toMatch(/import\s+DispatchBoard\s+from\s+["']@\/pages\/DispatchBoard["']/);
     expect(source).not.toContain("DispatchWorkspaceStructure");
   });
