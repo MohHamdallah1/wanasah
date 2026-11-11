@@ -264,7 +264,9 @@ function DispatchSession() {
       // The access hook remains Backend-authoritative, with global focus
       // refetch semantics untouched. This is the one reentry authorization.
       let disposed = false;
-      void inventoryAccess.refetch().finally(() => {
+      // Join any focus-triggered React Query request instead of cancelling it
+      // and sending a second /inventory/access/me for the same session.
+      void inventoryAccess.refetch({ cancelRefetch: false }).finally(() => {
         if (!disposed && isDashboardSessionCurrent(session!)) {
           setNavigationVerified(true);
         }
