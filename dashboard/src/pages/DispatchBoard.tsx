@@ -1842,7 +1842,43 @@ function DispatchSession() {
       hasShortages: dispatchAdmitted && shortages.length > 0,
     }, {
       onTabChange: handleTabChange,
-      onShortages: () => setIsShortageModalOpen(true),
+      onShortages: () => {
+        if (!dispatchAdmitted || !grants.shortages) return;
+        if (readParts.shops || !grants.routes) {
+          setIsShortageModalOpen(true);
+          return;
+        }
+        // Shortage editing needs Shops; routes display never does. Fetch on
+        // this actual action rather than making every Routes reentry wait.
+        const admitted = captureUiRead();
+        void authenticatedFetch("/dispatch/shops", { cache: "no-store" })
+          .then(raw => {
+            if (!admitted()) return;
+            const fresh = normalizeShops(raw);
+            setShops(fresh);
+            setReadParts(parts => ({ ...parts, shops: true }));
+            if (actorScope && shortageDraftHydratedRef.current !== actorScope &&
+                grants.shortageCreate && !activeShortageEditRef.current) {
+              const recovered = restoreShortageDraft(actorScope, zones, fresh, drivers);
+              if (recovered) {
+                setShortageZoneId(recovered.zoneId); setShortageShopId(recovered.shopId);
+                setShortageDriverId(recovered.driverId); setShortageDraft(recovered.rows);
+              } else clearShortageDraft(actorScope);
+              shortageDraftHydratedRef.current = actorScope;
+            }
+            setIsShortageModalOpen(true);
+          })
+          .catch(error => {
+            if (!admitted()) return;
+            const status = (error as { status?: number } | null)?.status;
+            if (status === 401 || status === 403) {
+              dispatchDeniedRef.current = true;
+              dispatchFenceRef.current.revoke();
+              clearDispatchPrivateState();
+              setDispatchReadState("denied");
+            } else toast.error(getErrorMessage(error));
+          });
+      },
       onBulkSchedule: () => {
         setSchedulingType("bulk");
         setSelectedBulkZoneIds(zones.map(z => z.id));
@@ -1859,7 +1895,7 @@ function DispatchSession() {
   }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
     grants.zoneManage, grants.routes, grants.zones, grants.launch,
     shortages.length, handleTabChange, zones, pendingRoutes, driverShortagesMap,
-    archiveRouteFocus, tabReady, canonicalRoutesTable]);
+    archiveRouteFocus, tabReady, canonicalRoutesTable, readParts.shops, authenticatedFetch, actorScope, drivers, clearDispatchPrivateState]);
 
   const hostedRoutes = Boolean(chromeBridge && activeTab === "routes");
   return (
