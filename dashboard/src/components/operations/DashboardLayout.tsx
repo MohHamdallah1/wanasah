@@ -16,6 +16,7 @@ import { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { loadDispatchBoard, loadInventoryPage } from "@/routes/routePreloaders";
+import { DispatchColdFrame } from "@/features/dispatch/stableUi/DispatchWorkspaceStructure";
 
 import "./dashboard.css";
 import { OperationsSidebar } from "./OperationsSidebar";
@@ -272,7 +273,9 @@ const DashboardLayout = () => {
                 aria-hidden={!isDispatchRoute}
                 data-persistent-dispatch-host="true"
               >
-                <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+                <Suspense fallback={<DispatchColdFrame />}>
+                  <PersistentDispatch key={`${session.generation}:${session.identity}:dispatch`} />
+                </Suspense>
               </div>
             ) : null}
             {!isInventoryRoute && !isDispatchRoute ? (
