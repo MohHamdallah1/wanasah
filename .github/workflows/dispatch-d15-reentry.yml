@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/dispatch-d15-reentry.yml"
       - "dashboard/e2e/dispatch-d15-reentry.spec.ts"
+      - "dashboard/e2e/dispatch-d15-horizontal-overflow.spec.ts"
       - "dashboard/e2e/dispatch-d15-reentry.config.ts"
       - "dashboard/src/pages/DispatchBoard.tsx"
       - "dashboard/src/features/dispatch/useDispatchAccessGate.ts"
@@ -136,6 +137,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq openbox
           xvfb-run -a sh -c 'openbox > /tmp/dispatch-openbox.log 2>&1 & npx playwright test --config e2e/dispatch-d15-reentry.config.ts --headed'
+      - name: Measure real signed PG16 Chromium horizontal geometry on every Dispatch tab
+        working-directory: dashboard
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openbox
+          xvfb-run -a sh -c 'openbox > /tmp/dispatch-openbox-overflow.log 2>&1 & npx playwright test e2e/dispatch-d15-horizontal-overflow.spec.ts --workers=1 --headed --output=node_modules/.cache/dispatch-d15-horizontal-overflow --reporter=line'
       - name: Preserve real Browser screenshots traces and checked wire evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -144,6 +151,7 @@ jobs:
           path: |
             wa_backend/d14-real-pg16.xml
             dashboard/node_modules/.cache/dispatch-d15-reentry/
+            dashboard/node_modules/.cache/dispatch-d15-horizontal-overflow/
             dashboard/node_modules/.cache/dispatch-d14-browser/
             /tmp/dispatch-d14-api.log
             /tmp/dispatch-d14-ui.log
