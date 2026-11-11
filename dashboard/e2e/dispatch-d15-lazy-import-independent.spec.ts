@@ -49,17 +49,19 @@ function scriptEntries(page:Page) {
         encoded:e.encodedBodySize,transfer:e.transferSize,decoded:e.decodedBodySize}));
   });
 }
-function visible(el:Element|null):boolean{
-  if(!el||el.closest('[aria-hidden="true"]'))return false;
-  const c=getComputedStyle(el),r=el.getBoundingClientRect();
-  if(c.display==="none"||c.visibility==="hidden"||+c.opacity===0||r.width<2||r.height<2)return false;
-  for(let p=el.parentElement;p;p=p.parentElement){
-    const s=getComputedStyle(p);
-    if(s.display==="none"||s.visibility==="hidden"||+s.opacity===0)return false;
-  }
-  return true;
-}
 function probe() {
+  // Playwright serializes this function separately into the browser realm.
+  // Keep every visual helper inside the injected function itself.
+  const visible=(el:Element|null):boolean=>{
+    if(!el||el.closest('[aria-hidden="true"]'))return false;
+    const c=getComputedStyle(el),r=el.getBoundingClientRect();
+    if(c.display==="none"||c.visibility==="hidden"||+c.opacity===0||r.width<2||r.height<2)return false;
+    for(let p=el.parentElement;p;p=p.parentElement){
+      const st=getComputedStyle(p);
+      if(st.display==="none"||st.visibility==="hidden"||+st.opacity===0)return false;
+    }
+    return true;
+  };
   const w=window as any;
   const frames:Frame[]=[];const nodes=new WeakMap<Element,number>();let next=0,stopped=false;
   const began=performance.now();
