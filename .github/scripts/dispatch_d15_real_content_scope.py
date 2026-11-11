@@ -19,6 +19,7 @@ D15_918 = frozenset({
     "dashboard/src/components/operations/DashboardLayout.tsx",
     "dashboard/src/components/dispatch/PendingRoutesTable.tsx",
     "dashboard/src/features/dispatch/stableUi/DispatchWorkspaceStructure.tsx",
+    "dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx",
 })
 MARKER = ".github/scripts/dispatch_d15_real_content_scope.py"
 
@@ -50,7 +51,7 @@ def selftest() -> None:
         try: d15_real_content_mode(set(D15_918 | {extra}))
         except AssertionError: pass
         else: raise AssertionError("Foreign scope accepted: " + extra)
-    print("D15_918_REAL_CONTENT_SCOPE=PASS total=12 missing=12 foreign=7")
+    print("D15_918_REAL_CONTENT_SCOPE=PASS total=13 missing=13 foreign=7")
 
 if __name__ == "__main__":
     if sys.argv[1:] != ["--selftest"]: raise SystemExit("Only --selftest")
