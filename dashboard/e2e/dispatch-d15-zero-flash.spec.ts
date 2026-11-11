@@ -83,10 +83,10 @@ function beginProbe() {
     requestAnimationFrame(loop);
 }
 async function armFrames(page: Page, tab: "routes" | "launch" | "zones" = "routes") {
-  await page.evaluate(value => {
-    (window as any).__d15TargetTab = value;
-    beginProbe();
-  }, tab);
+  await page.evaluate(value => { (window as any).__d15TargetTab = value; }, tab);
+  // Playwright serializes evaluate callbacks separately; never reference
+  // a module function from inside a different injected callback.
+  await page.evaluate(beginProbe);
 }
 async function capture(page: Page, network: string[], marker: number, label: string, enforce: boolean) {
   await page.waitForTimeout(1750);
