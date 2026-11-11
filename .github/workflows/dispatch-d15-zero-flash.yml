@@ -44,8 +44,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
-      - name: Whitespace check
-        run: git diff --check
+      - name: Exact D15 #913 ownership and whitespace
+        run: |
+          python .github/scripts/dispatch_d15_zero_flash_scope.py --selftest
+          git diff --check
       - name: Install canonical dependencies
         run: |
           python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
