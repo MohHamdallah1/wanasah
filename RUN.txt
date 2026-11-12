@@ -168,9 +168,9 @@ V1_SCOPE_FREEZE.md و ARCHITECTURE.md يبقيان أعلى سلطة للنطا�
 1. [x] Inventory / Warehouses operational closure
    نغلق الصفحات والتبويبات الحالية بدل إعادة بنائها: Inbound -> Batches & Expiry، Transfers، Stocktake، Warehouse Locations، Warehouse Access/Permissions، العزل والتكلفة وsellability المطلوبة لرحلة V1. أي جزء legacy نلمسه يُطابق canonical Backoffice authorization والـbackend الحالي.
 
-2. [ ] Dispatch + Zones + Shops operational closure
+2. [x] Dispatch + Zones + Shops operational closure — D00–D15 accepted (2026-11-12)
    نغلق صفحة التوزيع الحالية والمناطق والمحلات والمسارات وتحميل/إطلاق السيارة كرحلة واحدة، مع مطابقة الـbackend الجديد والصلاحيات والـscope الصحيح. لا نعيد بناء Dispatch من الصفر.
-   خطة التنفيذ المعتمدة المبنية على تدقيقي Backend/Frontend: `docs/plans/DISPATCH_ZONES_SHOPS_V1_CLOSURE_PLAN.md`؛ متابعة الأدلة والـPRs في Issue #831؛ التنفيذ الوظيفي والصلاحيات أولاً، والقبول البصري من المالك أخيراً. وفق `ARCHITECTURE.md`: لا توسعة لملفات Driver/Dispatch الضخمة ولا إعادة تقسيم شاملة أثناء إغلاق V1.
+   **إغلاق تاريخي D00–D15 (2026-11-12):** جميع البنود التقنية D00–D14 كانت [x]، وأُغلق D15 بعد قبول المالك للثبات/التجربة وتوجيهه بإزالة خطة الإغلاق القديمة. أدلة PR #929 (ثبات البيانات والتبويبات، 26/26)، PR #931 (إطلاق الخط الموحد، 26/26)، وسجل الإغلاق Issue #831 موجودة في GitHub؛ ملف الخطة القديم محذوف من الشجرة النشطة وباقٍ في تاريخ Git. **الخطة التشغيلية الوحيدة النشطة للتوزيع الآن:** `docs/plans/DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md` (M00–M06 كلها [ ] ولم تُنفذ بعد). هذه الميزة الجديدة ليست تراجعًا عن قبول D15 ولا تعني أن V1 كله اكتمل. لا توسعة للملفات الضخمة أو الصلاحيات خارج `ARCHITECTURE.md`.
 
 3. [ ] Main Dashboard closure
    نغلق الصفحة الرئيسية بعد استقرار Inventory وDispatch حتى تعرض بيانات وروابط وcapability-gating حقيقية بدل عقود قديمة أو افتراضات Owner-only.
