@@ -24,6 +24,7 @@ class LockedRouteResources:
     route: DispatchRoute
     zone: Zone
     session: WorkSession | None
+    target_session: WorkSession | None
     drivers: Mapping[int, Driver]
     vehicles: Mapping[int, Vehicle]
     canonical_field_driver_ids: frozenset[int]
@@ -56,16 +57,42 @@ async def lock_route_resources(
     if snapshot is None:
         raise LifecycleConflict("ROUTE_NOT_FOUND")
     original = _snapshot_identity(snapshot)
-    session = None
-    if snapshot.work_session_id is not None:
-        session = await db.scalar(
+    # Include the destination representative's *current* session in the
+    # sorted pre-driver lock set. No session on the target is a valid planned
+    # assignment, not an invented financial day for that representative.
+    target_session_id = None
+    if target_driver_id is not None:
+        target_session_id = await db.scalar(
+            select(WorkSession.id).where(
+                WorkSession.company_id == company_id,
+                WorkSession.driver_id == target_driver_id,
+                WorkSession.end_time.is_(None),
+            ).order_by(WorkSession.id.asc()).limit(1)
+        )
+    ids = sorted({
+        int(session_id)
+        for session_id in (snapshot.work_session_id, target_session_id)
+        if session_id is not None
+    })
+    session_rows = (
+        (await db.execute(
             select(WorkSession).where(
                 WorkSession.company_id == company_id,
-                WorkSession.id == int(snapshot.work_session_id),
+                WorkSession.id.in_(ids),
             ).order_by(WorkSession.id.asc()).with_for_update()
-        )
-        if session is None:
-            raise LifecycleConflict("ROUTE_HISTORIC_SESSION_MISSING")
+        )).scalars().all()
+        if ids else []
+    )
+    sessions = {int(session.id): session for session in session_rows}
+    if len(sessions) != len(ids):
+        raise LifecycleConflict("ROUTE_SESSION_CHANGED_CONCURRENTLY")
+    session = sessions.get(int(snapshot.work_session_id)) if snapshot.work_session_id else None
+    target_session = sessions.get(int(target_session_id)) if target_session_id else None
+    if target_session is not None and (
+        target_session.driver_id != target_driver_id
+        or target_session.end_time is not None
+    ):
+        raise LifecycleConflict("TARGET_SESSION_CHANGED_CONCURRENTLY")
 
     driver_ids = sorted({
         int(driver_id)
@@ -135,7 +162,7 @@ async def lock_route_resources(
         raise LifecycleConflict("TARGET_VEHICLE_NOT_IN_COMPANY")
 
     return LockedRouteResources(
-        route=route, zone=zone, session=session,
+        route=route, zone=zone, session=session, target_session=target_session,
         drivers=drivers, vehicles=vehicles,
         canonical_field_driver_ids=frozenset(field_ids),
     )
