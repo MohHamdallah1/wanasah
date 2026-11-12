@@ -51,7 +51,7 @@ const idOrNull = (value: unknown): number | null | undefined =>
 export function parseRouteAssignmentProof(raw: unknown): RouteAssignmentProof | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const data = raw as Record<string, unknown>;
-  const routeId = typeof data.id === "string" && /^[1-9]\\d*$/.test(data.id)
+  const routeId = typeof data.id === "string" && /^[1-9]\d*$/.test(data.id)
     ? Number(data.id) : data.id;
   const currentPeriodId = idOrNull(data.currentPeriodId);
   const currentDriverId = idOrNull(data.currentDriverId);
