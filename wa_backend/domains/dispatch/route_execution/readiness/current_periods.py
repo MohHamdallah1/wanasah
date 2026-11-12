@@ -57,6 +57,7 @@ async def read_current_route_periods(db, *, access, route_ids: list[int]) -> dic
             "location_id": int(record.vehicle_location_id) if may_read else None,
             "revision": int(record.context_revision),
             "state": str(record.state) if may_read else None,
+            "session_id": int(record.work_session_id) if may_read and record.work_session_id else None,
             "may_read": bool(may_read),
             "may_execute": bool(may_execute and may_read),
         }
