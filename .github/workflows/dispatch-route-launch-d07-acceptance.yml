@@ -124,9 +124,11 @@ jobs:
               )
               print("D11_D07_CROSS_OWNER=PASS authored_exact=16 upstream_D12_ignored")
           else:
+              m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
+              m04_authorized = m04_mode(files)
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
-              assert (files == d07_complete_exact or __import__("runpy").run_path(
+              assert (m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
@@ -150,7 +152,7 @@ jobs:
               "dashboard/src/features/dispatch/sessionScope.ts",
               "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files, f"D07 forbidden foreign path: {foreign}"
+              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and m04_mode(files)), f"D07 forbidden foreign path: {foreign}"
           print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD

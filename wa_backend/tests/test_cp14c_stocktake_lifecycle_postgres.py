@@ -80,6 +80,7 @@ from schemas import (
     WarehouseLocationStateRequest,
 )
 from services import InventoryMutationError, apply_inventory_movement
+from domains.identity.models import CompanyPrincipal
 from tests.canonical_actor_fixtures import seed_field_fixture, seed_ordinary_backoffice_fixture
 
 
@@ -1007,6 +1008,13 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
 
             counter_driver = await db.get(Driver, a.counter.driver_id)
             assert counter_driver is not None
+            counter_principal_username = await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == a.company_id,
+                CompanyPrincipal.id == a.counter.context.principal_id,
+                CompanyPrincipal.principal_type == 'BACKOFFICE',
+                CompanyPrincipal.is_active.is_(True),
+            ))
+            assert counter_principal_username and counter_principal_username != counter_driver.username
             # Deliberately reject the real authorizer credential before the
             # successful recount. The existing command persists a security
             # audit without turning the rejection into an inventory movement.
@@ -1017,7 +1025,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                         request_id=uuid4(),
                         count_attempt_id=attempt1["attempt_id"],
                         reason="CP14C audit rejected authorizer",
-                        authorizer_username=counter_driver.username,
+                        authorizer_username=counter_principal_username,
                         authorizer_password="CP14CInvalidSyntheticAuthorization",
                     ),
                     db=db,
@@ -1031,7 +1039,7 @@ async def test_cp14c_stocktake_lifecycle_operational_acceptance():
                     request_id=uuid4(),
                     count_attempt_id=attempt1["attempt_id"],
                     reason="CP14-C independent recount",
-                    authorizer_username=counter_driver.username,
+                    authorizer_username=counter_principal_username,
                     authorizer_password=RECOUNT_PASSWORD,
                 ),
                 db=db,

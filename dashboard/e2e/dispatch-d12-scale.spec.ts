@@ -30,7 +30,8 @@ for (const width of [1440, 390]) {
     const started = Date.now();
     await page.goto("/dispatch");
     await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 60000 });
-    await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
+    // D15: Routes deliberately does not fetch /dispatch/shops. Record route
+    // DOM before opening Launch, which requires the real Shops response.
     const rendered = await page.evaluate(() => ({
       domNodes: document.querySelectorAll("*").length,
       visibleRouteRow: document.querySelectorAll(".dispatch-route-row").length,
@@ -41,6 +42,7 @@ for (const width of [1440, 390]) {
     const launchStart = Date.now();
     await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
     await expect(page.getByRole("tab", { name: /إطلاق خط جديد/ })).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
     const launchSelectMs = Date.now() - launchStart;
     const result = {
       width, loadMs, launchSelectMs, ...rendered,

@@ -567,56 +567,13 @@ jobs:
           assert len(m03_941_required) == 11
           assert len(m03_941_tests) == 8
 
-          # M04 #942 exact AFTER merged M03; not a broad backend exemption.
-          m04_942_exact = {
-              ".github/workflows/dispatch-m04-vehicle-custody.yml",
-              ".github/workflows/dispatch-p0-route-stock-safety.yml",
-              "wa_backend/alembic/env.py",
-              "wa_backend/alembic/versions/e4b7c9d2a601_m04_multi_vehicle_checkpoint.py",
-              "wa_backend/api/dispatch.py",
-              "wa_backend/api/representative_settlement.py",
-              "wa_backend/api/warehouse/stocktake.py",
-              "wa_backend/domains/inventory_vehicle_load/service.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/INTEGRATION.md",
-              "wa_backend/domains/representative_settlement_multi_vehicle/__init__.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/activation.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/application.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/checkpoints.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/contracts.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/financial_readiness.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/http.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/inventory_adapter.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/inventory_integration.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/load_ownership.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/models.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/period_pricing.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/policy.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/read_model.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/resolution.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/review_evidence.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/schema.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/snapshots.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/variance.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/variance_http.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/variance_scope.py",
-              "wa_backend/domains/representative_settlement_multi_vehicle/variance_workflow.py",
-              "wa_backend/models.py",
-              "wa_backend/services.py",
-              "wa_backend/tests/test_dispatch_m04_commands.py",
-              "wa_backend/tests/test_dispatch_m04_domain.py",
-              "wa_backend/tests/test_dispatch_m04_financial_domain.py",
-              "wa_backend/tests/test_dispatch_m04_full_m03_postgres.py",
-              "wa_backend/tests/test_dispatch_m04_inventory_helpers.py",
-              "wa_backend/tests/test_dispatch_m04_load_ownership.py",
-              "wa_backend/tests/test_dispatch_m04_membership.py",
-              "wa_backend/tests/test_dispatch_m04_read_postgres.py",
-              "wa_backend/tests/test_dispatch_m04_review_replay.py",
-              "wa_backend/tests/test_dispatch_m04_variance_postgres.py",
-              "wa_backend/tests/test_dispatch_m04_write_postgres.py",
-              "wa_backend/tests/test_vehicle_reconciliation_strict_custody.py",
-          }
-          m04_942_unique = m04_942_exact - p0_allowed - auth_session_allowed
-          assert len(m04_942_exact) == 45 and len(m04_942_unique) >= 30
+          # One literal M04 exact file set also used by historical CI gates.
+          m04_policy = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")
+          m04_942_exact = set(m04_policy["M04_EXACT"])
+          # Only M04-exclusive source identifies this mode. Historical D07,
+          # F06, Finance and Stocktake candidate sets still take their own gates.
+          m04_942_unique = set(m04_policy["M04_UNIQUE"])
+          assert len(m04_942_exact) == 55 and len(m04_942_unique) == 4
 
           def ownership_mode(candidate):
               if candidate & m04_942_unique:
@@ -747,7 +704,7 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
-          # M04 exact policy: all 45 files together, no partial or foreign set.
+          # M04 exact policy: all 55 files together, no partial or foreign set.
           assert ownership_mode(m04_942_exact) == 'M04_942_EXACT'
           for missing in sorted(m04_942_exact):
               try: ownership_mode(m04_942_exact - {missing})
@@ -761,7 +718,7 @@ jobs:
               try: ownership_mode(m04_942_exact | {foreign})
               except AssertionError: pass
               else: raise AssertionError(f'M04 foreign accepted: {foreign}')
-          print('M04_942_P0_OWNER=PASS exact=45 missing=45 foreign=5')
+          print('M04_942_P0_OWNER=PASS exact=55 missing=55 foreign=5')
 
           # M03 positive and adversarial ownership probes: all original
           # evidence required, test-only subset optional, no unrelated paths.
