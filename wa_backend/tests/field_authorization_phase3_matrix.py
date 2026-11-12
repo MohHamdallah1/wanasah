@@ -3,6 +3,12 @@ from uuid import uuid4
 
 CASES = [
     {
+        "method": "GET",
+        "path": "/driver/sessions/execution-context",
+        "codes": ["work_session.read"],
+        "name": "get_current_execution_context",
+    },
+    {
         "method": "POST",
         "path": "/driver/sessions/start",
         "codes": [
