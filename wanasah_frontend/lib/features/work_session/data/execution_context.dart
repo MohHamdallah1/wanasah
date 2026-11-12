@@ -34,7 +34,7 @@ class ExecutionContextProof {
     if (raw is! Map) {
       throw const FormatException('No current signed FIELD execution period');
     }
-    final proof = fromJson(Map<String, dynamic>.from(raw));
+    final proof = ExecutionContextProof.fromJson(Map<String, dynamic>.from(raw));
     final session = data['session_id'];
     if (session != null && session != proof.sessionId) {
       throw const FormatException('FIELD session and period mismatch');
