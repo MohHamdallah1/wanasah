@@ -161,6 +161,36 @@ class M01RouteLifecycleStore:
             self.target_rep_id = int(row.field_representative_id)
             field_principal_id = int(row.field_principal_id)
 
+            # A valid identity mapping alone does not grant operational
+            # capability. Reuse the persisted FIELD role engine, including
+            # role-revoke/auth_revision checks, before admitting an assignment.
+            from domains.auth_sessions.context import FieldRequestContext
+            from domains.authorization.field_access import (
+                FieldCapabilityAccess, FieldCapabilityAccessRejected,
+            )
+            from domains.identity.models import CompanyPrincipal
+            principal = await db.scalar(
+                select(CompanyPrincipal).where(
+                    CompanyPrincipal.company_id == company_id,
+                    CompanyPrincipal.id == field_principal_id,
+                    CompanyPrincipal.is_active.is_(True),
+                )
+            )
+            if principal is None:
+                raise LifecycleConflict("TARGET_FIELD_PRINCIPAL_INACTIVE")
+            try:
+                await FieldCapabilityAccess(
+                    db,
+                    FieldRequestContext(
+                        principal_id=field_principal_id,
+                        company_id=company_id,
+                        representative_id=self.target_rep_id,
+                        auth_revision=int(principal.auth_revision),
+                    ),
+                ).require_all(("work_session.execute", "visit.execute"))
+            except FieldCapabilityAccessRejected as exc:
+                raise LifecycleConflict("TARGET_FIELD_CAPABILITY_MISSING") from exc
+
             # Vehicle location is physical truth; never select arbitrary
             # active or historical duplicate locations for the same car.
             locations = (
