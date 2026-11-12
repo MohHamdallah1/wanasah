@@ -3912,6 +3912,60 @@ async def get_active_routes(
     return res
 
 
+# M02: canonical route periods and custody epochs are authoritative here. This
+# action remains a small HTTP adapter; all transitions/locks are domain-owned.
+from domains.dispatch.route_execution.lifecycle.intent import RouteLifecycleIntent
+from domains.dispatch.route_execution.lifecycle.policy import LifecycleConflict
+from domains.dispatch.route_execution.lifecycle.usecase import execute_route_lifecycle
+from domains.dispatch.route_execution.lifecycle.store import M01RouteLifecycleStore
+
+
+@router.put("/dispatch/route/{route_id}/lifecycle", status_code=200)
+async def route_lifecycle_m02(
+    route_id: int,
+    payload: RouteLifecycleIntent,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+):
+    # Before M01 schema joins MAIN, this route MUST be unavailable, not an
+    # unversioned legacy fallback. Canonical subject is the signed principal,
+    # never the historical Driver row used by the admin compatibility API.
+    if not hasattr(DispatchRoute, "assignment_context_revision"):
+        raise HTTPException(status_code=503, detail={"code": "M01_SCHEMA_REQUIRED"})
+    from dispatch_access import require_route, require_vehicle
+
+    async def authorize_route(rid: int) -> None:
+        await require_route(access, "dispatch.execute", rid)
+
+    async def authorize_vehicle(vid: int) -> None:
+        await require_vehicle(access, "dispatch.execute", vid)
+
+    try:
+        return await execute_route_lifecycle(
+            db,
+            company_id=access.company_id,
+            route_id=route_id,
+            actor_id=access.subject.principal_id,
+            intent=payload,
+            store=M01RouteLifecycleStore(
+                actor_principal_id=access.subject.principal_id,
+            ),
+            authorize_route=authorize_route,
+            authorize_vehicle=authorize_vehicle,
+        )
+    except LifecycleConflict as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail={"code": "ROUTE_LIFECYCLE_CONCURRENT_CONFLICT"},
+        ) from exc
+
+
 # =========================================
 # 15. تغيير حالة خط السير (تبديل مندوب، تغيير حالة، تعديل حمولة) - (Zero Trust & No Phantoms)
 # =========================================
@@ -3924,6 +3978,36 @@ async def update_route_status(
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_route(access, 'dispatch.execute', route_id)
+
+    # Legacy status-only commands must never mutate a canonical M02 epoch
+    # without its signed current context/UUID. Keeps old safe V1 route writes
+    # unchanged until M01 is actually available; no silent fallback once M02
+    # has created a period or changed assignment_context_revision.
+    if hasattr(DispatchRoute, "assignment_context_revision"):
+        from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+
+        changed_revision = await db.scalar(
+            select(DispatchRoute.assignment_context_revision).where(
+                DispatchRoute.company_id == access.company_id,
+                DispatchRoute.id == route_id,
+            )
+        )
+        current_period = await db.scalar(
+            select(DispatchRouteExecutionPeriod.id).where(
+                DispatchRouteExecutionPeriod.company_id == access.company_id,
+                DispatchRouteExecutionPeriod.route_id == route_id,
+                DispatchRouteExecutionPeriod.ended_at.is_(None),
+                DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
+            ).limit(1)
+        )
+        if changed_revision is not None and (
+            int(changed_revision) > 1 or current_period is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "ROUTE_CURRENT_EPOCH_REQUIRED",
+                        "message": "Use the versioned lifecycle command."},
+            )
 
     # Route status and assignments are never inventory commands. Reject even
     # an empty legacy target map: callers must use the canonical Adjust Load
