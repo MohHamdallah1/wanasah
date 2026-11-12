@@ -542,11 +542,12 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         if name in ("start_work_session", "end_work_session", "update_visit"):
             self.assertIn("SessionPeriodRejected", source)
         if name == "end_work_session":
-            self.assertIn("active_session.end_time = ended_at", source)
+            self.assertIn("active_session.end_time = get_utc_now()", source)
+            self.assertIn("ended_at=active_session.end_time", source)
             self.assertIn("freeze_end_of_day_execution", source)
+            self.assertLess(source.index("active_session.end_time = get_utc_now()"),
+                            source.index("freeze_end_of_day_execution("))
             self.assertLess(source.index("freeze_end_of_day_execution("),
-                            source.index("active_session.end_time = ended_at"))
-            self.assertLess(source.index("active_session.end_time = ended_at"),
                             source.index("await db.commit()"))
         if name == "start_work_session":
             self.assertIn("OperationIdempotencyError", source)

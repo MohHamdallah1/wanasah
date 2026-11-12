@@ -674,7 +674,10 @@ async def end_work_session(
         # التسوية ليست مسؤولية هذا endpoint؛ هو يغلق يوم العمل فقط.
         # FIELD End Work closes today's signed execution evidence, NOT the
         # DispatchRoute / zone assignment and never a physical stock command.
-        ended_at = get_utc_now()
+        # Retain the original FIELD End Work timestamp assignment while
+        # signing that EXACT value into the current execution period.
+        # A rejected signature rolls the session and period back together.
+        active_session.end_time = get_utc_now()
         await freeze_end_of_day_execution(
             db,
             company_id=int(company_id),
@@ -682,9 +685,8 @@ async def end_work_session(
             driver_id=int(driver_id),
             field_representative_id=int(field_context.representative_id),
             principal_id=int(field_context.principal_id),
-            ended_at=ended_at,
+            ended_at=active_session.end_time,
         )
-        active_session.end_time = ended_at
         await db.commit()
         return {"message": "تم إنهاء الجلسة بنجاح."}
 

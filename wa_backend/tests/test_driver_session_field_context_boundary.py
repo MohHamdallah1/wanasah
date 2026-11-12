@@ -139,7 +139,7 @@ class DriverSessionFieldContextBoundaryTests(unittest.TestCase):
             "InventoryTransferHeader",
             "workflow_type == 'HANDSHAKE'",
             "freeze_end_of_day_execution",
-            "active_session.end_time = ended_at",
+            "active_session.end_time = get_utc_now()",
         ):
             with self.subTest(end_token=token):
                 self.assertIn(token, end)
