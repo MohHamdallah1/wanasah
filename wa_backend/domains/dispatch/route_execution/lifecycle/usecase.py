@@ -74,24 +74,26 @@ async def execute_route_lifecycle(
     if intent.action == "RESUME":
         assert intent.target_vehicle_id is not None
         await authorize_vehicle(intent.target_vehicle_id)
-    record, original = await begin_idempotent_operation(
-        db, company_id=company_id, actor_id=actor_id,
-        operation=OPERATION, request_id=str(intent.request_id),
-        request_hash=lifecycle_request_hash(route_id, intent),
-    )
-    if original is not None:
-        if (
-            original.get("request_id") != str(intent.request_id)
-            or original.get("route_id") != route_id
-            or original.get("state") != "COMMITTED"
-            or original.get("action") != intent.action
-            or type(original.get("context_revision")) is not int
-        ):
-            raise RuntimeError("Corrupt lifecycle idempotency receipt")
-        await db.rollback()  # release UUID lock; replay has no side effects
-        return original
-
     try:
+        # Idempotency advisory lock and DB session belong to one transaction.
+        # A mismatched key/actor/hash must roll back before any route row lock.
+        record, original = await begin_idempotent_operation(
+            db, company_id=company_id, actor_id=actor_id,
+            operation=OPERATION, request_id=str(intent.request_id),
+            request_hash=lifecycle_request_hash(route_id, intent),
+        )
+        if original is not None:
+            if (
+                original.get("request_id") != str(intent.request_id)
+                or original.get("route_id") != route_id
+                or original.get("state") != "COMMITTED"
+                or original.get("action") != intent.action
+                or type(original.get("context_revision")) is not int
+            ):
+                raise RuntimeError("Corrupt lifecycle idempotency receipt")
+            await db.rollback()  # release UUID lock; replay has no side effects
+            return original
+
         state = await store.lock_authorized_state(
             db, company_id=company_id, route_id=route_id, intent=intent,
         )
