@@ -285,6 +285,32 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert after_resume["real_stock"]["movements"] == before["real_stock"]["movements"]
         assert after_resume["real_stock"]["visits"] == before["real_stock"]["visits"]
         assert after_resume["legacy_session"] == before["legacy_session"]
+        # A previously valid legacy Adjust Load request must not touch old
+        # physical car A after canonical assignment rev > 1, even when the
+        # legacy vehicle happens to equal the current car (ABA protection).
+        obsolete_adjust = await http.put(
+            f"/dispatch/route/{route_id}/adjust_inventory",
+            headers=owner,
+            json={
+                "request_id": str(uuid4()),
+                "context": {
+                    "version": "ADJUST_LOAD_CONTEXT_V2",
+                    "vehicle_id": int(launch["vehicle_id"]),
+                    "source_warehouse_id": tenant.location_id,
+                    "work_session_id": int(after_resume["legacy_session"]),
+                    "route_context_revision": 1,
+                },
+                "deltas": [{
+                    "product_id": tenant.variant_id,
+                    "delta_base": "1",
+                }],
+            },
+        )
+        assert obsolete_adjust.status_code == 409, obsolete_adjust.text
+        assert "ROUTE_CURRENT_EPOCH_REQUIRED" in obsolete_adjust.text
+        assert (await _snapshot(pg, tenant, route_id, car_location, key))[
+            "real_stock"
+        ]["movements"] == before["real_stock"]["movements"]
         stale = await http.put(
             url, headers=owner,
             json=_body("POSTPONE", 2, period=after_resume["periods"][-1][0]),
