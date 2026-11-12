@@ -109,3 +109,56 @@ async def test_commit_race_rechecks_full_original_approval_hash_and_never_accept
         assert (await workflow.run_vehicle_variance(db, **arguments))["movement_count"] == 1
         assert approve.await_args.args[1].count_attempt_id == 41
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_review_response_never_lazy_loads_expired_recon_after_committed_replay(monkeypatch):
+    """Stocktake may rollback replay and expire mapped recon; no async lazy IO."""
+    from api.warehouse import stocktake
+
+    class ExpiringRecon:
+        company_id, id, related_work_session_id, location_id = 1, 61, 71, 110
+        expired = False
+
+        @property
+        def reference_number(self):
+            if self.expired:
+                raise AssertionError("Illegal ORM read after Stocktake transaction boundary")
+            return "VREC-IMMUTABLE"
+
+    header, a = ExpiringRecon(), vehicles()[0]
+    prior = NS(state="COMMITTED", response_json={"attempt_id": 41})
+    payload = VarianceApproval(
+        request_id=uuid4(), review_token="c" * 64,
+        password="SyntheticApproval123",
+    )
+    command = StocktakeApprovalCommand(
+        request_id=payload.request_id, count_attempt_id=41,
+        password=payload.password,
+    )
+    monkeypatch.setattr(workflow, "variance_scope",
+                        AsyncMock(return_value=(NS(is_settled=True), a, header)))
+    monkeypatch.setattr(workflow, "previous_command", AsyncMock(return_value=prior))
+    monkeypatch.setattr(workflow, "_stocktake_command",
+                        AsyncMock(return_value=(attempt(41), command)))
+    monkeypatch.setattr(workflow, "lock_idempotent_operation_record",
+                        AsyncMock(return_value=(None, prior)))
+    monkeypatch.setattr(workflow, "attempt_for_command",
+                        AsyncMock(return_value=attempt(41)))
+    monkeypatch.setattr(workflow, "review_token",
+                        AsyncMock(return_value=payload.review_token))
+
+    async def committed_replay(*args, **kwargs):
+        header.expired = True
+        return {"status": "POSTED", "movement_count": 1}
+
+    monkeypatch.setattr(stocktake, "approve_stocktake_session", committed_replay)
+    result = await workflow.run_vehicle_variance(
+        NS(), access=NS(company_id=1), actor=NS(id=900),
+        session_id=71, vehicle_id=10, payload=payload, action="approve",
+    )
+    assert result == {
+        "status": "RECONCILED_AWAITING_SIGNED_COUNT",
+        "reconciliation_reference": "VREC-IMMUTABLE",
+        "movement_count": 1, "financial_ready": False,
+    }
