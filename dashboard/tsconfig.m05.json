@@ -3,6 +3,7 @@
   "include": [
     "src/vite-env.d.ts",
     "src/features/dispatch/routeLifecycle/**/*.ts",
+    "src/features/dispatch/routeLifecycle/**/*.tsx",
     "src/features/operations/representativeSettlement/vehicleCountRead.ts",
     "src/features/operations/representativeSettlement/VehicleCountReadPanel.tsx",
     "src/test/dispatch-m05-lifecycle.test.ts"
