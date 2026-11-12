@@ -14,8 +14,9 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from models import (
-    DispatchRoute, WorkSession, RouteCommercialContext, InventoryMovement,
+    DispatchRoute, WorkSession, RouteCommercialContext, InventoryMovement, Zone,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _state
@@ -187,14 +188,69 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert before["real_stock"]["cost_events"] == after_pause["real_stock"]["cost_events"]
         assert after_pause["legacy_session"] == before["legacy_session"]
 
-        denied = _body("RESUME", 2, driver=int(launch["driver_id"]),
-                       vehicle=int(launch["vehicle_id"]), custody=1)
-        no_proof = await http.put(url, headers=owner, json=denied)
-        assert no_proof.status_code == 409, no_proof.text
+        # Real PostgreSQL unique-index check: POSTPONED reserves zone only,
+        # not old Driver/Vehicle. A second different-zone route can use both;
+        # the postponed zone remains fully protected at DB level.
+        async with pg.session() as db:
+            duplicate_zone = DispatchRoute(
+                company_id=tenant.company_id, zone_id=int(launch["zone_id"]),
+                driver_id=int(launch["driver_id"]),
+                vehicle_id=int(launch["vehicle_id"]),
+                source_location_id=tenant.location_id,
+                status="waiting",
+                dispatch_date=datetime.now(timezone.utc).date(),
+            )
+            db.add(duplicate_zone)
+            with pytest.raises(IntegrityError):
+                await db.flush()
+            await db.rollback()
+        async with pg.session() as db:
+            second_zone = Zone(
+                company_id=tenant.company_id,
+                name="M02-SECOND-" + uuid4().hex[:10],
+                is_active=True,
+            )
+            db.add(second_zone)
+            await db.flush()
+            second_route = DispatchRoute(
+                company_id=tenant.company_id, zone_id=second_zone.id,
+                driver_id=int(launch["driver_id"]),
+                vehicle_id=int(launch["vehicle_id"]),
+                source_location_id=tenant.location_id,
+                status="waiting",
+                dispatch_date=datetime.now(timezone.utc).date(),
+            )
+            db.add(second_route)
+            await db.commit()
+            second_route_id = int(second_route.id)
+        # Even with the original car's signed custody, concurrent occupation
+        # on a different live route must reject the old paused route's RESUME.
         custody_revision = await _explicitly_accept_vehicle(
             pg, tenant, driver_id=int(launch["driver_id"]),
             vehicle_id=int(launch["vehicle_id"]), vehicle_location=car_location,
         )
+        attempted_conflict = _body(
+            "RESUME", 2, driver=int(launch["driver_id"]),
+            vehicle=int(launch["vehicle_id"]), custody=custody_revision,
+        )
+        conflict_response = await http.put(url, headers=owner, json=attempted_conflict)
+        assert conflict_response.status_code == 409, conflict_response.text
+        async with pg.session() as db:
+            secondary = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == tenant.company_id,
+                DispatchRoute.id == second_route_id,
+            ).with_for_update())
+            assert secondary.status == "waiting"
+            secondary.status = "closed"  # Setup cleanup, not a lifecycle proof.
+            await db.commit()
+        assert (await _snapshot(pg, tenant, route_id, car_location, key))[
+            "real_stock"
+        ]["movements"] == before["real_stock"]["movements"]
+
+        denied = _body("RESUME", 2, driver=int(launch["driver_id"]),
+                       vehicle=int(launch["vehicle_id"]), custody=1)
+        no_proof = await http.put(url, headers=owner, json=denied)
+        assert no_proof.status_code == 409, no_proof.text
         resume = _body("RESUME", 2, driver=int(launch["driver_id"]),
                        vehicle=int(launch["vehicle_id"]), custody=custody_revision)
         simultaneous = await asyncio.gather(*[
