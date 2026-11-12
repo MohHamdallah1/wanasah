@@ -99,6 +99,13 @@ async def execute_route_lifecycle(
         )
         if state.company_id != company_id or state.route_id != route_id:
             raise RuntimeError("Lifecycle store returned an inconsistent tenant or route")
+        # Route's old vehicle_id is only a historical locator once M02
+        # created another execution period. Scope the CURRENT live vehicle
+        # independently; a grant on former A never authorizes current B.
+        if state.open_period_id is not None or state.legacy_live_without_period:
+            if state.active_vehicle_id is None:
+                raise RuntimeError("Live execution has no vehicle scope identity")
+            await authorize_vehicle(state.active_vehicle_id)
         decision = decide_lifecycle(state, intent)
         await store.assert_live_resource_guards(db, state=state, decision=decision)
         await store.persist_transition(
