@@ -147,6 +147,10 @@ from domains.pricing.context import (
 )
 from domains.taxation.core import TaxError, require_active_jurisdictions
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.dispatch.route_execution.lifecycle.conflicts import (
+    assert_route_resources_available,
+    assert_current_signed_vehicle_responsibility,
+)
 from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.dispatch_route_load import (
     allocate_route_base_batches, allocate_route_return_batches, canonical_route_delta, canonical_adjustment_target,
@@ -1605,11 +1609,22 @@ async def dispatch_route(
             vehicle_id=payload.vehicle_id,
         )
         await require_location(access, 'dispatch.execute', int(source_location.id))
-        await _dispatch_assert_vehicle_custody_reconciled(
-            db,
-            company_id=company_id,
-            vehicle_id=payload.vehicle_id,
-        )
+        # Explicit M01 accepted custody may supersede a HISTORICAL unsettled
+        # route's last driver/vehicle link without changing physical inventory.
+        # If nobody has signed for the car, preserve the older 409 gate.
+        try:
+            accepted_custody = await assert_current_signed_vehicle_responsibility(
+                db, company_id=company_id,
+                driver_id=int(payload.driver_id),
+                vehicle_id=int(payload.vehicle_id),
+                vehicle_location_id=int(vehicle_location_id),
+            )
+        except LifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+        if not accepted_custody:
+            await _dispatch_assert_vehicle_custody_reconciled(
+                db, company_id=company_id, vehicle_id=payload.vehicle_id,
+            )
 
         # إنشاء Route جديد أثناء WorkSession قائمة يفتح باب تبديل عهدة ضمني؛ ممنوع.
         active_session = (
@@ -1651,27 +1666,16 @@ async def dispatch_route(
                 detail="المندوب لديه جلسة سابقة بانتظار التسوية المالية ولا يمكن إطلاق يوم جديد له.",
             )
 
-        # Fail-fast واضح؛ PostgreSQL partial unique indexes يبقون خط الدفاع النهائي ضد السباق.
-        conflict = (
-            await db.execute(
-                select(DispatchRoute.id)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                    or_(
-                        DispatchRoute.zone_id == payload.zone_id,
-                        DispatchRoute.driver_id == payload.driver_id,
-                        DispatchRoute.vehicle_id == payload.vehicle_id,
-                    ),
-                )
-                .limit(1)
+        # Zone is reserved even by postponed; live driver/vehicle are
+        # reserved by legacy rev1 routes or canonical open M01 periods only.
+        # The launch path already holds sorted Driver+Vehicle+Zone row locks.
+        try:
+            await assert_route_resources_available(
+                db, company_id=company_id, zone_id=int(payload.zone_id),
+                driver_id=int(payload.driver_id), vehicle_id=int(payload.vehicle_id),
             )
-        ).scalar_one_or_none()
-        if conflict is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="المنطقة أو المندوب أو السيارة مستخدمة حالياً في خط سير فعال/معلق.",
-            )
+        except LifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
 
         use_canonical_base = payload.inventory_base is not None
         if use_canonical_base and payload.inventory:
