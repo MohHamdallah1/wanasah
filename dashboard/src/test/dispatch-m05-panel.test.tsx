@@ -1,4 +1,6 @@
 import { webcrypto } from "node:crypto";
+import type { ReactNode } from "react";
+import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouteLifecyclePanel } from "@/features/dispatch/routeLifecycle/RouteLifecyclePanel";
@@ -6,7 +8,7 @@ import type { PendingRoute } from "@/types/dispatch";
 
 vi.mock("@/components/ui/modal", () => ({
   Modal: ({ isOpen, children, title }: {
-    isOpen: boolean; children: React.ReactNode; title: string;
+    isOpen: boolean; children: ReactNode; title: string;
   }) => isOpen ? <div role="dialog" aria-label={title}>{children}</div> : null,
 }));
 vi.mock("@/components/ui/custom-select", () => ({
