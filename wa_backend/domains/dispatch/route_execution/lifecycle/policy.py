@@ -40,6 +40,10 @@ class RouteLifecycleState:
     # the requested representative. A vehicle epoch held by somebody ELSE
     # is NOT permission to assign its loaded physical location to this actor.
     target_vehicle_custody_matches_target: bool = False
+    # Only a pre-M01 live legacy route with first assignment revision, an
+    # authorized existing driver+vehicle, and no live canonical period.
+    # Existing visits remain UNBOUND; NEVER fabricate an executed period.
+    legacy_live_without_period: bool = False
     zone_active: bool = True
 
 
@@ -84,8 +88,13 @@ def decide_lifecycle(
         if state.status not in {"active", "waiting"}:
             raise LifecycleConflict("ROUTE_NOT_LIVE")
         if state.open_period_id is None:
-            raise LifecycleConflict("ROUTE_LIVE_PERIOD_MISSING")
-        if intent.expected_period_id != state.open_period_id:
+            if not (
+                state.legacy_live_without_period
+                and state.context_revision == 1
+                and intent.expected_period_id is None
+            ):
+                raise LifecycleConflict("ROUTE_LIVE_PERIOD_MISSING")
+        elif intent.expected_period_id != state.open_period_id:
             raise LifecycleConflict("ROUTE_PERIOD_STALE")
         if state.active_driver_id is None or state.active_vehicle_id is None:
             raise LifecycleConflict("ROUTE_LIVE_ASSIGNMENT_MISSING")
