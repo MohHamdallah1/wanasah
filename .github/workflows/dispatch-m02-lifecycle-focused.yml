@@ -16,6 +16,11 @@ jobs:
   m02-focused-policy:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
+    env:
+      ENVIRONMENT: test
+      # Test-only inert URL; no PG connection occurs before M01 is merged.
+      DATABASE_URL: postgresql+asyncpg://m02_test@127.0.0.1:15439/m02_unavailable
+      SECRET_KEY: M02FocusedTestsOnlyStrongKeyAbc1234567890
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
