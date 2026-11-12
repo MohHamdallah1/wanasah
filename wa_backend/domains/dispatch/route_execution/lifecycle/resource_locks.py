@@ -25,6 +25,7 @@ class LockedRouteResources:
     zone: Zone
     session: WorkSession | None
     target_session: WorkSession | None
+    sessions: Mapping[int, WorkSession]
     drivers: Mapping[int, Driver]
     vehicles: Mapping[int, Vehicle]
     canonical_field_driver_ids: frozenset[int]
@@ -41,6 +42,7 @@ def _snapshot_identity(route: DispatchRoute) -> tuple:
 async def lock_route_resources(
     db: AsyncSession, *, company_id: int, route_id: int,
     target_driver_id: int | None, target_vehicle_id: int | None,
+    additional_session_ids: tuple[int, ...] = (),
 ) -> LockedRouteResources:
     """Existing M00 lock order: session -> sorted drivers -> vehicles -> zone -> route.
 
@@ -71,7 +73,7 @@ async def lock_route_resources(
         )
     ids = sorted({
         int(session_id)
-        for session_id in (snapshot.work_session_id, target_session_id)
+        for session_id in (snapshot.work_session_id, target_session_id, *additional_session_ids)
         if session_id is not None
     })
     session_rows = (
@@ -163,6 +165,6 @@ async def lock_route_resources(
 
     return LockedRouteResources(
         route=route, zone=zone, session=session, target_session=target_session,
-        drivers=drivers, vehicles=vehicles,
+        sessions=sessions, drivers=drivers, vehicles=vehicles,
         canonical_field_driver_ids=frozenset(field_ids),
     )
