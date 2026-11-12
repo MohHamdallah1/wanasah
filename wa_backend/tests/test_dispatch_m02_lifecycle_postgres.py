@@ -192,6 +192,26 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert before["real_stock"]["cost_events"] == after_pause["real_stock"]["cost_events"]
         assert after_pause["legacy_session"] == before["legacy_session"]
 
+        # A historical S1 can be fully settled after POSTPONE. Resuming this
+        # yesterday route must create a NEW period, never reopen S1 or rewrite
+        # its prior commercial/visit/stock attribution.
+        yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+        async with pg.session() as db:
+            historical_session = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == tenant.company_id,
+                WorkSession.id == int(before["legacy_session"]),
+            ).with_for_update())
+            historical_route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == tenant.company_id,
+                DispatchRoute.id == route_id,
+            ).with_for_update())
+            assert historical_session and historical_route
+            historical_session.session_date = yesterday
+            historical_session.end_time = datetime.now(timezone.utc).replace(tzinfo=None)
+            historical_session.is_settled = True
+            historical_route.dispatch_date = yesterday
+            await db.commit()
+
         # Before any explicit signed acceptance, old loaded vehicle ownership
         # must NOT be inferred from the legacy route, even when it is the same
         # driver's earlier car.
