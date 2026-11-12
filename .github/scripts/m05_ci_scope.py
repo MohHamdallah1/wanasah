@@ -6,6 +6,7 @@ Only this literal M05 file set is accepted. No directory prefix or wildcard.
 
 M05_EXACT = frozenset({
     '.github/scripts/m05_ci_scope.py',
+    '.github/scripts/live_stock_ci_ownership.py',
     '.github/workflows/dispatch-m05-readiness-pg16.yml',
     '.github/workflows/dispatch-m05-ui-contract.yml',
     '.github/workflows/dispatch-p0-route-stock-safety.yml',

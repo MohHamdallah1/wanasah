@@ -225,28 +225,35 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     r.request().method() === "PUT");
   await waiting.getByRole("button", { name: /تأجيل المنطقة/ }).click();
   expect((await postponed).status()).toBe(200);
-  await page.getByRole("button", { name: /عرض المؤجل/ }).click();
-  const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة/ });
-  // M02 canonical revisions cannot use unsigned legacy Restore. The old
-  // V1 status endpoint is NOT permission to resume without accepted custody.
-  await expect(postponedDialog.getByRole("button", { name: "اختيار واستئناف" })).toBeVisible();
-  await postponedDialog.getByRole("button", { name: "اختيار واستئناف" }).click();
-  const resumeDialog = page.getByRole("dialog", { name: "إدارة تشغيل الخط" });
-  await expect(resumeDialog).toBeVisible();
-  await expect(resumeDialog.getByRole("button", { name: "استئناف الخط" })).toBeDisabled();
-  await resumeDialog.locator(".app-modal-header button").click();
-
-  // CLOSE is a distinct permanent route withdrawal, not an unsigned RESUME.
-  await postponedDialog.getByRole("button", { name: "إغلاق الخط" }).click();
-  const closingDialog = page.getByRole("dialog", { name: "إدارة تشغيل الخط" });
-  await expect(closingDialog.getByRole("button", { name: "إغلاق الخط" })).toBeEnabled();
-  const closed = page.waitForResponse(r =>
-    new URL(r.url()).pathname === "/dispatch/route/" + state.routeId + "/lifecycle" &&
+  await page.getByRole("button", { name: /عرض المؤجل|Show postponed/ }).click();
+  const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة|Postponed routes/ });
+  await expect(postponedDialog.locator("tbody tr")).toHaveCount(1);
+  // This D08 fixture is frozen V1 rev1: no current M02 execution period.
+  // Preserve the real legacy Restore path only for rev1; canonical route
+  // fixtures must use the separate signed M02 RESUME with accepted custody.
+  const legacyRestore = postponedDialog.getByRole("button", { name: /^(استعادة|Restore)$/ });
+  await expect(legacyRestore).toBeVisible();
+  await expect(postponedDialog.getByRole("button", {
+    name: /اختيار واستئناف|Select and resume/,
+  })).toHaveCount(0);
+  const restored = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
     r.request().method() === "PUT");
-  await closingDialog.getByRole("button", { name: "إغلاق الخط" }).click();
-  expect((await closed).status()).toBe(200);
+  await legacyRestore.click();
+  expect((await restored).status()).toBe(200);
   await postponedDialog.locator(".app-modal-header button").click();
   await expect(postponedDialog).not.toBeVisible();
+
+  // Closing this original rev1 route must use its own legacy status writer,
+  // never an unsigned canonical lifecycle command.
+  const toClose = page.locator(".dispatch-route-row").first();
+  await expect(toClose.getByRole("button", { name: "إغلاق خط السير" })).toBeVisible();
+  await toClose.getByRole("button", { name: "إغلاق خط السير" }).click();
+  const closingDialog = page.getByRole("dialog", { name: "تأكيد إغلاق خط السير" });
+  await expect(closingDialog).toBeVisible();
+  const closed = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
+    r.request().method() === "PUT");
+  await closingDialog.getByRole("button", { name: "تأكيد", exact: true }).click();
+  expect((await closed).status()).toBe(200);
   await expect(page.locator(".dispatch-route-row")).toHaveCount(0);
   const custody = await page.evaluate(async ({ id, origin }) => {
     const response = await fetch(origin + "/dispatch/inventory/" + id, {
