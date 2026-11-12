@@ -2261,6 +2261,7 @@ async def _load_vehicle_inventory_projection(
     company_id: int,
     vehicle_id: int,
     work_session_id: int | None = None,
+    canonical_session: bool = False,
 ):
     """
     عرض Flutter التجميعي من المحرك الموحد فقط.
@@ -2406,15 +2407,19 @@ async def _load_vehicle_inventory_projection(
             issued_map[int(product_variant_id)] = net_quantity
 
     if work_session_id is not None and not snapshot_rows:
-        # A newly assigned vehicle can be displayed from current physical
-        # stock before its first visit. Once any sale exists a missing opening
-        # record is corrupt history; never fabricate it from current balance.
-        if issued_map:
+        if canonical_session and issued_map:
+            # A new canonical route period must have a durable physical
+            # opening before any sale. Never infer posted stock evidence.
             raise HTTPException(
                 status_code=409,
                 detail={"code": "M03_MISSING_VEHICLE_OPENING", "context": {}},
             )
-        starting_map = dict(current_map)
+        if not issued_map:
+            # Read-only pre-first-visit preview. Historical single-route V1
+            # sessions with no opening but existing issued movements retain
+            # their old rendering (empty opening, actual current and issued),
+            # rather than being blocked or given a fabricated opening.
+            starting_map = dict(current_map)
 
     variant_ids = sorted(set(current_map) | set(starting_map) | set(issued_map))
     if not variant_ids:
@@ -2848,6 +2853,7 @@ async def get_driver_dashboard(
                 company_id=company_id,
                 vehicle_id=(execution.period.vehicle_id if execution is not None and execution.canonical else active_route.vehicle_id),
                 work_session_id=(active_session.id if active_session else None),
+                canonical_session=(execution is not None and execution.canonical),
             )
 
             for row in inventory_projection:
@@ -3918,6 +3924,7 @@ async def get_driver_visits(
             company_id=company_id,
             vehicle_id=(execution.period.vehicle_id if execution is not None and execution.canonical else active_route.vehicle_id),
             work_session_id=(active_session.id if active_session else None),
+            canonical_session=(execution is not None and execution.canonical),
         )
 
         try:
