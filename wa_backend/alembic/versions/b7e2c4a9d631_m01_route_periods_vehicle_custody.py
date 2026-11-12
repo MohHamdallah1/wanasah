@@ -121,6 +121,8 @@ def upgrade() -> None:
         CONSTRAINT ck_route_period_state
             CHECK (state IN ('PLANNED','ACTIVE','CLOSED','HISTORICAL','NEEDS_REVIEW')),
         CONSTRAINT ck_route_period_revision_positive CHECK (context_revision > 0),
+        CONSTRAINT ck_route_period_active_session
+            CHECK (state <> 'ACTIVE' OR work_session_id IS NOT NULL),
         CONSTRAINT ck_route_period_time_order
             CHECK (ended_at IS NULL OR (started_at IS NOT NULL AND ended_at >= started_at)),
         CONSTRAINT ck_route_period_state_end CHECK (

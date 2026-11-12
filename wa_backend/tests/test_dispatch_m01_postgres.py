@@ -316,6 +316,21 @@ class M01PostgresTest(unittest.TestCase):
             rep = await admin.fetchval(
                 """INSERT INTO field_representatives(company_id,principal_id)
                    VALUES($1,$2) RETURNING id""",a[0],field_principal)
+            # An ACTIVE period must have a real work session; PLANNED may
+            # precede session start, but activation may not.
+            try:
+                async with admin.transaction():
+                    await admin.execute(
+                        """INSERT INTO dispatch_route_execution_periods
+                           (company_id,route_id,driver_id,field_representative_id,
+                            vehicle_id,vehicle_location_id,state,context_revision,
+                            started_at,started_by_principal_id,request_id,payload_hash)
+                           VALUES ($1,$2,$3,$4,$5,$6,'ACTIVE',55,NOW(),$7,$8,$9)""",
+                        a[0],second,a[1],rep,a[2],a[4],
+                        backoffice,uuid4().hex,"f"*64)
+                raise AssertionError("ACTIVE period without WorkSession succeeded")
+            except asyncpg.CheckViolationError as exc:
+                assert exc.constraint_name == "ck_route_period_active_session"
             first_req, second_req = uuid4().hex, uuid4().hex
             active_insert = """
                 INSERT INTO dispatch_route_execution_periods

@@ -44,6 +44,8 @@ class DispatchRouteExecutionPeriod(Base):
         CheckConstraint("state IN ('PLANNED','ACTIVE','CLOSED','HISTORICAL','NEEDS_REVIEW')",
                         name="route_period_state"),
         CheckConstraint("context_revision > 0", name="route_period_revision_positive"),
+        CheckConstraint("state <> 'ACTIVE' OR work_session_id IS NOT NULL",
+                        name="route_period_active_session"),
         CheckConstraint("ended_at IS NULL OR started_at IS NOT NULL AND ended_at >= started_at",
                         name="route_period_time_order"),
         CheckConstraint(
