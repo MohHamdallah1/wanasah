@@ -20,7 +20,9 @@ vi.mock("@/components/ui/custom-select", () => ({
     {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
   </select>,
 }));
-vi.mock("react-i18next", () => ({
+vi.mock("react-i18next", async (importOriginal) => ({
+  // Keep the real i18n plugin export used by shared API error handling.
+  ...(await importOriginal<typeof import("react-i18next")>()),
   useTranslation: () => ({ i18n: { language: "ar", dir: () => "rtl" } }),
 }));
 

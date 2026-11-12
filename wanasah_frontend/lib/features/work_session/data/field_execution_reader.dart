@@ -17,7 +17,13 @@ class FieldExecutionReader {
     if (raw is! Map || raw['active_session_found'] is! bool) {
       throw const FormatException('Invalid FIELD execution-context response');
     }
-    if (raw['execution_context'] == null) return null; // No permission to sell.
+    if (raw['active_session_found'] != true) {
+      throw const FormatException('No active FIELD WorkSession');
+    }
+    // A signed M03 period is mandatory for canonical mutations. Only a
+    // backend-confirmed ACTIVE legacy V1 session may return null here, and
+    // backend independently denies missing proof on canonical visits.
+    if (raw['execution_context'] == null) return null;
     return ExecutionContextProof.fromResponse(raw);
   }
 }

@@ -6,8 +6,10 @@ on:
     paths:
       - "dashboard/src/features/dispatch/routeLifecycle/**"
       - "dashboard/src/features/operations/representativeSettlement/vehicleCountRead.ts"
+      - "dashboard/src/features/operations/representativeSettlement/vehicleResponsibilityRead.ts"
       - "dashboard/src/features/operations/representativeSettlement/VehicleCountReadPanel.tsx"
       - "dashboard/src/test/dispatch-m05-lifecycle.test.ts"
+      - "dashboard/src/test/dispatch-m05-vehicle-responsibilities.test.ts"
       - "dashboard/src/test/dispatch-m05-command.test.ts"
       - "dashboard/src/test/dispatch-m05-panel.test.tsx"
       - "dashboard/tsconfig.m05.json"
@@ -15,6 +17,7 @@ on:
       - "dashboard/e2e/dispatch-d12-scale.spec.ts"
       - "wanasah_frontend/lib/features/work_session/**"
       - "wanasah_frontend/lib/features/visits/**"
+      - "wanasah_frontend/lib/blocs/visit/visit_bloc.dart"
       - "wanasah_frontend/test/features/work_session/**"
       - "wanasah_frontend/test/features/visits/**"
       - ".github/workflows/dispatch-m05-ui-contract.yml"
@@ -41,7 +44,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci --no-audit --no-fund
       - name: Strict M02/M04 typed M05 contract and client source
-        run: npx vitest run src/test/dispatch-m05-lifecycle.test.ts src/test/dispatch-m05-command.test.ts src/test/dispatch-m05-panel.test.tsx
+        run: npx vitest run src/test/dispatch-m05-lifecycle.test.ts src/test/dispatch-m05-vehicle-responsibilities.test.ts src/test/dispatch-m05-command.test.ts src/test/dispatch-m05-panel.test.tsx
       - name: Dashboard typecheck
         run: npx tsc --noEmit -p tsconfig.m05.json
       - name: Dashboard production build
@@ -69,10 +72,14 @@ jobs:
         run: |
           dart analyze lib/features/work_session/data/execution_context.dart
           dart analyze lib/features/work_session/data/field_execution_reader.dart
+          dart analyze lib/features/work_session/data/signed_field_execution_authority.dart
+          dart analyze lib/features/work_session/data/work_session_remote_data_source.dart
+          dart analyze lib/blocs/visit/visit_bloc.dart
           dart analyze lib/features/visits/application/visit_submission_service.dart
           dart analyze lib/features/visits/data/local_visit_replay_adapter.dart
       - name: Exact current FIELD period and offline replay acceptance
         run: >-
           flutter test
           test/features/work_session/execution_context_proof_test.dart
+          test/features/work_session/signed_field_execution_authority_test.dart
           test/features/visits/data/visit_replay_adapter_test.dart
