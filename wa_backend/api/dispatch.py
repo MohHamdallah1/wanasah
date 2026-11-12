@@ -3789,6 +3789,11 @@ async def get_shop_create_operation(
 # =========================================
 # 14. استرجاع خطوط السير النشطة والمؤجلة (غرفة مراقبة المدير)
 # =========================================
+from domains.dispatch.route_execution.readiness.current_periods import (
+    RoutePeriodReadConflict, read_current_route_periods,
+)
+
+
 @router.get("/dispatch/active_routes", response_model=List[ActiveRouteResponse], status_code=200)
 async def get_active_routes(
     db: AsyncSession = Depends(get_db),
@@ -3821,6 +3826,16 @@ async def get_active_routes(
         stmt_routes = stmt_routes.where(DispatchRoute.id == route_id)
     route_rows = (await db.execute(stmt_routes)).all()
     routes = [row[0] for row in route_rows]
+    try:
+        current_periods = await read_current_route_periods(
+            db, access=access, route_ids=[int(route.id) for route in routes],
+        )
+    except RoutePeriodReadConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    for route in routes:
+        live = current_periods.get(int(route.id))
+        if live is not None and live["revision"] != int(route.assignment_context_revision):
+            raise HTTPException(status_code=409, detail={"code": "M05_ROUTE_ASSIGNMENT_STALE"})
     executable_routes = {row[0].id: bool(row[1]) for row in route_rows}
     commercial_context_by_route = {
         row[0].id: (
@@ -3927,7 +3942,16 @@ async def get_active_routes(
             "sessionBound": r.work_session_id is not None,
             "workSessionId": str(r.work_session_id) if r.work_session_id is not None else None,
             "adjustmentContextRevision": int(r.adjustment_context_revision),
-            "can_execute": executable_routes[r.id],
+            "assignmentContextRevision": int(r.assignment_context_revision),
+            "currentPeriodId": current_periods.get(r.id, {}).get("id"),
+            "currentDriverId": current_periods.get(r.id, {}).get("driver_id"),
+            "currentVehicleId": current_periods.get(r.id, {}).get("vehicle_id"),
+            "currentVehicleLocationId": current_periods.get(r.id, {}).get("location_id"),
+            "currentPeriodState": current_periods.get(r.id, {}).get("state"),
+            "can_execute": executable_routes[r.id] and (
+                current_periods.get(r.id, {}).get("may_execute", False)
+                if r.id in current_periods else True
+            ),
             "commercial_context": commercial_context_by_route.get(r.id),
         })
         
