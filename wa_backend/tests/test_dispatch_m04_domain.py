@@ -63,6 +63,14 @@ def test_aba_resolves_distinct_vehicle_and_all_responsibility_epochs():
     assert b.vehicle_id == 20 and b.period_ids == (2,) and b.epoch_ids == (2,)
 
 
+def test_pre_session_signed_custody_is_resolved_only_from_exact_period_identity_and_interval():
+    ps, es = scenario()
+    unbound = tuple(replace(e, session_id=None) for e in es)
+    assert vehicles(ps, unbound) == vehicles()
+    with pytest.raises(CustodyRejected):
+        vehicles(ps, (*unbound, replace(unbound[0], id=10, vehicle_id=30, location_id=130)))
+
+
 @pytest.mark.parametrize("change", [
     {"company_id": 2}, {"session_id": 72}, {"driver_id": 104},
     {"representative_id": 214}, {"state": "HISTORICAL"}, {"canonical": False},

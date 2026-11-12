@@ -127,7 +127,10 @@ async def seed(admin):
                 company_id=company.id, vehicle_id=cars[car_index],
                 vehicle_location_id=locations[car_index], custodian_kind="FIELD_REPRESENTATIVE",
                 custodian_principal_id=field.context.principal_id,
-                field_representative_id=field.context.representative_id, related_session_id=work.id,
+                field_representative_id=field.context.representative_id,
+                # M03 accepts pre-session custody without rewriting its signed
+                # related_session_id. Period+identity+time is the explicit link.
+                related_session_id=work.id if i == 1 else None,
                 accepted_by_principal_id=receiver.context.principal_id, state="ACCEPTED",
                 context_revision=1 if i < 2 else 2, started_at=began,
                 ended_at=began + timedelta(hours=1),

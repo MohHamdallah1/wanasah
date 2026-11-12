@@ -16,6 +16,11 @@ Alembic revision. No implementation in Worker1/Worker2 files is authorized.
   company/location denials and immediate same-token location revocation.
   Movement-engine **fixtures** reach A83/B53; reads leave balances/movements
   byte-for-byte unchanged. This is NOT execution of M02/M03 or a real sale.
+- M03 source contract preserves pre-session signed custody epochs with nullable
+  `related_session_id`. Resolve these only via an explicit canonical session
+  period with exact representative/vehicle/location and containing time
+  interval; reject multiple matches or a different explicit session. No last
+  route fallback or mutation of prior accepted custody evidence.
 
 ## Required shared seams — LEAD ownership / explicit approval
 
@@ -41,6 +46,8 @@ These are source-proven blockers, not permission to edit shared files:
 4. M03 already reported `SessionInventorySnapshot`'s unique key lacks
    `location_id`, and `WorkSession.commercial_context_id` is uniquely tied to
    one session. Await LEAD-owned resolution; do not edit `models.py` here.
+   End-work must also close/freeze canonical active periods before counting;
+   current M04 deliberately rejects ACTIVE/HISTORICAL/NEEDS_REVIEW periods.
 5. **Only after M02 merge and approval of the exact hunk**, replace the custody
    evidence gate in `api/dispatch.py:settle_session` with a narrow delegate:
 

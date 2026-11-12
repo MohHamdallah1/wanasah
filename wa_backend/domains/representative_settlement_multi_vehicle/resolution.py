@@ -3,7 +3,8 @@
 There is deliberately no DispatchRoute.work_session_id fallback here. Unknown
 historical links require review instead of guessing the last vehicle.
 """
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import aliased
 
 from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
@@ -31,9 +32,20 @@ async def session_responsibilities(db, *, company_id: int, session_id: int,
         DispatchRouteExecutionPeriod.company_id == company_id,
         DispatchRouteExecutionPeriod.work_session_id == session_id,
     ).order_by(DispatchRouteExecutionPeriod.id).limit(MAX_PERIODS + 1))).all()
+    period = aliased(DispatchRouteExecutionPeriod)
+    covered_period = select(period.id).where(
+        period.company_id == company_id, period.work_session_id == session_id,
+        period.vehicle_id == VehicleCustodyEpoch.vehicle_id,
+        period.vehicle_location_id == VehicleCustodyEpoch.vehicle_location_id,
+        period.field_representative_id == VehicleCustodyEpoch.field_representative_id,
+        period.evidence_origin == "CANONICAL", period.state == "CLOSED",
+        period.started_at >= VehicleCustodyEpoch.started_at, period.ended_at.is_not(None),
+        or_(VehicleCustodyEpoch.ended_at.is_(None), period.ended_at <= VehicleCustodyEpoch.ended_at),
+    ).exists()
     epoch_query = select(VehicleCustodyEpoch).where(
         VehicleCustodyEpoch.company_id == company_id,
-        VehicleCustodyEpoch.related_session_id == session_id,
+        or_(VehicleCustodyEpoch.related_session_id == session_id,
+            and_(VehicleCustodyEpoch.related_session_id.is_(None), covered_period)),
     ).order_by(VehicleCustodyEpoch.vehicle_id, VehicleCustodyEpoch.id).limit(MAX_EPOCHS + 1)
     if lock:
         epoch_query = epoch_query.with_for_update()

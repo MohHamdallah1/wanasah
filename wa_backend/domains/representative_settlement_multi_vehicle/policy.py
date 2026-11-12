@@ -39,7 +39,7 @@ def resolve_responsibilities(*, company_id: int, session_id: int, driver_id: int
         raise CustodyRejected("DUPLICATE_CUSTODY_EVIDENCE")
     by_vehicle = defaultdict(list)
     for epoch in epochs:
-        if (epoch.company_id != company_id or epoch.session_id != session_id
+        if (epoch.company_id != company_id or epoch.session_id not in (None, session_id)
                 or epoch.state != "ACCEPTED" or not epoch.canonical
                 or epoch.accepted_by is None or epoch.started_at is None
                 or (epoch.ended_at is not None and epoch.ended_at < epoch.started_at)
@@ -47,6 +47,7 @@ def resolve_responsibilities(*, company_id: int, session_id: int, driver_id: int
             raise CustodyRejected("SESSION_CUSTODY_REVIEW_REQUIRED")
         by_vehicle[(epoch.vehicle_id, epoch.location_id)].append(epoch)
     period_groups = defaultdict(list)
+    used_epochs = set()
     for period in periods:
         if (period.company_id != company_id or period.session_id != session_id
                 or period.driver_id != driver_id or period.representative_id is None
@@ -61,7 +62,10 @@ def resolve_responsibilities(*, company_id: int, session_id: int, driver_id: int
                       and (e.ended_at is None or e.ended_at >= period.ended_at)]
         if len(candidates) != 1:
             raise CustodyRejected("PERIOD_CUSTODY_EVIDENCE_AMBIGUOUS")
+        used_epochs.add(candidates[0].id)
         period_groups[key].append(period)
+    if any(e.session_id is None and e.id not in used_epochs for e in epochs):
+        raise CustodyRejected("SESSION_CUSTODY_REVIEW_REQUIRED")
     locations = [key[1] for key in by_vehicle]
     vehicles = [key[0] for key in by_vehicle]
     if len(set(locations)) != len(locations) or len(set(vehicles)) != len(vehicles):

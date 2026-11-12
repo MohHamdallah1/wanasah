@@ -35,7 +35,7 @@ async def load_vehicle_snapshot(db, *, company_id: int, session_id: int, respons
         VehicleCustodyEpoch.company_id == company_id,
         VehicleCustodyEpoch.vehicle_id == responsibility.vehicle_id,
         VehicleCustodyEpoch.id >= first_epoch,
-        VehicleCustodyEpoch.related_session_id.is_distinct_from(session_id),
+        VehicleCustodyEpoch.id.not_in(responsibility.epoch_ids),
     ).limit(1))
     if foreign is not None:
         raise CustodyRejected("INTERVENING_VEHICLE_CUSTODY_REQUIRES_REVIEW")
