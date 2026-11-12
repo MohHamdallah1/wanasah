@@ -3965,6 +3965,14 @@ async def route_lifecycle_m02(
         raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
     except IntegrityError as exc:
         await db.rollback()
+        # Keep constraint evidence server-side only; HTTP deliberately does
+        # not expose tenant/vehicle identifiers or PostgreSQL internals.
+        logger.error(
+            "M02 route lifecycle PG constraint failure: %s",
+            getattr(getattr(exc, "orig", None), "sqlstate", None)
+            or type(getattr(exc, "orig", exc)).__name__,
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=409, detail={"code": "ROUTE_LIFECYCLE_CONCURRENT_CONFLICT"},
         ) from exc
