@@ -98,15 +98,15 @@ void main() {
 
     test('staged A/B/A proof is sent only in immutable original headers', () async {
       var legacyCalls = 0;
-      Map<String, String>? headers;
+      Map<String, String>? capturedHeaders;
       Map<String, dynamic>? exactBody;
       final replay = adapter(
         send: (path, {required data}) async {
           legacyCalls++;
           throw StateError('Canonical period must never use legacy transport');
         },
-        sendWithProof: (path, {required data, required headers: sent}) async {
-          headers = Map<String, String>.from(sent);
+        sendWithProof: (path, {required data, required headers}) async {
+          capturedHeaders = Map<String, String>.from(headers);
           exactBody = Map<String, dynamic>.from(data);
           return Response<dynamic>(
             requestOptions: RequestOptions(path: path), statusCode: 200,
@@ -124,7 +124,7 @@ void main() {
       final frozen = jsonEncode(original);
       await replay.dispatch(original);
       expect(legacyCalls, 0);
-      expect(headers, <String, String>{
+      expect(capturedHeaders, <String, String>{
         'X-Execution-Period-ID': '47',
         'X-Assignment-Context-Revision': '3',
         'X-Vehicle-Custody-Epoch-ID': '15',
