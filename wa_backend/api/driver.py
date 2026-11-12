@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, update, or_, and_, delete, case
@@ -52,6 +52,7 @@ from services import (
     resolve_inflight_transfer_destination_statuses,
     begin_idempotent_operation,
     complete_idempotent_operation,
+    OperationIdempotencyError,
 )
 import hashlib
 import json
@@ -97,6 +98,14 @@ from domains.sales_calculation.driver_sale import (
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
 from domains.inventory_costing.service import resolve_linked_return_cost_sources
+from domains.work_session_multi_route.context import (
+    PeriodProof, SessionPeriodRejected, resolve_active_execution,
+    find_planned_period, execution_envelope,
+)
+from domains.work_session_multi_route.start import (
+    start_session_from_planned_period, establish_session_vehicle_opening,
+)
+from domains.work_session_multi_route.read import read_current_execution
 
 from api.field_transfer_contracts import (
     field_transfer_batch_route, transfer_batch_error, attributed_transfer_error,
@@ -216,7 +225,8 @@ async def start_work_session(
     payload: SessionStartRequest,
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
-    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+    request_id: Optional[str] = Header(default=None, alias="Idempotency-Key"),
 ):
     driver_id = legacy_actor.id
     company_id = field_context.company_id
@@ -245,6 +255,32 @@ async def start_work_session(
         # تاريخ العمل يُحسم بتوقيت الشركة قبل اختيار Route؛ لا نقبل Route قديم بقي active بالخطأ.
         company_local_date = await get_company_local_date(db, company_id)
 
+        # Stable request identity prevents a lost HTTP 201 from opening a second
+        # day or binding the same PLANNED period twice. Optional for legacy
+        # Flutter; canonical M02 periods require it.
+        session_start_record = None
+        if isinstance(request_id, str) and request_id.strip():
+            start_hash = hashlib.sha256(json.dumps(
+                {
+                    "company_id": int(company_id),
+                    "driver_id": int(driver_id),
+                    "latitude": str(payload.latitude),
+                    "longitude": str(payload.longitude),
+                },
+                sort_keys=True, separators=(",", ":"),
+            ).encode("utf-8")).hexdigest()
+            session_start_record, replay = await begin_idempotent_operation(
+                db,
+                company_id=company_id,
+                actor_id=driver_id,
+                operation="DRIVER_START_WORK_SESSION",
+                request_id=request_id,
+                request_hash=start_hash,
+            )
+            if replay is not None:
+                await db.rollback()
+                return replay
+
         # لا يوم جديد قبل تسوية العهدة السابقة.
         unsettled_session = (
             await db.execute(
@@ -268,6 +304,21 @@ async def start_work_session(
             )
 
         # خط السير الفعال يجب أن يكون من نفس الشركة ونفس المندوب.
+        canonical_start = await start_session_from_planned_period(
+            db,
+            field_context=field_context,
+            driver_id=int(driver_id),
+            company_local_date=company_local_date,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+        )
+        if canonical_start is not None:
+            if session_start_record is None:
+                raise SessionPeriodRejected("M03_START_REQUEST_ID_REQUIRED")
+            complete_idempotent_operation(session_start_record, canonical_start)
+            await db.commit()
+            return canonical_start
+
         active_route = (
             await db.execute(
                 select(DispatchRoute)
@@ -490,16 +541,26 @@ async def start_work_session(
             )
         )
 
-        await db.commit()
-
-        return {
+        result = {
             "message": "تم بدء الجلسة بنجاح، وتم تثبيت رصيد السيارة الافتتاحي.",
             "session_id": new_session.id,
             "commercial_context": commercial_context_payload(
                 commercial_context
             ),
         }
+        if session_start_record is not None:
+            complete_idempotent_operation(session_start_record, result)
+        await db.commit()
+        return result
 
+    except SessionPeriodRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409, detail={"code": exc.code, "message": str(exc), "context": {}}
+        ) from exc
     except HTTPException:
         await db.rollback()
         raise
@@ -679,7 +740,10 @@ async def update_visit(
     payload: VisitUpdateRequest,
     db: AsyncSession = Depends(get_db),
     field_context: FieldRequestContext = Depends(get_current_field_context),
-    legacy_actor: Driver = Depends(get_current_field_legacy_driver)
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+    execution_period_id: Optional[int] = Header(default=None, alias="X-Execution-Period-ID"),
+    assignment_revision: Optional[int] = Header(default=None, alias="X-Assignment-Context-Revision"),
+    custody_epoch_id: Optional[int] = Header(default=None, alias="X-Vehicle-Custody-Epoch-ID"),
 ):
     # PATCH: DRIVER_UNIFIED_VISIT_INVENTORY
     # Workflow الميدان محفوظ؛ التغيير هنا محصور في العزل ومحرك المخزون الموحد والـidempotency.
@@ -690,6 +754,20 @@ async def update_visit(
         payload, context=field_context, driver_id=driver_id, visit_id=visit_id,
     )
     canonical_payload = payload.model_dump(mode="json", exclude={"request_id"})
+    # Envelope is immutable command input: idempotency key with another
+    # period/revision/epoch must reject, even if the business payload matches.
+    header_values = (
+        execution_period_id if isinstance(execution_period_id, int) else None,
+        assignment_revision if isinstance(assignment_revision, int) else None,
+        custody_epoch_id if isinstance(custody_epoch_id, int) else None,
+    )
+    period_proof = PeriodProof(*header_values) if any(v is not None for v in header_values) else None
+    if period_proof is not None:
+        canonical_payload["execution_context"] = {
+            "period_id": period_proof.period_id,
+            "assignment_revision": period_proof.assignment_revision,
+            "custody_epoch_id": period_proof.custody_epoch_id,
+        }
     # ترتيب أسطر Flutter ليس جزءاً من المعنى التجاري؛ retry مطابق لا يفشل لمجرد إعادة ترتيب القوائم.
     canonical_payload["cart_items"] = sorted(
         canonical_payload.get("cart_items", []),
@@ -757,6 +835,25 @@ async def update_visit(
             raise HTTPException(
                 status_code=409,
                 detail="مرفوض: عهدة مخزون هذه الجلسة تم ختمها ولا تقبل أي تعديل ميداني جديد.",
+            )
+
+        try:
+            execution = await resolve_active_execution(
+                db,
+                company_id=int(company_id),
+                driver_id=int(driver_id),
+                session_id=int(active_session.id),
+                field_representative_id=int(field_context.representative_id),
+                principal_id=int(field_context.principal_id),
+                proof=period_proof,
+                for_update=True,
+            )
+        except SessionPeriodRejected as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+        if execution.canonical and (period_proof is None or not period_proof.complete):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "M03_PERIOD_PROOF_REQUIRED", "context": {}},
             )
 
         # Tenant-safe probe لمعرفة shop_id فقط؛ لا نكشف زيارة خارج الشركة/المندوب.
@@ -845,20 +942,28 @@ async def update_visit(
                 detail="الزيارة مرتبطة بجلسة عمل أخرى ولا يجوز نقلها بين الجلسات أثناء التحديث.",
             )
 
-        current_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                    status="active",
+        # A previously posted visit is immutable under another execution
+        # period, even when today's WorkSession is the same. Corrections on
+        # its original period retain their historical vehicle/location.
+        if execution.canonical:
+            if visit.execution_period_id not in (None, execution.period.id):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "M03_VISIT_PERIOD_IMMUTABLE", "context": {}},
                 )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-                .with_for_update(read=True)
+            if visit.status == "Completed" and visit.execution_period_id is None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "M03_LEGACY_POSTED_VISIT_REQUIRES_REVIEW", "context": {}},
+                )
+        elif visit.execution_period_id is not None:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "M03_VERIFIED_VISIT_LEGACY_REENTRY_DENIED", "context": {}},
             )
-        ).scalars().first()
+
+        # M02 canonical period is authoritative after route/vehicle switching.
+        current_route = execution.route
 
         if current_route is None:
             raise HTTPException(
@@ -866,7 +971,7 @@ async def update_visit(
                 detail="تم سحب خط السير أو إيقافه من قبل الإدارة. لا يمكنك إتمام العملية.",
             )
 
-        if current_route.vehicle_id is None:
+        if (execution.period.vehicle_id if execution.canonical else current_route.vehicle_id) is None:
             raise HTTPException(
                 status_code=409,
                 detail="خط السير الحالي غير مربوط بسيارة صالحة للمخزون.",
@@ -903,9 +1008,20 @@ async def update_visit(
         veh_loc_id = await _driver_vehicle_custody_location_id(
             db,
             company_id=company_id,
-            vehicle_id=int(current_route.vehicle_id),
+            vehicle_id=int(execution.period.vehicle_id if execution.canonical else current_route.vehicle_id),
+            expected_location_id=execution.vehicle_location_id,
             require_operational=True,
         )
+        if execution.canonical:
+            await acquire_inventory_location_guard(
+                db, company_id, veh_loc_id, exclusive=True,
+            )
+            await establish_session_vehicle_opening(
+                db,
+                company_id=company_id,
+                session_id=active_session.id,
+                vehicle_location_id=veh_loc_id,
+            )
 
         touched_variants = sorted(
             {item.product_variant_id for item in payload.cart_items}
@@ -1104,6 +1220,11 @@ async def update_visit(
         visit.shop_balance_before = original_shop_balance
         visit.is_emergency = payload.is_emergency or visit.is_emergency
         visit.work_session_id = active_session.id
+        if execution.canonical:
+            visit.execution_period_id = int(execution.period.id)
+            visit.execution_vehicle_location_id = int(execution.vehicle_location_id)
+            visit.execution_context_revision = int(execution.period.context_revision)
+            visit.execution_evidence_state = "VERIFIED"
 
         if payload.outcome == "Postponed" and (
             payload.cart_items
@@ -1166,7 +1287,7 @@ async def update_visit(
                     status_code=400,
                     detail="مرفوض: حالة البيع تتطلب كمية مباعة فعلية واحدة على الأقل.",
                 )
-            if active_session.commercial_context_id is None:
+            if (execution.commercial_context_id if execution.canonical else active_session.commercial_context_id) is None:
                 raise HTTPException(
                     status_code=409,
                     detail={
@@ -1188,7 +1309,8 @@ async def update_visit(
                 company_id=company_id,
                 dispatch_route_id=int(current_route.id),
                 expected_commercial_context_id=int(
-                    active_session.commercial_context_id
+                    execution.commercial_context_id
+                    if execution.canonical else active_session.commercial_context_id
                 ),
                 customer_id=int(shop.id),
                 jurisdiction_id=int(shop.tax_jurisdiction_id),
@@ -1237,7 +1359,7 @@ async def update_visit(
         await _driver_vehicle_custody_location_id(
             db,
             company_id=company_id,
-            vehicle_id=int(current_route.vehicle_id),
+            vehicle_id=int(execution.period.vehicle_id if execution.canonical else current_route.vehicle_id),
             expected_location_id=veh_loc_id,
             require_operational=True,
         )
@@ -2193,6 +2315,7 @@ async def _load_vehicle_inventory_projection(
                 .filter(
                     SessionInventorySnapshot.company_id == company_id,
                     SessionInventorySnapshot.work_session_id == work_session_id,
+                    SessionInventorySnapshot.location_id == vehicle_location_id,
                     SessionInventorySnapshot.stock_status == "AVAILABLE",
                 )
                 .order_by(SessionInventorySnapshot.product_variant_id.asc())
@@ -2281,6 +2404,17 @@ async def _load_vehicle_inventory_projection(
                     ),
                 )
             issued_map[int(product_variant_id)] = net_quantity
+
+    if work_session_id is not None and not snapshot_rows:
+        # A newly assigned vehicle can be displayed from current physical
+        # stock before its first visit. Once any sale exists a missing opening
+        # record is corrupt history; never fabricate it from current balance.
+        if issued_map:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "M03_MISSING_VEHICLE_OPENING", "context": {}},
+            )
+        starting_map = dict(current_map)
 
     variant_ids = sorted(set(current_map) | set(starting_map) | set(issued_map))
     if not variant_ids:
@@ -2684,35 +2818,14 @@ async def get_driver_dashboard(
         )
     ).scalars().first()
 
-    if active_session is not None:
-        # أثناء جلسة قائمة نعرض Route المرتبط بها حتى لو أوقفته الإدارة؛ البيع نفسه يبقى محظوراً إلا على active.
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
-    else:
-        company_local_date = await get_company_local_date(db, company_id)
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.driver_id == driver_id,
-                    DispatchRoute.dispatch_date == company_local_date,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
+    try:
+        execution = await read_current_execution(
+            db, field_context=field_context, driver_id=int(driver_id),
+            active_session=active_session,
+        )
+    except SessionPeriodRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+    active_route = execution.route if execution is not None else None
 
     assigned_region = "غير محددة"
     inventory_list = []
@@ -2733,7 +2846,7 @@ async def get_driver_dashboard(
             _, inventory_projection = await _load_vehicle_inventory_projection(
                 db,
                 company_id=company_id,
-                vehicle_id=active_route.vehicle_id,
+                vehicle_id=(execution.period.vehicle_id if execution is not None and execution.canonical else active_route.vehicle_id),
                 work_session_id=(active_session.id if active_session else None),
             )
 
@@ -2832,6 +2945,7 @@ async def get_driver_dashboard(
         ).scalar() or 0)
 
     response_data = {
+        "execution_context": execution_envelope(execution),
         "driver_name": legacy_actor.full_name,
         "assigned_region": assigned_region,
         "active_session": {
@@ -3608,6 +3722,7 @@ async def add_new_shop(
 async def _load_driver_pricing_route(
     db: AsyncSession,
     *,
+    field_context: FieldRequestContext,
     company_id: int,
     driver_id: int,
 ):
@@ -3624,36 +3739,14 @@ async def _load_driver_pricing_route(
         )
     ).scalars().first()
 
-    if active_session is not None:
-        route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
-    else:
-        company_local_date = await get_company_local_date(db, company_id)
-        route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.driver_id == driver_id,
-                    DispatchRoute.dispatch_date == company_local_date,
-                    DispatchRoute.status.in_(
-                        ["active", "waiting", "postponed"]
-                    ),
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
+    try:
+        execution = await read_current_execution(
+            db, field_context=field_context, driver_id=int(driver_id),
+            active_session=active_session,
+        )
+    except SessionPeriodRejected as exc:
+        raise PricingError(exc.code, exc.code, context={}) from exc
+    route = execution.route if execution is not None else None
 
     if route is None:
         raise PricingError(
@@ -3661,7 +3754,7 @@ async def _load_driver_pricing_route(
             "لا يوجد خط سير تجاري حالي يمكن حل الأسعار ضمنه.",
             context={"driver_id": int(driver_id)},
         )
-    return route, active_session
+    return route, active_session, execution
 
 
 # =========================================
@@ -3676,8 +3769,9 @@ async def get_products(
     company_id = int(field_context.company_id)
     driver_id = int(legacy_actor.id)
     try:
-        route, active_session = await _load_driver_pricing_route(
+        route, active_session, execution = await _load_driver_pricing_route(
             db,
+            field_context=field_context,
             company_id=company_id,
             driver_id=driver_id,
         )
@@ -3699,10 +3793,14 @@ async def get_products(
             variant_ids=[int(variant.id) for variant in variants],
             customer_id=None,
             expected_commercial_context_id=(
-                int(active_session.commercial_context_id)
-                if active_session is not None
-                and active_session.commercial_context_id is not None
-                else None
+                int(execution.commercial_context_id)
+                if execution is not None and execution.canonical
+                else (
+                    int(active_session.commercial_context_id)
+                    if active_session is not None
+                    and active_session.commercial_context_id is not None
+                    else None
+                )
             ),
         )
 
@@ -3752,34 +3850,14 @@ async def get_driver_visits(
         )
     ).scalars().first()
 
-    if active_session is not None:
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter_by(
-                    company_id=company_id,
-                    work_session_id=active_session.id,
-                    driver_id=driver_id,
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
-    else:
-        company_local_date = await get_company_local_date(db, company_id)
-        active_route = (
-            await db.execute(
-                select(DispatchRoute)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.driver_id == driver_id,
-                    DispatchRoute.dispatch_date == company_local_date,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                )
-                .order_by(DispatchRoute.id.asc())
-                .limit(1)
-            )
-        ).scalars().first()
+    try:
+        execution = await read_current_execution(
+            db, field_context=field_context, driver_id=int(driver_id),
+            active_session=active_session,
+        )
+    except SessionPeriodRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+    active_route = execution.route if execution is not None else None
 
     if active_route is None:
         return {"visits": [], "inventory": [], "pending_transfers": []}
@@ -3838,7 +3916,7 @@ async def get_driver_visits(
         vehicle_location_id, inventory_projection = await _load_vehicle_inventory_projection(
             db,
             company_id=company_id,
-            vehicle_id=active_route.vehicle_id,
+            vehicle_id=(execution.period.vehicle_id if execution is not None and execution.canonical else active_route.vehicle_id),
             work_session_id=(active_session.id if active_session else None),
         )
 
@@ -3853,10 +3931,14 @@ async def get_driver_visits(
                 ],
                 customer_id=None,
                 expected_commercial_context_id=(
-                    int(active_session.commercial_context_id)
-                    if active_session is not None
-                    and active_session.commercial_context_id is not None
-                    else None
+                    int(execution.commercial_context_id)
+                    if execution is not None and execution.canonical
+                    else (
+                        int(active_session.commercial_context_id)
+                        if active_session is not None
+                        and active_session.commercial_context_id is not None
+                        else None
+                    )
                 ),
             )
         except PricingError as exc:
@@ -4037,3 +4119,37 @@ async def get_active_session(
         }
         
     return {"active_session_found": False}
+
+
+@router.get(
+    "/driver/sessions/execution-context", status_code=200,
+    dependencies=[Depends(require_field_capability("work_session.read"))],
+)
+async def get_current_execution_context(
+    db: AsyncSession = Depends(get_db),
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+):
+    """Read-only current FIELD period/custody proof for durable offline drafts."""
+    session = (
+        await db.execute(
+            select(WorkSession).where(
+                WorkSession.company_id == field_context.company_id,
+                WorkSession.driver_id == legacy_actor.id,
+                WorkSession.end_time.is_(None),
+            ).order_by(WorkSession.id.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    try:
+        execution = await read_current_execution(
+            db, field_context=field_context,
+            driver_id=int(legacy_actor.id),
+            active_session=session,
+        )
+    except SessionPeriodRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
+    return {
+        "active_session_found": session is not None,
+        "session_id": int(session.id) if session is not None else None,
+        "execution_context": execution_envelope(execution),
+    }
