@@ -57,8 +57,8 @@ export function RouteLifecyclePanel({
     setSignedCustody(null);
     setProbeError("");
     if (!isOpen || !route || route.status !== "postponed" || !verified ||
-        !selectedDriver || !selectedVehicle || !/^\\d+$/.test(selectedDriver) ||
-        !/^\\d+$/.test(selectedVehicle)) return;
+        !selectedDriver || !selectedVehicle || !/^\d+$/.test(selectedDriver) ||
+        !/^\d+$/.test(selectedVehicle)) return;
     const controller = new AbortController();
     const path = `/dispatch/route/${route.id}/lifecycle/readiness?` +
       `target_driver_id=${encodeURIComponent(selectedDriver)}&target_vehicle_id=${encodeURIComponent(selectedVehicle)}`;
@@ -160,7 +160,7 @@ export function RouteLifecyclePanel({
                 onClick={() => void execute("POSTPONE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
                 {copy.postpone}
-              </button>}}
+              </button>}
               <button type="button" disabled={!allowed}
                 onClick={() => void execute("CLOSE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
