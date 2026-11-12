@@ -1,0 +1,128 @@
+name: M02 atomic lifecycle PG16 restricted Bearer and migration parity
+
+on:
+  push:
+    branches: ["worker2/m02-route-lifecycle-938"]
+    paths:
+      - "wa_backend/alembic/versions/c8f4a5b6d721_m02_release_postponed_assignments.py"
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/domains/dispatch/route_execution/lifecycle/**"
+      - "wa_backend/tests/test_dispatch_m02_lifecycle_postgres.py"
+      - ".github/workflows/dispatch-m02-pg16-bearer.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/alembic/versions/c8f4a5b6d721_m02_release_postponed_assignments.py"
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/domains/dispatch/route_execution/lifecycle/**"
+      - "wa_backend/tests/test_dispatch_m02_lifecycle_postgres.py"
+      - ".github/workflows/dispatch-m02-pg16-bearer.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  m02-real-pg16-bearer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: M02RealSignedPG16BearerOnlyAbc1234567890123456789
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      WANASAH_DISPATCH_M02_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing backend requirements
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Compile real adapter and PG16 test
+        working-directory: wa_backend
+        run: |
+          python -m py_compile api/dispatch.py tests/test_dispatch_m02_lifecycle_postgres.py
+          python -m compileall -q domains/dispatch/route_execution/lifecycle
+      - name: Start disposable PostgreSQL 16 only
+        run: |
+          docker run --detach --name m02-pg16 \
+            --env POSTGRES_USER=p0_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec m02-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs m02-pg16
+          exit 1
+      - name: Create explicit NOBYPASSRLS restricted runtime principal
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+            drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as connection:
+            connection.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Upgrade clean PG16 through M01 and M02
+        working-directory: wa_backend
+        run: alembic upgrade head
+      - name: Apply disposable test-only restricted role grants
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(
+            drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as c:
+            c.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+            c.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+            c.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+            c.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Prove PG16 tenant-force-RLS and all M01/M02 indexes
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL"]).set(
+            drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn) as c:
+            version, user, is_super, bypass = c.execute(
+              "SELECT current_setting('server_version_num')::int, current_user, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user"
+            ).fetchone()
+            assert 160000 <= version < 170000 and user=="wanasah_app" and not is_super and not bypass
+            for table in ("dispatch_routes","dispatch_route_execution_periods","vehicle_custody_epochs","inventory_balances","inventory_movements","operation_idempotency"):
+              assert c.execute("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass(%s)",(table,)).fetchone()==(True,True), table
+            indexes = {r[0]:r[1] for r in c.execute(
+              "SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='dispatch_routes'"
+            ).fetchall()}
+            for name in ("uq_active_route_per_driver","uq_active_route_per_vehicle"):
+              assert "assignment_context_revision" in indexes[name] and "postponed" not in indexes[name], indexes[name]
+            assert "uq_active_route_per_zone" in indexes and "postponed" in indexes["uq_active_route_per_zone"]
+            print("M02_PG16_NOBYPASSRLS_FORCE_RLS_PARTIAL_INDEXES=PASS",flush=True)
+          PY
+      - name: Execute real authenticated PG16 M02 HTTP integration
+        working-directory: wa_backend
+        run: |
+          python -m pytest -q -s --disable-warnings --tb=short -p no:cacheprovider \
+            tests/test_dispatch_m02_lifecycle_postgres.py \
+            --junitxml=m02-real-pg16.xml
+      - name: Final mandatory Alembic ORM/index metadata parity
+        working-directory: wa_backend
+        run: alembic check
+      - name: Publish complete evidence even on failed gate
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m02-real-pg16-bearer-${{ github.run_id }}
+          path: wa_backend/m02-real-pg16.xml
+          if-no-files-found: warn
