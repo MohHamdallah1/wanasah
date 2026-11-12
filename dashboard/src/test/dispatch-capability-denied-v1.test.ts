@@ -133,3 +133,106 @@ describe("Dispatch D09 scoped HTTP refresh", () => {
     expect(onError).toHaveBeenCalledWith(denied);
   });
 });
+
+
+describe("D15 #925 progressive signed Dispatch reads — no slow Shops barrier", () => {
+  const privileges = dispatchPrivileges(grants(["shortage.read"], ["dispatch.read"]));
+  it("Routes paints after its own genuine signed result without issuing Shops", async () => {
+    let releaseInit!: (value: unknown) => void;
+    const slowInit = new Promise<unknown>(resolve => { releaseInit = resolve; });
+    const seen: string[] = [], parts: string[] = [];
+    const complete = vi.fn(), onError = vi.fn();
+    const loading = loadDispatchRead({
+      tab: "routes", grants: privileges,
+      fetch: async path => {
+        seen.push(path);
+        if (path === "/dispatch/init") return slowInit;
+        return path === "/dispatch/active_routes" ? [{ id: "47" }] : [];
+      },
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData: vi.fn(), onPart: kind => parts.push(kind), onReady: complete, onError,
+    });
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    expect(parts).toContain("routes");
+    expect(parts).not.toContain("init");
+    expect(seen).toEqual(["/dispatch/init", "/dispatch/active_routes", "/dispatch/shortages"]);
+    expect(seen).not.toContain("/dispatch/shops");
+    releaseInit({ zones: [], drivers: [], vehicles: [], warehouses: [] });
+    await loading;
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("Zones paints signed init first while genuine Shops GET remains unresolved", async () => {
+    let releaseShops!: (value: unknown) => void;
+    const slowShops = new Promise<unknown>(resolve => { releaseShops = resolve; });
+    const stages: string[] = [], complete = vi.fn();
+    const loading = loadDispatchRead({
+      tab: "zones", grants: privileges,
+      fetch: path => path === "/dispatch/shops"
+        ? slowShops : Promise.resolve(path === "/dispatch/init" ? { zones: [{ id: "7" }] } : []),
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData: vi.fn(), onPart: kind => stages.push(kind), onReady: complete, onError: vi.fn(),
+    });
+    await vi.waitFor(() => expect(stages).toContain("init"));
+    expect(stages).not.toContain("shops");
+    expect(complete).not.toHaveBeenCalled();
+    releaseShops([{ id: "2", zoneId: "7" }]);
+    await loading;
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    expect(stages).toContain("shops");
+  });
+
+  it("Launch shows init separately while fetching required live zone Shops for POST validation", async () => {
+    const seen: string[] = [];
+    await loadDispatchRead({
+      tab: "launch", grants: privileges,
+      fetch: async path => { seen.push(path); return []; },
+      signal: new AbortController().signal, isCurrent: () => true,
+      onData: vi.fn(), onPart: vi.fn(), onReady: vi.fn(), onError: vi.fn(),
+    });
+    expect(seen).toContain("/dispatch/init");
+    expect(seen).toContain("/dispatch/shops");
+    expect(seen).not.toContain("/dispatch/active_routes");
+  });
+
+  it("a delayed 403 sibling revokes a previously admitted Routes tab; stale results never republish", async () => {
+    let failInit!: (error: unknown) => void;
+    const slowInit = new Promise<unknown>((_, reject) => { failInit = reject; });
+    const fence = createDispatchReadFence();
+    const admission = fence.start(() => true);
+    const stages: string[] = [], onReady = vi.fn();
+    const onError = vi.fn(() => fence.revoke());
+    const loading = loadDispatchRead({
+      tab: "routes", grants: privileges,
+      fetch: path => path === "/dispatch/init" ? slowInit
+        : Promise.resolve(path === "/dispatch/active_routes" ? [{ id: "47" }] : []),
+      signal: admission.signal, isCurrent: admission.isCurrent,
+      onData: vi.fn(), onPart: kind => stages.push(kind), onReady, onError,
+    });
+    await vi.waitFor(() => expect(onReady).toHaveBeenCalledOnce());
+    failInit(Object.assign(new Error("revoked"), { status: 403 }));
+    await loading;
+    expect(onError).toHaveBeenCalledOnce();
+    expect(admission.isCurrent()).toBe(false);
+    expect(stages).not.toContain("init");
+  });
+
+  it("revoking a pending actor prevents both publication and readiness", async () => {
+    let release!: (rows: unknown) => void;
+    const deferred = new Promise<unknown>(resolve => { release = resolve; });
+    const fence = createDispatchReadFence();
+    const admission = fence.start(() => true);
+    const onPart = vi.fn(), onReady = vi.fn();
+    const loading = loadDispatchRead({
+      tab: "routes", grants: dispatchPrivileges(grants([], ["dispatch.read"])),
+      fetch: () => deferred,
+      signal: admission.signal, isCurrent: admission.isCurrent,
+      onData: vi.fn(), onPart, onReady, onError: vi.fn(),
+    });
+    fence.revoke();
+    release([{ id: "PRIVATE-COMPANY-A" }]);
+    await loading;
+    expect(onPart).not.toHaveBeenCalled();
+    expect(onReady).not.toHaveBeenCalled();
+  });
+});

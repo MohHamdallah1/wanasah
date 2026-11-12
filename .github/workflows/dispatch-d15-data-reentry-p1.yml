@@ -1,0 +1,201 @@
+name: Dispatch D15 P1 progressive data reentry PG16 browser
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/dispatch-d15-data-reentry-p1.yml"
+      - ".github/scripts/dispatch_d15_real_content_scope.py"
+      - "dashboard/e2e/dispatch-d15-data-reentry-p1.spec.ts"
+      - "dashboard/src/features/dispatch/loadDispatchRead.ts"
+      - "dashboard/src/pages/DispatchBoard.tsx"
+      - "dashboard/src/components/dispatch/ShopTable.tsx"
+      - "dashboard/src/components/dispatch/RouteLoadProductTable.tsx"
+      - "dashboard/src/components/dispatch/ProductSearchControls.tsx"
+      - "dashboard/src/test/dispatch-capability-denied-v1.test.ts"
+      - "dashboard/src/test/auth-session-consumer-isolation.test.tsx"
+
+permissions:
+  contents: read
+
+jobs:
+  real-d15-data-p1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      WANASAH_DISPATCH_D14_BROWSER_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      ENVIRONMENT: test
+      VITE_API_URL: http://127.0.0.1:4174
+      SECRET_KEY: D14SyntheticRealBrowserPG16Key1234567890123456789012345
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://d14_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://d14_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_DISPATCH_D14_BROWSER_STATE: /tmp/dispatch-d14-browser-private.json
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Exact #925 ownership, no foreign files and whitespace
+        run: |
+          python .github/scripts/dispatch_d15_real_content_scope.py --selftest
+          git diff --check
+      - name: Install canonical dependencies
+        run: |
+          python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+          python -m py_compile wa_backend/tests/test_dispatch_d14_browser_fixture.py
+      - name: Start temporary PostgreSQL16
+        run: |
+          docker run --detach --name dispatch-d14-pg \
+            --env POSTGRES_USER=d14_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec dispatch-d14-pg pg_isready -U d14_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-d14-pg
+          exit 1
+      - name: Create restricted non-bypass database role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate canonical schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Seed ONE real PG16 company Shop finance and route-scoped fixture
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_d14_browser_fixture.py
+          --junitxml=d14-real-pg16.xml
+      - name: Start real FastAPI
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-d14-api.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-d14-api.log
+          exit 1
+      - name: Install Dashboard and real Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0 @testing-library/dom@10.4.1
+          npx playwright install --with-deps chromium
+      - name: Focused unit signed staged-read and denial tests
+        working-directory: dashboard
+        run: |
+          npm test -- src/test/dispatch-capability-denied-v1.test.ts
+          npm test -- src/test/auth-session-consumer-isolation.test.tsx
+      - name: Build exact original #925 MAIN baseline from immutable Git blobs
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: |
+          mkdir -p /tmp/d15-925-head
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+            cp "$file" "/tmp/d15-925-head/$(basename "$file")"
+            git show 3fe78a93b443d362e291a9a9c02429d49d50187a:"dashboard/$file" > "$file"
+          done
+          npm run build
+          python - <<'PY'
+          import gzip,re,pathlib,json
+          h=pathlib.Path('dist/index.html').read_text()
+          p=pathlib.Path('dist')/re.search(r'src="/(assets/index-[^"]+\.js)"',h).group(1)
+          v={'phase':'before','entry_raw':p.stat().st_size,'entry_gzip':len(gzip.compress(p.read_bytes(),compresslevel=9)),
+             'dispatch_assets':sorted(x.name for x in pathlib.Path('dist/assets').glob('DispatchBoard-*.js'))}
+          pathlib.Path('/tmp/d15-925-entry-before.json').write_text(json.dumps(v))
+          print('D15_DATA_BUNDLE='+json.dumps(v))
+          PY
+      - name: Serve authentic PG16 backend with original baseline UI
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-d14-ui.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/dispatch >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-d14-ui.log
+          exit 1
+      - name: BEFORE same three-tab signed browser diagnostic only
+        working-directory: dashboard
+        env:
+          D15_DATA_REENTRY_ENFORCE: "0"
+        run: |
+          xvfb-run -a npx playwright test e2e/dispatch-d15-data-reentry-p1.spec.ts --headed --workers=1 --reporter=line --output=node_modules/.cache/dispatch-d15-data-reentry-before
+      - name: Restore exact PR production files and measure startup JS
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: |
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+            cp "/tmp/d15-925-head/$(basename "$file")" "$file"
+          done
+          npm run build
+          python - <<'PY'
+          import gzip,re,pathlib,json
+          h=pathlib.Path('dist/index.html').read_text()
+          p=pathlib.Path('dist')/re.search(r'src="/(assets/index-[^"]+\.js)"',h).group(1)
+          v={'phase':'after','entry_raw':p.stat().st_size,'entry_gzip':len(gzip.compress(p.read_bytes(),compresslevel=9)),
+             'dispatch_assets':sorted(x.name for x in pathlib.Path('dist/assets').glob('DispatchBoard-*.js'))}
+          old=json.loads(pathlib.Path('/tmp/d15-925-entry-before.json').read_text())
+          print('D15_DATA_BUNDLE='+json.dumps(v))
+          print('D15_DATA_ENTRY_DELTA_GZIP_BYTES='+str(v['entry_gzip']-old['entry_gzip']))
+          assert v['dispatch_assets'] and v['entry_gzip']-old['entry_gzip'] < 30720
+          PY
+      - name: AFTER original signed PG16 strict three tabs, scoped tenant and inner scroll
+        working-directory: dashboard
+        env:
+          D15_DATA_REENTRY_ENFORCE: "1"
+        run: |
+          xvfb-run -a npx playwright test e2e/dispatch-d15-data-reentry-p1.spec.ts --headed --workers=1 --reporter=line --output=node_modules/.cache/dispatch-d15-data-reentry-after
+      - name: Preserve real Browser screenshots traces and checked wire evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dispatch-d15-data-reentry-p1-${{ github.run_id }}
+          path: |
+            wa_backend/d14-real-pg16.xml
+            dashboard/node_modules/.cache/dispatch-d15-data-reentry-before/
+            dashboard/node_modules/.cache/dispatch-d15-data-reentry-after/
+            dashboard/node_modules/.cache/dispatch-d14-browser/
+            /tmp/dispatch-d14-api.log
+            /tmp/dispatch-d14-ui.log
+          if-no-files-found: warn
