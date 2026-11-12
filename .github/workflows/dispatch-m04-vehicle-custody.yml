@@ -1,0 +1,115 @@
+name: M04 independent custody read PG16 and focused policy
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/representative_settlement.py"
+      - "wa_backend/api/warehouse/stocktake.py"
+      - "wa_backend/domains/inventory_vehicle_load/service.py"
+      - "wa_backend/domains/representative_settlement_multi_vehicle/**"
+      - "wa_backend/services.py"
+      - "wa_backend/tests/test_dispatch_m04_commands.py"
+      - "wa_backend/tests/test_dispatch_m04_domain.py"
+      - "wa_backend/tests/test_dispatch_m04_financial_domain.py"
+      - "wa_backend/tests/test_dispatch_m04_inventory_helpers.py"
+      - "wa_backend/tests/test_dispatch_m04_load_ownership.py"
+      - "wa_backend/tests/test_dispatch_m04_membership.py"
+      - "wa_backend/tests/test_dispatch_m04_read_postgres.py"
+      - "wa_backend/tests/test_dispatch_m04_review_replay.py"
+      - "wa_backend/tests/test_vehicle_reconciliation_strict_custody.py"
+      - ".github/workflows/dispatch-m04-vehicle-custody.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  focused-domain-and-legacy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      SECRET_KEY: M04FocusedSyntheticSecretKeyForTestingABC12345678
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55494/wanasah_m04_test
+      ENVIRONMENT: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install frozen backend and only focused test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile M04 shared call-sites and bounded domain
+        run: |
+          python -m compileall -q wa_backend/domains/representative_settlement_multi_vehicle wa_backend/api/representative_settlement.py wa_backend/api/warehouse/stocktake.py wa_backend/domains/inventory_vehicle_load/service.py wa_backend/services.py
+      - name: Original and independent M04 policy/ownership tests
+        working-directory: wa_backend
+        run: |
+          python -B -m pytest -p no:cacheprovider -q --tb=short \
+            tests/test_dispatch_m04_commands.py \
+            tests/test_dispatch_m04_domain.py \
+            tests/test_dispatch_m04_financial_domain.py \
+            tests/test_dispatch_m04_inventory_helpers.py \
+            tests/test_dispatch_m04_load_ownership.py \
+            tests/test_dispatch_m04_review_replay.py \
+            tests/test_dispatch_m04_membership.py \
+            tests/test_vehicle_reconciliation_strict_custody.py
+
+  signed-read-and-canonical-credentials:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - "55494:5432"
+        env:
+          POSTGRES_USER: m04_admin
+          POSTGRES_DB: wanasah_m04_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U m04_admin -d wanasah_m04_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      SECRET_KEY: M04FocusedSyntheticSecretKeyForTestingABC12345678
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55494/wanasah_m04_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://m04_admin@127.0.0.1:55494/wanasah_m04_test
+      RUN_M04_PG16: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing migration/runtime and test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Create distinct restricted NOBYPASSRLS role before Alembic
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://m04_admin@127.0.0.1:55494/wanasah_m04_test", autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Upgrade exact current merged M02 schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Minimal application DML grants, RLS still enforced
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://m04_admin@127.0.0.1:55494/wanasah_m04_test", autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Genuine restricted PostgreSQL 16, Bearer, revocation and historical handoff
+        working-directory: wa_backend
+        run: |
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short \
+            tests/test_dispatch_m04_read_postgres.py
+          # Deliberately NOT the final signed-write job: M03 and ordered M04
+          # migrations do not exist on this base. Final writer/S1-S2 acceptance
+          # must be added as a separate mandatory job after M03 merges.
