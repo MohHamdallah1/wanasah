@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, PositiveInt, model_validator
 
 
 class RouteLifecycleIntent(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid")
 
     action: Literal["POSTPONE", "RESUME", "CLOSE"]
     request_id: UUID
