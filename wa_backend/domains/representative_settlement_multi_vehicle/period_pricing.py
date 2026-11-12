@@ -27,6 +27,8 @@ def unambiguous_shortage_prices(prices_by_context, variant_ids):
                 variant_id not in prices for prices in prices_by_context):
             raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED")
         price = prices.pop()
+        if not isinstance(price, Decimal):
+            raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED")
         try:
             if (not price.is_finite() or price < 0 or price > Decimal("999999999.999")
                     or price.quantize(Decimal(".001")) != price):
@@ -77,18 +79,25 @@ async def resolve_canonical_shortage_prices(db, *, company_id, work_session_id,
         if (context.pricing_locked_at is None or not context.price_publication_revision
                 or not context.assignment_revision or not context.transaction_currency_code):
             raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED")
-        resolved = await resolve_prices_bulk(
-            db, company_id=company_id, pairs=list(variants.items()), customer_id=None,
-            branch_id=branch_id, as_of=context.pricing_locked_at,
-            publication_revision_ceiling=int(context.price_publication_revision),
-            assignment_revision_ceiling=int(context.assignment_revision),
-        )
+        try:
+            resolved = await resolve_prices_bulk(
+                db, company_id=company_id, pairs=list(variants.items()), customer_id=None,
+                branch_id=branch_id, as_of=context.pricing_locked_at,
+                publication_revision_ceiling=int(context.price_publication_revision),
+                assignment_revision_ceiling=int(context.assignment_revision),
+            )
+        except PricingError as exc:
+            raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED") from exc
         prices = {}
         for variant_id, uom_id in variants.items():
-            price = resolved[(variant_id, uom_id)]
-            if str(price.currency_code).upper() != str(context.transaction_currency_code).upper():
+            price = resolved.get((variant_id, uom_id))
+            if (price is None
+                    or str(price.currency_code).upper() != str(context.transaction_currency_code).upper()):
                 raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED")
-            prices[variant_id] = Decimal(price.amount)
+            try:
+                prices[variant_id] = Decimal(price.amount)
+            except (TypeError, InvalidOperation, ValueError):
+                raise CustodyRejected("SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED") from None
         prices_by_context.append(prices)
     return unambiguous_shortage_prices(prices_by_context, variant_ids)
 
