@@ -416,6 +416,38 @@ async def test_real_canonical_backoffice_recount_credentials_independent_of_lega
             assert await _verify_stocktake_admin_credentials(
                 db, cid + 1000000, principal_username, PASSWORD, location_id,
             ) is None
+        # Real FIELD principal with its own VALID password cannot impersonate
+        # a Backoffice recount actor even when it belongs to this tenant.
+        async with AsyncSession(admin) as db:
+            field_name = await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == cid,
+                CompanyPrincipal.principal_type == "FIELD_REPRESENTATIVE",
+            ).limit(1))
+        async with _runtime_session(runtime, cid) as db:
+            assert await _verify_stocktake_admin_credentials(
+                db, cid, field_name, "SyntheticFixture123", location_id,
+            ) is None
+        # Rotation of canonical password MUST NOT fall back to the unchanged
+        # operational Driver hash. Authorization still checks current DB grants.
+        import bcrypt
+        rotated = "M04RotatedBackofficeTestPass678"
+        async with AsyncSession(admin) as db:
+            principal = await db.scalar(select(CompanyPrincipal).where(
+                CompanyPrincipal.company_id == cid,
+                CompanyPrincipal.id == receiver.context.principal_id,
+            ))
+            principal.password_hash = bcrypt.hashpw(
+                rotated.encode(), bcrypt.gensalt(rounds=4),
+            ).decode()
+            principal.auth_revision += 1
+            await db.commit()
+        async with _runtime_session(runtime, cid) as db:
+            assert await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, PASSWORD, location_id,
+            ) is None
+            assert (await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, rotated, location_id,
+            )).id == receiver.driver_id
         async with AsyncSession(admin) as db:
             await db.execute(delete(UserLocationAccess).where(
                 UserLocationAccess.company_id == cid,
@@ -424,7 +456,7 @@ async def test_real_canonical_backoffice_recount_credentials_independent_of_lega
             await db.commit()
         async with _runtime_session(runtime, cid) as db:
             assert await _verify_stocktake_admin_credentials(
-                db, cid, principal_username, PASSWORD, location_id,
+                db, cid, principal_username, rotated, location_id,
             ) is None
     finally:
         await runtime.dispose()
