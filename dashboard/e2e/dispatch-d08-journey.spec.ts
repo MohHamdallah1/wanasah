@@ -129,9 +129,10 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     "/dispatch/shops/bulk_import" && r.request().method() === "POST");
   await importDialog.getByRole("button", { name: "Review and upload shops" }).click();
   expect((await importedShop).status()).toBe(201);
-  if (await importDialog.isVisible()) {
-    await importDialog.locator(".app-modal-header button").click();
-  }
+  // Import POST 201 closes the dialog asynchronously. Its header is
+  // destroyed during dismissal, so racing a second header click is not a
+  // valid business requirement. Verify the actual auto-close contract.
+  await expect(importDialog).not.toBeVisible({ timeout: 15000 });
 
   // Zone edit/archive/restore uses real browser buttons and same-zone shop provenance.
   const zoneList = page.locator(".dispatch-zones-workbench > div:first-child");
