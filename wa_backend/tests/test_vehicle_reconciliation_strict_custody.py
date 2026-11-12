@@ -23,6 +23,8 @@ import services
 import api.reconciliation as reconciliation
 from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
 from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+from domains.identity.models import CompanyPrincipal
+from domains.identity.types import PrincipalType
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryLock,
     InventoryMovement, ProductBatch, ProductVariant, SessionInventorySnapshot,
@@ -123,6 +125,11 @@ class Database:
 
     async def scalar(self, statement):
         self.statements.append(statement)
+        # Explicit single-actor fixture for canonical approval-password
+        # verification. Real PG16/Bearer tests own genuine credential checks.
+        descriptions = getattr(statement, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is CompanyPrincipal:
+            return SimpleNamespace(password_hash=getattr(self, "canonical_hash", ""))
         self.active_reads += 1
         self.events.append("active")
         params = statement.compile().params
@@ -610,14 +617,17 @@ class VehicleReconciliationCustodyTests(unittest.IsolatedAsyncioTestCase):
             complete_stocktake_command=Mock())
         import asyncio
         ns["asyncio"] = asyncio
-        ns["bcrypt"] = SimpleNamespace(checkpw=Mock(return_value=True))
+        import bcrypt
+        setup.db.canonical_hash = bcrypt.hashpw(b"synthetic", bcrypt.gensalt(rounds=4)).decode()
         setup.session.status = "PENDING_REVIEW"
         endpoint = load_functions(BACKEND / "api/warehouse/stocktake.py", {"approve_stocktake_session"}, ns)
         payload = SimpleNamespace(password="synthetic", count_attempt_id=77, notes=None)
         with self.assertRaises(HTTPException) as caught:
             await endpoint["approve_stocktake_session"](
-                66, payload, setup.db, SimpleNamespace(company_id=COMPANY),
-                SimpleNamespace(id=APPROVER, password_hash="synthetic"))
+                66, payload, setup.db,
+                SimpleNamespace(company_id=COMPANY,
+                                subject=SimpleNamespace(principal_id=APPROVER)),
+                SimpleNamespace(id=APPROVER, password_hash="legacy-unused"))
         self.assertEqual(caught.exception.status_code, 409)
         setup.db.rollback.assert_awaited_once()
         setup.db.commit.assert_not_awaited()
