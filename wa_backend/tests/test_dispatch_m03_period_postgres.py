@@ -387,16 +387,22 @@ async def test_m03_planned_start_real_bearer_lost201_replay_no_second_session(ga
     assert miss.status_code==409,miss.text
     task_id=str(uuid4())
     headers={**_headers(token),"Idempotency-Key":task_id}
-    started=await g.client.post(path,json={},headers=headers)
+    started,same=await asyncio.gather(
+        g.client.post(path,json={},headers=headers),
+        g.client.post(path,json={},headers=headers),
+    )
     assert started.status_code==201,started.text
+    assert same.status_code==201,same.text
     body=started.json()
     assert body["execution_context"]["period_id"]==planned
     assert body["execution_context"]["vehicle_location_id"]==loc_id
     assert body["execution_context"]["assignment_context_revision"]==1
-
-    same=await g.client.post(path,json={},headers=headers)
-    assert same.status_code==201,same.text
     assert same.json()==body
+
+    # A third post after the simulated lost 201 is the exact replay.
+    replay=await g.client.post(path,json={},headers=headers)
+    assert replay.status_code==201,replay.text
+    assert replay.json()==body
 
     token_context=tenant_context.set(g.tenant)
     try:
