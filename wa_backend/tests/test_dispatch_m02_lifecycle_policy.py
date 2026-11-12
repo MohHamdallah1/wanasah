@@ -48,6 +48,7 @@ def state(status="active", **changes):
         work_session_settled=False,
         target_vehicle_custody_revision=7,
         target_vehicle_custody_accepted=True,
+        target_vehicle_custody_matches_target=True,
     )
     base.update(changes)
     return RouteLifecycleState(**base)
@@ -93,6 +94,7 @@ def test_closing_postponed_releases_zone_for_new_route_identity():
     assert result.zone_reserved is False
     assert result.live_assets_reserved is False
     assert result.inventory_movements == ()
+    assert result.schedule_zone_next is True
     assert result.route_id == 55  # Next schedule creates a DIFFERENT route ID.
 
 
@@ -143,6 +145,7 @@ def test_postpone_cannot_consume_stale_context_or_period(field, change, code):
     ({"target_vehicle_custody_revision": None}, "VEHICLE_CUSTODY_UNVERIFIED"),
     ({"target_vehicle_custody_revision": 9}, "VEHICLE_CUSTODY_REVISION_STALE"),
     ({"target_vehicle_custody_accepted": False}, "VEHICLE_CUSTODY_ACCEPTANCE_REQUIRED"),
+    ({"target_vehicle_custody_matches_target": False}, "VEHICLE_CUSTODIAN_MISMATCH"),
     ({"zone_active": False}, "ZONE_ARCHIVED"),
     ({"open_period_id": 33}, "ROUTE_ALREADY_HAS_LIVE_PERIOD"),
 ])
@@ -175,6 +178,8 @@ def test_same_uuid_exact_payload_deterministic_hash_and_changed_body_rejected():
      "expected_period_id": 7, "inventory": {}},
     {"action": "CLOSE", "request_id": str(uuid4()), "expected_context_revision": 4,
      "target_vehicle_id": 9},
+    {"action": "CLOSE", "request_id": str(uuid4()), "expected_context_revision": 4,
+     "expected_vehicle_custody_revision": 3},
     {"action": "POSTPONE", "request_id": str(uuid4()), "expected_context_revision": 4},
 ])
 def test_legacy_or_implicit_inventory_commands_fail_closed(payload):
