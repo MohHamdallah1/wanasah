@@ -329,3 +329,48 @@ async def test_default_session_start_break_end_reconcile_own_assignment(gate):
     assert replay.status_code==200,replay.text
     assert replay.json()["already_reconciled"]
     assert await evidence(g)==before
+
+
+async def test_m03_execution_context_real_field_identity_tenant_scope_and_revoke(gate):
+    """New M03 read is authentic FIELD-only, exact grant, and read-only.
+
+    This also rejects a same-tenant representative's attempt to inherit the
+    current driver's period and a foreign company's token reading its route.
+    """
+    g = gate
+    endpoint = "/driver/sessions/execution-context"
+    before = await evidence(g)
+    own = await call(g, "GET", endpoint)
+    assert own.status_code == 200, own.text
+    body = own.json()
+    assert body["active_session_found"] is True
+    assert body["session_id"] == g.session
+    # Pre-M03 fixture is a legitimate historical single-route WorkSession.
+    # Its execution envelope may remain legacy; it must not grant a period.
+    if body["execution_context"] is not None:
+        assert body["execution_context"]["route_id"] == g.route
+    assert await evidence(g) == before
+
+    other = await call(g, "GET", endpoint, token=g.other_token)
+    assert other.status_code == 200, other.text
+    assert other.json()["active_session_found"] is False
+    assert other.json()["session_id"] is None
+    assert other.json()["execution_context"] is None
+
+    outside = await call(g, "GET", endpoint, token=g.foreign_token)
+    assert outside.status_code == 200, outside.text
+    assert outside.json()["session_id"] != g.session
+    assert await evidence(g) == before
+
+    await set_codes(g, FIELD_ASSIGNABLE_PERMISSIONS - {"work_session.read"})
+    try:
+        # The role change is deliberate; the forbidden HTTP call must not
+        # change any further tenant business evidence.
+        before_denial = await evidence(g)
+        denied(await call(g, "GET", endpoint))
+        assert await evidence(g) == before_denial
+    finally:
+        await set_codes(g, FIELD_ASSIGNABLE_PERMISSIONS)
+    restored = await call(g, "GET", endpoint)
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["session_id"] == g.session

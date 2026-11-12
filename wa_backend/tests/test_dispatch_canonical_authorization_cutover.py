@@ -345,6 +345,7 @@ class DispatchCanonicalAuthorizationCutoverTests(unittest.IsolatedAsyncioTestCas
         allowed_contexts = (
             "admin_id=legacy_actor.id",
             "actor_id=legacy_actor.id",
+            "actor_id=int(legacy_actor.id),",
             "performed_by=legacy_actor.id",
             "updated_by=legacy_actor.id",
             "dispatched_by=legacy_actor_id",

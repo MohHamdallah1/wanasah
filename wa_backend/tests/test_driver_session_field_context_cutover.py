@@ -13,10 +13,11 @@ import os
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from typing import Optional
 import unittest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Header
 from domains.dispatch_transfer_quantity import is_canonical_base_handshake, canonical_field_base_quantity
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import and_, case, func, or_, select, update
@@ -24,6 +25,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from domains.work_session_multi_route.context import PeriodProof, ResolvedExecution, SessionPeriodRejected
 
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
@@ -51,7 +53,7 @@ from models import (
     WorkBreakLog, WorkSession,
 )
 from quantity import QUANTITY_MAX
-from services import InventoryMutationError, InventoryReversalError
+from services import InventoryMutationError, InventoryReversalError, OperationIdempotencyError
 from domains.sales_calculation.core import CalculationError
 from domains.sales_evidence.core import SalesEvidenceError
 from schemas import BreakToggleRequest, SessionStartRequest
@@ -106,6 +108,10 @@ def load_routes():
         read_vehicle_operational_state=AsyncMock(
             return_value=SimpleNamespace(is_active=True, maintenance_status="Active")
         ),
+        # Legacy single-route test mode: the real M03 canonical-start boundary
+        # is covered by restricted PostgreSQL/Bearer tests, not by a fake DB.
+        start_session_from_planned_period=AsyncMock(return_value=None),
+        SessionPeriodRejected=SessionPeriodRejected,
         vehicle_is_operational=Mock(
             side_effect=lambda vehicle: bool(
                 vehicle is not None
@@ -543,6 +549,8 @@ def load_custody_routes(**dependencies):
         ]
     namespace = dict(globals(), logger=Mock(), **dependencies)
     namespace.setdefault("lock_session_load_plan", AsyncMock())
+    namespace.setdefault("SessionPeriodRejected", SessionPeriodRejected)
+    namespace.setdefault("PeriodProof", PeriodProof)
     namespace.setdefault("synchronize_session_load_plans", AsyncMock())
     module = ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[]))
     exec(compile(module, str(BACKEND / "api/driver.py"), "exec"), namespace)
@@ -619,18 +627,27 @@ class DriverCustodyCutoverTests(unittest.IsolatedAsyncioTestCase):
             break_start_time=None, break_end_time=None, is_authorized_to_sell=True)
         shop = SimpleNamespace(id=901, zone_id=1001, current_balance=Decimal("0"))
         visit = SimpleNamespace(id=701, shop_id=901, driver_id=303, status="Pending",
-            work_session=None, work_session_id=None, is_emergency=False, latitude=None, longitude=None)
+            work_session=None, work_session_id=None, execution_period_id=None,
+            is_emergency=False, latitude=None, longitude=None)
         route = SimpleNamespace(id=1101, vehicle_id=801, zone_id=1001)
         history = result(501)
         after = result(501)
         if invalid_at_guard:
             after.scalars.return_value.all.return_value = [501, 502]
         db.execute.side_effect = [
-            result(session), result(901), result(shop), result(visit), result(route),
+            result(session), result(901), result(shop), result(visit),
             result(), history, result(), after,
         ]
         events = []
+        # M03 resolves route/vehicle from a single authoritative legacy
+        # execution record. We test the pre-M03 single-route compatibility
+        # downstream; genuine canonical-period evidence is exercised via PG16.
+        resolved = ResolvedExecution(
+            route=route, period=None, custody_epoch=None,
+            commercial_context_id=None, vehicle_location_id=501,
+        )
         namespace = load_custody_routes(
+            resolve_active_execution=AsyncMock(return_value=resolved),
             begin_idempotent_operation=AsyncMock(return_value=(SimpleNamespace(), None)),
             check_inventory_locks_batch=AsyncMock(),
             acquire_product_lifecycle_guards=AsyncMock(side_effect=lambda *a, **k: events.append("products")),

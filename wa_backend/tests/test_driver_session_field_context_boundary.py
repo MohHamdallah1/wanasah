@@ -237,7 +237,7 @@ class DriverSessionFieldContextBoundaryTests(unittest.TestCase):
 
     def test_transaction_boundaries_are_semantic_not_body_fingerprints(self):
         expected = {
-            "start_work_session": {"add": 2, "flush": 1, "commit": 1},
+            "start_work_session": {"add": 2, "flush": 1, "commit": 2},
             "end_work_session": {"commit": 1},
             "toggle_break": {"add": 1, "commit": 1},
         }

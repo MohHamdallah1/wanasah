@@ -18,6 +18,16 @@ BATCH_ERROR_SHA = "5d36daf3f096937e8af045fc62452c63408e6419"
 # Approved V1 return-cost fidelity wave. Only update_visit is rebased to this
 # immutable source; every other frozen FIELD workflow keeps the older baseline.
 RETURN_COST_SHA = "51a0810cee5e7c13fe7222822e4f68972a6350ba"
+# The exact approved M02 base, NOT a new digest of modified M03 bodies.
+M03_BASE_SHA = "6a312476858eb6322b79c082d54a1cc97e590228"
+M03_CHANGED_FROZEN = frozenset({
+    "start_work_session", "update_visit", "get_driver_dashboard",
+    "get_products", "get_driver_visits",
+})
+M03_CHANGED_HELPERS = frozenset({
+    "_load_vehicle_inventory_projection", "_load_driver_pricing_route",
+})
+M03_NEW_ENDPOINT = "get_current_execution_context"
 FROZEN_FUNCTIONS = (
     "start_work_session", "end_work_session", "toggle_break", "update_visit",
     "get_driver_dashboard", "respond_to_transfer", "batch_respond_to_transfers",
@@ -383,6 +393,13 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             ["git", "show", RETURN_COST_SHA + ":wa_backend/api/driver.py"],
             cwd=BACKEND.parent, text=True, encoding="utf-8",
         )
+        # Compare every untouched production AST node against exact
+        # accepted M02 rather than an obsolete pre-route-period SHA.
+        m02 = subprocess.check_output(
+            ["git", "show", M03_BASE_SHA + ":wa_backend/api/driver.py"],
+            cwd=BACKEND.parent, text=True, encoding="utf-8",
+        )
+        self.m02_tree = ast.parse(without_canonical_projection_source(m02))
         self.return_cost_functions = {
             node.name: node for node in ast.parse(return_cost).body
             if isinstance(node, ast.AsyncFunctionDef)
@@ -471,8 +488,14 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                             if part.value.id == "legacy_actor":
                                 self.assertIn(part.attr, {"id", "full_name"})
                             if part.value.id == "field_context":
-                                self.assertEqual(part.attr, "company_id")
-                                company_reads.append(part)
+                                # M03 must bind the exact canonical FIELD
+                                # principal and representative, not infer
+                                # either identity from the operational Driver.
+                                self.assertIn(part.attr, {
+                                    "company_id", "representative_id", "principal_id",
+                                })
+                                if part.attr == "company_id":
+                                    company_reads.append(part)
                     if isinstance(part, ast.Name):
                         self.assertNotIn(part.id, {"current_driver", "jwt", "decode_company_token",
                                                    "get_current_driver", "get_legacy_transport_field_context"})
@@ -481,80 +504,146 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                     self.assertEqual(eval(compile(ast.Expression(expression), str(SOURCE), "eval"),
                                           namespace), 7)
 
+    def _assert_m03_workflow_contract(self, name, node):
+        # M03 intentionally changes these bodies. Keep specific transaction,
+        # identity, offline-proof and read-only protections instead of making
+        # the test pass by replacing old digest constants.
+        calls = {
+            ast.unparse(part.func)
+            for part in ast.walk(node)
+            if isinstance(part, ast.Call)
+        }
+        required = {
+            "start_work_session": {
+                "start_session_from_planned_period", "begin_idempotent_operation",
+                "complete_idempotent_operation", "db.commit", "db.rollback",
+            },
+            "update_visit": {
+                "resolve_active_execution", "begin_idempotent_operation",
+                "complete_idempotent_operation", "db.commit", "db.rollback",
+            },
+            "get_driver_dashboard": {
+                "read_current_execution", "_load_vehicle_inventory_projection",
+            },
+            "get_products": {"_load_driver_pricing_route"},
+            "get_driver_visits": {
+                "read_current_execution", "_load_vehicle_inventory_projection",
+            },
+        }[name]
+        self.assertFalse(required - calls, f"{name} lost {sorted(required - calls)}")
+        source = ast.unparse(node)
+        self.assertIn("field_context.company_id", source)
+        self.assertIn("legacy_actor.id", source)
+        self.assertNotIn("legacy_actor.company_id", source)
+        if name in ("start_work_session", "update_visit"):
+            self.assertIn("SessionPeriodRejected", source)
+        if name == "start_work_session":
+            self.assertIn("OperationIdempotencyError", source)
+        if name == "start_work_session":
+            self.assertIn("request_id", source)
+            self.assertIn("start_session_from_planned_period", source)
+            self.assertIn("return canonical_start", source)
+        if name == "update_visit":
+            self.assertIn("PeriodProof", source)
+            self.assertIn("M03_PERIOD_PROOF_REQUIRED", source)
+            self.assertIn("M03_VISIT_PERIOD_IMMUTABLE", source)
+            self.assertIn("visit.execution_period_id", source)
+            self.assertIn("visit.execution_vehicle_location_id", source)
+            self.assertIn("visit.execution_context_revision", source)
+        if name.startswith("get_"):
+            self.assertNotIn("db.commit", calls)
+
     def test_entire_workflows_locks_transactions_idempotency_and_responses_preserved(self):
         for name in FROZEN_FUNCTIONS:
-            approved_batch = name == "batch_respond_to_transfers"
-            approved_return_cost = name == "update_visit"
-            if approved_batch:
-                expected = digest(self.approved_functions[name].body)
-            elif approved_return_cost:
-                expected_node = without_load_plan_reconciliation(
-                    self.return_cost_functions[name]
-                )
-                expected = digest(without_field_additions(expected_node))
-            else:
-                expected = digest(self.baseline_functions[name].body)
             with self.subTest(endpoint=name):
-                normalized = without_load_plan_reconciliation(self.functions[name])
-                normalized = without_adjust_load_context_revision(normalized)
-                actual = normalized.body if approved_batch else without_field_additions(normalized)
-                self.assertEqual(digest(actual), expected)
-                self.assertEqual([ast.unparse(item) for item in without_capability_decorator(self.functions[name]).decorator_list],
-                                 ROUTES[name])
+                node = self.functions[name]
+                if name in M03_CHANGED_FROZEN:
+                    self._assert_m03_workflow_contract(name, node)
+                else:
+                    approved_batch = name == "batch_respond_to_transfers"
+                    if approved_batch:
+                        expected = digest(self.approved_functions[name].body)
+                    else:
+                        expected = digest(self.baseline_functions[name].body)
+                    normalized = without_load_plan_reconciliation(node)
+                    normalized = without_adjust_load_context_revision(normalized)
+                    actual = normalized.body if approved_batch else without_field_additions(normalized)
+                    self.assertEqual(digest(actual), expected)
+                self.assertEqual(
+                    [ast.unparse(item) for item in without_capability_decorator(node).decorator_list],
+                    ROUTES[name],
+                )
+
+    def test_m03_changed_workflows_fail_when_authority_or_commit_is_removed(self):
+        # Adversarial mutation: guards must be enforced, not decorative.
+        for name, removed in (
+            ("start_work_session", "start_session_from_planned_period"),
+            ("update_visit", "resolve_active_execution"),
+            ("update_visit", "begin_idempotent_operation"),
+            ("get_driver_dashboard", "read_current_execution"),
+            ("get_products", "_load_driver_pricing_route"),
+            ("get_driver_visits", "read_current_execution"),
+        ):
+            with self.subTest(endpoint=name, missing=removed):
+                altered = copy.deepcopy(self.functions[name])
+                for part in ast.walk(altered):
+                    if isinstance(part, ast.Call) and isinstance(part.func, ast.Name):
+                        if part.func.id == removed:
+                            part.func.id = "M03_REMOVED_GUARD"
+                with self.assertRaises(AssertionError):
+                    self._assert_m03_workflow_contract(name, altered)
 
     def test_helpers_mixed_visit_details_and_all_unrelated_module_code_are_unchanged(self):
-        remainder = []
-        for node in self.tree.body:
-            if isinstance(node, ast.ImportFrom) and node.module == "domains.dispatch_load_plan":
-                self.assertEqual(ast.dump(node, include_attributes=False), ast.dump(ast.parse(
-                    "from domains.dispatch_load_plan import lock_session_load_plan, synchronize_session_load_plans"
-                ).body[0], include_attributes=False))
-                continue
-            if isinstance(node, ast.ImportFrom) and node.module in {
-                "api.authentication.field_authorization",
-                "api.authentication.field_transfer_authorization",
-            }:
-                expected = (
-                    ["get_current_field_capability_access","require_field_capability","require_field_capabilities"]
-                    if node.module.endswith(".field_authorization") else
-                    ["require_transfer_decision_capability","require_transfer_batch_capabilities"]
-                )
-                self.assertEqual([alias.name for alias in node.names],expected)
-                continue
-            if isinstance(node, ast.AsyncFunctionDef) and node.name=="get_visit_details":
-                node=copy.deepcopy(node)
-                branch=next(p for p in node.body if isinstance(p,ast.If))
-                approved=ast.parse(
-                    'access = await get_current_field_capability_access(current=current, db=db)\n'
-                    'await require_field_capability("visit.read")(access=access)'
-                ).body
-                self.assertEqual(digest(branch.body[:2]),digest(approved))
-                branch.body=branch.body[2:]
-            if isinstance(node, ast.AsyncFunctionDef) and node.name in FROZEN_FUNCTIONS:
-                continue
-            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_load_handshake_lines_for_update":
-                self.assertEqual(digest([node]), digest([self.approved_functions[node.name]]))
-                continue
-            if isinstance(node, ast.ImportFrom) and node.module == "api.field_transfer_contracts":
-                self.assertEqual([alias.name for alias in node.names],
-                    ["field_transfer_batch_route", "transfer_batch_error", "attributed_transfer_error"])
-                continue
-            if isinstance(node, ast.ImportFrom) and node.module == "api.field_visit_contracts":
-                self.assertEqual([alias.name for alias in node.names], FIELD_IMPORTS)
-                continue
-            if isinstance(node, ast.ImportFrom) and node.module == "domains.inventory_costing.service":
-                self.assertEqual(
-                    [alias.name for alias in node.names],
-                    ["resolve_linked_return_cost_sources"],
-                )
-                continue
-            remainder.append(node)
-        baseline = [
-            node for node in self.baseline_tree.body
-            if not (isinstance(node, ast.AsyncFunctionDef) and
-                    (node.name in FROZEN_FUNCTIONS or node.name == "_load_handshake_lines_for_update"))
-        ]
-        self.assertEqual(digest(remainder), digest(baseline))
+        # Preserve ALL unrelated code byte-independent (AST structural exact)
+        # against real merged M02, including pricing/returns/transfer and
+        # backoffice dispatch. Only the seven audited M03 functions may differ.
+        changes = M03_CHANGED_FROZEN | M03_CHANGED_HELPERS
+        def guarded_nodes(tree):
+            return [
+                ast.dump(node, include_attributes=False)
+                for node in tree.body
+                if not isinstance(node, (ast.Import, ast.ImportFrom))
+                and getattr(node, "name", "") not in changes | {M03_NEW_ENDPOINT}
+            ]
+        self.assertEqual(guarded_nodes(self.tree), guarded_nodes(self.m02_tree))
+
+        def imports(tree):
+            result = {}
+            for node in tree.body:
+                if isinstance(node, ast.ImportFrom):
+                    result.setdefault(node.module, set()).update(a.name for a in node.names)
+                elif isinstance(node, ast.Import):
+                    result.setdefault("", set()).update(a.name for a in node.names)
+            return result
+        before, after = imports(self.m02_tree), imports(self.tree)
+        for module, members in before.items():
+            self.assertTrue(members <= after.get(module, set()), (module, members))
+        extras = {module: after[module] - before.get(module, set()) for module in after}
+        extras = {module: members for module, members in extras.items() if members}
+        self.assertEqual(extras, {
+            "fastapi": {"Header"},
+            "services": {"OperationIdempotencyError"},
+            "domains.work_session_multi_route.context": {
+                "PeriodProof", "SessionPeriodRejected", "resolve_active_execution",
+                "find_planned_period", "execution_envelope",
+            },
+            "domains.work_session_multi_route.start": {
+                "start_session_from_planned_period", "establish_session_vehicle_opening",
+            },
+            "domains.work_session_multi_route.read": {"read_current_execution"},
+        })
+
+        # M03 changed helpers must remain read-only and location-scoped.
+        code = {node.name: ast.unparse(node) for node in self.tree.body
+                if isinstance(node, ast.AsyncFunctionDef)}
+        self.assertIn("SessionInventorySnapshot.location_id == vehicle_location_id",
+                      code["_load_vehicle_inventory_projection"])
+        self.assertIn("canonical_session and issued_map",
+                      code["_load_vehicle_inventory_projection"])
+        self.assertIn("resolve_active_execution",
+                      code["update_visit"])
+        self.assertIn("read_current_execution",
+                      code[M03_NEW_ENDPOINT])
 
     def test_terminal_plan_normalization_rejects_missing_duplicate_or_reordered_hooks(self):
         for name in ("respond_to_transfer", "batch_respond_to_transfers"):
