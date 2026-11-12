@@ -15,7 +15,7 @@ export type RouteLifecycleOutcome =
 
 const actorIdentity = (actorScope: string): { companyId: number; principalId: number } => {
   const pieces = actorScope.split(":");
-  if (pieces.length !== 3 || pieces.some(p => !/^[1-9]\\d*$/.test(p) ||
+  if (pieces.length !== 3 || pieces.some(p => !/^[1-9]\d*$/.test(p) ||
       !Number.isSafeInteger(Number(p)))) throw new Error("M05_ACTOR_SCOPE_INVALID");
   return { companyId: Number(pieces[0]), principalId: Number(pieces[1]) };
 };
