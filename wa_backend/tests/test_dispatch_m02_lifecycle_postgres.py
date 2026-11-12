@@ -191,6 +191,17 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert before["real_stock"]["cost_events"] == after_pause["real_stock"]["cost_events"]
         assert after_pause["legacy_session"] == before["legacy_session"]
 
+        # Before any explicit signed acceptance, old loaded vehicle ownership
+        # must NOT be inferred from the legacy route, even when it is the same
+        # driver's earlier car.
+        premature = await http.put(
+            url, headers=owner, json=_body(
+                "RESUME", 2, driver=int(launch["driver_id"]),
+                vehicle=int(launch["vehicle_id"]), custody=1,
+            ),
+        )
+        assert premature.status_code == 409, premature.text
+
         # Real PostgreSQL unique-index check: POSTPONED reserves zone only,
         # not old Driver/Vehicle. A second different-zone route can use both;
         # the postponed zone remains fully protected at DB level.
@@ -250,10 +261,12 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
             "real_stock"
         ]["movements"] == before["real_stock"]["movements"]
 
+        # A signed current holder is not enough: a mismatched expected epoch
+        # revision must still reject (and must not create a second period).
         denied = _body("RESUME", 2, driver=int(launch["driver_id"]),
-                       vehicle=int(launch["vehicle_id"]), custody=1)
-        no_proof = await http.put(url, headers=owner, json=denied)
-        assert no_proof.status_code == 409, no_proof.text
+                       vehicle=int(launch["vehicle_id"]), custody=custody_revision + 1)
+        stale_custody = await http.put(url, headers=owner, json=denied)
+        assert stale_custody.status_code == 409, stale_custody.text
         resume = _body("RESUME", 2, driver=int(launch["driver_id"]),
                        vehicle=int(launch["vehicle_id"]), custody=custody_revision)
         simultaneous = await asyncio.gather(*[
