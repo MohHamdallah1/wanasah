@@ -4,6 +4,7 @@ import "./dispatchNoMotion.css";
 import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import type { TabId } from "@/types/dispatch";
 
 const ALL_TABS = [
@@ -113,6 +114,14 @@ export const useDispatchChromeBridge = () => useContext(ChromeContext);
 
 /** One permanent toolbar owned above Dispatch lazy hydration, not a cold duplicate. */
 export function DispatchChromeHost({ active, children }: { active: boolean; children: ReactNode }) {
+  const session = useDashboardSession();
+  // Ordinary dashboard navigation keeps exactly one hosted workspace; a
+  // different login generation/actor must never inherit its route cards.
+  return <DispatchChromeScope key={session ? `${session.generation}:${session.identity}` : "signed-out"}
+    active={active}>{children}</DispatchChromeScope>;
+}
+
+function DispatchChromeScope({ active, children }: { active: boolean; children: ReactNode }) {
   const [view, setView] = useState<ChromeView>(initialView);
   const handlers = useRef<ChromeActions>({});
   const [realRoutes, setRealRoutes] = useState<RealRoutes | null>(null);
