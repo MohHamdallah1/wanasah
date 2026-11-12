@@ -11,16 +11,15 @@ from typing import Protocol
 from sqlalchemy import select
 
 from domains.authorization.backoffice_access import BackofficeCapabilityAccessRejected
-from models import SystemAuditLog, Vehicle
+from models import Vehicle
 from services import (
     acquire_inventory_location_guard, begin_idempotent_operation,
     complete_idempotent_operation,
 )
 
 from .contracts import CustodyRejected, VehicleCountCommand
-from .models import (
-    VehicleCustodyCheckpoint, VehicleCustodyCheckpointEpoch, VehicleCustodyCheckpointLine,
-)
+from .models import VehicleCustodyCheckpoint
+from .checkpoints import persist_checkpoint, seal_session_if_complete
 from .policy import command_hash, line_key, validate_count
 from .resolution import session_responsibilities
 from .snapshots import load_vehicle_snapshot, movement_watermark
@@ -60,6 +59,8 @@ async def record_vehicle_count(db, *, access, actor_id: int, session_id: int,
     company_id = access.company_id
     try:
         await require_capability(access, "settlement.execute")
+        from .activation import require_m04_schema
+        await require_m04_schema(db)
         _, vehicles = await session_responsibilities(
             db, company_id=company_id, session_id=session_id,
         )
@@ -97,7 +98,7 @@ async def record_vehicle_count(db, *, access, actor_id: int, session_id: int,
         )
         if vehicles != rechecked:
             raise CustodyRejected("CUSTODY_CHANGED")
-        locations = {vehicle.location_id}
+        locations = {v.location_id for v in vehicles}
         if command.destination_location_id is not None:
             locations.add(command.destination_location_id)
         for location_id in sorted(locations):
@@ -126,6 +127,10 @@ async def record_vehicle_count(db, *, access, actor_id: int, session_id: int,
             # may exist while independent review remains outstanding.
             response = {**response, "financial_ready": False, "movement_count": 0}
         else:
+            from .inventory_integration import seal_canonical_location
+            await seal_canonical_location(
+                db, company_id=company_id, work=work, location_id=vehicle.location_id, actor_id=actor_id,
+            )
             moved = 0
             if command.mode == "PHYSICAL_HANDOFF":
                 moved = await inventory.physical_handoff(
@@ -136,44 +141,16 @@ async def record_vehicle_count(db, *, access, actor_id: int, session_id: int,
             final_watermark = await movement_watermark(
                 db, company_id=company_id, location_id=vehicle.location_id,
             )
-            checkpoint = VehicleCustodyCheckpoint(
-                company_id=company_id, work_session_id=session_id, vehicle_id=vehicle_id,
-                vehicle_location_id=vehicle.location_id, mode=command.mode,
-                destination_location_id=command.destination_location_id,
-                signed_by_principal_id=access.subject.principal_id,
-                request_id=str(command.request_id), payload_hash=command_hash(session_id, vehicle_id, command),
-                snapshot_token=command.snapshot_token, context_digest=vehicle.context_digest,
-                latest_epoch_id=snapshot.latest_epoch_id,
-                latest_epoch_revision=snapshot.latest_epoch_revision,
-                movement_watermark=snapshot.movement_watermark,
-                final_movement_watermark=final_watermark, stocktake_session_id=recon_id,
-                context_manifest={"period_ids": list(vehicle.period_ids), "epoch_ids": list(vehicle.epoch_ids)},
-                notes=command.notes,
+            checkpoint = await persist_checkpoint(
+                db, access=access, actor_id=actor_id, snapshot=snapshot, command=command,
+                actual=actual, recon_id=recon_id, final_watermark=final_watermark,
             )
-            db.add(checkpoint)
-            await db.flush()
-            db.add_all([VehicleCustodyCheckpointEpoch(
-                company_id=company_id, work_session_id=session_id,
-                checkpoint_id=checkpoint.id, epoch_id=epoch_id,
-            ) for epoch_id in vehicle.epoch_ids])
-            db.add_all([VehicleCustodyCheckpointLine(
-                company_id=company_id, checkpoint_id=checkpoint.id,
-                product_variant_id=row.variant_id, batch_id=row.batch_id,
-                stock_status=row.stock_status, expected_quantity=row.quantity,
-                actual_quantity=actual[line_key(snapshot, row)],
-            ) for row in snapshot.rows])
-            # A dedicated event: COUNT_IN_PLACE never claims warehouse receipt.
-            db.add(SystemAuditLog(
-                company_id=company_id, admin_id=actor_id,
-                target_id=f"WorkSession_{session_id}",
-                action_type="VEHICLE_CUSTODY_COUNT_SEALED" if command.mode == "COUNT_IN_PLACE"
-                else "VEHICLE_CUSTODY_PHYSICAL_HANDOFF",
-                new_value=f"checkpoint={checkpoint.id};vehicle={vehicle_id};request={command.request_id}",
-            ))
+            complete = await seal_session_if_complete(db, work=work, vehicles=vehicles, actor_id=actor_id)
             response = {
                 "status": "VEHICLE_CUSTODY_SEALED", "mode": command.mode,
                 "vehicle_id": vehicle_id, "checkpoint_id": checkpoint.id,
                 "review_required": False, "movement_count": moved,
+                "inventory_reconciled": complete,
                 # Final readiness is a separate all-vehicle authoritative gate.
                 "financial_ready": False,
             }

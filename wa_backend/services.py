@@ -3027,6 +3027,18 @@ async def validate_vehicle_recon_work_session(
     except ValueError as exc:
         raise InventoryMutationError(str(exc)) from exc
 
+    from domains.representative_settlement_multi_vehicle.inventory_integration import (
+        canonical_session, validate_canonical_recon,
+    )
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    if await canonical_session(db_session, company_id=company_id, session_id=work_session_id):
+        try:
+            return await validate_canonical_recon(
+                db_session, company_id=company_id, session_id=work_session_id, vehicle_id=vehicle_id,
+            )
+        except CustodyRejected as exc:
+            raise InventoryMutationError(exc.code) from exc
+
     work_session = (
         await db_session.execute(
             select(WorkSession)
@@ -5079,6 +5091,19 @@ async def _seal_vehicle_inventory_reconciliation(
     operational approver ID for provenance; capability authority stays at its
     canonical caller. This private effect grants no request authority.
     """
+    from domains.representative_settlement_multi_vehicle.inventory_integration import (
+        canonical_session, seal_canonical_location,
+    )
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    if await canonical_session(db_session, company_id=company_id, session_id=work_session.id):
+        try:
+            return await seal_canonical_location(
+                db_session, company_id=company_id, work=work_session,
+                location_id=vehicle_location_id, actor_id=settled_by,
+            )
+        except CustodyRejected as exc:
+            raise InventoryMutationError(exc.code) from exc
+
     # ترتيب الأقفال الرسمي لـ VEHICLE_RECON: WorkSession -> inventory-location guard.
     await acquire_inventory_location_guard(
         db_session,

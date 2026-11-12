@@ -27,9 +27,12 @@ from main import app
 from models import (
     Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
     Product, ProductBatch, ProductVariant, UOM, UserLocationAccess, Vehicle, WorkSession,
-    Zone, utc_now,
+    SystemAuditLog, Zone, utc_now,
 )
-from services import apply_inventory_movement
+from services import (
+    InventoryMutationError, _seal_vehicle_inventory_reconciliation,
+    apply_inventory_movement, validate_vehicle_recon_work_session,
+)
 from tests.canonical_actor_fixtures import seed_field_fixture, seed_ordinary_backoffice_fixture
 from tests.test_cp14c_stocktake_lifecycle_postgres import (
     _ensure_permissions, _grant_company, _grant_location, _runtime_session,
@@ -61,10 +64,12 @@ async def seed(admin):
         receiver = await seed_ordinary_backoffice_fixture(db, company.id, password=PASSWORD)
         limited = await seed_ordinary_backoffice_fixture(db, company.id, password=PASSWORD)
         field = await seed_field_fixture(db, company.id)
-        await _ensure_permissions(db, {"settlement.read", "inventory.read"})
+        await _ensure_permissions(db, {"settlement.read", "settlement.execute", "inventory.read", "stocktake.count"})
         for actor in (receiver, limited):
             await _grant_company(db, company_id=company.id, driver_id=actor.driver_id,
                                  code="settlement.read")
+        await _grant_company(db, company_id=company.id, driver_id=receiver.driver_id,
+                             code="settlement.execute")
         uom = await db.scalar(select(UOM).where(UOM.code == "EACH"))
         product = Product(company_id=company.id, code="M04P", name="M04 stock")
         db.add(product)
@@ -108,7 +113,7 @@ async def seed(admin):
             locations.append(location.id)
             routes.append(route.id)
             await _grant_location(db, company_id=company.id, driver_id=receiver.driver_id,
-                                  location_id=location.id, codes=("inventory.read",))
+                                  location_id=location.id, codes=("inventory.read", "stocktake.count"))
         await _grant_location(db, company_id=company.id, driver_id=limited.driver_id,
                               location_id=locations[0], codes=("inventory.read",))
         for i, car_index in enumerate((0, 1, 0)):
@@ -139,7 +144,7 @@ async def seed(admin):
         await db.commit()
         return dict(company=company.id, code=company.company_code, receiver=receiver,
                     limited=limited, session=work.id, cars=cars, locations=locations,
-                    variant=variant.id, batch=batch.id)
+                    variant=variant.id, batch=batch.id, driver=field.driver.id)
 
 
 async def token(http, admin, state, actor):
@@ -182,6 +187,15 @@ async def test_real_pg16_rls_and_bearer_two_vehicle_count_sheets_are_read_only_a
                 db, company_id=company, session_id=state["session"])
             assert len(responsibilities) == 2
             assert len(responsibilities[0].period_ids) == 2
+            from domains.representative_settlement_multi_vehicle.load_ownership import canonical_load_context
+            assert await canonical_load_context(db, company_id=company, vehicle_id=state["cars"][1]) == {
+                "route_id": None, "session_id": work.id, "ended": True}
+            assert await canonical_load_context(db, company_id=company, vehicle_id=foreign["cars"][1]) is None
+            from domains.representative_settlement_multi_vehicle.period_pricing import resolve_canonical_shortage_prices
+            with pytest.raises(CustodyRejected, match="SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED"):
+                await resolve_canonical_shortage_prices(
+                    db, company_id=company, work_session_id=work.id,
+                    vehicle_location_id=state["locations"][1], variant_ids=[state["variant"]])
             # These are movement-engine fixtures, NOT FIELD sale/finance proof.
             for index, quantity in ((0, "100"), (1, "60")):
                 await apply_inventory_movement(
@@ -201,6 +215,21 @@ async def test_real_pg16_rls_and_bearer_two_vehicle_count_sheets_are_read_only_a
                     source_location_id=state["locations"][index], source_stock_status="AVAILABLE")
             await db.commit()
             before = await fingerprint(db, company)
+            # The two changed public helper seams cannot activate an incomplete
+            # multi-car write against this unextended M02/M01 database.
+            schema_ready = await db.scalar(text(
+                "SELECT to_regprocedure('public.m04_custody_contract_version()')")) is not None
+            if not schema_ready:
+                with pytest.raises(InventoryMutationError, match="M04_CUSTODY_SCHEMA_NOT_READY"):
+                    await validate_vehicle_recon_work_session(
+                        db, company_id=company, work_session_id=work.id, vehicle_id=state["cars"][1])
+                with pytest.raises(InventoryMutationError, match="M04_CUSTODY_SCHEMA_NOT_READY"):
+                    await _seal_vehicle_inventory_reconciliation(
+                        db, company_id=company, work_session=work,
+                        vehicle_location_id=state["locations"][1], settled_by=state["receiver"].driver_id)
+            else:
+                assert (await validate_vehicle_recon_work_session(
+                    db, company_id=company, work_session_id=work.id, vehicle_id=state["cars"][1])).id == work.id
             with pytest.raises(CustodyRejected, match="NOT_FOUND"):
                 await session_responsibilities(db, company_id=company, session_id=foreign["session"])
             # Even an explicit foreign tenant predicate cannot escape FORCE RLS.
@@ -219,6 +248,25 @@ async def test_real_pg16_rls_and_bearer_two_vehicle_count_sheets_are_read_only_a
                 assert reply.json()["lines"][0]["expected_quantity"] == quantity
                 assert len(reply.json()["snapshot_token"]) == 64
                 assert "batch_id" not in reply.json()["lines"][0]
+            a_sheet = (await http.get(path + str(state["cars"][0]), headers=headers)).json()
+            blocked_write = await http.post(path + str(state["cars"][0]) + "/count", headers=headers, json={
+                "request_id": str(uuid4()), "mode": "COUNT_IN_PLACE", "receiver_confirms_count": True,
+                "snapshot_token": a_sheet["snapshot_token"],
+                "items": [{"line_key": r["line_key"], "actual_quantity": r["expected_quantity"]}
+                          for r in a_sheet["lines"]],
+            })
+            if not schema_ready:
+                assert blocked_write.status_code == 503, blocked_write.text
+                assert blocked_write.json()["error"]["code"] == "M04_CUSTODY_SCHEMA_NOT_READY"
+                assert blocked_write.json()["error"]["request_id"]
+            else:
+                assert blocked_write.status_code == 200, blocked_write.text
+                assert blocked_write.json()["movement_count"] == 0
+            legacy = await http.post(f'/admin/sessions/{state["session"]}/inventory-custody/receive',
+                                     headers=headers, json={"request_id": str(uuid4()),
+                                         "destination_location_id": state["locations"][0],
+                                         "receiver_confirms_handoff": True, "items": []})
+            assert legacy.status_code == 409 and legacy.json()["error"]["code"] == "EXPLICIT_VEHICLE_CUSTODY_COMMAND_REQUIRED"
             assert (await http.get(path + str(state["cars"][0]))).status_code == 401
             assert (await http.get(path + str(state["cars"][0]), headers=limited)).status_code == 200
             assert (await http.get(path + str(state["cars"][1]), headers=limited)).status_code == 403
@@ -234,6 +282,87 @@ async def test_real_pg16_rls_and_bearer_two_vehicle_count_sheets_are_read_only_a
             assert revoked.json()["error"]["request_id"]
         async with _runtime_session(runtime, company) as db:
             assert await fingerprint(db, company) == before
+    finally:
+        await runtime.dispose()
+        await admin.dispose()
+        await http_engine.dispose()
+
+
+async def test_real_legacy_single_vehicle_damaged_handoff_and_financial_replay_remain_unchanged():
+    runtime_url, admin_url = checked_urls()
+    runtime = create_async_engine(runtime_url, poolclass=NullPool)
+    admin = create_async_engine(admin_url, poolclass=NullPool)
+    try:
+        state = await seed(admin)
+        company = state["company"]
+        async with AsyncSession(admin, expire_on_commit=False) as db:
+            car = Vehicle(company_id=company, plate_number="M04-LEGACY-" + uuid4().hex[:7],
+                          is_active=True, maintenance_status="Active")
+            db.add(car)
+            await db.flush()
+            location = InventoryLocation(company_id=company, vehicle_id=car.id, location_type="VEHICLE",
+                                         name="Legacy car", code="LEGACY-CAR", is_active=True)
+            warehouse = InventoryLocation(company_id=company, location_type="WAREHOUSE",
+                                          name="Legacy receiver", code="LEGACY-WH", is_active=True)
+            db.add_all((location, warehouse))
+            await db.flush()
+            now = utc_now() - timedelta(minutes=10)
+            work = WorkSession(company_id=company, driver_id=state["driver"], start_time=now,
+                               end_time=now + timedelta(minutes=1), session_date=now.date())
+            db.add(work)
+            await db.flush()
+            zone = await db.scalar(select(Zone.id).where(Zone.company_id == company).limit(1))
+            db.add(DispatchRoute(company_id=company, zone_id=zone, driver_id=state["driver"],
+                                 vehicle_id=car.id, source_location_id=warehouse.id, work_session_id=work.id,
+                                 dispatch_date=now.date(), status="closed"))
+            await _ensure_permissions(db, {"transfer.send", "transfer.destination"})
+            await _grant_location(db, company_id=company, driver_id=state["receiver"].driver_id,
+                                  location_id=location.id, codes=("inventory.read", "transfer.send"))
+            await _grant_location(db, company_id=company, driver_id=state["receiver"].driver_id,
+                                  location_id=warehouse.id, codes=("inventory.read", "transfer.destination"))
+            await db.commit()
+            legacy_work, car_id, vehicle_location, destination = work.id, car.id, location.id, warehouse.id
+        async with _runtime_session(runtime, company) as db:
+            await apply_inventory_movement(
+                db, company_id=company, performed_by=state["receiver"].driver_id,
+                product_variant_id=state["variant"], batch_id=state["batch"], quantity=Decimal("2.125"),
+                movement_kind="PHYSICAL", reference_type="M04_LEGACY_TEST_OPENING",
+                reference_id=str(legacy_work), idempotency_key="M04-LEGACY-" + uuid4().hex,
+                destination_location_id=vehicle_location, destination_stock_status="DAMAGED")
+            validated = await validate_vehicle_recon_work_session(
+                db, company_id=company, work_session_id=legacy_work, vehicle_id=car_id)
+            await _seal_vehicle_inventory_reconciliation(
+                db, company_id=company, work_session=validated, vehicle_location_id=vehicle_location,
+                settled_by=state["receiver"].driver_id)
+            assert validated.inventory_reconciled_at is not None and not validated.is_settled
+            await db.commit()
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+                                     base_url="http://m04-legacy-isolated.test") as http:
+            headers = await token(http, admin, state, state["receiver"])
+            path = f"/admin/sessions/{legacy_work}/inventory-custody"
+            sheet = await http.get(path, headers=headers)
+            assert sheet.status_code == 200, sheet.text
+            received = await http.post(path + "/receive", headers=headers, json={
+                "request_id": str(uuid4()), "destination_location_id": destination,
+                "receiver_confirms_handoff": True, "items": [{
+                    "line_key": sheet.json()["lines"][0]["line_key"], "actual_quantity": "2.125"}],
+            })
+            assert received.status_code == 200 and received.json()["movement_count"] == 1, received.text
+            close = {"request_id": str(uuid4()), "actual_cash": "0"}
+            first = await http.put(f"/admin/sessions/{legacy_work}/settle", headers=headers, json=close)
+            replay = await http.put(f"/admin/sessions/{legacy_work}/settle", headers=headers, json=close)
+            assert first.status_code == replay.status_code == 200, (first.text, replay.text)
+            assert first.json() == replay.json() and first.json()["is_settled"]
+            again = await http.put(f"/admin/sessions/{legacy_work}/settle", headers=headers,
+                                     json={**close, "request_id": str(uuid4())})
+            assert again.status_code == 409
+        async with _runtime_session(runtime, company) as db:
+            assert await db.scalar(select(InventoryBalance.on_hand_quantity).where(
+                InventoryBalance.company_id == company, InventoryBalance.location_id == destination,
+                InventoryBalance.batch_id == state["batch"], InventoryBalance.stock_status == "DAMAGED")) == Decimal("2.125")
+            assert await db.scalar(select(func.count()).select_from(SystemAuditLog).where(
+                SystemAuditLog.company_id == company, SystemAuditLog.action_type == "FINANCIAL_SETTLEMENT",
+                SystemAuditLog.target_id == f'Session_{legacy_work}_Driver_{state["driver"]}')) == 1
     finally:
         await runtime.dispose()
         await admin.dispose()

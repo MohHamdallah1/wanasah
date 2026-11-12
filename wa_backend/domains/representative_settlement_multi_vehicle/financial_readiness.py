@@ -66,6 +66,8 @@ def require_unchanged_or_signed_successor(*, vehicle, checkpoint, epochs, curren
 
 async def require_financial_custody_ready(db, *, access, session_id: int):
     await require_capability(access, "settlement.execute")
+    from .activation import require_m04_schema
+    await require_m04_schema(db)
     work, vehicles = await session_responsibilities(
         db, company_id=access.company_id, session_id=session_id, lock_session=True,
     )

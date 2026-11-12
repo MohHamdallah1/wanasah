@@ -52,6 +52,37 @@ class VehicleCountCommand(BaseModel):
         return self
 
 
+class VarianceApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    review_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    password: str = Field(min_length=1, max_length=200)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class VarianceRecount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    review_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    reason: str = Field(min_length=1, max_length=1000)
+    authorizer_username: str = Field(min_length=1, max_length=200)
+    authorizer_password: str = Field(min_length=1, max_length=200)
+
+
+class VarianceCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    count_token: str = Field(pattern=r"^[a-f0-9]{64}$")
+    items: list[CountLine] = Field(max_length=MAX_LINES)
+    notes: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def reject_duplicates(self):
+        if len({i.line_key for i in self.items}) != len(self.items):
+            raise ValueError("Duplicate count line")
+        return self
+
+
 @dataclass(frozen=True)
 class PeriodEvidence:
     id: int

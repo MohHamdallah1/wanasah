@@ -6,7 +6,10 @@ responsible for independent recount, permissions, valuation and posting.
 """
 from sqlalchemy import or_, select
 
-from models import InventoryLocation, InventoryLock, InventoryTransferHeader, StocktakeSession, SystemAuditLog
+from models import (
+    InventoryLocation, InventoryLock, InventoryMovement, InventoryTransferHeader,
+    StocktakeCountAttempt, StocktakeCountAttemptLine, StocktakeLine, StocktakeSession, SystemAuditLog,
+)
 from services import apply_inventory_movements_batch
 
 from .contracts import CustodyRejected
@@ -54,6 +57,7 @@ class CanonicalInventoryCustody:
         if (posted_audit is None or recon.approved_at is None or recon.posted_at is None
                 or recon.approved_by is None):
             raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
+        await require_posted_attempt_evidence(db, recon=recon, snapshot=snapshot)
         return int(recon.id)
 
     async def submit_variance(self, db, *, work, snapshot, actual, actor_id, notes):
@@ -100,3 +104,70 @@ class CanonicalInventoryCustody:
             if len(posted) != len(movements):
                 raise CustodyRejected("CUSTODY_HANDOFF_MOVEMENT_EVIDENCE_INCOMPLETE")
         return len(movements)
+
+
+async def require_posted_attempt_evidence(db, *, recon, snapshot):
+    """Do not treat an arbitrary POSTED marker as reviewed correction evidence."""
+    from .contracts import MAX_LINES
+    attempt = await db.scalar(select(StocktakeCountAttempt).where(
+        StocktakeCountAttempt.company_id == snapshot.company_id,
+        StocktakeCountAttempt.stocktake_session_id == recon.id,
+    ).order_by(StocktakeCountAttempt.attempt_number.desc()).limit(1))
+    if (attempt is None or attempt.submitted_at is None
+            or not recon.snapshot_cutoff_at <= attempt.submitted_at <= recon.approved_at):
+        raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
+    if attempt.recount_of_attempt_id is not None:
+        parent = await db.scalar(select(StocktakeCountAttempt).where(
+            StocktakeCountAttempt.company_id == snapshot.company_id,
+            StocktakeCountAttempt.stocktake_session_id == recon.id,
+            StocktakeCountAttempt.id == attempt.recount_of_attempt_id,
+        ))
+        if (parent is None or parent.attempt_number != attempt.attempt_number - 1
+                or parent.submitted_at > attempt.submitted_at
+                or (parent.requires_independent_recount and parent.counted_by == attempt.counted_by)):
+            raise CustodyRejected("VEHICLE_RECON_INDEPENDENT_RECOUNT_REQUIRED")
+    else:
+        parent = None
+    if attempt.requires_independent_recount and (parent is None or not parent.requires_independent_recount):
+        raise CustodyRejected("VEHICLE_RECON_INDEPENDENT_RECOUNT_REQUIRED")
+    lines = (await db.execute(select(StocktakeLine, StocktakeCountAttemptLine).join(
+        StocktakeCountAttemptLine,
+        (StocktakeCountAttemptLine.company_id == StocktakeLine.company_id)
+        & (StocktakeCountAttemptLine.stocktake_line_id == StocktakeLine.id)
+        & (StocktakeCountAttemptLine.stocktake_session_id == StocktakeLine.stocktake_session_id),
+    ).where(StocktakeLine.company_id == snapshot.company_id,
+            StocktakeLine.stocktake_session_id == recon.id,
+            StocktakeCountAttemptLine.count_attempt_id == attempt.id).limit(MAX_LINES + 1))).all()
+    movements = (await db.scalars(select(InventoryMovement).where(
+        InventoryMovement.company_id == snapshot.company_id,
+        InventoryMovement.stocktake_session_id == recon.id,
+    ).limit(MAX_LINES + 1))).all()
+    if len(lines) > MAX_LINES or len(movements) > MAX_LINES:
+        raise CustodyRejected("SETTLEMENT_CUSTODY_TOO_LARGE")
+    expected = {}
+    for line, counted in lines:
+        if (counted.expected_quantity != line.expected_quantity
+                or counted.variance_quantity != counted.actual_quantity - counted.expected_quantity):
+            raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
+        variance = counted.variance_quantity
+        if variance != 0:
+            key = (line.product_variant_id, line.batch_id, line.stock_status)
+            if key in expected:
+                raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
+            expected[key] = variance
+    actual = {}
+    for movement in movements:
+        shortage = movement.reference_type == "DRIVER_SHORTAGE"
+        location = movement.source_location_id if shortage else movement.destination_location_id
+        other = movement.destination_location_id if shortage else movement.source_location_id
+        status = movement.source_stock_status if shortage else movement.destination_stock_status
+        key = (movement.product_variant_id, movement.batch_id, status)
+        if (movement.reference_type not in ("DRIVER_SHORTAGE", "DRIVER_SURPLUS")
+                or movement.stocktake_count_attempt_id != attempt.id
+                or movement.work_session_id != snapshot.session_id or movement.movement_kind != "PHYSICAL"
+                or location != snapshot.responsibility.location_id or other is not None
+                or key in actual or (shortage and movement.financial_unit_price_snapshot is None)):
+            raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
+        actual[key] = -movement.quantity if shortage else movement.quantity
+    if actual != expected:
+        raise CustodyRejected("VEHICLE_RECON_REVIEW_EVIDENCE_REQUIRED")
