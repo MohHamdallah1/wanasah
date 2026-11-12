@@ -67,3 +67,12 @@ def test_different_frozen_period_prices_fail_closed_instead_of_using_first_or_la
 def test_missing_or_invalid_price_provenance_requires_review(prices):
     with pytest.raises(CustodyRejected):
         unambiguous_shortage_prices(prices, [12])
+
+
+@pytest.mark.parametrize("prices", [
+    [{12: None}],
+    [{12: "5.000"}],
+])
+def test_malformed_frozen_price_evidence_never_becomes_unhandled_server_error(prices):
+    with pytest.raises(CustodyRejected, match="SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED"):
+        unambiguous_shortage_prices(prices, [12])
