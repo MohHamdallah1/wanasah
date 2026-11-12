@@ -84,6 +84,8 @@ async def test_real_vehicle_load_public_owner_fails_closed_on_unsigned_canonical
         AsyncMock(side_effect=CustodyRejected("VEHICLE_CUSTODY_REVIEW_REQUIRED")),
     )
     db = NS(execute=AsyncMock(side_effect=AssertionError("must not fall back to legacy route")))
-    with pytest.raises(Exception, match="VEHICLE_CUSTODY_REVIEW_REQUIRED"):
+    from domains.vehicles import VehicleError
+    with pytest.raises(VehicleError) as rejected:
         await resolve_vehicle_load_owner(db, company_id=1, vehicle_id=20)
+    assert rejected.value.code == "VEHICLE_CUSTODY_REVIEW_REQUIRED"
     db.execute.assert_not_awaited()
