@@ -37,6 +37,8 @@ import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
 import { RouteManagementModal } from "@/components/dispatch/RouteManagementModal";
+import { RouteLifecyclePanel } from "@/features/dispatch/routeLifecycle/RouteLifecyclePanel";
+import { parseRouteAssignmentProof, type LifecycleAction } from "@/features/dispatch/routeLifecycle/contract";
 import { ShopFormModal } from "@/components/dispatch/ShopFormModal";
 import { RecycleBinModal } from "@/components/dispatch/RecycleBinModal";
 import { BulkTransferModal } from "@/components/dispatch/BulkTransferModal";
@@ -292,6 +294,11 @@ function DispatchSession() {
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
+  const [isLifecycleModalOpen, setIsLifecycleModalOpen] = useState(false);
+  const [lifecycleRoute, setLifecycleRoute] = useState<PendingRoute | null>(null);
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction>("POSTPONE");
+  const [lifecycleDriverId, setLifecycleDriverId] = useState("");
+  const [lifecycleVehicleId, setLifecycleVehicleId] = useState("");
   const sourceAccess = useInventoryAccess(selectedSourceWarehouseId ? Number(selectedSourceWarehouseId) : null);
   // Preserve this session's React workspace between Dashboard pages. Immediately
   // fence the hidden route (including portals and asynchronous commands) BEFORE
@@ -309,7 +316,7 @@ function DispatchSession() {
       // warm just as Inventory does; a fresh signed refresh follows on return.
       // Closing action dialogs is still appropriate while the route is hidden.
       setIsInventoryModalOpen(false); setIsRadarModalOpen(false);
-      setIsRouteModalOpen(false); setIsShortageModalOpen(false);
+      setIsRouteModalOpen(false); setIsLifecycleModalOpen(false); setIsShortageModalOpen(false);
       setIsZoneModalOpen(false); setIsShopModalOpen(false);
       setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
       setIsBulkTransferModalOpen(false); setIsShowPostponedModalOpen(false);
@@ -607,7 +614,8 @@ function DispatchSession() {
     setIsShortageModalOpen(false); setIsZoneModalOpen(false); setIsShopModalOpen(false);
     setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
     setIsZoneRecycleBinOpen(false); setShowRecycleBin(false); setIsBulkTransferModalOpen(false);
-    setIsRouteModalOpen(false); setIsShowPostponedModalOpen(false);
+    setIsRouteModalOpen(false); setIsLifecycleModalOpen(false); setLifecycleRoute(null);
+    setIsShowPostponedModalOpen(false);
     setIsRadarModalOpen(false); setIsInventoryModalOpen(false);
     setRestorePromptShop(null); setIsSuicideModalOpen(false);
     setActiveRoute(null); setArchiveRouteFocus(null); setArchiveShortageFocus(null);
@@ -1235,6 +1243,12 @@ function DispatchSession() {
     const admitted = captureUiRead();
     if (!activeRoute || activeRoute.can_execute !== true ||
         !vehicles.some(v => v.id === selectedVehicleId && v.can_execute === true)) return;
+    // The legacy status endpoint cannot change any M02 assignment revision.
+    // Versioned routes must use the signed lifecycle command exclusively.
+    if (activeRoute.assignmentContextRevision !== 1 || activeRoute.currentPeriodId != null) {
+      toast.error("يتطلب هذا الخط إجراءً موثقًا من إدارة تشغيل الخط.");
+      return;
+    }
     if (activeRoute.sessionEnded) {
       toast.error("لا يمكن إعادة تشغيل هذا المسار من هنا بعد انتهاء WorkSession.");
       return;
@@ -1746,6 +1760,24 @@ function DispatchSession() {
   // The same real PendingRoutesTable element drives the persistent parent
   // during and after signed read admission. The list DOM stays mounted from
   // first paint, even when the business JS chunk is held at the network.
+  const currentLifecycleRoute = pendingRoutes.find(r => r.id === lifecycleRoute?.id) ?? lifecycleRoute;
+  const lifecycleAuthorized = useCallback(
+    () => Boolean(dispatchAdmitted && grants.routes && actorScope &&
+      isDashboardSessionCurrent(session!)),
+    [dispatchAdmitted, grants.routes, actorScope, session],
+  );
+  const openLifecycle = (route: PendingRoute, action: LifecycleAction) => {
+    if (!lifecycleAuthorized() || route.can_execute !== true) return;
+    setLifecycleRoute(route);
+    setLifecycleAction(action);
+    // Historic route.driverId / vehicleId cannot authorize a fresh assignment.
+    setLifecycleDriverId("");
+    setLifecycleVehicleId("");
+    setIsRouteModalOpen(false);
+    setIsShowPostponedModalOpen(false);
+    setIsLifecycleModalOpen(true);
+  };
+
   const canonicalRoutesTable = (
                   <PendingRoutesTable
                     routes={tabReady ? pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus)) : []}
@@ -1761,6 +1793,10 @@ function DispatchSession() {
                       setIsRadarModalOpen(true);
                     }}
                     onOpenRouteModal={(r, t) => {
+                      if (r.assignmentContextRevision !== 1 || r.currentPeriodId != null) {
+                        openLifecycle(r, "POSTPONE");
+                        return;
+                      }
                       setActiveRoute(r);
                       setRouteModalType(t);
                       setTransferDriverId(r.driverId);
@@ -1770,50 +1806,16 @@ function DispatchSession() {
                       setVehicleInventoryReloadKey((key) => key + 1);
                       setIsRouteModalOpen(true);
                     }}
-                    onPostponeRoute={async (id) => {
-                      const admitted = captureUiRead();
-                      try {
-                        await authenticatedFetch(`/dispatch/route/${id}/status`, {
-                          method: "PUT",
-                          body: JSON.stringify({ status: "postponed" })
-                        });
-                        if (!admitted()) return;
-                        setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "postponed" } : r));
-                        toast.info("تم تأجيل المنطقة");
-                      } catch (e: unknown) {
-                        if (admitted()) toast.error(getErrorMessage(e));
-                      }
+                    onPostponeRoute={id => {
+                      const route = pendingRoutes.find(r => r.id === id);
+                      if (route) openLifecycle(route, "POSTPONE");
                     }}
-                    onCloseZone={route => {
-                      const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
-                      const message = isAlmostDone
-                        ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط لإنهاء المنطقة! هل أنت متأكد من إغلاق خط السير؟`
-                        : "هل أنت متأكد من إغلاق خط السير؟ ستبقى عهدة السيارة كما هي حتى التسوية المخزنية.";
-
-                      setConfirmDialog({
-                        isOpen: true,
-                        title: "تأكيد إغلاق خط السير",
-                        message: message,
-                        onConfirm: async () => {
-                          const admitted = captureUiRead();
-                          try {
-                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
-                              method: "PUT",
-                              body: JSON.stringify({ status: "closed" })
-                            });
-                            if (!admitted()) return;
-                            setPendingRoutes(prev => prev.filter(r => r.id !== route.id));
-                            fetchInitialData();
-                            toast.success("تم إغلاق خط السير. عهدة السيارة لم تُصفّر.");
-                          } catch (e: unknown) {
-                            if (admitted()) toast.error(getErrorMessage(e));
-                          } finally {
-                            if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          }
-                        }
-                      })
-                    }}
+                    onCloseZone={route => openLifecycle(route, "CLOSE")}
                     onForceWithdraw={route => {
+                      if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
+                        openLifecycle(route, "POSTPONE");
+                        return;
+                      }
                       const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;
                       const message = isAlmostDone
                         ? `تنبيه: باقي ${route.shopsRemaining} محلات فقط! هل أنت متأكد من إيقاف خط السير مؤقتاً وإعادته للانتظار؟`
@@ -2314,6 +2316,31 @@ function DispatchSession() {
       />
       )}
       <ScheduleModal isOpen={dispatchAdmitted && isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
+      <RouteLifecyclePanel
+        isOpen={dispatchAdmitted && isLifecycleModalOpen}
+        onClose={() => setIsLifecycleModalOpen(false)}
+        route={currentLifecycleRoute}
+        assignment={parseRouteAssignmentProof(currentLifecycleRoute)}
+        drivers={drivers.map(d => ({ id: d.id, label: d.name }))}
+        vehicles={vehicles.filter(v => v.can_execute === true)
+          .map(v => ({ id: v.id, label: v.label }))}
+        selectedDriver={lifecycleDriverId}
+        selectedVehicle={lifecycleVehicleId}
+        onDriverChange={setLifecycleDriverId}
+        onVehicleChange={setLifecycleVehicleId}
+        initialAction={lifecycleAction}
+        actorScope={actorScope}
+        fetch={authenticatedFetch}
+        authorized={lifecycleAuthorized}
+        onCommitted={() => {
+          const admitted = captureUiRead();
+          setIsLifecycleModalOpen(false);
+          toast.success(i18n.language.startsWith("ar") ? "تم تنفيذ أمر الخط وتأكيده" : "Route command confirmed");
+          void authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
+            .then(raw => { if (admitted() && Array.isArray(raw)) setPendingRoutes(raw); })
+            .catch(err => { if (admitted()) toast.error(getErrorMessage(err)); });
+        }}
+      />
       {dispatchAdmitted && isRouteModalOpen && (
       <RouteManagementModal
         isOpen={isRouteModalOpen}
@@ -2403,11 +2430,16 @@ function DispatchSession() {
       />
 
       <ZoneModal isOpen={dispatchAdmitted && grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
-      <PostponedRoutesModal isOpen={dispatchAdmitted && isShowPostponedModalOpen} onClose={() => setIsShowPostponedModalOpen(false)} routes={pendingRoutes.filter(r => r.status === "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus))} drivers={drivers} onUpdateDriver={(id, drvId) => { const d = drivers.find(drv => drv.id === drvId); setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, driverId: drvId, driverName: d?.name || "" } : r)); }} onRestore={async (id) => { const admitted = captureUiRead(); try { const route = pendingRoutes.find(r => r.id === id); await authenticatedFetch(`/dispatch/route/${id}/status`, { method: "PUT", body: JSON.stringify(
-          route?.sessionBound
-            ? { status: "waiting" }
-            : { status: "waiting", driverId: route?.driverId }
-        ) }); if (!admitted()) return; setPendingRoutes(prev => prev.map(r => r.id === id ? { ...r, status: "waiting" } : r)); toast.success("تم استعادة المنطقة وتعيين المندوب بنجاح"); } catch (e: unknown) { if (admitted()) toast.error(getErrorMessage(e)); } }} />
+      <PostponedRoutesModal
+        isOpen={dispatchAdmitted && isShowPostponedModalOpen}
+        onClose={() => setIsShowPostponedModalOpen(false)}
+        routes={pendingRoutes.filter(r => r.status === "postponed" &&
+          (!archiveRouteFocus || r.id === archiveRouteFocus))}
+        onRestore={id => {
+          const route = pendingRoutes.find(r => r.id === id);
+          if (route) openLifecycle(route, "RESUME");
+        }}
+      />
       <ZoneRecycleBinModal isOpen={dispatchAdmitted && isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
         key={actorScope ?? "no-actor"}
