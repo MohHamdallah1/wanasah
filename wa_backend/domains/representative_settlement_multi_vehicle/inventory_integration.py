@@ -112,6 +112,9 @@ async def seal_canonical_location(db, *, company_id, work, location_id, actor_id
             row = SessionInventorySnapshot(
                 company_id=company_id, work_session_id=work.id, location_id=location_id,
                 product_variant_id=key[0], stock_status=key[1], starting_quantity=Decimal(0),
+                # CHECK settled_at >= created_at applies also to new rows:
+                # use the exact same timestamp as their signed settlement.
+                created_at=now,
             )
             db.add(row)
         row.ending_quantity, row.settled_at, row.settled_by = quantity, now, actor_id
