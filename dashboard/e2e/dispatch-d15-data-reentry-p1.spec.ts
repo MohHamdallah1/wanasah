@@ -80,6 +80,8 @@ async function sample(page: Page, tab: Tab, label: string, expected: {
           // Cached signed same-principal rows must remain visible even while
           // ordinary access/shops reads are truly in flight. Do not just
           // prove that a geometric placeholder remains mounted.
+          missingChoices: expected.choiceNames.map((name, i) =>
+            Boolean(name) && !((names[[3,0,1,2][i]]?.textContent ?? "").trim().includes(name))),
           warmDataMissing: (
             tab === "zones" && !!expected.zone && !text.includes(expected.zone) ||
             tab === "routes" && expected.routeRows > 0 &&
@@ -175,6 +177,13 @@ for (const width of [1440, 390] as const) {
         requests:{shops:shopReads-before.shops,routes:routeReads-before.routes,init:initReads-before.init},
       };
       console.log("D15_DATA_REENTRY="+JSON.stringify(report));
+      if (report.warmDataMissing > 0) {
+        // Only report Boolean mismatches and counts, never private labels.
+        console.log("D15_WARM_MISSING_FRAMES="+JSON.stringify(frames
+          .filter(f=>f.warmDataMissing).slice(0,3)
+          .map(f=>({tab:f.tab,ms:f.ms,present:f.present,routes:f.routes,
+            controlNames:f.controlNames,missingChoices:f.missingChoices}))));
+      }
       if (enforce) {
         expect(report.warmDataMissing,"Previously signed same-actor data must not disappear during ordinary SPA return").toBe(0);
         expect(report.falseZero).toBe(0);

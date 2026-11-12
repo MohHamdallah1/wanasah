@@ -230,6 +230,9 @@ function DispatchSession() {
   const onDispatchRoute = routeLocation.pathname === "/dispatch";
   const [navigationVerified, setNavigationVerified] = useState(onDispatchRoute);
   const [reentryPending, setReentryPending] = useState(false);
+  // A ref blocks stale passive effects in the very first return commit:
+  // React may run the old effect before the state-set pending render paints.
+  const reentryPendingRef = useRef(false);
   const [reentryReadPending, setReentryReadPending] = useState(false);
   const wasOnDispatchRouteRef = useRef(onDispatchRoute);
   // Match Inventory's admission rule: a first verified same-actor read may
@@ -298,6 +301,7 @@ function DispatchSession() {
     const wasVisible = wasOnDispatchRouteRef.current;
     wasOnDispatchRouteRef.current = onDispatchRoute;
     if (!onDispatchRoute) {
+      reentryPendingRef.current = true;
       dispatchFenceRef.current.revoke();
       asyncEpochRef.current.revoke();
       // Do NOT revoke the admitted, same-actor read snapshot on an ordinary
@@ -314,6 +318,7 @@ function DispatchSession() {
       setInventoryRoute(null); setRadarRoute(null); setActiveRoute(null);
       setUnsavedTabPrompt(null);
     } else if (!wasVisible) {
+      reentryPendingRef.current = true;
       setReentryPending(true);
       // Keep actual READ rows painted; refuse commands until fresh signed
       // tab data also settles after the capability recheck.
@@ -337,6 +342,7 @@ function DispatchSession() {
       ]).finally(() => {
         if (!disposed && isDashboardSessionCurrent(session!)) {
           setNavigationVerified(true);
+          reentryPendingRef.current = false;
           setReentryPending(false);
         }
       });
@@ -775,7 +781,7 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (!onDispatchRoute || reentryPending ||
+    if (!onDispatchRoute || reentryPending || reentryPendingRef.current ||
         accessState !== "ready" || !actorScope || dispatchDeniedRef.current) return;
     const session = captureDashboardSession();
     let disposed = false;
