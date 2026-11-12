@@ -25,7 +25,7 @@ from domains.representative_settlement_multi_vehicle.contracts import CustodyRej
 from domains.representative_settlement_multi_vehicle.resolution import session_responsibilities
 from main import app
 from models import (
-    Company, DispatchRoute, InventoryBalance, InventoryLocation, InventoryMovement,
+    Company, DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryMovement,
     Product, ProductBatch, ProductVariant, UOM, UserLocationAccess, Vehicle, WorkSession,
     SystemAuditLog, Zone, utc_now,
 )
@@ -363,6 +363,69 @@ async def test_real_legacy_single_vehicle_damaged_handoff_and_financial_replay_r
             assert await db.scalar(select(func.count()).select_from(SystemAuditLog).where(
                 SystemAuditLog.company_id == company, SystemAuditLog.action_type == "FINANCIAL_SETTLEMENT",
                 SystemAuditLog.target_id == f'Session_{legacy_work}_Driver_{state["driver"]}')) == 1
+    finally:
+        await runtime.dispose()
+        await admin.dispose()
+        await http_engine.dispose()
+
+
+async def test_real_canonical_backoffice_recount_credentials_independent_of_legacy_driver():
+    """Actual restricted PG16 tenant + username/password + persisted location role.
+
+    An operational Driver username/hash can never authenticate recount or
+    approval. Identity and authorization remain backed by the real DB.
+    """
+    runtime_url, admin_url = checked_urls()
+    runtime = create_async_engine(runtime_url, poolclass=NullPool)
+    admin = create_async_engine(admin_url, poolclass=NullPool)
+    try:
+        state = await seed(admin)
+        cid = state["company"]
+        receiver = state["receiver"]
+        location_id = state["locations"][0]
+        async with AsyncSession(admin, expire_on_commit=False) as db:
+            await _ensure_permissions(db, {"stocktake.recount"})
+            await _grant_location(
+                db, company_id=cid, driver_id=receiver.driver_id,
+                location_id=location_id, codes=("stocktake.recount",),
+            )
+            principal_username = await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == cid,
+                CompanyPrincipal.id == receiver.context.principal_id,
+            ))
+            legacy_username = await db.scalar(select(Driver.username).where(
+                Driver.company_id == cid, Driver.id == receiver.driver_id,
+            ))
+            await db.commit()
+        from api.warehouse.stocktake import _verify_stocktake_admin_credentials
+        async with _runtime_session(runtime, cid) as db:
+            candidate = await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, PASSWORD, location_id,
+            )
+            assert candidate is not None and candidate.id == receiver.driver_id
+            assert await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, PASSWORD + "-wrong", location_id,
+            ) is None
+            assert await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, PASSWORD, state["locations"][1],
+            ) is None
+            if legacy_username != principal_username:
+                assert await _verify_stocktake_admin_credentials(
+                    db, cid, legacy_username, PASSWORD, location_id,
+                ) is None
+            assert await _verify_stocktake_admin_credentials(
+                db, cid + 1000000, principal_username, PASSWORD, location_id,
+            ) is None
+        async with AsyncSession(admin) as db:
+            await db.execute(delete(UserLocationAccess).where(
+                UserLocationAccess.company_id == cid,
+                UserLocationAccess.driver_id == receiver.driver_id,
+            ))
+            await db.commit()
+        async with _runtime_session(runtime, cid) as db:
+            assert await _verify_stocktake_admin_credentials(
+                db, cid, principal_username, PASSWORD, location_id,
+            ) is None
     finally:
         await runtime.dispose()
         await admin.dispose()
