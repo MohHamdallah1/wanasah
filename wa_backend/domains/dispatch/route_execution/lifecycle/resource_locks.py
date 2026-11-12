@@ -33,7 +33,7 @@ def _snapshot_identity(route: DispatchRoute) -> tuple:
     """Pre-read drives lock order, NOT an authorization or business decision."""
     return (
         route.driver_id, route.vehicle_id, route.zone_id,
-        route.work_session_id, route.status, route.adjustment_context_revision,
+        route.work_session_id, route.status, route.assignment_context_revision,
     )
 
 
