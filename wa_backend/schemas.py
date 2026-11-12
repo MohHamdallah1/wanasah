@@ -1270,6 +1270,16 @@ class ActiveRouteResponse(BaseModel):
     can_execute: bool = False
     commercial_context: Optional[RouteCommercialContextResponse] = None
 
+class M05RouteReadinessResponse(BaseModel):
+    # All fields are returned only on a signed, authorized positive proof.
+    driverId: int = Field(gt=0)
+    vehicleId: int = Field(gt=0)
+    custodyRevision: int = Field(gt=0)
+    assignmentContextRevision: int = Field(gt=0)
+    accepted: Literal[True]
+    authorized: Literal[True]
+
+
 class UpdateRouteStatusRequest(RequestModel):
     status: Optional[Literal["active", "closed", "waiting", "postponed"]] = None
     driverId: OptionalPositiveDbInt = None
