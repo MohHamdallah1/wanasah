@@ -52,3 +52,38 @@ async def test_later_custodian_allowed_only_when_prior_inventory_is_signed():
         await canonical_load_context(db, company_id=1, vehicle_id=20)
     db.scalar.return_value = None
     assert await canonical_load_context(db, company_id=1, vehicle_id=20) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("ended", "expected_mode"), [
+    (False, "ROUTE"), (True, "SETTLEMENT_REQUIRED"),
+])
+async def test_real_vehicle_load_public_owner_prefers_authorized_canonical_period(
+    monkeypatch, ended, expected_mode,
+):
+    from domains.inventory_vehicle_load.service import resolve_vehicle_load_owner
+    from domains.representative_settlement_multi_vehicle import load_ownership
+    gate = AsyncMock(return_value={
+        "route_id": None if ended else 345, "session_id": 71, "ended": ended,
+    })
+    monkeypatch.setattr(load_ownership, "canonical_load_context", gate)
+    db = NS(execute=AsyncMock(side_effect=AssertionError("legacy last route must not be read")))
+    result = await resolve_vehicle_load_owner(db, company_id=1, vehicle_id=20)
+    assert result.mode == expected_mode and result.work_session_id == 71
+    assert result.route_id == (None if ended else 345)
+    gate.assert_awaited_once_with(db, company_id=1, vehicle_id=20)
+    db.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_real_vehicle_load_public_owner_fails_closed_on_unsigned_canonical_custody(monkeypatch):
+    from domains.inventory_vehicle_load.service import resolve_vehicle_load_owner
+    from domains.representative_settlement_multi_vehicle import load_ownership
+    monkeypatch.setattr(
+        load_ownership, "canonical_load_context",
+        AsyncMock(side_effect=CustodyRejected("VEHICLE_CUSTODY_REVIEW_REQUIRED")),
+    )
+    db = NS(execute=AsyncMock(side_effect=AssertionError("must not fall back to legacy route")))
+    with pytest.raises(Exception, match="VEHICLE_CUSTODY_REVIEW_REQUIRED"):
+        await resolve_vehicle_load_owner(db, company_id=1, vehicle_id=20)
+    db.execute.assert_not_awaited()
