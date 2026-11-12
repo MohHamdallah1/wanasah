@@ -1348,10 +1348,12 @@ class DispatchRoute(Base):
     # خط السير يحمل مستودع المصدر صراحةً لدعم تعدد المستودعات دون تخمين.
     __tablename__ = 'dispatch_routes'
     __table_args__ = (
+        # M02: postponed reserves only the zone. Current assignments are
+        # independently guarded by live execution-period driver/vehicle indexes.
         Index('uq_active_route_per_driver', 'company_id', 'driver_id', unique=True,
-              postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+              postgresql_where=text("status IN ('active','waiting') AND assignment_context_revision = 1")),
         Index('uq_active_route_per_vehicle', 'company_id', 'vehicle_id', unique=True,
-              postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
+              postgresql_where=text("status IN ('active','waiting') AND assignment_context_revision = 1")),
         Index('uq_active_route_per_zone', 'company_id', 'zone_id', unique=True,
               postgresql_where=text("status IN ('active', 'waiting', 'postponed')")),
         # يدعم lookup أحدث route لكل سيارة عبر equality prefix ثم backward scan على id.
