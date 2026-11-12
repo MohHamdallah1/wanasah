@@ -53,6 +53,10 @@ export function RouteLifecyclePanel({
     String(signedCustody.driverId) === selectedDriver &&
     String(signedCustody.vehicleId) === selectedVehicle;
   const allowed = verified && pending === "no" && !working;
+  // Only revision-one frozen V1 has M02's documented no-period POSTPONE
+  // exception. Versioned periods must carry their real signed current ID.
+  const canPostpone = allowed && !!assignment &&
+    (assignment.currentPeriodId !== null || assignment.assignmentRevision === 1);
   useEffect(() => {
     setSignedCustody(null);
     setProbeError("");
@@ -156,7 +160,7 @@ export function RouteLifecyclePanel({
             </button>
           ) : (
             <>
-              {!isPostponed && initialAction !== "CLOSE" && <button type="button" disabled={!allowed}
+              {!isPostponed && initialAction !== "CLOSE" && <button type="button" disabled={!canPostpone}
                 onClick={() => void execute("POSTPONE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
                 {copy.postpone}
