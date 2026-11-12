@@ -3856,4 +3856,4 @@ class InventoryLock(Base):
     release_reason = Column(Text, nullable=True)
 # M01: domain-owned additive tables registered after legacy model declarations.
 from domains.dispatch.route_execution import models as route_execution_models  # noqa: F401,E402
-from domains.vehicle_custody import models as vehicle_epoch_models  # noqa: F401,E402
+from domains.dispatch.route_execution import vehicle_custody_models  # noqa: F401,E402
