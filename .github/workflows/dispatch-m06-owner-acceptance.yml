@@ -1,0 +1,265 @@
+name: M06 owner independent signed A-B-A PG16 and AR-EN Chromium visual
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/dispatch-m06-owner-acceptance.yml"
+      - "wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py"
+      - "dashboard/e2e/dispatch-m06-owner-visual.spec.ts"
+      - "dashboard/e2e/dispatch-m06-owner-visual.config.ts"
+      - "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-test-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Exact MAIN descendant, exact M06-only paths and hostile probes
+        env:
+          M06_BASE: ${{ github.event.pull_request.base.sha }}
+          M06_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python - <<'PY'
+          import os, re, subprocess
+          base, head = os.environ["M06_BASE"], os.environ["M06_HEAD"]
+          assert re.fullmatch(r"[0-9a-f]{40}", base)
+          assert re.fullmatch(r"[0-9a-f]{40}", head)
+          assert subprocess.check_output(
+              ["git", "merge-base", base, head], text=True
+          ).strip() == base, "M06 must be rebased after M05 merge"
+          files = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, head], text=True
+          ).splitlines())
+          exact = {
+              ".github/workflows/dispatch-m06-owner-acceptance.yml",
+              "wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py",
+              "dashboard/e2e/dispatch-m06-owner-visual.spec.ts",
+              "dashboard/e2e/dispatch-m06-owner-visual.config.ts",
+              "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md",
+          }
+          def allowed(paths):
+              assert paths == exact, (
+                  f"M06 exact test-only scope rejected "
+                  f"missing={sorted(exact-paths)} extra={sorted(paths-exact)}"
+              )
+          allowed(files)
+          for missing in exact:
+              try: allowed(exact-{missing})
+              except AssertionError: pass
+              else: raise AssertionError(f"M06 accepted missing {missing}")
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "wa_backend/api/driver.py",
+              "wa_backend/api/dispatch.py",
+              "wanasah_frontend/lib/main.dart",
+              "wa_backend/domains/representative_settlement_multi_vehicle/application.py",
+          ):
+              try: allowed(exact|{foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"M06 accepted foreign {foreign}")
+          print("M06_TEST_ONLY_OWNER_SCOPE=PASS exact=5 missing=5 foreign=5")
+          PY
+          git diff --check "$M06_BASE" "$M06_HEAD"
+
+  real-owner-pg16:
+    needs: exact-test-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        ports: ["55494:5432"]
+        env:
+          POSTGRES_USER: m06_admin
+          POSTGRES_DB: m03_941_m06_acceptance
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U m06_admin -d m03_941_m06_acceptance"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: M06IndependentSignedOwnerPG16SecretKey12345678901234
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55494/m03_941_m06_acceptance
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://m06_admin@127.0.0.1:55494/m03_941_m06_acceptance
+      WANASAH_DISPATCH_M03_PG_GATE: "1"
+      RUN_M06_OWNER_PG16: "1"
+      PYTHONPATH: ${{ github.workspace }}/wa_backend:${{ github.workspace }}/wa_backend/tests
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install frozen runtime and focused acceptance
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Create distinct non-bypass runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://m06_admin@127.0.0.1:55494/m03_941_m06_acceptance", autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Merged M01-M04 migrations with zero Alembic drift
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant real restricted runtime DML, never RLS bypass
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://m06_admin@127.0.0.1:55494/m03_941_m06_acceptance", autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: M06 genuine FIELD and Backoffice Bearer, race, stale, tenant and stock
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q --tb=short
+          tests/test_dispatch_m06_owner_acceptance_postgres.py
+          --junitxml=m06-real-pg16.xml
+      - name: Require one genuinely executed successful PG16 test
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          root = ET.parse("m06-real-pg16.xml").getroot()
+          cases = list(root.iter("testcase"))
+          assert len(cases) == 1, f"M06 should execute exactly one real PG16 scenario: {len(cases)}"
+          assert not list(root.iter("skipped"))
+          assert not list(root.iter("failure"))
+          assert not list(root.iter("error"))
+          print("M06_REAL_PG16_RESTRICTED_BEARER=PASS actual_cases=1")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m06-signed-owner-pg16-${{ github.run_id }}
+          path: wa_backend/m06-real-pg16.xml
+          if-no-files-found: warn
+
+  real-owner-visual:
+    needs: exact-test-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        ports: ["55439:5432"]
+        env:
+          POSTGRES_USER: d12_dispatch_admin
+          POSTGRES_DB: wanasah_no_lot_contract_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U d12_dispatch_admin -d wanasah_no_lot_contract_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: D12SyntheticRealBrowserPG16Key1234567890123456789012345
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:4173
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://d12_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_D12_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://d12_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_DISPATCH_D12_STATE: /tmp/dispatch-d12-scale.json
+      WANASAH_DISPATCH_D12_RESULTS: /tmp/dispatch-d12-results.json
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install existing PG16 and browser runtime
+        run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Create restricted runtime PG role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://d12_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test", autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Migrate merged main with drift check
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Real runtime scope grants with FORCE RLS intact
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://d12_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test", autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Reuse D12 real authenticated 1000-shop PG seed, not mocked responses
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_d12_scale_postgres.py
+          --junitxml=m06-visual-seed-pg16.xml
+      - name: Run real FastAPI for signed browser HTTP
+        working-directory: wa_backend
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 4174 > /tmp/dispatch-m06-api.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4174/health >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-m06-api.log
+          exit 1
+      - name: Install Dashboard and genuine Chromium
+        working-directory: dashboard
+        run: |
+          npm ci --no-audit --no-fund
+          npm install --no-save --package-lock=false --legacy-peer-deps playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Build actual Dashboard on merged MAIN (never M05 overlay)
+        working-directory: dashboard
+        env:
+          VITE_API_URL: http://127.0.0.1:4174
+        run: npm run build
+      - name: Serve built real Dashboard
+        working-directory: dashboard
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/dispatch-m06-ui.log 2>&1 &
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:4173/dispatch >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/dispatch-m06-ui.log
+          exit 1
+      - name: Real AR EN 1440 390 signed browser warm reentry and screenshot evidence
+        working-directory: dashboard
+        run: npx playwright test --config e2e/dispatch-m06-owner-visual.config.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m06-owner-real-chromium-${{ github.run_id }}
+          path: |
+            dashboard/node_modules/.cache/dispatch-m06-owner-visual/
+            wa_backend/m06-visual-seed-pg16.xml
+            /tmp/dispatch-m06-api.log
+            /tmp/dispatch-m06-ui.log
+          if-no-files-found: warn

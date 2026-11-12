@@ -1,0 +1,29 @@
+# M06 — Owner A→B→A acceptance matrix (test-only)
+
+**Authority:** [Issue #947](https://github.com/MohHamdallah1/wanasah/issues/947), `docs/plans/DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md` §§1,3,4,6,7 and `V1_SCOPE_FREEZE.md`.
+
+**Starting exact merged MAIN:** `c1a6d8e16f3c64a63c8419a61b54f60ce4d6aae3`. All M01–M04 are merged. M05 [#945 / PR #946](https://github.com/MohHamdallah1/wanasah/pull/946) was Draft/unmerged at M06 kickoff. This M06 branch may modify only test, isolated CI and evidence files. It must never change M05/Flutter/Dashboard/backend production contracts or bypass canonical authorization.
+
+## Source → scenario → evidence (strict, not speculative)
+
+| Owner checkpoint / threat | Accepted canonical evidence already on merged MAIN | New M06 evidence | Acceptance |
+|---|---|---|---|
+| Real S1 A→B→A: 100/60 opening; sales 12/7/5; physical A83/B53 | `wa_backend/tests/test_dispatch_m03_integrated_postgres.py::test_m03_real_s1_r1_a_r2_b_r1_a_signed_sale_and_physical_truth`; `test_dispatch_m04_full_m03_postgres.py::test_real_field_aba_end_then_signed_two_car_count_real_finance_once_and_s2_guard` | `test_dispatch_m06_owner_acceptance_postgres.py`: compact cross-step 12/7/5 with real signed FIELD and manager HTTP | Check focused CI after PR |
+| POSTPONE reserves Zone A only; driver/car released; RESUME B and resume A retain previous visits | M02 PG16 lifecycle and M03 integrated proof | M06 checks live route state, separate period, exactly one session and no phantom movement | Check focused CI |
+| Competing B RESUMEs with distinct request IDs, stale offline A/B field command, lost 200 replay | `test_dispatch_m02_lifecycle_postgres.py` race/replay/ABA; M03 stale period | M06 races two actual HTTP RESUMEs, demands one 200/one 409, replay original UUID, rejects stale old-period sales, checks unchanged movement count | Check focused CI |
+| Real Company B / unauthenticated / FIELD-only attempts have no authority to change Company A route/visit | M02/03 real restricted PG16, persisted Capability+Scope, RLS and true Bearer | M06 unauthorized manager and foreign FIELD command rejection, no extra sales | Check focused CI |
+| End Work closes periods only; S2 rejected until complete reconciled/financial settlement | M04 full M03 journey and M03 period test | M06 separately checks End Work without movement, rejects S2 before settlement | Check focused CI |
+| COUNT_IN_PLACE for two vehicles, zero inventory movements, signed authoritative snapshots, no fictional transfer | **M04 full journey** and `test_dispatch_m04_write_postgres.py`; `test_dispatch_m04_variance_postgres.py` | **Reuse existing accepted exact M04 PG16 evidence**. No duplicate massive fixture/test; rerun only on demonstrated contract regression | Covered by merged M04, not rerun |
+| Correct cash/debt 3.000 across vehicles; once-only financial posting; distinct UUID denied; audit preserved | **M04 full journey** signed counts + financial replay; M03 accepted financial/visit proof | Reuse exact M04 evidence, no fake settlement or manual `is_settled` | Covered by merged M04 |
+| Real new S2 after S1 close: same Zone A/remaining unvisited Shop once; reset daily counters only; physical A83/B53 | **M04 full journey** with actual FIELD Start S2, idempotent replay and canonical fresh period | Reuse already accepted M04 evidence; **M05 Flutter client UI integration remains unverified** | Backend covered, full UI pending M05 |
+| WAITING/POSTPONED/CLOSE distinct resource reservation and later scheduling | M02 lifecycle PG16 + D08 existing route UI contracts | Must inspect new M05 UI after merge; pending owner scenario screenshot | Partial Backend; UI pending |
+| AR/EN desktop 1440 and mobile 390: real authorization, stable D15 Chrome, non-flashing data, no outer overflow | D12/D15 accepted real Chromium, signed data, 1000 Shop / 100 Route | `dashboard/e2e/dispatch-m06-owner-visual.spec.ts` against **actual merged MAIN** with genuine PG16 HTTP, captures initial/return/Launch screenshots and frame measurements | Independent baseline only, not M05 acceptance |
+| First joined launch table (vehicle custody + first eligible page), resource availability and blockers, M05 route resumption selections | M05 is Worker1-owned **Draft / not merged at start** | After M05 merges, reset M06 test-only branch on exact new MAIN and perform genuine integrated Chromium and FIELD acceptance. Never overlay or commit Worker1 code here | **BLOCKED BY M05 MERGE**, not waived |
+| Owner signs off Arabic/English desktop/mobile screenshots and actual yellow-card financial/vehicle flow | Planned visual gate, no synthetic screenshots | GitHub Actions artifact `m06-owner-real-chromium` plus supplementary exact integrated evidence after M05 | **PENDING OWNER REVIEW**, not automatically PASS |
+
+## M06 execution and owner gates
+
+- The new PG16 gate uses **one disposable uniquely named database**, a distinct migration/superuser actor, and a separate restricted `NOBYPASSRLS` runtime role; the actual M03 fixture verifies `FORCE RLS` and genuine FIELD/Backoffice bearer HTTP.
+- The dedicated browser gate does not fabricate API replies: it seeds an independently disposed first-company PG16 database via the existing D12 fixture, serves the built production Dashboard and FastAPI, and uses Chromium at **1440 and 390 px in Arabic and English**. Evidence is attached to each test and uploaded to GitHub Actions.
+- `M06_TEST_ONLY_OWNER_SCOPE` rejects **any** production file, all incomplete five-file M06 diffs and any extra path. Existing historical M00–M04 tests and CI are not edited, bypassed, or duplicated.
+- **M06 MERGE READY remains NO** until the exact post-M05 merged MAIN, actual integrated Flutter/Backoffice/Chromium scenario, all green CI and express owner visual acceptance exist. LEAD controls merge, branch cleanup, main sync.
