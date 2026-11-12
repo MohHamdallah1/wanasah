@@ -44,13 +44,14 @@ async def read_current_route_periods(db, *, access, route_ids: list[int]) -> dic
             period.route_id.in_(route_ids),
             period.ended_at.is_(None),
             period.state.in_(("PLANNED", "ACTIVE")),
-            period.evidence_origin == "CANONICAL",
-        ).order_by(period.route_id, period.id).limit(MAX_M05_ROUTE_READ + 1)
+          ).order_by(period.route_id, period.id).limit(MAX_M05_ROUTE_READ + 1)
     )).all()
     if len(rows) > MAX_M05_ROUTE_READ:
         raise RoutePeriodReadConflict("M05_ROUTE_PERIOD_AMBIGUOUS")
     projected: dict[int, dict] = {}
     for record, may_read, may_execute in rows:
+        if record.evidence_origin != "CANONICAL":
+            raise RoutePeriodReadConflict("M05_ROUTE_PERIOD_UNVERIFIED")
         if record.route_id in projected:
             raise RoutePeriodReadConflict("M05_ROUTE_PERIOD_AMBIGUOUS")
         if record.vehicle_location_id is None or record.context_revision is None:
