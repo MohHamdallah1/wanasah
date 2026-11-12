@@ -1,0 +1,95 @@
+name: M05 canonical scoped route readiness PG16 and Bearer
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "wa_backend/api/dispatch.py"
+      - "wa_backend/schemas.py"
+      - "wa_backend/domains/dispatch/route_execution/readiness/**"
+      - "wa_backend/tests/test_dispatch_m05_reads_postgres.py"
+      - ".github/workflows/dispatch-m05-readiness-pg16.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m05-real-bearer-pg16:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: M05SyntheticReadinessPG16Key1234567890123456789012345
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://m05_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_M05_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://m05_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Canonical dependencies and compile scope
+        run: |
+          python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+          python -m py_compile wa_backend/api/dispatch.py wa_backend/schemas.py \
+            wa_backend/domains/dispatch/route_execution/readiness/current_periods.py \
+            wa_backend/domains/dispatch/route_execution/readiness/probe.py \
+            wa_backend/tests/test_dispatch_m05_reads_postgres.py
+      - name: Start disposable PostgreSQL 16
+        run: |
+          docker run --detach --name m05-pg \
+            --env POSTGRES_USER=m05_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec m05-pg pg_isready -U m05_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs m05-pg
+          exit 1
+      - name: Create restricted NOBYPASSRLS runtime role
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Canonical migrations and guard
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Restricted runtime DML
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn = make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn, autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Actual M05 company separation, revoke, period, custody and SQL count
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_m05_reads_postgres.py
+      - name: Preserve focused test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m05-readiness-pg16-${{ github.run_id }}
+          path: wa_backend/.pytest_cache
+          if-no-files-found: ignore
