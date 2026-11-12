@@ -49,12 +49,27 @@ D15_925 = frozenset({
     "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
 })
 
+# D15 2026-11-12: same-actor signed warm READ, no normal return blackout.
+# Exactly two UI modules, the existing access gate, one unit + one real
+# browser witness, and the already-owned targeted CI workflow/guard.
+D15_WARM_REENTRY = frozenset({
+    ".github/scripts/dispatch_d15_real_content_scope.py",
+    ".github/workflows/dispatch-d15-data-reentry-p1.yml",
+    "dashboard/e2e/dispatch-d15-data-reentry-p1.spec.ts",
+    "dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx",
+    "dashboard/src/features/dispatch/useDispatchAccessGate.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-access-notice-v1.test.tsx",
+})
+
 MARKER = ".github/scripts/dispatch_d15_real_content_scope.py"
 
 def d15_real_content_mode(paths: set[str] | frozenset[str]) -> bool:
     actual = set(paths)
     if MARKER not in actual:
         return False
+    if actual == D15_WARM_REENTRY:
+        return True
     if actual == D15_925:
         return True
     if actual == D15_922:
@@ -69,6 +84,20 @@ def selftest() -> None:
     assert d15_real_content_mode(set(D15_918))
     assert d15_real_content_mode(set(D15_922))
     assert d15_real_content_mode(set(D15_925))
+    assert d15_real_content_mode(set(D15_WARM_REENTRY))
+    for missing in D15_WARM_REENTRY:
+        candidate = set(D15_WARM_REENTRY - {missing})
+        if missing == MARKER:
+            assert d15_real_content_mode(candidate) is False
+        else:
+            try: d15_real_content_mode(candidate)
+            except AssertionError: pass
+            else: raise AssertionError("D15 warm reentry partial admitted " + missing)
+    for foreign in ("wa_backend/api/dispatch.py", "dashboard/src/App.tsx",
+                    "dashboard/src/hooks/useInventoryAccess.ts"):
+        try: d15_real_content_mode(set(D15_WARM_REENTRY | {foreign}))
+        except AssertionError: pass
+        else: raise AssertionError("D15 warm reentry foreign admitted " + foreign)
     for missing in D15_925:
         candidate = set(D15_925 - {missing})
         if missing == MARKER:

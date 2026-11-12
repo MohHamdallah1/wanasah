@@ -58,8 +58,10 @@ async function chooseLaunch(page: Page) {
   return selected;
 }
 
-async function sample(page: Page, tab: Tab, label: string) {
-  await page.evaluate(({ tab, label }) => {
+async function sample(page: Page, tab: Tab, label: string, expected: {
+  zone: string | null; routeRows: number; choiceNames: string[];
+}) {
+  await page.evaluate(({ tab, label, expected }) => {
     const w = window as any;
     const started = performance.now();
     w.__d15DataFrames = [];
@@ -75,6 +77,18 @@ async function sample(page: Page, tab: Tab, label: string) {
         w.__d15DataFrames.push({
           tab,label,ms:Math.round(performance.now()-started),
           present:!!target, selected:!!tabNode,
+          // Cached signed same-principal rows must remain visible even while
+          // ordinary access/shops reads are truly in flight. Do not just
+          // prove that a geometric placeholder remains mounted.
+          warmDataMissing: (
+            tab === "zones" && !!expected.zone && !text.includes(expected.zone) ||
+            tab === "routes" && expected.routeRows > 0 &&
+              (target?.querySelectorAll(".dispatch-route-row").length ?? 0) < expected.routeRows ||
+            tab === "launch" && expected.choiceNames.some((name, i) => {
+              if (!name) return false;
+              return !((names[[3,0,1,2][i]]?.textContent ?? "").trim().includes(name));
+            })
+          ),
           falseZero:tab === "zones" && /المناطق \(0\)/.test(text),
           falseShops:tab === "zones" && text.includes("لا توجد محلات في هذه المنطقة"),
           falseRoutes:tab === "routes" && text.includes("لا توجد خطوط سير تشغيلية حالياً"),
@@ -90,7 +104,7 @@ async function sample(page: Page, tab: Tab, label: string) {
       if (performance.now()-started < 1900) requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
-  }, { tab, label });
+  }, { tab, label, expected });
 }
 
 for (const width of [1440, 390] as const) {
@@ -103,6 +117,13 @@ for (const width of [1440, 390] as const) {
     await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
     let shopReads = 0, routeReads = 0, initReads = 0;
     let delayShops = false;
+    let delayAccess = false;
+    // Recreate the exact owner complaint using the genuine signed capability
+    // response, not a fake authorization or an application timeout.
+    await page.route("**/inventory/access/me*", async route => {
+      if (delayAccess) await page.waitForTimeout(500);
+      await route.continue();
+    });
     await page.route("**/dispatch/shops", async route => {
       shopReads++;
       if (delayShops) await page.waitForTimeout(2400);
@@ -122,10 +143,16 @@ for (const width of [1440, 390] as const) {
         await expect(page.locator(".dispatch-zones-workbench").getByText(fixture.zones.a1,{exact:true}).first()).toBeVisible();
       }
       const original = await page.getByTestId("dispatch-" + tab + "-workspace").elementHandle();
+      const expected = {
+        zone: tab === "zones" ? fixture.zones.a1 as string : null,
+        routeRows: tab === "routes" ? await page.locator(".dispatch-route-row").count() : 0,
+        choiceNames: chosen,
+      };
       await nav(page, "products", width === 390);
       const before = { shops: shopReads, routes: routeReads, init: initReads };
       delayShops = tab === "zones";
-      await sample(page,tab,String(width)+":"+tab);
+      delayAccess = true;
+      await sample(page,tab,String(width)+":"+tab,expected);
       await nav(page, "dispatch", width === 390);
       if (tab === "zones") {
         // Actual /init is independent; Zone list need not wait 2.4s Shops GET.
@@ -141,6 +168,7 @@ for (const width of [1440, 390] as const) {
         falseShops:frames.filter(f=>f.falseShops).length,
         falseRoutes:frames.filter(f=>f.falseRoutes).length,
         falseProductContext:frames.filter(f=>f.falseProductContext).length,
+        warmDataMissing:frames.filter(f=>f.warmDataMissing).length,
         maxWorkspaceX:Math.max(0,...frames.map(f=>f.workspaceX)),
         maxFrameX:Math.max(0,...frames.map(f=>f.frameX)),
         maxConfigX:Math.max(0,...frames.map(f=>f.configX)),
@@ -148,6 +176,7 @@ for (const width of [1440, 390] as const) {
       };
       console.log("D15_DATA_REENTRY="+JSON.stringify(report));
       if (enforce) {
+        expect(report.warmDataMissing,"Previously signed same-actor data must not disappear during ordinary SPA return").toBe(0);
         expect(report.falseZero).toBe(0);
         expect(report.falseShops).toBe(0);
         expect(report.falseRoutes).toBe(0);
@@ -172,6 +201,7 @@ for (const width of [1440, 390] as const) {
         }
       }
       delayShops = false;
+      delayAccess = false;
       await page.screenshot({path:dest+"/"+width+"-"+tab+"-returned.png"});
     }
   });

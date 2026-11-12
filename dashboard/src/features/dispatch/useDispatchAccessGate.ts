@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { useInventoryAccess } from "@/hooks/useInventoryAccess";
 import { dispatchPrivileges } from "./dispatchAccess";
 
@@ -22,8 +22,26 @@ export function useDispatchAccessGate(access: AccessQuery) {
   }, [dataUpdatedAt]);
 
   const revoked = deniedAtVersion !== null && deniedAtVersion === dataUpdatedAt;
-  // A permission refetch in flight is NOT an authorization grant.
-  const trusted = Boolean(access.data && !access.isError && !access.isFetching && !revoked);
+  // Like Inventory: first admit this mounted principal on a completed signed
+  // read, then retain that exact actor's admitted view through ordinary
+  // background refetch. A denied event/error or new mount still fails closed.
+  const admittedActorRef = useRef<string | null>(null);
+  const mustFreshlyRecoverRef = useRef(false);
+  if (access.isError || revoked) mustFreshlyRecoverRef.current = true;
+  const actor = access.data
+    ? `${access.data.company_id}:${access.data.principal_id}:${access.data.backoffice_user_id}`
+    : null;
+  // A preexisting shared Query cache is not first-entry admission: require
+  // one completed capability read observed by this mounted workspace.
+  const fresh = Boolean(actor && access.data && access.isFetchedAfterMount !== false &&
+    !access.isFetching && !access.isError && !revoked);
+  if (fresh) {
+    admittedActorRef.current = actor;
+    mustFreshlyRecoverRef.current = false;
+  }
+  const trusted = Boolean(actor && access.data && !access.isError && !revoked &&
+    !mustFreshlyRecoverRef.current &&
+    (fresh || admittedActorRef.current === actor));
   const grants = useMemo(() => dispatchPrivileges(trusted ? access.data : undefined), [trusted, access.data]);
   const allowed = grants.routes || grants.shortages;
 

@@ -1,4 +1,4 @@
-name: Dispatch D15 P1 progressive data reentry PG16 browser
+name: Dispatch D15 progressive data + same-session warm reentry PG16 browser
 
 on:
   pull_request:
@@ -123,16 +123,17 @@ jobs:
         working-directory: dashboard
         run: |
           npm test -- src/test/dispatch-capability-denied-v1.test.ts
+          npm test -- src/test/dispatch-access-notice-v1.test.tsx
           npm test -- src/test/auth-session-consumer-isolation.test.tsx
-      - name: Build exact original #925 MAIN baseline from immutable Git blobs
+      - name: Build exact previous MAIN baseline from immutable Git blobs
         working-directory: dashboard
         env:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           mkdir -p /tmp/d15-925-head
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "$file" "/tmp/d15-925-head/$(basename "$file")"
-            git show 3fe78a93b443d362e291a9a9c02429d49d50187a:"dashboard/$file" > "$file"
+            git show 92b17015f5783de0c671eef619570b6a979006c3:"dashboard/$file" > "$file"
           done
           npm run build
           python - <<'PY'
@@ -165,7 +166,7 @@ jobs:
         env:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "/tmp/d15-925-head/$(basename "$file")" "$file"
           done
           npm run build
