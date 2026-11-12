@@ -52,6 +52,28 @@ _STATUS = frozenset(("AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED
 _COMPLETE = "REPRESENTATIVE_CUSTODY_RECEIVED"
 
 
+@router.get("/admin/sessions/{session_id}/inventory-custody/vehicles")
+async def read_session_vehicle_responsibilities(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+):
+    """S1 exact canonical vehicle/custody membership and signed checkpoint states.
+
+    No historical last-route car, quantity leakage, or implied financial approval.
+    """
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    from domains.representative_settlement_multi_vehicle.read_model import read_session_vehicle_membership
+    try:
+        return await read_session_vehicle_membership(
+            db, access=access, session_id=session_id,
+        )
+    except CustodyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={
+            "code": exc.code, "context": exc.context,
+        }) from None
+
+
 @router.get("/admin/sessions/{session_id}/inventory-custody/vehicles/{vehicle_id}")
 async def read_session_vehicle_count_sheet(
     session_id: int,
