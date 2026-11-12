@@ -153,17 +153,6 @@ jobs:
     needs: exact-test-only
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    services:
-      postgres:
-        image: postgres:16
-        ports: ["55439:5432"]
-        env:
-          POSTGRES_USER: d12_dispatch_admin
-          POSTGRES_DB: wanasah_no_lot_contract_test
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd "pg_isready -U d12_dispatch_admin -d wanasah_no_lot_contract_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       ENVIRONMENT: test
       SECRET_KEY: D12SyntheticRealBrowserPG16Key1234567890123456789012345
@@ -191,6 +180,19 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - name: Install existing PG16 and browser runtime
         run: python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
+      - name: Start disposable D12 PostgreSQL16 on its real server port 55439
+        run: |
+          docker run --detach --name dispatch-m06-visual-pg \
+            --env POSTGRES_USER=d12_dispatch_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec dispatch-m06-visual-pg pg_isready -U d12_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs dispatch-m06-visual-pg
+          exit 1
       - name: Create restricted runtime PG role
         run: |
           python - <<'PY'

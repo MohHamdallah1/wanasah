@@ -42,6 +42,12 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
     })
     assert sign_in.status_code == 200, sign_in.text
     manager = {"Authorization": "Bearer " + sign_in.json()["token"]}
+    foreign_sign_in = await g.client.post("/login", json={
+        "company_code": g.foreign.company_code,
+        "username": g.foreign.owner_name, "password": PASSWORD,
+    })
+    assert foreign_sign_in.status_code == 200, foreign_sign_in.text
+    foreign_manager = {"Authorization": "Bearer " + foreign_sign_in.json()["token"]}
 
     # The historical test fixture creates genuinely pending inbound transfers.
     # Resolve them with FIELD authorization before the commercial journey.
@@ -67,7 +73,7 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
     postpone = _intent("POSTPONE", 2, period=a_period)
     missing = await g.client.put(r1, json=postpone)
     assert missing.status_code == 401
-    foreign = await g.client.put(r1, headers=_headers(g.foreign_token), json=postpone)
+    foreign = await g.client.put(r1, headers=foreign_manager, json=postpone)
     assert foreign.status_code in (403, 404), foreign.text
     paused = await g.client.put(r1, headers=manager, json=postpone)
     assert paused.status_code == 200 and paused.json()["status"] == "postponed", paused.text
