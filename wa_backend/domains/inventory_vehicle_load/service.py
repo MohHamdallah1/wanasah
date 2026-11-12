@@ -153,6 +153,24 @@ async def resolve_vehicle_load_owner(
     company_id: int,
     vehicle_id: int,
 ) -> VehicleLoadOwner:
+    # M04: canonical period/accepted-epoch authority precedes the frozen
+    # historical DispatchRoute.work_session_id locator. The caller rechecks
+    # this same resolver under Vehicle lock before modifying physical stock.
+    from domains.representative_settlement_multi_vehicle.load_ownership import canonical_load_context
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    try:
+        canonical = await canonical_load_context(
+            db, company_id=company_id, vehicle_id=vehicle_id,
+        )
+    except CustodyRejected as exc:
+        raise _error(
+            exc.code, 'تحتاج عهدة السيارة إلى مراجعة قبل تعديل الحمولة.',
+        ) from exc
+    if canonical is not None:
+        return VehicleLoadOwner(
+            _MODE_SETTLEMENT if canonical["ended"] else _MODE_ROUTE,
+            route_id=canonical["route_id"], work_session_id=canonical["session_id"],
+        )
     session_row = (
         await db.execute(
             select(

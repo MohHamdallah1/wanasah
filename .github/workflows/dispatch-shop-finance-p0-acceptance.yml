@@ -116,7 +116,9 @@ jobs:
           assert len(shop_create_f06_exact) == 5 and len(f06_new) == 4
           assert len(ci_policy_861_exact) == 2 and len(ci_new) == 1
 
+          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           def ownership_mode(candidate):
+              if m04_mode(candidate): return "M04_942_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"](candidate):
                   return "DISPATCH_D06_889_EXACT"
               if candidate == d07_complete_exact: return "D07_COMPLETE_EXACT"

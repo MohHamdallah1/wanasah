@@ -241,7 +241,10 @@ jobs:
               "wa_backend/scripts/gate_stage74_inventory_costing.py",
           }
           return_cost_owned = changed & dedicated
-          if return_cost_owned:
+          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
+          if m04_mode(changed):
+              print("RETURN_COST_M04_EXACT_COMPAT=PASS; FIFO and MA still required")
+          elif return_cost_owned:
               extra = changed - allowed
               if extra:
                   raise SystemExit(f"RETURN_COST_SCOPE=FAIL extra={sorted(extra)}")

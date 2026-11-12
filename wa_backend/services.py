@@ -3027,6 +3027,18 @@ async def validate_vehicle_recon_work_session(
     except ValueError as exc:
         raise InventoryMutationError(str(exc)) from exc
 
+    from domains.representative_settlement_multi_vehicle.inventory_integration import (
+        canonical_session, validate_canonical_recon,
+    )
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    if await canonical_session(db_session, company_id=company_id, session_id=work_session_id):
+        try:
+            return await validate_canonical_recon(
+                db_session, company_id=company_id, session_id=work_session_id, vehicle_id=vehicle_id,
+            )
+        except CustodyRejected as exc:
+            raise InventoryMutationError(exc.code) from exc
+
     work_session = (
         await db_session.execute(
             select(WorkSession)
@@ -5079,6 +5091,19 @@ async def _seal_vehicle_inventory_reconciliation(
     operational approver ID for provenance; capability authority stays at its
     canonical caller. This private effect grants no request authority.
     """
+    from domains.representative_settlement_multi_vehicle.inventory_integration import (
+        canonical_session, seal_canonical_location,
+    )
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    if await canonical_session(db_session, company_id=company_id, session_id=work_session.id):
+        try:
+            return await seal_canonical_location(
+                db_session, company_id=company_id, work=work_session,
+                location_id=vehicle_location_id, actor_id=settled_by,
+            )
+        except CustodyRejected as exc:
+            raise InventoryMutationError(exc.code) from exc
+
     # ترتيب الأقفال الرسمي لـ VEHICLE_RECON: WorkSession -> inventory-location guard.
     await acquire_inventory_location_guard(
         db_session,
@@ -5299,6 +5324,12 @@ async def post_approved_stocktake_adjustments(
         ).scalar_one_or_none()
         if locked_probe_session is None:
             raise InventoryMutationError("جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.")
+        from domains.representative_settlement_multi_vehicle.inventory_integration import (
+            lock_canonical_recon_vehicles,
+        )
+        await lock_canonical_recon_vehicles(
+            db_session, company_id=company_id, session_id=int(probe_work_session_id),
+        )
 
     # الترحيل عملية حصرية على الموقع؛ يمنع أي حركة متزامنة أثناء تثبيت جميع الفروقات.
     await acquire_inventory_location_guard(
@@ -5880,15 +5911,15 @@ async def post_approved_stocktake_adjustments(
                 "DRIVER_SHORTAGE يتطلب WorkSession مرتبطاً بالسياق التجاري."
             )
         try:
-            shortage_unit_prices = (
-                await resolve_work_session_pack_prices_bulk(
-                    db_session,
-                    company_id=company_id,
-                    work_session_id=int(
-                        session.related_work_session_id
-                    ),
-                    variant_ids=shortage_variant_ids,
-                )
+            from domains.representative_settlement_multi_vehicle.period_pricing import (
+                resolve_recon_shortage_prices,
+            )
+            shortage_unit_prices = await resolve_recon_shortage_prices(
+                db_session,
+                company_id=company_id,
+                work_session_id=int(session.related_work_session_id),
+                vehicle_location_id=int(session.location_id),
+                variant_ids=shortage_variant_ids,
             )
         except PricingError as exc:
             raise InventoryMutationError(

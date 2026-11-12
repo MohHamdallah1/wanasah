@@ -314,6 +314,7 @@ jobs:
               "wanasah_frontend/lib/main.dart",
           )
 
+          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           def verify_owner_scope(event_name, files):
               if event_name == "workflow_dispatch":
                   # A manual run on the selected main has no PR diff. Do NOT
@@ -328,6 +329,8 @@ jobs:
                   "error": "STOCKTAKE_UNEXPECTED_EVENT",
                   "event": event_name,
               }
+              if m04_mode(files):
+                  return "M04_942_EXACT"
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",

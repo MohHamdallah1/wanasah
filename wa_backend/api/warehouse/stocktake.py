@@ -208,118 +208,47 @@ async def _verify_stocktake_admin_credentials(
     password: str,
     location_id: int,
 ) -> Optional[Driver]:
-    try:
-        legacy_candidate = (
-            await db.execute(
-                select(Driver).filter_by(
-                    company_id=company_id,
-                    username=username.strip(),
-                    is_active=True,
-                )
-            )
-        ).scalar_one_or_none()
-    except MultipleResultsFound:
-        return None
+    """Recount authority is a current canonical DASHBOARD login and grant.
 
-    if legacy_candidate is None:
-        return None
-
-    password_ok = await asyncio.to_thread(
-        bcrypt.checkpw,
-        password.encode('utf-8'),
-        legacy_candidate.password_hash.encode('utf-8'),
-    )
-    if not password_ok:
-        return None
-
-    try:
-        bridge = (
-            await db.execute(
-                select(IdentityLegacyDriverMap).where(
-                    IdentityLegacyDriverMap.company_id == company_id,
-                    IdentityLegacyDriverMap.legacy_driver_id == legacy_candidate.id,
-                    IdentityLegacyDriverMap.backoffice_principal_id.is_not(None),
-                    IdentityLegacyDriverMap.backoffice_user_id.is_not(None),
-                )
-            )
-        ).scalar_one_or_none()
-    except MultipleResultsFound:
-        return None
-
-    if (
-        bridge is None
-        or bridge.company_id != company_id
-        or bridge.legacy_driver_id != legacy_candidate.id
-        or type(bridge.backoffice_principal_id) is not int
-        or bridge.backoffice_principal_id <= 0
-        or type(bridge.backoffice_user_id) is not int
-        or bridge.backoffice_user_id <= 0
-    ):
-        return None
-
-    try:
-        principal = (
-            await db.execute(
-                select(CompanyPrincipal).where(
-                    CompanyPrincipal.company_id == company_id,
-                    CompanyPrincipal.id == bridge.backoffice_principal_id,
-                )
-            )
-        ).scalar_one_or_none()
-        profile = (
-            await db.execute(
-                select(BackofficeUser).where(
-                    BackofficeUser.company_id == company_id,
-                    BackofficeUser.id == bridge.backoffice_user_id,
-                    BackofficeUser.principal_id == bridge.backoffice_principal_id,
-                )
-            )
-        ).scalar_one_or_none()
-        owner = (
-            await db.execute(
-                select(CompanyOwner).where(
-                    CompanyOwner.company_id == company_id,
-                )
-            )
-        ).scalar_one_or_none()
-    except MultipleResultsFound:
-        return None
-
-    if (
-        principal is None
-        or principal.company_id != company_id
-        or principal.id != bridge.backoffice_principal_id
-        or principal.principal_type != PrincipalType.BACKOFFICE.value
-        or principal.is_active is not True
-        or profile is None
-        or profile.company_id != company_id
-        or profile.id != bridge.backoffice_user_id
-        or profile.principal_id != bridge.backoffice_principal_id
-        or profile.principal_type != PrincipalType.BACKOFFICE.value
-        or (owner is not None and owner.company_id != company_id)
-    ):
-        return None
-
-    context = DashboardRequestContext(
-        principal_id=principal.id,
-        company_id=company_id,
-        backoffice_user_id=profile.id,
-        auth_revision=principal.auth_revision,
-        is_company_owner=(
-            owner is not None
-            and owner.backoffice_user_id == profile.id
-        ),
+    The operational Driver row is ONLY an audit/foreign-key compatibility
+    locator; its username and bcrypt hash never authenticate anybody.
+    """
+    from domains.identity.authentication import authenticate_identity
+    from domains.identity.contracts import AuthenticationRejected
+    from domains.identity.backoffice_legacy_actor import (
+        BackofficeLegacyActorLocatorRejected,
+        resolve_backoffice_legacy_actor_locator,
     )
     try:
+        identity = await authenticate_identity(
+            db, company_id=company_id, username=username.strip(),
+            password=password, channel="DASHBOARD",
+        )
+        context = DashboardRequestContext(
+            principal_id=identity.principal_id,
+            company_id=identity.company_id,
+            backoffice_user_id=identity.backoffice_user_id,
+            auth_revision=identity.auth_revision,
+            is_company_owner=identity.is_company_owner,
+        )
         subject = await resolve_backoffice_authorization_subject(db, context)
         access = BackofficeCapabilityAccess(db=db, subject=subject)
-        await access.require('stocktake.recount', location_id)
+        await access.require("stocktake.recount", location_id)
+        locator = await resolve_backoffice_legacy_actor_locator(db, context)
+        candidate = await db.scalar(select(Driver).where(
+            Driver.company_id == company_id,
+            Driver.id == locator.legacy_driver_id,
+            Driver.is_active.is_(True),
+        ))
+        if candidate is None:
+            return None
+        return candidate
     except (
-        BackofficeAuthorizationSubjectRejected,
-        BackofficeCapabilityAccessRejected,
+        AuthenticationRejected, BackofficeAuthorizationSubjectRejected,
+        BackofficeCapabilityAccessRejected, BackofficeLegacyActorLocatorRejected,
+        MultipleResultsFound,
     ):
         return None
-    return legacy_candidate
 
 
 # إعادة العد اختيارية افتراضياً؛ تُفرض الاستقلالية عند بلوغ حدٍّ ضبطته الشركة مسبقاً.
@@ -2456,11 +2385,18 @@ async def approve_stocktake_session(
 
     company_id = access.company_id
 
-    password_ok = await asyncio.to_thread(
-        bcrypt.checkpw,
-        payload.password.encode('utf-8'),
-        legacy_actor.password_hash.encode('utf-8'),
-    )
+    from domains.identity.authentication import verify_existing_password
+
+    # Signed principal, not the mapped legacy Driver FK, owns the password.
+    principal = await db.scalar(select(CompanyPrincipal).where(
+        CompanyPrincipal.company_id == company_id,
+        CompanyPrincipal.id == access.subject.principal_id,
+        CompanyPrincipal.principal_type == PrincipalType.BACKOFFICE.value,
+        CompanyPrincipal.is_active.is_(True),
+    ))
+    password_ok = bool(principal is not None and await verify_existing_password(
+        payload.password, principal.password_hash,
+    ))
     if not password_ok:
         db.add(SystemAuditLog(
             company_id=company_id,
@@ -2510,6 +2446,14 @@ async def approve_stocktake_session(
                     status_code=409,
                     detail="جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.",
                 )
+            # A multi-car reconciliation takes all sorted Vehicle locks
+            # before a location guard, just like its signed count writer.
+            from domains.representative_settlement_multi_vehicle.inventory_integration import (
+                lock_canonical_recon_vehicles,
+            )
+            await lock_canonical_recon_vehicles(
+                db, company_id=company_id, session_id=int(probed_work_session_id),
+            )
 
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
