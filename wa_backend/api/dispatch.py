@@ -2804,6 +2804,24 @@ async def adjust_route_inventory(
     await require_route(access, 'dispatch.execute', route_id)
 
     company_id = access.company_id
+    # Adjust Load's legacy context binds route.vehicle_id, not the M01
+    # canonical execution period's physical vehicle location. Once M02 has
+    # switched an assignment, an old explicit stock command (including
+    # delayed offline retries) must not apply against historical car A or
+    # silently migrate to current car B. A period-aware stock command is
+    # introduced by the owning downstream scope; fail closed until then.
+    assignment_revision = await db.scalar(
+        select(DispatchRoute.assignment_context_revision).where(
+            DispatchRoute.company_id == company_id,
+            DispatchRoute.id == route_id,
+        )
+    )
+    if assignment_revision is not None and int(assignment_revision) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ROUTE_CURRENT_EPOCH_REQUIRED",
+                    "message": "A current execution period is required for load adjustments."},
+        )
     use_canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
 
     # Backward-compatible trusted in-process callers (there are no production
