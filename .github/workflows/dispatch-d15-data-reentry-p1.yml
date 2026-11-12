@@ -120,7 +120,9 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Focused unit signed staged-read and denial tests
         working-directory: dashboard
-        run: npx vitest run src/test/dispatch-capability-denied-v1.test.ts src/test/auth-session-consumer-isolation.test.tsx --reporter=default
+        run: |
+          npm test -- src/test/dispatch-capability-denied-v1.test.ts
+          npm test -- src/test/auth-session-consumer-isolation.test.tsx
       - name: Build exact original #925 MAIN baseline from immutable Git blobs
         working-directory: dashboard
         env:
