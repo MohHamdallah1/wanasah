@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import services
 import api.reconciliation as reconciliation
 from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
+from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryLock,
     InventoryMovement, ProductBatch, ProductVariant, SessionInventorySnapshot,
@@ -93,6 +94,10 @@ class Database:
     async def execute(self, statement):
         self.statements.append(statement)
         descriptions = getattr(statement, "column_descriptions", ())
+        # This scripted legacy-only fixture predates canonical M01 periods.
+        # Genuine M04 PG tests must prove non-empty canonical period reads.
+        if descriptions and descriptions[0].get("entity") is DispatchRouteExecutionPeriod:
+            return Result()
         if (len(descriptions) == 1 and descriptions[0].get("entity") is InventoryLocation
                 and descriptions[0].get("name") == "id"):
             self.events.append("custody")
@@ -170,6 +175,8 @@ def start_namespace(service_ns):
         InventoryMutationError=services.InventoryMutationError,
         acquire_inventory_location_guard=service_ns["acquire_inventory_location_guard"],
         validate_vehicle_recon_work_session=service_ns["validate_vehicle_recon_work_session"],
+        begin_stocktake_command=AsyncMock(return_value=(object(), None)),
+        complete_stocktake_command=Mock(),
     )
     from sqlalchemy.exc import IntegrityError
     ns["IntegrityError"] = IntegrityError
@@ -598,7 +605,9 @@ class VehicleReconciliationCustodyTests(unittest.IsolatedAsyncioTestCase):
             acquire_inventory_location_guard=setup.ns["acquire_inventory_location_guard"],
             _load_stocktake_session=AsyncMock(return_value=setup.session),
             _latest_stocktake_attempt=AsyncMock(return_value=SimpleNamespace(id=77, attempt_number=1)),
-            _utc_naive_now=lambda: NOW, post_approved_stocktake_adjustments=setup.ns["post_approved_stocktake_adjustments"])
+            _utc_naive_now=lambda: NOW, post_approved_stocktake_adjustments=setup.ns["post_approved_stocktake_adjustments"],
+            begin_stocktake_command=AsyncMock(return_value=(object(), None)),
+            complete_stocktake_command=Mock())
         import asyncio
         ns["asyncio"] = asyncio
         ns["bcrypt"] = SimpleNamespace(checkpw=Mock(return_value=True))
