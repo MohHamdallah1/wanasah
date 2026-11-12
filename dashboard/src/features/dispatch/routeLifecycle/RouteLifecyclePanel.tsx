@@ -131,7 +131,7 @@ export function RouteLifecyclePanel({
         {(denied || (isPostponed && probeError)) && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
           {probeError || copy.noEvidence}
         </p>}
-        {isPostponed && (
+        {isPostponed && initialAction !== "CLOSE" && (
           <div className="grid gap-3 sm:grid-cols-2">
             <CustomSelect label={copy.driver} value={selectedDriver}
               options={drivers} onChange={onDriverChange} disabled={working || pending !== "no"}/>
@@ -148,7 +148,7 @@ export function RouteLifecyclePanel({
           </button>
         )}
         <div className="flex flex-wrap gap-2">
-          {isPostponed ? (
+          {isPostponed && initialAction !== "CLOSE" ? (
             <button type="button" disabled={!allowed || !targetReady}
               onClick={() => void execute("RESUME")}
               className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50">
@@ -156,7 +156,7 @@ export function RouteLifecyclePanel({
             </button>
           ) : (
             <>
-              {initialAction !== "CLOSE" && <button type="button" disabled={!allowed}
+              {!isPostponed && initialAction !== "CLOSE" && <button type="button" disabled={!allowed}
                 onClick={() => void execute("POSTPONE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
                 {copy.postpone}
