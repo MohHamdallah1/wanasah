@@ -4,12 +4,13 @@ import type { PendingRoute } from "@/types/dispatch";
 import { currentLocale } from "@/i18n";
 
 export function PostponedRoutesModal({
-  isOpen, onClose, routes, onRestore,
+  isOpen, onClose, routes, onRestore, onCloseRoute,
 }: {
   isOpen: boolean;
   onClose: () => void;
   routes: PendingRoute[];
   onRestore: (id: string) => void;
+  onCloseRoute: (id: string) => void;
 }) {
   const ar = currentLocale().startsWith("ar");
   return (
@@ -44,6 +45,11 @@ export function PostponedRoutesModal({
                         className="inline-flex gap-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">
                         <RotateCcw className="h-4 w-4" />
                         {ar ? "اختيار واستئناف" : "Select and resume"}
+                      </button>
+                      <button type="button" disabled={route.can_execute !== true}
+                        onClick={() => onCloseRoute(route.id)}
+                        className="ms-2 rounded-lg border px-3 py-2 text-sm text-red-700 disabled:opacity-50">
+                        {ar ? "إغلاق الخط" : "Close route"}
                       </button>
                     </td>
                   </tr>
