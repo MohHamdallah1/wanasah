@@ -283,8 +283,12 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     await expect(selectors.nth(index).locator("button").first()).toContainText(choices[index]);
   }
   const readiness = page.getByTestId("d11-commercial-preflight");
-  await expect(readiness.getByRole("status")).toContainText(
+  // D11 renders compact visible "Verified", retaining the complete business
+  // readiness statement as its accessible aria-label. Prove BOTH contracts.
+  const readinessStatus = readiness.getByRole("status");
+  await expect(readinessStatus).toHaveAttribute("aria-label",
     "Checks passed — launch requirements are currently met.", { timeout: 30000 });
+  await expect(readinessStatus).toContainText("Verified");
   const target = page.locator("#route-base-" + state.variantId);
   await expect(target).toBeEnabled({ timeout: 30000 });
   await target.fill("21");
