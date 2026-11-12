@@ -126,9 +126,10 @@ jobs:
           else:
               m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
               m04_authorized = m04_mode(files)
+              m05_authorized = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](files)
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
-              assert (m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+              assert (m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"

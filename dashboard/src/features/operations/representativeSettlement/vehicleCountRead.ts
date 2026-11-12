@@ -1,9 +1,8 @@
 import { z } from "zod";
 import type { SettlementAuthFetch } from "./api";
 
-// M04 draft #944 exposes ONLY this per-vehicle signed read. The UI must
-// obtain vehicle IDs from an authoritative future session-responsibility list;
-// NEVER infer the cars from DispatchRoute's last vehicle.
+// M04 is merged: use this per-car signed count sheet only after the
+// authoritative S1 membership read. Never infer cars from a historic route.
 const vehicleCountLine = z.object({
   line_key: z.string().regex(/^[a-f0-9]{24}$/),
   product_name: z.string(),
@@ -44,5 +43,5 @@ export async function readAuthorizedVehicleCount(
   return result.data;
 }
 
-// No COUNT_IN_PLACE write endpoint on merged MAIN. This module intentionally
-// exports NO command capable of silently posting an in-place count.
+// M04's real signed count writer is bound separately in vehicleCountCommand.
+// This reader never posts a count or converts a snapshot into a settlement.
