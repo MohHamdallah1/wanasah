@@ -14,7 +14,7 @@ export interface RouteAssignmentProof {
 
 export interface VehicleAcceptanceProof {
   vehicleId: number;
-  representativeId: number;
+  driverId: number;
   custodyRevision: number;
   accepted: true;
   authorized: true;
@@ -79,7 +79,7 @@ export function createLifecycleIntent(
   }
   if (action === "RESUME") {
     if (!target || target.accepted !== true || target.authorized !== true ||
-        !positive(target.vehicleId) || !positive(target.representativeId) ||
+        !positive(target.vehicleId) || !positive(target.driverId) ||
         !positive(target.custodyRevision) || route.currentPeriodId !== null) {
       throw new Error("M05_CURRENT_CUSTODY_REQUIRED");
     }
@@ -88,7 +88,7 @@ export function createLifecycleIntent(
       expected_context_revision: route.assignmentRevision,
       expected_period_id: null,
       expected_vehicle_custody_revision: target.custodyRevision,
-      target_driver_id: target.representativeId,
+      target_driver_id: target.driverId,
       target_vehicle_id: target.vehicleId,
     };
   }
