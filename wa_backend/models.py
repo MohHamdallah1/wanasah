@@ -1380,6 +1380,8 @@ class DispatchRoute(Base):
                         name='chk_dispatch_route_session_requires_vehicle'),
         CheckConstraint('adjustment_context_revision > 0',
                         name='chk_dispatch_route_adjustment_context_revision'),
+        CheckConstraint('assignment_context_revision > 0',
+                        name='chk_route_assignment_context_revision'),
     )
 
     id                 = Column(Integer, primary_key=True)
@@ -1392,6 +1394,7 @@ class DispatchRoute(Base):
     dispatch_date      = Column(Date, nullable=False, default=lambda: utc_now().date(), index=True)
     status             = Column(String(50), nullable=False, default='waiting', index=True)
     adjustment_context_revision = Column(Integer, nullable=False, default=1, server_default='1')
+    assignment_context_revision = Column(BigInteger, nullable=False, default=1, server_default='1')
     created_at         = Column(DateTime, nullable=False, default=utc_now)
 
     zone    = relationship('Zone', foreign_keys=[zone_id], lazy='raise')
@@ -1874,6 +1877,24 @@ class Visit(Base):
     __tablename__ = 'visits'
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_visits_company_id'),
+        ForeignKeyConstraint(
+            ['company_id', 'execution_period_id', 'work_session_id', 'driver_id',
+             'execution_vehicle_location_id', 'execution_context_revision'],
+            ['dispatch_route_execution_periods.company_id', 'dispatch_route_execution_periods.id',
+             'dispatch_route_execution_periods.work_session_id', 'dispatch_route_execution_periods.driver_id',
+             'dispatch_route_execution_periods.vehicle_location_id',
+             'dispatch_route_execution_periods.context_revision'],
+            ondelete='RESTRICT', name='fk_visit_execution_period_context'
+        ),
+        CheckConstraint(
+            "(execution_evidence_state IN ('UNBOUND','NEEDS_REVIEW') "
+            "AND execution_period_id IS NULL AND execution_vehicle_location_id IS NULL "
+            "AND execution_context_revision IS NULL) OR "
+            "(execution_evidence_state = 'VERIFIED' AND work_session_id IS NOT NULL "
+            "AND driver_id IS NOT NULL AND execution_period_id IS NOT NULL "
+            "AND execution_vehicle_location_id IS NOT NULL AND execution_context_revision > 0)",
+            name='chk_visit_execution_provenance'
+        ),
         ForeignKeyConstraint(['company_id', 'driver_id'], ['drivers.company_id', 'drivers.id'],
                              ondelete='RESTRICT', name='fk_visit_tenant_driver'),
         ForeignKeyConstraint(['company_id', 'shop_id'], ['shops.company_id', 'shops.id'],
@@ -1982,6 +2003,10 @@ class Visit(Base):
     driver_id       = Column(Integer, nullable=True,  index=True)
     shop_id         = Column(Integer, nullable=False, index=True)
     work_session_id = Column(Integer, nullable=True, index=True)
+    execution_period_id = Column(BigInteger, nullable=True)
+    execution_vehicle_location_id = Column(Integer, nullable=True)
+    execution_context_revision = Column(BigInteger, nullable=True)
+    execution_evidence_state = Column(String(20), nullable=False, default='UNBOUND', server_default='UNBOUND')
     # يوم العمل حسب Timezone الشركة؛ منفصل عمداً عن timestamp الرقابي UTC.
     operational_date = Column(Date, nullable=False, index=True)
     visit_timestamp = Column(DateTime, nullable=False, default=utc_now, index=True)
@@ -3829,3 +3854,6 @@ class InventoryLock(Base):
     released_by    = Column(Integer, nullable=True, index=True)
     released_at    = Column(DateTime, nullable=True, index=True)
     release_reason = Column(Text, nullable=True)
+# M01: domain-owned additive tables registered after legacy model declarations.
+from domains.dispatch.route_execution import models as route_execution_models  # noqa: F401,E402
+from domains.vehicle_custody import models as vehicle_epoch_models  # noqa: F401,E402
