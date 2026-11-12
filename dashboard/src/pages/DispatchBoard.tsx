@@ -1806,11 +1806,54 @@ function DispatchSession() {
                       setVehicleInventoryReloadKey((key) => key + 1);
                       setIsRouteModalOpen(true);
                     }}
-                    onPostponeRoute={id => {
+                    onPostponeRoute={async id => {
                       const route = pendingRoutes.find(r => r.id === id);
-                      if (route) openLifecycle(route, "POSTPONE");
+                      if (!route) return;
+                      // Frozen single-route V1 retains its own status transition;
+                      // a versioned M02 period/reassignment NEVER uses this path.
+                      if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
+                        openLifecycle(route, "POSTPONE");
+                        return;
+                      }
+                      const admitted = captureUiRead();
+                      try {
+                        await authenticatedFetch(`/dispatch/route/${id}/status`, {
+                          method: "PUT", body: JSON.stringify({ status: "postponed" }),
+                        });
+                        if (!admitted()) return;
+                        const fresh = await authenticatedFetch("/dispatch/active_routes", { cache: "no-store" });
+                        if (admitted() && Array.isArray(fresh)) setPendingRoutes(fresh);
+                      } catch (err: unknown) {
+                        if (admitted()) toast.error(getErrorMessage(err));
+                      }
                     }}
-                    onCloseZone={route => openLifecycle(route, "CLOSE")}
+                    onCloseZone={route => {
+                      if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
+                        openLifecycle(route, "CLOSE");
+                        return;
+                      }
+                      setConfirmDialog({
+                        isOpen: true,
+                        title: "تأكيد إغلاق خط السير",
+                        message: "هل أنت متأكد من إغلاق خط السير؟ ستبقى عهدة السيارة كما هي.",
+                        onConfirm: async () => {
+                          const admitted = captureUiRead();
+                          try {
+                            await authenticatedFetch(`/dispatch/route/${route.id}/status`, {
+                              method: "PUT", body: JSON.stringify({ status: "closed" }),
+                            });
+                            if (!admitted()) return;
+                            setPendingRoutes(rows => rows.filter(r => r.id !== route.id));
+                            fetchInitialData();
+                            toast.success("تم إغلاق خط السير. عهدة السيارة لم تُصفّر.");
+                          } catch (err: unknown) {
+                            if (admitted()) toast.error(getErrorMessage(err));
+                          } finally {
+                            if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false }));
+                          }
+                        },
+                      });
+                    }}
                     onForceWithdraw={route => {
                       if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
                         openLifecycle(route, "POSTPONE");
@@ -2435,9 +2478,28 @@ function DispatchSession() {
         onClose={() => setIsShowPostponedModalOpen(false)}
         routes={pendingRoutes.filter(r => r.status === "postponed" &&
           (!archiveRouteFocus || r.id === archiveRouteFocus))}
-        onRestore={id => {
+        onRestore={async id => {
           const route = pendingRoutes.find(r => r.id === id);
-          if (route) openLifecycle(route, "RESUME");
+          if (!route) return;
+          if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
+            openLifecycle(route, "RESUME");
+            return;
+          }
+          // Explicitly frozen legacy rev1 route; never rebind a modern M02
+          // session/period using the historical driver as a fresh assignment.
+          const admitted = captureUiRead();
+          try {
+            await authenticatedFetch(`/dispatch/route/${id}/status`, {
+              method: "PUT",
+              body: JSON.stringify({ status: "waiting", driverId: route.driverId }),
+            });
+            if (!admitted()) return;
+            const fresh = await authenticatedFetch("/dispatch/active_routes", { cache: "no-store" });
+            if (admitted() && Array.isArray(fresh)) setPendingRoutes(fresh);
+            setIsShowPostponedModalOpen(false);
+          } catch (err: unknown) {
+            if (admitted()) toast.error(getErrorMessage(err));
+          }
         }}
         onCloseRoute={id => {
           const route = pendingRoutes.find(r => r.id === id);
