@@ -47,7 +47,7 @@ describe("D11 canonical commercial route-launch evidence", () => {
       evidence={tax} status="blocked" onRefresh={vi.fn()} /></MemoryRouter>);
     expect(screen.getByRole("status")).toHaveTextContent("الإطلاق ممنوع");
     expect(screen.getByText(/نسبة 0% المنشورة صالحة/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "اذهب للإعداد" })).toHaveAttribute("href", "/commercial-rules");
+    expect(screen.getByRole("link", { name: "فتح القواعد التجارية" })).toHaveAttribute("href", "/commercial-rules");
     expect(view.container.textContent).not.toContain("TAX_CONFIGURATION_REQUIRED");
     view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
       evidence={server(["warehouse", "SOURCE_WAREHOUSE_AUDIT_LOCK"])}
@@ -58,7 +58,27 @@ describe("D11 canonical commercial route-launch evidence", () => {
       evidence={server(["pricing", "PRICE_NOT_RESOLVED"])}
       status="blocked" onRefresh={vi.fn()} /></MemoryRouter>);
     expect(screen.getByText(/Publish an approved price list/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open settings" })).toHaveAttribute("href", "/products");
+    expect(screen.getByRole("link", { name: "Open products" })).toHaveAttribute("href", "/products");
+  });
+
+  it("opens the actual Dispatch subtab for blocked route/zone instead of a dead same-route settings link", () => {
+    const navigateTab = vi.fn();
+    const allowed = vi.fn(() => true);
+    const view = render(<MemoryRouter><CommercialPreflightPanel language="ar"
+      evidence={server(["route", "ROUTE_ALREADY_ASSIGNED"])} status="blocked" onRefresh={vi.fn()}
+      onNavigateToTab={navigateTab} canNavigateToTab={allowed} /></MemoryRouter>);
+    expect(screen.queryByRole("link", { name: "اذهب للإعداد" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "عرض الخطوط النشطة" }));
+    expect(navigateTab).toHaveBeenCalledWith("routes");
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
+      evidence={server(["zone", "ZONE_UNAVAILABLE"])} status="blocked" onRefresh={vi.fn()}
+      onNavigateToTab={navigateTab} canNavigateToTab={allowed} /></MemoryRouter>);
+    fireEvent.click(screen.getByRole("button", { name: "فتح المناطق" }));
+    expect(navigateTab).toHaveBeenCalledWith("zones");
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
+      evidence={server(["route", "ROUTE_ALREADY_ASSIGNED"])} status="blocked" onRefresh={vi.fn()}
+      onNavigateToTab={navigateTab} canNavigateToTab={() => false} /></MemoryRouter>);
+    expect(screen.queryByRole("button", { name: "عرض الخطوط النشطة" })).not.toBeInTheDocument();
   });
 
   it("fails closed on authentic 401/403, read error, and does not fabricate ready", async () => {
@@ -196,11 +216,13 @@ describe("D15 compact preflight presentation — independent panel states", () =
         custody: "VEHICLE_CUSTODY_UNAVAILABLE",
       }), retry);
       expect(screen.getByRole("status")).toHaveTextContent("الإطلاق ممنوع");
+      expect(screen.queryByRole("list")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "البنود (6)" }));
       expect(screen.getByRole("list").querySelectorAll("li")).toHaveLength(6);
       expect(screen.getByText(/نسبة 0% المنشورة صالحة/)).toBeInTheDocument();
       expect(screen.getByText(/جرد شامل/)).toBeInTheDocument();
       expect(screen.getAllByText(/عهدة المركبة/).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole("link", { name: "اذهب للإعداد" })
+      expect(screen.getAllByRole("link")
         .map(a => a.getAttribute("href"))).toEqual([
           "/products", "/commercial-rules", "/commercial-rules", "/inventory",
           "/representatives-vehicles", "/representatives-vehicles",
@@ -220,9 +242,14 @@ describe("D15 compact preflight presentation — independent panel states", () =
       tax: "TAX_CONFIGURATION_REQUIRED", custody: "VEHICLE_CUSTODY_LOCATION_MISSING",
     }));
     expect(view.container.querySelector("section")).toHaveAttribute("dir", "ltr");
-    expect(screen.getByRole("status")).toHaveTextContent("Launch is blocked");
+    expect(screen.getByRole("status")).toHaveTextContent("Launch blocked");
+    expect(screen.getByRole("status")).toHaveAttribute("aria-label", expect.stringContaining("Launch is blocked"));
     expect(screen.getByText(/published 0% tax is valid/)).toBeInTheDocument();
-    const links = screen.getAllByRole("link", { name: "Open settings" });
+    fireEvent.click(screen.getByRole("button", { name: "Issues (2)" }));
+    const links = screen.getAllByRole("link");
+    expect(links.map(a => a.getAttribute("href"))).toEqual([
+      "/commercial-rules", "/representatives-vehicles",
+    ]);
     expect(links).toHaveLength(2);
     links[0].focus();
     expect(links[0]).toHaveFocus();

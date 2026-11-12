@@ -91,7 +91,8 @@ describe("Dispatch cursor pickers", () => {
       const [units, setUnits] = useState<Record<string, RouteLoadUom>>({});
       const [names, setNames] = useState<Record<string, string>>({});
       return <RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3" current={{}} targets={targets} units={units} names={names}
-        onClear={() => setTargets({})} onTargetChange={(id, name, metadata, value) => {
+        onClear={() => setTargets({})} onRestoreClear={(values) => setTargets(values)}
+        onTargetChange={(id, name, metadata, value) => {
           setTargets((v) => ({ ...v, [id]: value })); setUnits((v) => ({ ...v, [id]: metadata }));
           setNames((v) => ({ ...v, [id]: name })); changed(id, value);
         }} />;
@@ -159,7 +160,7 @@ describe("Dispatch cursor pickers", () => {
   });
 
   it("invalidates a continuation when source changes and does not search blank context", async () => {
-    const props = { scope: "1:3", current: {}, targets: {}, units: {}, names: {}, onTargetChange: vi.fn(), onClear: vi.fn() };
+    const props = { scope: "1:3", current: {}, targets: {}, units: {}, names: {}, onTargetChange: vi.fn(), onClear: vi.fn(), onRestoreClear: vi.fn() };
     const view = render(<RouteLoadProductTable {...props} vehicleId="" warehouseId="" />);
     expect(screen.getByRole("textbox", { name: "Search products" })).toBeDisabled();
     expect(fake.fetch).not.toHaveBeenCalled();
@@ -183,7 +184,8 @@ describe("Dispatch cursor pickers", () => {
       const [names, setNames] = useState<Record<string, string>>({ "521": current.name });
       return <RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3"
         current={{ "521": "25" }} targets={targets} units={{ "521": unit, "1000": unit }} names={names}
-        onClear={() => setTargets({})} onTargetChange={(id, name, metadata, value) => { setTargets((q) => ({ ...q, [id]: value })); setNames((n) => ({ ...n, [id]: name })); }} />;
+        onClear={() => setTargets({})} onRestoreClear={(values) => setTargets(values)}
+        onTargetChange={(id, name, metadata, value) => { setTargets((q) => ({ ...q, [id]: value })); setNames((n) => ({ ...n, [id]: name })); }} />;
     }
     render(<Pinned />);
     await screen.findByText("Matching 1");
@@ -193,15 +195,47 @@ describe("Dispatch cursor pickers", () => {
     fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
-    await waitFor(() => expect(screen.getByText(
+    // Windowed search still loads automatically; an explanatory slogan is
+    // no longer shown inside the actual launch operator toolbar.
+    expect(screen.queryByText(
       "Scroll naturally; nearby results load automatically without retaining the full catalog in memory."
-    )).toBeVisible());
+    )).not.toBeInTheDocument();
     expect(screen.getAllByText(current.name)).toHaveLength(1);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);
     expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
-    fireEvent.click(screen.getByRole("button", { name: "Clear all quantities" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    // A selected draft-only row leaves the pinned list when cleared, but
+    // remains fully recoverable through the single-step Undo action.
+    expect(screen.queryByText("Matching 1")).not.toBeInTheDocument();
     expect(screen.getByText(current.name)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Undo clear" }));
+    expect(screen.getByText("Matching 1")).toBeVisible();
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
+    expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    fireEvent.change(within(screen.getByText(current.name).closest("tr")!).getByRole("textbox"), { target: { value: "8" } });
+    expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
+  });
+
+  it("never offers an old clear-undo snapshot after switching the authorized source warehouse", () => {
+    function SourceSwitcher() {
+      const [warehouseId, setWarehouseId] = useState("21");
+      const [targets, setTargets] = useState<Record<string, string>>({ "521": "15" });
+      return <>
+        <button type="button" onClick={() => setWarehouseId("22")}>Switch warehouse</button>
+        <RouteLoadProductTable vehicleId="17" warehouseId={warehouseId} scope="1:3"
+          current={{ "521": "25" }} targets={targets}
+          units={{ "521": unit }} names={{ "521": "Pinned custody" }}
+          onClear={() => setTargets({})} onRestoreClear={setTargets}
+          onTargetChange={(id, _name, _unit, value) => setTargets((all) => ({ ...all, [id]: value }))} />
+      </>;
+    }
+    render(<SourceSwitcher />);
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(screen.getByRole("button", { name: "Undo clear" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Switch warehouse" }));
+    expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
   });
 
   it("rejects duplicate or oversized pages and missing load metadata", () => {
