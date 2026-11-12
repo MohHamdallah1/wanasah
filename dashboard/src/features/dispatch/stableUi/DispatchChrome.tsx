@@ -4,6 +4,7 @@ import "./dispatchNoMotion.css";
 import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import type { TabId } from "@/types/dispatch";
 
 const ALL_TABS = [
@@ -88,7 +89,11 @@ export function DispatchChrome({
 }
 
 type ChromeView = Pick<Props, "activeTab" | "admitted" | "permissionKnown" | "allowedTabs" |
-  "canShortages" | "canZoneManage" | "hasShortages">;
+  "canShortages" | "canZoneManage" | "hasShortages"> & {
+    // Prior signed same-actor READ can stay painted while new permissions
+    // are fetched; admitted separately gates all user commands.
+    readVisible: boolean;
+  };
 type ChromeActions = Pick<Props, "onTabChange" | "onShortages" | "onBulkSchedule">;
 type RealRoutes = {
   // Parent and lazy board render the SAME canonical list component type.
@@ -102,13 +107,21 @@ type RealRoutes = {
 type ChromeBridge = { publish: (view: ChromeView, actions: ChromeActions, routes?: RealRoutes) => void };
 const ChromeContext = createContext<ChromeBridge | null>(null);
 const initialView: ChromeView = {
-  activeTab: "routes", admitted: false, permissionKnown: false, allowedTabs: [],
+  activeTab: "routes", admitted: false, readVisible: false, permissionKnown: false, allowedTabs: [],
   canShortages: false, canZoneManage: false, hasShortages: false,
 };
 export const useDispatchChromeBridge = () => useContext(ChromeContext);
 
 /** One permanent toolbar owned above Dispatch lazy hydration, not a cold duplicate. */
 export function DispatchChromeHost({ active, children }: { active: boolean; children: ReactNode }) {
+  const session = useDashboardSession();
+  // Ordinary dashboard navigation keeps exactly one hosted workspace; a
+  // different login generation/actor must never inherit its route cards.
+  return <DispatchChromeScope key={session ? `${session.generation}:${session.identity}` : "signed-out"}
+    active={active}>{children}</DispatchChromeScope>;
+}
+
+function DispatchChromeScope({ active, children }: { active: boolean; children: ReactNode }) {
   const [view, setView] = useState<ChromeView>(initialView);
   const handlers = useRef<ChromeActions>({});
   const [realRoutes, setRealRoutes] = useState<RealRoutes | null>(null);
@@ -118,6 +131,7 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
     handlers.current = callbacks;
     setView(current =>
       current.activeTab === next.activeTab && current.admitted === next.admitted &&
+      current.readVisible === next.readVisible &&
       current.permissionKnown === next.permissionKnown &&
       current.canShortages === next.canShortages &&
       current.canZoneManage === next.canZoneManage &&
@@ -127,13 +141,11 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
     );
   }, []);
   const bridge = useMemo(() => ({ publish }), [publish]);
-  // On navigation away revoke actions before paint; keep only the public tab preference.
+  // Route visibility is not a new login: keep the same signed actor's
+  // actual cards in the hidden retained workspace. Interactive controls are
+  // still disabled through "active"/"admitted" and native inert.
   useLayoutEffect(() => {
-    if (!active) {
-      handlers.current = {};
-      setRealRoutes(null);
-      setView(current => ({ ...initialView, activeTab: current.activeTab }));
-    }
+    if (!active) handlers.current = {};
   }, [active]);
   useLayoutEffect(() => {
     const node = routeWorkspaceRef.current;
@@ -174,7 +186,7 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
                     </button>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar bg-white rounded-b-2xl">
-                    {active && view.admitted && realRoutes?.table
+                    {view.readVisible && realRoutes?.table
                       ? realRoutes.table
                       : <PendingRoutesTable
                           routes={[]} pending driverShortagesMap={{}}

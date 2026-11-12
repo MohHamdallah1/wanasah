@@ -37,10 +37,39 @@ const ownerAccess: InventoryCapabilities = {
 type Access = ReturnType<typeof useInventoryAccess>;
 const query = (overrides: Record<string, unknown> = {}): Access => ({
   data: ownerAccess, dataUpdatedAt: 100, isError: false, isFetching: false,
-  isPending: false, refetch: vi.fn(), error: null, ...overrides,
+  isFetchedAfterMount: true, isPending: false, refetch: vi.fn(), error: null, ...overrides,
 } as unknown as Access);
 
 describe("Dispatch D09 revocation, denial, and principal handoff gate", () => {
+  it("retains an already-admitted same-actor READ grant while background access refreshes, not on first cold admission", () => {
+    const { result, rerender } = renderHook(({ value }: { value: Access }) => useDispatchAccessGate(value), {
+      initialProps: { value: query({ isFetching: true, isFetchedAfterMount: false }) },
+    });
+    expect(result.current.state).toBe("loading");
+    rerender({ value: query() });
+    expect(result.current.state).toBe("ready");
+    rerender({ value: query({ isFetching: true }) });
+    expect(result.current.state).toBe("ready");
+    expect(result.current.grants.routes).toBe(true);
+    rerender({ value: query({ data: { ...ownerAccess, principal_id: 22 }, isFetching: true }) });
+    expect(result.current.state).toBe("loading");
+    expect(result.current.grants.routes).toBe(false);
+    rerender({ value: query({ data: undefined, isError: true,
+      error: Object.assign(new Error("revoked"), { status: 403 }) }) });
+    expect(result.current.state).toBe("denied");
+    expect(result.current.grants.routes).toBe(false);
+    // A 5xx must not reopen the prior admitted rows during a retry until
+    // a genuinely completed capability read supersedes the failed attempt.
+    rerender({ value: query({ data: undefined, isError: true,
+      error: Object.assign(new Error("server failed"), { status: 500 }) }) });
+    expect(result.current.state).toBe("error");
+    rerender({ value: query({ isFetching: true }) });
+    expect(result.current.grants.routes).toBe(false);
+    expect(result.current.state).toBe("loading");
+    rerender({ value: query({ dataUpdatedAt: 102 }) });
+    expect(result.current.state).toBe("ready");
+  });
+
   it("hides already-authorized rows immediately on 403, then re-admits only refreshed server grants", () => {
     const access = query();
     const { result, rerender } = renderHook(({ value }: { value: Access }) => useDispatchAccessGate(value), {

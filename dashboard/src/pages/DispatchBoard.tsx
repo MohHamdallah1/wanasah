@@ -229,10 +229,16 @@ function DispatchSession() {
   const { state: checkedAccessState, grants, retry: retryAccess } = useDispatchAccessGate(inventoryAccess);
   const onDispatchRoute = routeLocation.pathname === "/dispatch";
   const [navigationVerified, setNavigationVerified] = useState(onDispatchRoute);
+  const [reentryPending, setReentryPending] = useState(false);
+  // A ref blocks stale passive effects in the very first return commit:
+  // React may run the old effect before the state-set pending render paints.
+  const reentryPendingRef = useRef(false);
+  const [reentryReadPending, setReentryReadPending] = useState(false);
   const wasOnDispatchRouteRef = useRef(onDispatchRoute);
-  // A mounted, hidden workspace is not permission to render its prior rows
-  // on the next visit: re-admit it through fresh Backend capability HTTP.
-  const accessState: DispatchGateStatus = onDispatchRoute && navigationVerified
+  // Match Inventory's admission rule: a first verified same-actor read may
+  // remain visible during an ordinary background refresh. A new login, role
+  // revocation or failed capability read still invalidates that disclosure.
+  const accessState: DispatchGateStatus = navigationVerified
     ? checkedAccessState : "loading";
   const isCompanyOwner = accessState === "ready" && inventoryAccess.isCompanyOwner;
   const discoveryAccess = accessState === "ready" ? inventoryAccess.data : undefined;
@@ -295,15 +301,13 @@ function DispatchSession() {
     const wasVisible = wasOnDispatchRouteRef.current;
     wasOnDispatchRouteRef.current = onDispatchRoute;
     if (!onDispatchRoute) {
+      reentryPendingRef.current = true;
       dispatchFenceRef.current.revoke();
       asyncEpochRef.current.revoke();
-      setNavigationVerified(false);
-      setDispatchReadState("loading");
-      setReadParts({ init: false, shops: false, routes: false, shortages: false });
-      // Keep tab/chooser preferences, never resurrect prior Route, Shop,
-      // custody or dialog actions after a hidden Dashboard navigation.
-      setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
-      setVehicleInventoryLoadedForContext(null);
+      // Do NOT revoke the admitted, same-actor read snapshot on an ordinary
+      // dashboard navigation. Abort in-flight readers, and keep the workspace
+      // warm just as Inventory does; a fresh signed refresh follows on return.
+      // Closing action dialogs is still appropriate while the route is hidden.
       setIsInventoryModalOpen(false); setIsRadarModalOpen(false);
       setIsRouteModalOpen(false); setIsShortageModalOpen(false);
       setIsZoneModalOpen(false); setIsShopModalOpen(false);
@@ -314,7 +318,14 @@ function DispatchSession() {
       setInventoryRoute(null); setRadarRoute(null); setActiveRoute(null);
       setUnsavedTabPrompt(null);
     } else if (!wasVisible) {
-      setNavigationVerified(false);
+      reentryPendingRef.current = true;
+      setReentryPending(true);
+      // Keep actual READ rows painted; refuse commands until fresh signed
+      // tab data also settles after the capability recheck.
+      setReentryReadPending(true);
+      // Keep the old admitted read-only content visible while the real
+      // capability refresh runs; unlike the previous implementation no
+      // synthetic navigationVerified=false step clears an already warm page.
       // The access hook remains Backend-authoritative, with global focus
       // refetch semantics untouched. This is the one reentry authorization.
       let disposed = false;
@@ -331,6 +342,8 @@ function DispatchSession() {
       ]).finally(() => {
         if (!disposed && isDashboardSessionCurrent(session!)) {
           setNavigationVerified(true);
+          reentryPendingRef.current = false;
+          setReentryPending(false);
         }
       });
       return () => { disposed = true; };
@@ -475,11 +488,15 @@ function DispatchSession() {
       vehicleId: selectedVehicleId,
       warehouseId: selectedSourceWarehouseId,
     },
-    authorized: Boolean(activeTab === "launch" && accessState === "ready" &&
-      dispatchReadState === "ready" && grants.launch && selectedSourceWarehouseId &&
+    authorized: Boolean(onDispatchRoute && !reentryPending && activeTab === "launch" &&
+      accessState === "ready" && dispatchReadState === "ready" &&
+      !inventoryAccess.isFetching && !sourceAccess.isFetching &&
+      grants.launch && selectedSourceWarehouseId &&
       sourceAccess.can("dispatch.execute") && !routeLaunchPendingOwner && !routeLaunch.hasUnresolved),
-    current: () => Boolean(isDashboardSessionCurrent(session!) && accessState === "ready" &&
-      dispatchReadState === "ready" && grants.launch && !dispatchDeniedRef.current),
+    current: () => Boolean(isDashboardSessionCurrent(session!) && onDispatchRoute &&
+      !reentryPending && !inventoryAccess.isFetching && !sourceAccess.isFetching &&
+      accessState === "ready" && dispatchReadState === "ready" &&
+      grants.launch && !dispatchDeniedRef.current),
     fetch: authenticatedFetch,
   });
   // A verified original UUID receipt is business truth, even when its first
@@ -655,6 +672,7 @@ function DispatchSession() {
         } else if (kind === "shops") {
           freshShops = grants.routes ? normalizeShops(raw) : [];
           setShops(freshShops);
+          if (tab === "launch" && freshInit !== null) setReentryReadPending(false);
         } else if (kind === "routes") {
           setPendingRoutes(grants.routes && Array.isArray(raw) ? raw : []);
         } else if (kind === "shortages") {
@@ -681,6 +699,8 @@ function DispatchSession() {
         }
         dispatchDeniedRef.current = false;
         setDispatchReadState("ready");
+        // In Launch the shops response is a separate mandatory POST gate.
+        if (tab !== "launch" || freshShops !== null) setReentryReadPending(false);
       },
       onError: error => {
         if (!admission.isCurrent()) return;
@@ -688,6 +708,7 @@ function DispatchSession() {
         dispatchDeniedRef.current = true;
         dispatchFenceRef.current.revoke();
         clearDispatchPrivateState();
+        setReentryReadPending(false);
         setDispatchReadState(status === 401 || status === 403 ? "denied" : "error");
       },
     });
@@ -760,7 +781,8 @@ function DispatchSession() {
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
   useEffect(() => {
-    if (accessState !== "ready" || !actorScope || dispatchDeniedRef.current) return;
+    if (!onDispatchRoute || reentryPending || reentryPendingRef.current ||
+        accessState !== "ready" || !actorScope || dispatchDeniedRef.current) return;
     const session = captureDashboardSession();
     let disposed = false;
     const current = () => !disposed && isDashboardSessionCurrent(session);
@@ -938,7 +960,8 @@ function DispatchSession() {
       stop();
       document.removeEventListener("visibilitychange", handleVisChange);
     };
-  }, [fetchInitialData, isCompanyOwner, accessState, actorScope]);
+  }, [fetchInitialData, isCompanyOwner, accessState, actorScope,
+    onDispatchRoute, reentryPending]);
 
   useEffect(() => {
     if (!selectedVehicleId) {
@@ -1689,7 +1712,9 @@ function DispatchSession() {
     setEditingShortageIds([]);
   };
 
-  const dispatchAdmitted = onDispatchRoute && navigationVerified &&
+  // This same-session signed READ state survives a hidden Dashboard route.
+  // The actual route's user commands are gated separately below.
+  const dispatchAdmitted = navigationVerified &&
     accessState === "ready" && dispatchReadState === "ready";
   const visiblePermissionTabs = accessState === "ready"
     ? (["routes", "launch", "zones"] as const).filter(tab => tabAllowed(tab)) : [];
@@ -1699,6 +1724,11 @@ function DispatchSession() {
   const tabDataReady = activeTab === "routes" ? readParts.routes :
     activeTab === "launch" ? readParts.init : readParts.init && readParts.shops;
   const tabReady = dispatchAdmitted && tabAllowed(activeTab) && tabDataReady;
+  // Same-actor cached READ remains visible while genuine access renews.
+  // Interactions, however, stay inert until current capability answers return.
+  const commandsAdmitted = onDispatchRoute && tabReady &&
+    !reentryPending && !reentryReadPending &&
+    !inventoryAccess.isFetching && !sourceAccess.isFetching;
   // Zones are safe to paint after their own signed /init, even when the
   // separate signed /shops GET is still pending.
   const zoneListReady = onDispatchRoute && navigationVerified &&
@@ -1709,9 +1739,9 @@ function DispatchSession() {
   useLayoutEffect(() => {
     const node = realWorkspaceRef.current;
     if (!node) return;
-    if (tabReady) node.removeAttribute("inert");
+    if (commandsAdmitted) node.removeAttribute("inert");
     else node.setAttribute("inert", "");
-  }, [tabReady, activeTab]);
+  }, [commandsAdmitted, activeTab]);
   const workspaceStatus = !tabReady ? (display === "ready" ? "denied" : display) : null;
   // The same real PendingRoutesTable element drives the persistent parent
   // during and after signed read admission. The list DOM stays mounted from
@@ -1844,7 +1874,10 @@ function DispatchSession() {
   // Public Chrome belongs to the stable parent; data and commands stay fail-closed.
   useLayoutEffect(() => {
     chromeBridge?.publish({
-      activeTab, admitted: dispatchAdmitted, permissionKnown: accessState === "ready",
+      activeTab, admitted: onDispatchRoute && dispatchAdmitted &&
+        !reentryPending && !reentryReadPending &&
+        !inventoryAccess.isFetching && !sourceAccess.isFetching,
+      readVisible: dispatchAdmitted, permissionKnown: accessState === "ready",
       allowedTabs: visiblePermissionTabs,
       canShortages: grants.shortages && readParts.shortages, canZoneManage: grants.zoneManage,
       hasShortages: dispatchAdmitted && shortages.length > 0,
@@ -1900,7 +1933,9 @@ function DispatchSession() {
       hasPostponed: tabReady && pendingRoutes.some(r => r.status === "postponed"),
       onShowPostponed: () => setIsShowPostponedModalOpen(true),
     });
-  }, [chromeBridge, activeTab, dispatchAdmitted, accessState, grants.shortages,
+  }, [chromeBridge, activeTab, dispatchAdmitted, onDispatchRoute,
+    reentryPending, reentryReadPending,
+    inventoryAccess.isFetching, sourceAccess.isFetching, accessState, grants.shortages,
     grants.zoneManage, grants.routes, grants.zones, grants.launch,
     shortages.length, handleTabChange, zones, pendingRoutes, driverShortagesMap,
     archiveRouteFocus, tabReady, canonicalRoutesTable, readParts.shops, readParts.shortages,
@@ -2023,16 +2058,16 @@ function DispatchSession() {
                 </div>
                 
                 {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
-                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!tabReady} placeholder={tabReady ? "اختر المنطقة" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!tabReady} placeholder={tabReady ? "اختر المندوب" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!tabReady} placeholder={tabReady ? "اختر السيارة" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
                 <CustomSelect
                   labelBg="bg-slate-50"
                   label="مستودع المصدر"
                   options={tabReady ? warehouses : []}
                   value={tabReady ? selectedSourceWarehouseId : ""}
                   onChange={changeSourceWarehouse}
-                  disabled={!tabReady}
+                  disabled={!commandsAdmitted}
                   placeholder={tabReady ? "اختر مستودع المصدر" : "—"}
                 />
                 {/* Commercial readiness belongs to the same four-selector
@@ -2061,7 +2096,7 @@ function DispatchSession() {
               <div className="sticky bottom-0 z-30 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
                 <div className="flex justify-end">
                   <button
-                    disabled={!tabReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
+                    disabled={!commandsAdmitted || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg  active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
