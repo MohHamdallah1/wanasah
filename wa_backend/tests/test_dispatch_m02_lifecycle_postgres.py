@@ -359,3 +359,52 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert final["real_stock"]["movements"] == before["real_stock"]["movements"]
         assert final["real_stock"]["visits"] == before["real_stock"]["visits"]
         print("M02_BOUND_S1_POSTPONE_RESUME_SIGNED_CUSTODY_ABA_NO_STOCK=PASS", flush=True)
+
+
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+async def test_m02_different_request_ids_same_expected_revision_one_wins_one_409(pg):
+    """Distinct UUIDs are NOT replays: concurrent same-version RESUMEs race."""
+    tenant = pg.tenants[0]
+    key, launch, car_location = await _prepared_route(pg, tenant)
+    async with _real_http() as http:
+        owner = await _owner(http, pg, tenant)
+        launched = await http.post("/dispatch/route", headers=owner, json=launch)
+        assert launched.status_code == 201, launched.text
+        rid = int(launched.json()["route_id"])
+        url = f"/dispatch/route/{rid}/lifecycle"
+        before = await _snapshot(pg, tenant, rid, car_location, key)
+        paused = await http.put(
+            url, headers=owner, json=_body("POSTPONE", 1),
+        )
+        assert paused.status_code == 200, paused.text
+        epoch = await _explicitly_accept_vehicle(
+            pg, tenant, driver_id=int(launch["driver_id"]),
+            vehicle_id=int(launch["vehicle_id"]), vehicle_location=car_location,
+        )
+        first = _body("RESUME", 2, driver=int(launch["driver_id"]),
+                      vehicle=int(launch["vehicle_id"]), custody=epoch)
+        second = _body("RESUME", 2, driver=int(launch["driver_id"]),
+                       vehicle=int(launch["vehicle_id"]), custody=epoch)
+        assert first["request_id"] != second["request_id"]
+        results = await asyncio.gather(
+            http.put(url, headers=owner, json=first),
+            http.put(url, headers=owner, json=second),
+        )
+        assert sorted(r.status_code for r in results) == [200, 409], [
+            (r.status_code, r.text) for r in results
+        ]
+        winner = next(r for r in results if r.status_code == 200)
+        loser = first if results[0].status_code == 409 else second
+        assert winner.json()["context_revision"] == 3
+        after = await _snapshot(pg, tenant, rid, car_location, key)
+        assert len(after["periods"]) == 1
+        assert after["periods"][0][4] == 3
+        assert after["real_stock"]["balances"] == before["real_stock"]["balances"]
+        assert after["real_stock"]["movements"] == before["real_stock"]["movements"]
+        assert after["real_stock"]["visits"] == before["real_stock"]["visits"]
+        retry_loser = await http.put(url, headers=owner, json=loser)
+        assert retry_loser.status_code == 409
+        assert (await _snapshot(pg, tenant, rid, car_location, key))[
+            "real_stock"
+        ] == after["real_stock"]
+        print("M02_DISTINCT_UUID_CONCURRENT_RESUME_ONE_200_ONE_409=PASS", flush=True)
