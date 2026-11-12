@@ -76,3 +76,36 @@ def test_missing_or_invalid_price_provenance_requires_review(prices):
 def test_malformed_frozen_price_evidence_never_becomes_unhandled_server_error(prices):
     with pytest.raises(CustodyRejected, match="SHORTAGE_PERIOD_PRICE_REVIEW_REQUIRED"):
         unambiguous_shortage_prices(prices, [12])
+
+
+@pytest.mark.asyncio
+async def test_discovered_vehicle_status_snapshot_uses_same_created_and_settlement_instant(monkeypatch):
+    """Real PG16 requires settled_at >= created_at, including first-time rows."""
+    work = NS(id=71, company_id=1, is_settled=False,
+              inventory_reconciled_at=None, inventory_reconciled_by=None)
+    balance = NS(product_variant_id=12, stock_status="DAMAGED",
+                 on_hand_quantity=Decimal("2.125"), reserved_quantity=Decimal(0))
+    created = []
+    db = NS(
+        scalars=AsyncMock(side_effect=[
+            NS(all=lambda: [balance]), NS(all=lambda: []),
+        ]),
+        flush=AsyncMock(), add=created.append,
+    )
+    monkeypatch.setattr(boundary, "canonical_session", AsyncMock(return_value=True))
+    monkeypatch.setattr(activation, "require_m04_schema", AsyncMock())
+    monkeypatch.setattr(boundary, "session_responsibilities",
+                        AsyncMock(return_value=(work, vehicles())))
+    monkeypatch.setattr(services, "acquire_inventory_location_guard", AsyncMock())
+    result = await services._seal_vehicle_inventory_reconciliation(
+        db, company_id=1, work_session=work,
+        vehicle_location_id=110, settled_by=900,
+    )
+    assert result is work and len(created) == 1
+    row = created[0]
+    assert row.starting_quantity == Decimal(0)
+    assert row.ending_quantity == Decimal("2.125")
+    assert row.settled_by == 900
+    assert row.created_at == row.settled_at
+    assert work.inventory_reconciled_at is None
+    db.flush.assert_awaited_once()
