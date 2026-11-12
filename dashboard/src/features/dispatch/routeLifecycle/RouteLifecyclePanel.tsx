@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { lifecycleCopy } from "./copy";
+import { apiErrorCode, apiErrorStatus } from "@/lib/apiErrors";
 import { CustomSelect } from "@/components/ui/custom-select";
 import type { PendingRoute } from "@/types/dispatch";
 import {
@@ -77,10 +78,21 @@ export function RouteLifecyclePanel({
             proof.assignmentContextRevision === assignment.assignmentRevision) {
           setSignedCustody(proof as VehicleAcceptanceProof);
         } else setProbeError(copy.noEvidence);
-      }).catch(() => { if (!controller.signal.aborted) setProbeError(copy.noEvidence); });
+      }).catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        const status = apiErrorStatus(error);
+        const code = apiErrorCode(error);
+        if (status === 401 || status === 403) setProbeError(copy.accessDenied);
+        else if (code === "M05_TARGET_IN_USE") setProbeError(copy.targetBusy);
+        else if (code?.includes("CUSTODY")) setProbeError(copy.custodyMissing);
+        else if (code?.includes("STALE") || code === "M05_ROUTE_ALREADY_ASSIGNED")
+          setProbeError(copy.assignmentStale);
+        else setProbeError(copy.noEvidence);
+      });
     return () => controller.abort();
   }, [isOpen, route?.id, route?.status, verified, selectedDriver, selectedVehicle,
-    assignment?.assignmentRevision, fetch, authorized, copy.noEvidence]);
+    assignment?.assignmentRevision, fetch, authorized, copy.noEvidence, copy.accessDenied,
+    copy.targetBusy, copy.custodyMissing, copy.assignmentStale]);
 
   useEffect(() => {
     if (!isOpen || !route || !actorScope) { setPending("checking"); return; }
