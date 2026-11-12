@@ -52,6 +52,25 @@ _STATUS = frozenset(("AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED
 _COMPLETE = "REPRESENTATIVE_CUSTODY_RECEIVED"
 
 
+@router.get("/admin/sessions/{session_id}/inventory-custody/vehicles/{vehicle_id}")
+async def read_session_vehicle_count_sheet(
+    session_id: int,
+    vehicle_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+):
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    from domains.representative_settlement_multi_vehicle.read_model import read_vehicle_count_sheet
+    try:
+        return await read_vehicle_count_sheet(
+            db, access=access, session_id=session_id, vehicle_id=vehicle_id,
+        )
+    except CustodyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={
+            "code": exc.code, "context": exc.context,
+        }) from None
+
+
 class CustodyCount(BaseModel):
     line_key: str = Field(min_length=24, max_length=24)
     actual_quantity: str = Field(min_length=1, max_length=50)
