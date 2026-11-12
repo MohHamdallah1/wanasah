@@ -1,0 +1,754 @@
+"""M03 real FIELD Bearer + isolated PostgreSQL 16/tenant/custody/context gate.
+
+Requires a disposable unique "m03_941_*" migrated DB, distinct restricted
+runtime vs privileged migration roles. No production/shared DB operations.
+M02's operational POSTPONE/RESUME is separately gated after its merge.
+"""
+from __future__ import annotations
+
+import asyncio
+from datetime import timedelta
+import os
+from decimal import Decimal
+from uuid import uuid4
+
+import httpx
+import pytest
+import pytest_asyncio
+from sqlalchemy import event, func, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.pool import NullPool
+
+from context import tenant_context
+from main import app
+from models import (
+    DispatchRoute, InventoryBalance, InventoryMovement, RouteCommercialContext,
+    Visit, WorkSession, Vehicle, InventoryLocation, Zone,
+    SessionInventorySnapshot, utc_now,
+)
+from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
+from tests.field_authorization_phase3_fixture import (
+    PASSWORD, seed_business, new_transfers,
+)
+
+pytestmark = [
+    pytest.mark.skipif(
+        os.getenv("WANASAH_DISPATCH_M03_PG_GATE") != "1",
+        reason="Explicit disposable M03 PG16 genuine Bearer gate only",
+    ),
+    pytest.mark.asyncio(loop_scope="module"),
+]
+
+
+def _check_url(value):
+    url = make_url(value)
+    assert url.database.startswith("m03_941_")
+    assert url.host in ("127.0.0.1", "localhost")
+    assert url.drivername == "postgresql+asyncpg"
+    return url
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def gate():
+    runtime = _check_url(os.environ["DATABASE_URL"])
+    admin_url = _check_url(os.environ["DATABASE_URL_MIGRATION"])
+    assert runtime.database == admin_url.database
+    assert runtime.port == admin_url.port and runtime.username != admin_url.username
+    admin = create_async_engine(
+        os.environ["DATABASE_URL_MIGRATION"], poolclass=NullPool,
+    )
+    @event.listens_for(admin.sync_engine, "begin")
+    def _admin_tenant(connection):
+        connection.execute(
+            text("SELECT set_config('app.current_tenant', :id, true)"),
+            {"id": str(tenant_context.get() or "")},
+        )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://m03-real-verify",
+    ) as client:
+        g = await seed_business(admin)
+        foreign = await seed_business(admin)
+        g.client = client
+        async def login(company, username):
+            r = await client.post("/driver/login", json={
+                "company_code": company, "username": username,
+                "password": PASSWORD,
+            })
+            assert r.status_code == 200, r.text
+            return r.json()["token"]
+        g.token = await login(g.company_code, g.field_name)
+        g.other_token = await login(g.company_code, g.other_name)
+        g.foreign_token = await login(foreign.company_code, foreign.field_name)
+        g.foreign = foreign
+        g.transfers = await new_transfers(g)
+        from database import engine as runtime_engine
+        async with runtime_engine.connect() as conn:
+            flags = (
+                await conn.execute(text(
+                    "SELECT rolsuper, rolbypassrls FROM pg_roles "
+                    "WHERE rolname=current_user"
+                ))
+            ).one()
+            assert tuple(flags) == (False, False)
+            for table in ("dispatch_route_execution_periods", "vehicle_custody_epochs", "visits"):
+                rls = (await conn.execute(text(
+                    "SELECT relrowsecurity,relforcerowsecurity FROM pg_class "
+                    "WHERE oid=to_regclass(:name)"
+                ), {"name": table})).one()
+                assert tuple(rls) == (True, True)
+        yield g
+    await admin.dispose()
+
+
+async def _set_period(g):
+    """Seed M02's documented ACTIVE period shape, not a fake HTTP transition."""
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            route = await db.scalar(
+                select(DispatchRoute).where(
+                    DispatchRoute.company_id == g.tenant,
+                    DispatchRoute.id == g.route,
+                ).with_for_update()
+            )
+            context_id = await db.scalar(
+                select(RouteCommercialContext.id).where(
+                    RouteCommercialContext.company_id == g.tenant,
+                    RouteCommercialContext.dispatch_route_id == g.route,
+                )
+            )
+            assert context_id is not None
+            route.assignment_context_revision = 2
+            ep = VehicleCustodyEpoch(
+                company_id=g.tenant,
+                vehicle_id=g.vehicle,
+                vehicle_location_id=g.location,
+                custodian_kind="FIELD_REPRESENTATIVE",
+                custodian_principal_id=g.field.context.principal_id,
+                field_representative_id=g.field.context.representative_id,
+                related_session_id=g.session,
+                accepted_by_principal_id=g.owner.context.principal_id,
+                state="ACCEPTED",
+                context_revision=1,
+                started_at=utc_now(),
+                request_id=str(uuid4()),
+                payload_hash="a"*64,
+            )
+            db.add(ep)
+            await db.flush()
+            p = DispatchRouteExecutionPeriod(
+                company_id=g.tenant,
+                route_id=g.route,
+                driver_id=g.field.driver.id,
+                field_representative_id=g.field.context.representative_id,
+                work_session_id=g.session,
+                vehicle_id=g.vehicle,
+                vehicle_location_id=g.location,
+                commercial_context_id=context_id,
+                state="ACTIVE",
+                context_revision=2,
+                started_at=utc_now(),
+                started_by_principal_id=g.owner.context.principal_id,
+                request_id=str(uuid4()),
+                payload_hash="b"*64,
+            )
+            db.add(p)
+            await db.flush()
+            response = (p.id, ep.id, context_id)
+            await db.commit()
+            return response
+    finally:
+        tenant_context.reset(token)
+
+
+def _headers(token, period=None, revision=2, epoch=None):
+    result = {"Authorization": f"Bearer {token}"}
+    if period is not None:
+        result.update({
+            "X-Execution-Period-ID": str(period),
+            "X-Assignment-Context-Revision": str(revision),
+            "X-Vehicle-Custody-Epoch-ID": str(epoch),
+        })
+    return result
+
+
+async def _truth(g):
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            visit = await db.scalar(
+                select(Visit).where(
+                    Visit.company_id == g.tenant,
+                    Visit.id == g.visit,
+                )
+            )
+            movements = await db.scalar(select(func.count()).select_from(
+                InventoryMovement).where(
+                    InventoryMovement.company_id == g.tenant,
+                )
+            )
+            balances = (await db.execute(select(
+                InventoryBalance.id, InventoryBalance.on_hand_quantity,
+            ).where(
+                InventoryBalance.company_id == g.tenant,
+            ).order_by(InventoryBalance.id))).all()
+            return (
+                visit.status,
+                visit.work_session_id,
+                visit.execution_period_id,
+                visit.execution_evidence_state,
+                int(movements or 0),
+                tuple((int(i), str(q)) for i, q in balances),
+            )
+    finally:
+        tenant_context.reset(token)
+
+
+async def test_m03_real_bearer_period_proof_stale_and_visit_no_duplication(gate):
+    g = gate
+    p, e, commercial = await _set_period(g)
+    context = await g.client.get(
+        "/driver/sessions/execution-context", headers=_headers(g.token),
+    )
+    assert context.status_code == 200, context.text
+    actual = context.json()["execution_context"]
+    assert actual["period_id"] == p and actual["custody_epoch_id"] == e
+    assert actual["assignment_context_revision"] == 2
+    assert actual["commercial_context_id"] == commercial
+    assert actual["session_id"] == g.session
+
+    # All FIELD read surfaces must resolve the same canonical execution,
+    # not regress to the legacy route-session binding after a switch.
+    for path in ("/driver/dashboard", "/product_variants", "/driver/visits"):
+        surface = await g.client.get(path, headers=_headers(g.token))
+        assert surface.status_code == 200, (path, surface.text)
+        if path == "/driver/dashboard":
+            assert surface.json()["execution_context"]["period_id"] == p
+
+    foreign = await g.client.get(
+        "/driver/sessions/execution-context", headers=_headers(g.foreign_token),
+    )
+    assert foreign.status_code == 200, foreign.text
+    assert foreign.json()["session_id"] != g.session
+    assert foreign.json()["execution_context"] is None
+
+    body = {"request_id": str(uuid4()), "outcome": "NoSale", "notes": "M03 exact period"}
+    before = await _truth(g)
+    for headers in (
+        _headers(g.token),
+        _headers(g.token, p, 1, e),
+        _headers(g.token, p, 2, e+99999),
+    ):
+        result = await g.client.put(f"/visits/{g.visit}", json=body, headers=headers)
+        assert result.status_code == 409, result.text
+        assert await _truth(g) == before
+
+    # Real FIELD transfer-reject command releases the pending handshake before
+    # the real Visit mutation; no testing-only patch to bypass business guards.
+    rejection = await g.client.put(
+        "/driver/transfers/batch_respond", json={"transfers": [
+            {"transfer_id": t, "status": "rejected", "reason": "M03 acceptance"}
+            for t in g.transfers
+        ]}, headers=_headers(g.token),
+    )
+    assert rejection.status_code == 200, rejection.text
+    before = await _truth(g)
+    headers = _headers(g.token, p, 2, e)
+    posted = await g.client.put(f"/visits/{g.visit}", json=body, headers=headers)
+    assert posted.status_code == 200, posted.text
+    after = await _truth(g)
+    assert after[:4] == ("Completed", g.session, p, "VERIFIED")
+    assert after[4:] == before[4:], "NoSale must not move stock"
+    replay = await g.client.put(f"/visits/{g.visit}", json=body, headers=headers)
+    assert replay.status_code == 200, replay.text
+    assert replay.json() == posted.json()
+    assert await _truth(g) == after
+    changed_envelope = await g.client.put(
+        f"/visits/{g.visit}", json=body,
+        headers=_headers(g.token, p, 3, e),
+    )
+    assert changed_envelope.status_code in (409, 422), changed_envelope.text
+    assert await _truth(g) == after
+
+
+async def test_m03_context_reassignment_aba_fail_closed(gate):
+    g=gate
+    period, epoch, _ = await _set_period(g)
+    proof=_headers(g.token,period,2,epoch)
+    first=await g.client.get("/driver/sessions/execution-context",headers=proof)
+    assert first.status_code==200,first.text
+    token=tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin,expire_on_commit=False) as db:
+            route=await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id==g.tenant,DispatchRoute.id==g.route).with_for_update())
+            old=await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id==g.tenant,
+                DispatchRouteExecutionPeriod.id==period).with_for_update())
+            old.state="CLOSED"
+            old.ended_at=utc_now()
+            route.assignment_context_revision=3
+            await db.commit()
+        no_active=await g.client.get("/driver/sessions/execution-context",headers=_headers(g.token))
+        assert no_active.status_code==200,no_active.text
+        assert no_active.json()["execution_context"] is None
+        body={"request_id":str(uuid4()),"outcome":"NoSale","notes":"stale A context"}
+        before=await _truth(g)
+        denied=await g.client.put(f"/visits/{g.visit}",json=body,headers=proof)
+        assert denied.status_code==409,denied.text
+        assert await _truth(g)==before
+    finally:
+        tenant_context.reset(token)
+
+
+async def _seed_planned_route_for_other_field(g):
+    """Genuine DB snapshot of M02 PLANNED assignment before any new session."""
+    token=tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin,expire_on_commit=False) as db:
+            zone=Zone(company_id=g.tenant,name="M03 pre-session "+uuid4().hex)
+            vehicle=Vehicle(
+                company_id=g.tenant,plate_number="M03"+uuid4().hex[:10],
+                maintenance_status="Active",is_active=True,
+            )
+            db.add_all([zone,vehicle])
+            await db.flush()
+            loc=InventoryLocation(
+                company_id=g.tenant,name="M03 planned vehicle",
+                code="M03"+uuid4().hex[:11],location_type="VEHICLE",
+                vehicle_id=vehicle.id,is_active=True,is_system_managed=False,
+            )
+            db.add(loc)
+            await db.flush()
+            route=DispatchRoute(
+                company_id=g.tenant,zone_id=zone.id,vehicle_id=vehicle.id,
+                driver_id=g.other.driver.id,source_location_id=g.warehouse_id,
+                status="active",
+            )
+            db.add(route)
+            await db.flush()
+            source=await db.scalar(select(RouteCommercialContext).where(
+                RouteCommercialContext.company_id==g.tenant,
+                RouteCommercialContext.dispatch_route_id==g.route,
+            ))
+            assert source is not None
+            cc=RouteCommercialContext(
+                company_id=g.tenant,dispatch_route_id=route.id,
+                pricing_locked_at=source.pricing_locked_at,
+                price_publication_revision=source.price_publication_revision,
+                assignment_revision=source.assignment_revision,
+                offer_ruleset_version=source.offer_ruleset_version,
+                tax_ruleset_version=source.tax_ruleset_version,
+                transaction_currency_code=source.transaction_currency_code,
+                functional_currency_code=source.functional_currency_code,
+                rounding_policy_version=source.rounding_policy_version,
+                tenant_policy_revision=source.tenant_policy_revision,
+            )
+            db.add(cc)
+            await db.flush()
+            epoch=VehicleCustodyEpoch(
+                company_id=g.tenant,vehicle_id=vehicle.id,
+                vehicle_location_id=loc.id,custodian_kind="FIELD_REPRESENTATIVE",
+                custodian_principal_id=g.other.context.principal_id,
+                field_representative_id=g.other.context.representative_id,
+                accepted_by_principal_id=g.owner.context.principal_id,
+                state="ACCEPTED",context_revision=1,
+                started_at=utc_now(),request_id=str(uuid4()),payload_hash="c"*64,
+            )
+            db.add(epoch)
+            await db.flush()
+            planned=DispatchRouteExecutionPeriod(
+                company_id=g.tenant,route_id=route.id,
+                work_session_id=None,driver_id=g.other.driver.id,
+                field_representative_id=g.other.context.representative_id,
+                vehicle_id=vehicle.id,vehicle_location_id=loc.id,
+                commercial_context_id=cc.id,state="PLANNED",
+                context_revision=1,started_at=utc_now(),
+                started_by_principal_id=g.owner.context.principal_id,
+                request_id=str(uuid4()),payload_hash="d"*64,
+            )
+            db.add(planned)
+            await db.flush()
+            result=(planned.id,route.id,loc.id)
+            await db.commit()
+            return result
+    finally:
+        tenant_context.reset(token)
+
+
+async def test_m03_planned_start_real_bearer_lost201_replay_no_second_session(gate):
+    g=gate
+    planned,route_id,loc_id=await _seed_planned_route_for_other_field(g)
+    token=g.other_token
+    path="/driver/sessions/start"
+    # Missing durable id: fail closed, NOT a partial session or snapshot.
+    miss=await g.client.post(path,json={},headers=_headers(token))
+    assert miss.status_code==409,miss.text
+    task_id=str(uuid4())
+    headers={**_headers(token),"Idempotency-Key":task_id}
+    started,same=await asyncio.gather(
+        g.client.post(path,json={},headers=headers),
+        g.client.post(path,json={},headers=headers),
+    )
+    assert started.status_code==201,started.text
+    assert same.status_code==201,same.text
+    body=started.json()
+    assert body["execution_context"]["period_id"]==planned
+    assert body["execution_context"]["vehicle_location_id"]==loc_id
+    assert body["execution_context"]["assignment_context_revision"]==1
+    assert same.json()==body
+
+    # A third post after the simulated lost 201 is the exact replay.
+    replay=await g.client.post(path,json={},headers=headers)
+    assert replay.status_code==201,replay.text
+    assert replay.json()==body
+
+    token_context=tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            count=await db.scalar(select(func.count()).select_from(WorkSession).where(
+                WorkSession.company_id==g.tenant,
+                WorkSession.driver_id==g.other.driver.id))
+            period=await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id==g.tenant,
+                DispatchRouteExecutionPeriod.id==planned))
+            route=await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id==g.tenant,DispatchRoute.id==route_id))
+            assert count==1
+            assert period.state=="ACTIVE" and period.work_session_id==body["session_id"]
+            assert route.work_session_id is None
+            assert period.vehicle_location_id==loc_id
+            assert await db.scalar(select(func.count()).select_from(InventoryMovement).where(
+                InventoryMovement.company_id==g.tenant,
+                InventoryMovement.work_session_id==body["session_id"],
+            ))==0
+    finally:
+        tenant_context.reset(token_context)
+
+
+async def test_m03_location_scoped_snapshot_and_s2_reuse_preserves_historical_s1(gate):
+    """Preview of the two authorized M03-only schema changes on actual PG16.
+
+    This test becomes the post-M02 Alembic migration acceptance gate.
+    Existing S1 rows are never rewritten and duplicate A snapshots remain
+    rejected while the same SKU/status on B is now independently valid.
+    """
+    g = gate
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            s1 = await db.scalar(
+                select(WorkSession).where(
+                    WorkSession.company_id == g.tenant,
+                    WorkSession.id == g.session,
+                ).with_for_update()
+            )
+            assert s1 is not None and s1.commercial_context_id is not None
+            context_id = int(s1.commercial_context_id)
+            original_start = s1.start_time
+            a_rows = (await db.scalars(
+                select(SessionInventorySnapshot).where(
+                    SessionInventorySnapshot.company_id == g.tenant,
+                    SessionInventorySnapshot.work_session_id == s1.id,
+                    SessionInventorySnapshot.location_id == g.location,
+                    SessionInventorySnapshot.product_variant_id == g.variant["id"],
+                    SessionInventorySnapshot.stock_status == "AVAILABLE",
+                )
+            )).all()
+            assert len(a_rows) <= 1
+            if a_rows:
+                a = a_rows[0]
+                old_a_start = a.starting_quantity
+            else:
+                a = SessionInventorySnapshot(
+                    company_id=g.tenant, work_session_id=s1.id,
+                    location_id=g.location, product_variant_id=g.variant["id"],
+                    stock_status="AVAILABLE", starting_quantity=100,
+                )
+                db.add(a)
+                await db.flush()
+                old_a_start = a.starting_quantity
+            a_id = int(a.id)
+
+            car_b = Vehicle(
+                company_id=g.tenant,
+                plate_number="M03-B-"+uuid4().hex[:10],
+                maintenance_status="Active", is_active=True,
+            )
+            db.add(car_b)
+            await db.flush()
+            location_b = InventoryLocation(
+                company_id=g.tenant,
+                name="M03 car B isolated physical location",
+                code="M03-B-"+uuid4().hex[:9],
+                location_type="VEHICLE",
+                vehicle_id=car_b.id,
+                is_active=True, is_system_managed=False,
+            )
+            db.add(location_b)
+            await db.flush()
+            b = SessionInventorySnapshot(
+                company_id=g.tenant, work_session_id=s1.id,
+                location_id=location_b.id,
+                product_variant_id=g.variant["id"], stock_status="AVAILABLE",
+                starting_quantity=60,
+            )
+            db.add(b)
+            await db.flush()
+            assert b.id != a_id
+            assert int(b.location_id) != int(g.location)
+            assert b.starting_quantity == 60
+            assert a.starting_quantity == old_a_start
+            # Same location+variant+status may still be written only once.
+            duplicate = SessionInventorySnapshot(
+                company_id=g.tenant, work_session_id=s1.id,
+                location_id=location_b.id,
+                product_variant_id=g.variant["id"], stock_status="AVAILABLE",
+                starting_quantity=999,
+            )
+            with pytest.raises(IntegrityError):
+                async with db.begin_nested():
+                    db.add(duplicate)
+                    await db.flush()
+            await db.commit()
+
+        # Properly closed S1 is allowed to be followed by a distinct S2 on
+        # the exact same frozen context; no UPDATE to S1.commercial_context_id.
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            s1 = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            assert s1.commercial_context_id == context_id
+            ended = utc_now()
+            s1.end_time = ended
+            s1.inventory_reconciled_at = ended
+            s1.inventory_reconciled_by = g.field.driver.id
+            s1.is_settled = True
+            s2 = WorkSession(
+                company_id=g.tenant,
+                driver_id=g.field.driver.id,
+                commercial_context_id=context_id,
+                session_date=s1.session_date + timedelta(days=1),
+                start_time=ended + timedelta(days=1),
+                is_settled=False,
+            )
+            db.add(s2)
+            await db.flush()
+            assert s2.id != s1.id and s2.commercial_context_id == context_id
+            assert s1.start_time == original_start
+            assert s1.commercial_context_id == context_id
+            old_snapshot = await db.scalar(select(SessionInventorySnapshot).where(
+                SessionInventorySnapshot.id == a_id,
+                SessionInventorySnapshot.company_id == g.tenant,
+            ))
+            assert old_snapshot.starting_quantity == old_a_start
+            assert old_snapshot.location_id == g.location
+            await db.commit()
+
+        # RLS and composite FKs still fence foreign company location aliases.
+        foreign_location_id = g.foreign.location
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            wrong = SessionInventorySnapshot(
+                company_id=g.tenant,
+                work_session_id=g.session,
+                location_id=foreign_location_id,
+                product_variant_id=g.variant["id"],
+                stock_status="AVAILABLE",
+                starting_quantity=4,
+            )
+            with pytest.raises(IntegrityError):
+                db.add(wrong)
+                await db.flush()
+            await db.rollback()
+    finally:
+        tenant_context.reset(token)
+
+
+
+async def test_m03_end_work_rejects_revoked_vehicle_custody_atomically(gate):
+    """Signed FIELD end fails closed if current vehicle responsibility vanished."""
+    g = gate
+    period_id, epoch_id, _ = await _set_period(g)
+    rejection = await g.client.put(
+        "/driver/transfers/batch_respond",
+        json={"transfers": [
+            {"transfer_id": item, "status": "rejected", "reason": "M03 day-end negative"}
+            for item in g.transfers
+        ]},
+        headers=_headers(g.token),
+    )
+    assert rejection.status_code == 200, rejection.text
+    before = await _truth(g)
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            assert epoch is not None and epoch.state == "ACCEPTED"
+            epoch.ended_at = utc_now()
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    denied = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert denied.status_code == 409, denied.text
+    assert denied.json()["error"]["code"] == "M03_VEHICLE_CUSTODY_REQUIRED"
+    assert await _truth(g) == before
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            session = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            period = await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.id == period_id))
+            assert session.end_time is None
+            assert period.state == "ACTIVE" and period.ended_at is None
+    finally:
+        tenant_context.reset(token)
+
+
+async def test_m03_historical_v1_end_keeps_old_route_and_no_period(gate):
+    """Historical V1 End Work still commits without fabricating M01 evidence."""
+    g = gate
+    rejected = await g.client.put("/driver/transfers/batch_respond", json={
+        "transfers": [{"transfer_id": t, "status": "rejected", "reason": "legacy V1"}
+                      for t in g.transfers],
+    }, headers=_headers(g.token))
+    assert rejected.status_code == 200, rejected.text
+    before = await _truth(g)  # handshake rejection has separate logged movements
+    ended = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert ended.status_code == 200, ended.text
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            session = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            assert session.end_time is not None and not session.is_settled
+            assert route.status == "active"
+            assert route.driver_id == g.field.driver.id
+            assert await db.scalar(select(func.count()).select_from(
+                DispatchRouteExecutionPeriod).where(
+                    DispatchRouteExecutionPeriod.company_id == g.tenant,
+                    DispatchRouteExecutionPeriod.work_session_id == g.session,
+                )) == 0
+    finally:
+        tenant_context.reset(token)
+    after = await _truth(g)
+    assert before[4:] == after[4:]  # unchanged movements and all physical balances
+
+
+
+async def test_m03_nextday_refuses_unreconciled_and_revoked_custody_and_stale_route(gate):
+    """True FIELD HTTP on PG16: no S2 on incomplete finance/inventory or stale authority.
+
+    SETTLED is a clearly TEST-ONLY precondition; the real financial approval
+    belongs to M04, which is not merged into this M03-owned scope.
+    """
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from models import Company
+    g = gate
+    period_id, epoch_id, _ = await _set_period(g)
+    rejected = await g.client.put("/driver/transfers/batch_respond", json={
+        "transfers": [{"transfer_id": t, "status": "rejected",
+                       "reason": "M03 next-day strict closure"} for t in g.transfers],
+    }, headers=_headers(g.token))
+    assert rejected.status_code == 200, rejected.text
+    ended = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert ended.status_code == 200, ended.text
+    moves = await _truth(g)
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            previous = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            assert previous.end_time is not None and not previous.is_settled
+            company = await db.scalar(select(Company).where(
+                Company.id == g.tenant).with_for_update())
+            company.timezone = "Pacific/Kiritimati"
+            day2 = datetime.now(timezone.utc).astimezone(ZoneInfo("Pacific/Kiritimati")).date()
+            assert day2 > previous.session_date
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+    headers = {**_headers(g.token), "Idempotency-Key": str(uuid4())}
+    unsettled = await g.client.post("/driver/sessions/start",
+                                   headers=headers, json={})
+    assert unsettled.status_code == 400, unsettled.text
+    assert await _truth(g) == moves
+
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            previous = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            previous.inventory_reconciled_at = utc_now()
+            previous.inventory_reconciled_by = g.field.driver.id
+            previous.is_settled = True  # test-only full settlement precondition
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            epoch.ended_at = utc_now()
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    revoked = await g.client.post("/driver/sessions/start", headers=headers, json={})
+    assert revoked.status_code == 409, revoked.text
+    assert revoked.json()["error"]["code"] == "M03_VEHICLE_CUSTODY_REQUIRED"
+    assert await _truth(g) == moves
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            epoch.ended_at = None  # exact fixture restores pre-revocation state
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route,
+            ).with_for_update())
+            route.assignment_context_revision += 1  # manager changed context
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+    stale = await g.client.post("/driver/sessions/start", headers=headers, json={})
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["error"]["code"] == "M03_DAY2_ROUTE_CHANGED_OR_NOT_ACTIVE"
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            assert await db.scalar(select(func.count()).select_from(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.driver_id == g.field.driver.id,
+                WorkSession.session_date == day2,
+            )) == 0
+            assert await db.scalar(select(func.count()).select_from(
+                DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.route_id == g.route,
+                DispatchRouteExecutionPeriod.context_revision > 2,
+            )) == 0
+            old_period = await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.id == period_id,
+            ))
+            assert old_period.state == "CLOSED" and old_period.ended_at is not None
+    finally:
+        tenant_context.reset(token)
+    assert await _truth(g) == moves

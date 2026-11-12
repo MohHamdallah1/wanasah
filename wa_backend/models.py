@@ -1141,10 +1141,9 @@ class WorkSession(Base):
         ),
         UniqueConstraint('company_id', 'id', name='uq_work_sessions_company_id'),
         UniqueConstraint('company_id', 'id', 'driver_id', name='uq_work_sessions_company_driver_id'),
-        UniqueConstraint(
-            'company_id', 'commercial_context_id',
-            name='uq_work_sessions_commercial_context'
-        ),
+        # Route commercial context is immutable evidence, but may be used by
+        # another day's financially independent WorkSession after settlement.
+        Index('ix_work_sessions_commercial_context', 'company_id', 'commercial_context_id'),
         ForeignKeyConstraint(
             ['company_id', 'driver_id'],
             ['drivers.company_id', 'drivers.id'],
@@ -1219,8 +1218,11 @@ class SessionInventorySnapshot(Base):
     """
     __tablename__ = 'session_inventory_snapshots'
     __table_args__ = (
+        # Each physical vehicle location has its own immutable opening/closing
+        # snapshot even if A and B carry the same SKU and stock status in S1.
         UniqueConstraint(
-            'company_id', 'work_session_id', 'product_variant_id', 'stock_status',
+            'company_id', 'work_session_id', 'location_id',
+            'product_variant_id', 'stock_status',
             name='uq_session_inventory_snapshot_variant_status'
         ),
         ForeignKeyConstraint(
@@ -3627,6 +3629,7 @@ class StocktakeSession(Base):
             'uq_vehicle_recon_work_session',
             'company_id',
             'related_work_session_id',
+            'location_id',
             unique=True,
             postgresql_where=text(
                 "stocktake_type = 'VEHICLE_RECON' "

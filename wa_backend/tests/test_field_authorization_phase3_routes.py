@@ -7,6 +7,7 @@ from main import app
 from api import driver, field_contracts, reconciliation
 
 MANIFEST=[
+    ["GET", "/driver/sessions/execution-context", "get_current_execution_context"],
     [
         "POST",
         "/driver/sessions/start",

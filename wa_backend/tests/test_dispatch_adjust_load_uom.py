@@ -5,6 +5,7 @@ import unittest
 from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from tests.canonical_actor_fixtures import seed_field_fixture
 from uuid import uuid4
 from unittest.mock import AsyncMock, patch
 
@@ -80,10 +81,22 @@ class ActiveRouteAdjustLoadPostgres(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(self.seed.asyncTearDown)
         self.db, self.company = self.seed.db, self.seed.company_id
         self.pid, self.vid, self.wh = self.seed.variant_id, self.seed.vehicle_location_id, self.seed.warehouse_a_id
-        self.actor = self.seed.owner.operational_driver
-        self.actor_id = int(self.actor.id)
+        # Real persisted FIELD principal/representative/driver identity. Owner
+        # remains a separate backoffice principal for protected load writes.
+        self.field_fixture = await seed_field_fixture(self.db, self.company)
+        # Hold immutable audit/FK locator scalars across test commits.
+        # The real FIELD principal and representative remain persisted in PG16;
+        # using the ORM Driver itself here would lazy-refresh an expired `id`
+        # outside greenlet_spawn after the first commit.
+        real_driver = self.field_fixture.driver
+        self.actor_id = int(real_driver.id)
+        self.actor = SimpleNamespace(
+            id=self.actor_id, company_id=self.company,
+            is_active=bool(real_driver.is_active),
+            password_hash=real_driver.password_hash,
+        )
         self.cancel_requests = {}
-        self.field = SimpleNamespace(company_id=self.company)
+        self.field = self.field_fixture.context
         self.seed.variant.packs_per_carton = 8
         pack = await self.db.scalar(select(UOM).where(UOM.name == "PACK"))
         if pack is None:

@@ -534,7 +534,105 @@ jobs:
           }
           assert len(m01_937_exact) == 7 and len(m01_937_unique) == 6
 
+          # M03 #941: all nine original files are compulsory. Only the
+          # explicit security/legacy-acceptance test files below may accompany
+          # them; no blanket backend, dashboard, CI or foreign worker scope.
+          m03_941_required = {
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/work_session_multi_route/__init__.py",
+              "wa_backend/domains/work_session_multi_route/context.py",
+              "wa_backend/domains/work_session_multi_route/read.py",
+              "wa_backend/domains/work_session_multi_route/start.py",
+            "wa_backend/domains/work_session_multi_route/end.py",
+            "wa_backend/domains/work_session_multi_route/continuity.py",
+              "wa_backend/models.py",
+              "wa_backend/alembic/versions/d7a2e9c3f541_m03_multi_vehicle_session_keys.py",
+              "wa_backend/tests/test_dispatch_m03_integrated_postgres.py",
+              "wa_backend/tests/test_dispatch_m03_period_postgres.py",
+          }
+          m03_941_tests = {
+              "wa_backend/tests/field_authorization_phase3_matrix.py",
+              "wa_backend/tests/test_field_authorization_phase3_routes.py",
+              "wa_backend/tests/test_field_authorization_phase3_http.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_driver_session_field_context_boundary.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+              "wa_backend/tests/test_dispatch_canonical_authorization_cutover.py",
+              "wa_backend/tests/test_dispatch_adjust_load_uom.py",
+          }
+          m03_941_allowed = m03_941_required | m03_941_tests | {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+          }
+          m03_941_distinct = (m03_941_required - p0_allowed - auth_session_allowed) | m03_941_tests
+          assert len(m03_941_required) == 11
+          assert len(m03_941_tests) == 8
+
+          # M04 #942 exact AFTER merged M03; not a broad backend exemption.
+          m04_942_exact = {
+              ".github/workflows/dispatch-m04-vehicle-custody.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "wa_backend/alembic/env.py",
+              "wa_backend/alembic/versions/e4b7c9d2a601_m04_multi_vehicle_checkpoint.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/representative_settlement.py",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/domains/inventory_vehicle_load/service.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/INTEGRATION.md",
+              "wa_backend/domains/representative_settlement_multi_vehicle/__init__.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/activation.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/application.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/checkpoints.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/contracts.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/financial_readiness.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/http.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/inventory_adapter.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/inventory_integration.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/load_ownership.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/models.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/period_pricing.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/policy.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/read_model.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/resolution.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/review_evidence.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/schema.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/snapshots.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/variance.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/variance_http.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/variance_scope.py",
+              "wa_backend/domains/representative_settlement_multi_vehicle/variance_workflow.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_m04_commands.py",
+              "wa_backend/tests/test_dispatch_m04_domain.py",
+              "wa_backend/tests/test_dispatch_m04_financial_domain.py",
+              "wa_backend/tests/test_dispatch_m04_full_m03_postgres.py",
+              "wa_backend/tests/test_dispatch_m04_inventory_helpers.py",
+              "wa_backend/tests/test_dispatch_m04_load_ownership.py",
+              "wa_backend/tests/test_dispatch_m04_membership.py",
+              "wa_backend/tests/test_dispatch_m04_read_postgres.py",
+              "wa_backend/tests/test_dispatch_m04_review_replay.py",
+              "wa_backend/tests/test_dispatch_m04_variance_postgres.py",
+              "wa_backend/tests/test_dispatch_m04_write_postgres.py",
+              "wa_backend/tests/test_vehicle_reconciliation_strict_custody.py",
+          }
+          m04_942_unique = m04_942_exact - p0_allowed - auth_session_allowed
+          assert len(m04_942_exact) == 45 and len(m04_942_unique) >= 30
+
           def ownership_mode(candidate):
+              if candidate & m04_942_unique:
+                  assert candidate == m04_942_exact, (
+                      f'M04 #942 forbidden ownership: '
+                      f'missing={sorted(m04_942_exact - candidate)} '
+                      f'extra={sorted(candidate - m04_942_exact)}'
+                  )
+                  return 'M04_942_EXACT'
+              if candidate & m03_941_distinct:
+                  assert m03_941_required <= candidate and candidate <= m03_941_allowed, (
+                      f"Forbidden M03 #941 exact ownership: "
+                      f"missing={sorted(m03_941_required - candidate)} "
+                      f"extra={sorted(candidate - m03_941_allowed)}"
+                  )
+                  return "M03_941_EXACT"
               if candidate & m01_937_unique:
                   assert candidate in (m01_937_exact, m01_937_with_ci), (
                       f"Forbidden M01 #937 exact ownership: "
@@ -648,6 +746,49 @@ jobs:
               assert not unexpected, f"Forbidden P0/auth-session scope: {sorted(unexpected)}"
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
+
+          # M04 exact policy: all 45 files together, no partial or foreign set.
+          assert ownership_mode(m04_942_exact) == 'M04_942_EXACT'
+          for missing in sorted(m04_942_exact):
+              try: ownership_mode(m04_942_exact - {missing})
+              except AssertionError: pass
+              else: raise AssertionError(f'M04 partial accepted: {missing}')
+          for foreign in ('wa_backend/api/driver.py',
+                          'wa_backend/domains/work_session_multi_route/end.py',
+                          'dashboard/src/pages/DispatchBoard.tsx',
+                          'wanasah_frontend/lib/main.dart',
+                          'wa_backend/domains/inventory/services.py'):
+              try: ownership_mode(m04_942_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f'M04 foreign accepted: {foreign}')
+          print('M04_942_P0_OWNER=PASS exact=45 missing=45 foreign=5')
+
+          # M03 positive and adversarial ownership probes: all original
+          # evidence required, test-only subset optional, no unrelated paths.
+          assert ownership_mode(m03_941_required) == "M03_941_EXACT"
+          assert ownership_mode(m03_941_allowed) == "M03_941_EXACT"
+          for missing in m03_941_required:
+              try:
+                  ownership_mode(m03_941_allowed - {missing})
+              except AssertionError as exc:
+                  assert missing in str(exc), (missing, exc)
+              else:
+                  raise AssertionError(f"Partial M03 #941 accepted: {missing}")
+          for foreign in (
+              "wa_backend/api/dispatch.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_m02_lifecycle_postgres.py",
+              "wa_backend/domains/dispatch/route_execution/lifecycle/policy.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "wanasah_frontend/lib/main.dart",
+              "wa_backend/alembic/versions/foreign_migration.py",
+          ):
+              try:
+                  ownership_mode(m03_941_allowed | {foreign})
+              except AssertionError as exc:
+                  assert foreign in str(exc), (foreign, exc)
+              else:
+                  raise AssertionError(f"Foreign M03 #941 admitted: {foreign}")
 
           # M01 authorization ownership: exact source set with/without this
           # single shared CI-policy file, and no subset or foreign additions.
