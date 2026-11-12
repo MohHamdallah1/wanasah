@@ -131,7 +131,8 @@ async def test_m05_signed_current_period_scoped_read_target_custody_and_revocati
                   "target_vehicle_id": int(body["vehicle_id"])}
         no_epoch = await client.get(path, params=params, headers=owner)
         assert no_epoch.status_code == 409, no_epoch.text
-        assert no_epoch.json()["detail"]["code"] == "M05_CUSTODY_REQUIRED"
+        # The canonical HTTP error envelope is error.code, not raw detail.
+        assert no_epoch.json()["error"]["code"] == "M05_CUSTODY_REQUIRED"
         invalid_driver = await client.get(path, params={
             **params, "target_driver_id": int(home.owner.operational_driver.id),
         }, headers=owner)

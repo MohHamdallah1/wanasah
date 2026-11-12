@@ -73,6 +73,7 @@ jobs:
           dart analyze lib/features/work_session/data/execution_context.dart
           dart analyze lib/features/work_session/data/field_execution_reader.dart
           dart analyze lib/features/work_session/data/signed_field_execution_authority.dart
+          dart analyze lib/features/visits/data/signed_visit_execution_reader.dart
           dart analyze lib/features/work_session/data/work_session_remote_data_source.dart
           dart analyze lib/blocs/visit/visit_bloc.dart
           dart analyze lib/features/visits/application/visit_submission_service.dart

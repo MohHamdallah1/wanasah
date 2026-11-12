@@ -19,7 +19,7 @@ import '../../repositories/sync_repository.dart';
 import '../../features/visits/application/completed_visit_restorer.dart';
 import '../../features/visits/application/visit_cart_policy.dart';
 import '../../features/visits/application/visit_submission_service.dart';
-import '../../features/work_session/data/signed_field_execution_authority.dart';
+import '../../features/visits/data/signed_visit_execution_reader.dart';
 import '../../features/visits/application/visit_event.dart';
 import '../../features/visits/application/visit_state.dart';
 
@@ -45,7 +45,7 @@ class VisitBloc extends Bloc<VisitEvent, VisitState> {
         // M03 live route context is not the last DispatchRoute/vehicle label.
         // A legacy V1 session can explicitly have NO canonical period; the
         // Backend rejects any M03 mutation that lacks three signed headers.
-        readExecution: SignedFieldExecutionAuthority.withApiClient(
+        readExecution: signedVisitExecutionAuthority(
           ApiClient.instance,
         ).read),
       super(VisitLoading()) {

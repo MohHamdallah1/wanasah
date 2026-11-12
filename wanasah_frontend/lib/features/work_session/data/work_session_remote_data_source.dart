@@ -1,6 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
-import 'signed_field_execution_authority.dart';
+import '../../visits/data/signed_visit_execution_reader.dart';
 
 import '../../../core/network/api_client.dart';
 import 'work_session_snapshot.dart';
@@ -50,7 +50,7 @@ class ApiWorkSessionRemoteDataSource implements WorkSessionRemoteDataSource {
     // Response already committed. Failed local caching must NOT turn 201
     // into an ambiguous retry with a NEW UUID (or invent another S2).
     try {
-      await SignedFieldExecutionAuthority.withApiClient(_apiClient)
+      await signedVisitExecutionAuthority(_apiClient)
           .captureSuccessfulStart(response.data);
     } catch (_) {
       // Next online signed GET can safely populate the cache.

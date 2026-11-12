@@ -1,12 +1,8 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../../../core/network/api_client.dart';
-import '../../auth/data/secure_auth_identity_store.dart';
 import 'execution_context.dart';
-import 'field_execution_reader.dart';
 
 typedef ReadCurrentSignedExecution = Future<ExecutionContextProof?> Function();
 typedef ReadExecutionOwnerKey = Future<String> Function();
@@ -33,27 +29,6 @@ class SignedFieldExecutionAuthority {
        _readSaved = readSaved,
        _writeSaved = writeSaved,
        _deleteSaved = deleteSaved;
-
-  factory SignedFieldExecutionAuthority.withApiClient(ApiClient client) {
-    const storage = FlutterSecureStorage();
-    final identities = SecureAuthIdentityStore();
-    return SignedFieldExecutionAuthority(
-      readRemote: FieldExecutionReader.withApiClient(client).read,
-      ownerKey: () async {
-        // Revalidate the complete canonical FIELD login on EVERY read/write.
-        // Company code or an old legacy driver key ALONE never authorizes data.
-        final identity = await identities.read();
-        if (identity == null) {
-          throw StateError('M05_FIELD_AUTH_REQUIRED');
-        }
-        return '${identity.companyId}:${identity.principalId}:'
-            '${identity.representativeId}:${identity.legacyDriverId}';
-      },
-      readSaved: (key) => storage.read(key: key),
-      writeSaved: (key, value) => storage.write(key: key, value: value),
-      deleteSaved: (key) => storage.delete(key: key),
-    );
-  }
 
   final ReadCurrentSignedExecution _remote;
   final ReadExecutionOwnerKey _ownerKey;
