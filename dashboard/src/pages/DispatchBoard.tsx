@@ -1992,7 +1992,7 @@ function DispatchSession() {
               </div>
             </div>
           ) : activeTab === "launch" ? (
-            <div key="launch" data-testid="dispatch-launch-workspace" ref={realWorkspaceRef} className="flex flex-col w-full gap-6 h-full flex-1 min-h-0 overflow-y-auto custom-scrollbar pb-2">
+            <div key="launch" data-testid="dispatch-launch-workspace" ref={realWorkspaceRef} className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-y-auto custom-scrollbar pb-2">
               
               {/* D07: unresolved original UUID survives lost 201 and a full reload.
                   No new route can be started until authoritative readback settles it. */}
@@ -2051,18 +2051,23 @@ function DispatchSession() {
                 </div>
               )}
 
-              {/* +++ الحاوية الأولى: إعدادات الخط (لون صلب bg-slate-50 لتوحيد الخلفية وإخفاء الترقيع) +++ */}
-              <div className="dispatch-surface dispatch-launch-config relative grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-slate-50 p-6 pt-7 rounded-2xl border border-slate-200 shadow-sm  hover:border-[#1e87bb]/30 mt-3">
-                <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
-                  <Rocket className="w-4 h-4" /> إطلاق خط سير جديد
-                </div>
+              {/* ONE real launch operation: selectors, readiness, products and
+                  final action share a continuous surface, not three cards. */}
+              <section data-testid="dispatch-launch-workbench"
+                className="dispatch-surface mt-2 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-3 px-4 pb-3 pt-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="col-span-full flex min-w-0 items-center gap-2 text-sm font-extrabold text-slate-800">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-[#166a94]">
+                      <Rocket aria-hidden="true" className="h-4 w-4" />
+                    </span>
+                    {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
+                  </div>
                 
-                {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
-                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
+                <CustomSelect labelBg="bg-white" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
+                <CustomSelect labelBg="bg-white" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
+                <CustomSelect labelBg="bg-white" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
                 <CustomSelect
-                  labelBg="bg-slate-50"
+                  labelBg="bg-white"
                   label="مستودع المصدر"
                   options={tabReady ? warehouses : []}
                   value={tabReady ? selectedSourceWarehouseId : ""}
@@ -2074,37 +2079,44 @@ function DispatchSession() {
                     launch configuration, not a second full-width page card.
                     Worker2 owns the panel internals; its real props and
                     Backend verification stay unchanged. */}
-                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0">
+                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0 border-t border-slate-100 pt-2">
                   <CommercialPreflightPanel language={i18n.language}
                     status={tabReady ? commercialPreflight.status : "choose"}
                     evidence={tabReady ? commercialPreflight.evidence : null}
-                    onRefresh={commercialPreflight.refresh} />
+                    onRefresh={commercialPreflight.refresh}
+                    onNavigateToTab={(next) => { if (tabAllowed(next)) setActiveTab(next); }}
+                    canNavigateToTab={(next) => tabAllowed(next)} />
                 </div>
               </div>
 
               <RouteLoadProductTable pending={!tabReady} vehicleId={tabReady ? selectedVehicleId : ""} warehouseId={tabReady ? selectedSourceWarehouseId : ""} scope={tabReady ? productScope : null}
                 current={tabReady && vehicleCustodyReady ? routeLoadCurrent : {}} targets={tabReady && vehicleCustodyReady ? routeLoadTargets : {}}
-                units={tabReady && vehicleCustodyReady ? routeLoadUnits : {}} names={tabReady && vehicleCustodyReady ? routeLoadNames : {}} custodyReady={tabReady && vehicleCustodyReady}
+                units={tabReady && vehicleCustodyReady ? routeLoadUnits : {}} names={tabReady && vehicleCustodyReady ? routeLoadNames : {}} custodyReady={commandsAdmitted && vehicleCustodyReady}
                 onClear={() => setRouteLoadTargets({})}
+                onRestoreClear={(previous) => {
+                  if (commandsAdmitted && vehicleCustodyReady) setRouteLoadTargets(previous);
+                }}
                 onTargetChange={(id, name, unit, value) => {
                   setRouteLoadTargets((previous) => ({ ...previous, [id]: value }));
                   setRouteLoadUnits((previous) => ({ ...previous, [id]: unit }));
                   setRouteLoadNames((previous) => ({ ...previous, [id]: name }));
                 }} />
 
-              {/* Keep the primary launch action reachable on short viewports. */}
-              <div className="sticky bottom-0 z-30 border-t border-slate-200 bg-white/95 px-1 py-3 backdrop-blur">
-                <div className="flex justify-end">
+              {/* The single operation footer remains reachable during large
+                  product window scrolling; it is NOT a third card. */}
+              <div className="sticky bottom-0 z-20 rounded-b-2xl border-t border-slate-200 bg-white px-4 py-2.5">
+                <div className="flex items-center justify-end">
                   <button
                     disabled={!commandsAdmitted || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
-                    className="bg-gradient-to-r from-[#1e87bb] to-[#166a94] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 text-white px-8 py-3 rounded-xl text-sm font-black shadow-lg  active:scale-[0.98] flex items-center justify-center gap-2 w-full md:w-auto min-w-[250px]"
+                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1e87bb] px-5 py-2 text-sm font-extrabold text-white shadow-sm hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb] focus-visible:ring-offset-2 sm:w-auto"
                   >
                     <Rocket className="w-5 h-5" /> {preflightCopy(i18n.language, "launch")}
                   </button>
                 </div>
               </div>
+              </section>
 
             </div>
           ) : (
