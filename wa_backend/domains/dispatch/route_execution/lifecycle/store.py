@@ -373,5 +373,17 @@ class M01RouteLifecycleStore:
                 "assignment_vehicle_id": decision.open_period_vehicle_id,
             },
             reason_code="M02_ROUTE_LIFECYCLE",
+            request_id=intent.request_id,
+            before_snapshot={
+                "status": state.status,
+                "assignment_context_revision": state.context_revision,
+                "live_period_id": state.open_period_id,
+            },
+            after_snapshot={
+                "status": decision.status,
+                "assignment_context_revision": decision.next_context_revision,
+                "zone_reserved": decision.zone_reserved,
+                "live_assets_reserved": decision.live_assets_reserved,
+            },
             schema_version=1,
         ))
