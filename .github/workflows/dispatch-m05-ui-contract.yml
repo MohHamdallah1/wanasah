@@ -8,6 +8,7 @@ on:
       - "dashboard/src/features/operations/representativeSettlement/vehicleCountRead.ts"
       - "dashboard/src/features/operations/representativeSettlement/VehicleCountReadPanel.tsx"
       - "dashboard/src/test/dispatch-m05-lifecycle.test.ts"
+      - "dashboard/tsconfig.m05.json"
       - "dashboard/e2e/dispatch-d08-journey.spec.ts"
       - "dashboard/e2e/dispatch-d12-scale.spec.ts"
       - "wanasah_frontend/lib/features/work_session/**"
@@ -40,7 +41,7 @@ jobs:
       - name: Strict M02/M04 typed M05 contract and client source
         run: npx vitest run src/test/dispatch-m05-lifecycle.test.ts
       - name: Dashboard typecheck
-        run: npx tsc --noEmit -p tsconfig.app.json
+        run: npx tsc --noEmit -p tsconfig.m05.json
       - name: Dashboard production build
         env:
           VITE_API_URL: http://127.0.0.1:4174
