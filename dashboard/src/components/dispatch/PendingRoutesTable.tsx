@@ -168,7 +168,8 @@ export function PendingRoutesTable({
         </div>
       )}
       {routes.map((route) => {
-        const driverShortageCount = driverShortagesMap[route.driverId] || 0;
+        const currentDriver = route.currentDriverId ?? (route.assignmentContextRevision === 1 ? Number(route.driverId) : null);
+        const driverShortageCount = currentDriver ? (driverShortagesMap[String(currentDriver)] || 0) : 0;
 
         return (
           <div
@@ -182,7 +183,7 @@ export function PendingRoutesTable({
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-slate-800 text-base">{route.zoneName}</h3>
                 <span className="text-slate-300">|</span>
-                <p className="text-sm text-slate-500 font-medium">المندوب: {route.driverName}</p>
+                <p className="text-sm text-slate-500 font-medium">المندوب: {route.currentDriverName || (route.assignmentContextRevision === 1 ? route.driverName : "غير مخصص")}</p>
 
                 {driverShortageCount > 0 && (
                   <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
