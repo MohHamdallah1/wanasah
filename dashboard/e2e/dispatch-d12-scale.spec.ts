@@ -30,7 +30,13 @@ for (const width of [1440, 390]) {
     const started = Date.now();
     await page.goto("/dispatch");
     await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 60000 });
-    await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
+    // D15 loads Routes independently of the (possibly enormous) Shops list.
+    // Routes-tab first paint needs init + active routes + shortages only;
+    // requesting Shops here would regress D15 and first-route latency.
+    const firstPaint = ["/dispatch/init", "/dispatch/active_routes", "/dispatch/shortages"];
+    await expect.poll(() => firstPaint.every(path => seen.get(path)?.status === 200),
+      { timeout: 60000 }).toBe(true);
+    expect(seen.has("/dispatch/shops")).toBe(false);
     const rendered = await page.evaluate(() => ({
       domNodes: document.querySelectorAll("*").length,
       visibleRouteRow: document.querySelectorAll(".dispatch-route-row").length,
