@@ -1,4 +1,5 @@
 import '../../../core/visit/visit_command_serializer.dart';
+import '../../work_session/data/execution_context.dart';
 import '../../../repositories/sync_repository.dart';
 import '../data/visit_submission_mapper.dart';
 import '../../../models/cart_item_model.dart';
@@ -12,18 +13,25 @@ typedef SaveVisitCommand = Future<void> Function({
   required int visitId, required Map<String, dynamic> payload,
 });
 typedef ReadVisitCommandEvidence = Future<List<Map<String, dynamic>>> Function();
+typedef ReadSignedExecution = Future<ExecutionContextProof?> Function();
 
 class VisitSubmissionService {
   VisitSubmissionService(SyncRepository repository,
-    {required ReadVisitCommandEvidence readPending})
-    : this.withPorts(save: repository.saveInvoice, readPending: readPending);
+    {required ReadVisitCommandEvidence readPending,
+     ReadSignedExecution? readExecution, bool requireExecutionProof = false})
+    : this.withPorts(save: repository.saveInvoice, readPending: readPending,
+        readExecution: readExecution, requireExecutionProof: requireExecutionProof);
 
   VisitSubmissionService.withPorts({
     required SaveVisitCommand save, required ReadVisitCommandEvidence readPending,
-  }) : _save = save, _readPending = readPending;
+    ReadSignedExecution? readExecution, bool requireExecutionProof = false,
+  }) : _save = save, _readPending = readPending,
+       _readExecution = readExecution, _requireExecutionProof = requireExecutionProof;
 
   final SaveVisitCommand _save;
   final ReadVisitCommandEvidence _readPending;
+  final ReadSignedExecution? _readExecution;
+  final bool _requireExecutionProof;
 
   Future<bool> hasUnresolvedVisit(int visitId) async =>
       visitHasUnresolvedCommand(visitId, await _readPending());
@@ -66,6 +74,17 @@ class VisitSubmissionService {
       cartItems: lines.cartItems,
       returns: returns,
     );
+
+    // Capture the exact signed source-period BEFORE staging the offline
+    // command. Never rebind a pending A request to B (or new A after ABA).
+    if (_requireExecutionProof && _readExecution == null) {
+      throw StateError('M05_SIGNED_EXECUTION_PROVIDER_REQUIRED');
+    }
+    final execution = await _readExecution?.call();
+    if (_requireExecutionProof && execution == null) {
+      throw StateError('M05_NO_ACTIVE_EXECUTION_PERIOD');
+    }
+    if (execution != null) payload['execution_context'] = execution.toJson();
 
     // UUID, staging, immutable replay and local projection belong to this port.
     await _save(visitId: visitId, payload: payload);
