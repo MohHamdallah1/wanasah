@@ -7,6 +7,7 @@ M02's operational POSTPONE/RESUME is separately gated after its merge.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 import os
 from decimal import Decimal
 from uuid import uuid4
@@ -15,6 +16,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from sqlalchemy import event, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -23,7 +25,8 @@ from context import tenant_context
 from main import app
 from models import (
     DispatchRoute, InventoryBalance, InventoryMovement, RouteCommercialContext,
-    Visit, WorkSession, Vehicle, InventoryLocation, Zone, utc_now,
+    Visit, WorkSession, Vehicle, InventoryLocation, Zone,
+    SessionInventorySnapshot, utc_now,
 )
 from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
@@ -425,3 +428,142 @@ async def test_m03_planned_start_real_bearer_lost201_replay_no_second_session(ga
             ))==0
     finally:
         tenant_context.reset(token_context)
+
+
+async def test_m03_location_scoped_snapshot_and_s2_reuse_preserves_historical_s1(gate):
+    """Preview of the two authorized M03-only schema changes on actual PG16.
+
+    This test becomes the post-M02 Alembic migration acceptance gate.
+    Existing S1 rows are never rewritten and duplicate A snapshots remain
+    rejected while the same SKU/status on B is now independently valid.
+    """
+    g = gate
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            s1 = await db.scalar(
+                select(WorkSession).where(
+                    WorkSession.company_id == g.tenant,
+                    WorkSession.id == g.session,
+                ).with_for_update()
+            )
+            assert s1 is not None and s1.commercial_context_id is not None
+            context_id = int(s1.commercial_context_id)
+            original_start = s1.start_time
+            a_rows = (await db.scalars(
+                select(SessionInventorySnapshot).where(
+                    SessionInventorySnapshot.company_id == g.tenant,
+                    SessionInventorySnapshot.work_session_id == s1.id,
+                    SessionInventorySnapshot.location_id == g.location,
+                    SessionInventorySnapshot.product_variant_id == g.variant["id"],
+                    SessionInventorySnapshot.stock_status == "AVAILABLE",
+                )
+            )).all()
+            assert len(a_rows) <= 1
+            if a_rows:
+                a = a_rows[0]
+                old_a_start = a.starting_quantity
+            else:
+                a = SessionInventorySnapshot(
+                    company_id=g.tenant, work_session_id=s1.id,
+                    location_id=g.location, product_variant_id=g.variant["id"],
+                    stock_status="AVAILABLE", starting_quantity=100,
+                )
+                db.add(a)
+                await db.flush()
+                old_a_start = a.starting_quantity
+            a_id = int(a.id)
+
+            car_b = Vehicle(
+                company_id=g.tenant,
+                plate_number="M03-B-"+uuid4().hex[:10],
+                maintenance_status="Active", is_active=True,
+            )
+            db.add(car_b)
+            await db.flush()
+            location_b = InventoryLocation(
+                company_id=g.tenant,
+                name="M03 car B isolated physical location",
+                code="M03-B-"+uuid4().hex[:9],
+                location_type="VEHICLE",
+                vehicle_id=car_b.id,
+                is_active=True, is_system_managed=False,
+            )
+            db.add(location_b)
+            await db.flush()
+            b = SessionInventorySnapshot(
+                company_id=g.tenant, work_session_id=s1.id,
+                location_id=location_b.id,
+                product_variant_id=g.variant["id"], stock_status="AVAILABLE",
+                starting_quantity=60,
+            )
+            db.add(b)
+            await db.flush()
+            assert b.id != a_id
+            assert int(b.location_id) != int(g.location)
+            assert b.starting_quantity == 60
+            assert a.starting_quantity == old_a_start
+            # Same location+variant+status may still be written only once.
+            duplicate = SessionInventorySnapshot(
+                company_id=g.tenant, work_session_id=s1.id,
+                location_id=location_b.id,
+                product_variant_id=g.variant["id"], stock_status="AVAILABLE",
+                starting_quantity=999,
+            )
+            with pytest.raises(IntegrityError):
+                async with db.begin_nested():
+                    db.add(duplicate)
+                    await db.flush()
+            await db.commit()
+
+        # Properly closed S1 is allowed to be followed by a distinct S2 on
+        # the exact same frozen context; no UPDATE to S1.commercial_context_id.
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            s1 = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            assert s1.commercial_context_id == context_id
+            ended = utc_now()
+            s1.end_time = ended
+            s1.inventory_reconciled_at = ended
+            s1.inventory_reconciled_by = g.field.driver.id
+            s1.is_settled = True
+            s2 = WorkSession(
+                company_id=g.tenant,
+                driver_id=g.field.driver.id,
+                commercial_context_id=context_id,
+                session_date=s1.session_date + timedelta(days=1),
+                start_time=ended + timedelta(days=1),
+                is_settled=False,
+            )
+            db.add(s2)
+            await db.flush()
+            assert s2.id != s1.id and s2.commercial_context_id == context_id
+            assert s1.start_time == original_start
+            assert s1.commercial_context_id == context_id
+            old_snapshot = await db.scalar(select(SessionInventorySnapshot).where(
+                SessionInventorySnapshot.id == a_id,
+                SessionInventorySnapshot.company_id == g.tenant,
+            ))
+            assert old_snapshot.starting_quantity == old_a_start
+            assert old_snapshot.location_id == g.location
+            await db.commit()
+
+        # RLS and composite FKs still fence foreign company location aliases.
+        foreign_location_id = g.foreign.location
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            wrong = SessionInventorySnapshot(
+                company_id=g.tenant,
+                work_session_id=g.session,
+                location_id=foreign_location_id,
+                product_variant_id=g.variant["id"],
+                stock_status="AVAILABLE",
+                starting_quantity=4,
+            )
+            with pytest.raises(IntegrityError):
+                db.add(wrong)
+                await db.flush()
+            await db.rollback()
+    finally:
+        tenant_context.reset(token)

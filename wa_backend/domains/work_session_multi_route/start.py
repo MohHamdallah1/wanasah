@@ -13,8 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
-    InventoryBalance, RouteCommercialContext, SessionInventorySnapshot,
-    WorkSession, utc_now,
+    InventoryBalance, InventoryLocation, RouteCommercialContext,
+    SessionInventorySnapshot, WorkSession, utc_now,
 )
 from domains.auth_sessions.context import FieldRequestContext
 from domains.work_session_multi_route.context import (
@@ -22,6 +22,7 @@ from domains.work_session_multi_route.context import (
 )
 from quantity import QUANTITY_MAX
 from domains.pricing.context import commercial_context_payload
+from services import acquire_inventory_location_guard
 
 _STOCK_STATUSES = frozenset((
     "AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED",
@@ -36,11 +37,10 @@ async def establish_session_vehicle_opening(
     session_id: int,
     vehicle_location_id: int,
 ) -> None:
-    """Keep one snapshot per location, without ever copying/moving stock.
+    """Record one independent opening per physical location, without stock writes.
 
-    Legacy unique(company,session,variant,status) lacks location; fail closed
-    on an overlap until LEAD-owned index parity is widened, rather than
-    writing an A opening as B's or changing physical inventory.
+    A and B may carry the same variant/status: the canonical unique key now
+    includes location_id. Existing historical S1 snapshots remain unchanged.
     """
     existing_locations = (
         await db.execute(
@@ -80,26 +80,6 @@ async def establish_session_vehicle_opening(
     ).all()
     if not balance_rows:
         return
-
-    keys = {(int(row[0]), str(row[1])) for row in balance_rows}
-    conflicting = (
-        await db.execute(
-            select(
-                SessionInventorySnapshot.product_variant_id,
-                SessionInventorySnapshot.stock_status,
-            )
-            .where(
-                SessionInventorySnapshot.company_id == company_id,
-                SessionInventorySnapshot.work_session_id == session_id,
-                SessionInventorySnapshot.location_id != vehicle_location_id,
-                SessionInventorySnapshot.product_variant_id.in_(
-                    [key[0] for key in keys]
-                ),
-            )
-        )
-    ).all()
-    if any((int(v), str(s)) in keys for v, s in conflicting):
-        raise SessionPeriodRejected("M03_VEHICLE_OPENING_LOCATION_INDEX_REQUIRED")
 
     for variant_id, stock_status, value in balance_rows:
         qty = Decimal(value or 0)
@@ -173,6 +153,24 @@ async def start_session_from_planned_period(
     ).scalar_one_or_none()
     if context_row is None:
         raise SessionPeriodRejected("M03_ROUTE_COMMERCIAL_CONTEXT_INVALID")
+
+    # The opening snapshot and first period binding share one transaction.
+    # Fence concurrent physical stock movements before reading either car.
+    await acquire_inventory_location_guard(
+        db, field_context.company_id, int(authority.vehicle_location_id),
+        exclusive=True,
+    )
+    valid_location = await db.scalar(
+        select(InventoryLocation.id).where(
+            InventoryLocation.company_id == field_context.company_id,
+            InventoryLocation.id == authority.vehicle_location_id,
+            InventoryLocation.vehicle_id == authority.period.vehicle_id,
+            InventoryLocation.location_type == 'VEHICLE',
+            InventoryLocation.is_active.is_(True),
+        ).with_for_update(read=True)
+    )
+    if valid_location is None:
+        raise SessionPeriodRejected('M03_VEHICLE_LOCATION_STALE')
 
     session = WorkSession(
         company_id=field_context.company_id,
