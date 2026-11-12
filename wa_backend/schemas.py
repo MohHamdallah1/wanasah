@@ -1267,6 +1267,8 @@ class ActiveRouteResponse(BaseModel):
     currentVehicleId: Optional[int] = Field(default=None, gt=0)
     currentVehicleLocationId: Optional[int] = Field(default=None, gt=0)
     currentPeriodState: Optional[Literal["PLANNED", "ACTIVE"]] = None
+    currentDriverName: Optional[str] = None
+    currentWorkSessionId: Optional[int] = Field(default=None, gt=0)
     can_execute: bool = False
     commercial_context: Optional[RouteCommercialContextResponse] = None
 
