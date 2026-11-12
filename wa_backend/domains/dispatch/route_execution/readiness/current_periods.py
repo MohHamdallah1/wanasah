@@ -6,7 +6,8 @@ a corrupt duplicate must not be arbitrarily chosen by the UI.
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
+from dispatch_access import vehicle_filter
 
 from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 
@@ -30,8 +31,14 @@ async def read_current_route_periods(db, *, access, route_ids: list[int]) -> dic
     rows = (await db.execute(
         select(
             period,
-            access.allows("dispatch.read", period.vehicle_location_id).label("may_read"),
-            access.allows("dispatch.execute", period.vehicle_location_id).label("may_execute"),
+            and_(
+                access.allows("dispatch.read", period.vehicle_location_id),
+                vehicle_filter(access, "dispatch.read", period.vehicle_id),
+            ).label("may_read"),
+            and_(
+                access.allows("dispatch.execute", period.vehicle_location_id),
+                vehicle_filter(access, "dispatch.execute", period.vehicle_id),
+            ).label("may_execute"),
         ).where(
             period.company_id == access.company_id,
             period.route_id.in_(route_ids),
