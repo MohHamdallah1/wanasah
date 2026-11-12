@@ -3935,7 +3935,10 @@ async def get_active_routes(
         else:
             shops_remaining = zone_shops_map.get(r.zone_id, 0)
             
-        session_ended = session_ended_map.get(r.work_session_id, False) if r.work_session_id else False
+        live_session = current_periods.get(r.id, {}).get("session_id")
+        session_ended = (session_ended_map.get(live_session, False)
+            if live_session else (session_ended_map.get(r.work_session_id, False)
+                if r.assignment_context_revision == 1 and r.work_session_id else False))
             
         res.append({
             "id": str(r.id),
