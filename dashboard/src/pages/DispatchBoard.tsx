@@ -2058,16 +2058,16 @@ function DispatchSession() {
                 </div>
                 
                 {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
-                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!tabReady} placeholder={tabReady ? "اختر المنطقة" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!tabReady} placeholder={tabReady ? "اختر المندوب" : "—"} />
-                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!tabReady} placeholder={tabReady ? "اختر السيارة" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
+                <CustomSelect labelBg="bg-slate-50" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
                 <CustomSelect
                   labelBg="bg-slate-50"
                   label="مستودع المصدر"
                   options={tabReady ? warehouses : []}
                   value={tabReady ? selectedSourceWarehouseId : ""}
                   onChange={changeSourceWarehouse}
-                  disabled={!tabReady}
+                  disabled={!commandsAdmitted}
                   placeholder={tabReady ? "اختر مستودع المصدر" : "—"}
                 />
                 {/* Commercial readiness belongs to the same four-selector
