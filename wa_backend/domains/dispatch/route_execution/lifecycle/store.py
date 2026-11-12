@@ -96,9 +96,18 @@ class M01RouteLifecycleStore:
             or self.period.work_session_id not in (None, *resources.sessions.keys())
         ):
             raise LifecycleConflict("CURRENT_PERIOD_REVISION_MISMATCH")
-        if self.period is not None and self.period.work_session_id is not None:
-            current_session = resources.sessions.get(int(self.period.work_session_id))
-            if current_session is None or current_session.driver_id != self.period.driver_id:
+        if self.period is not None:
+            # The legacy route's S1 may be long settled while a new period is
+            # PLANNED or bound to another active S2. Never fence the new
+            # assignment using the historical route.work_session_id.
+            current_session = (
+                resources.sessions.get(int(self.period.work_session_id))
+                if self.period.work_session_id is not None else None
+            )
+            if self.period.work_session_id is not None and (
+                current_session is None
+                or current_session.driver_id != self.period.driver_id
+            ):
                 raise LifecycleConflict("CURRENT_PERIOD_SESSION_MISMATCH")
         else:
             current_session = resources.session
