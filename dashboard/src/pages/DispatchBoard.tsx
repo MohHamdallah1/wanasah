@@ -2491,12 +2491,13 @@ function DispatchSession() {
           try {
             await authenticatedFetch(`/dispatch/route/${id}/status`, {
               method: "PUT",
-              body: JSON.stringify({ status: "waiting", driverId: route.driverId }),
+              body: JSON.stringify(route.sessionBound
+                ? { status: "waiting" }
+                : { status: "waiting", driverId: route.driverId }),
             });
             if (!admitted()) return;
             const fresh = await authenticatedFetch("/dispatch/active_routes", { cache: "no-store" });
             if (admitted() && Array.isArray(fresh)) setPendingRoutes(fresh);
-            setIsShowPostponedModalOpen(false);
           } catch (err: unknown) {
             if (admitted()) toast.error(getErrorMessage(err));
           }
