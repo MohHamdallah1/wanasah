@@ -129,9 +129,12 @@ async def run_vehicle_variance(db, *, access, actor, session_id, vehicle_id, pay
                     db, company_id=access.company_id, work_session_id=session_id,
                     vehicle_location_id=vehicle.location_id, variant_ids=variants,
                 )
+    # Delegated Stocktake owns its commit/rollback. Freeze scalar display
+    # evidence BEFORE this boundary; replay may expire the SQLAlchemy recon.
+    recon_reference, recon_id = str(recon.reference_number), int(recon.id)
     handler = {"approve": approve_stocktake_session, "recount": recount_stocktake_session,
                "count": submit_stocktake_count}[action]
-    result = await handler(recon.id, command, db=db, access=access, legacy_actor=actor)
+    result = await handler(recon_id, command, db=db, access=access, legacy_actor=actor)
     return {"status": "RECONCILED_AWAITING_SIGNED_COUNT" if action == "approve" else result["status"],
-            "reconciliation_reference": recon.reference_number,
+            "reconciliation_reference": recon_reference,
             "movement_count": result.get("movement_count", 0), "financial_ready": False}
