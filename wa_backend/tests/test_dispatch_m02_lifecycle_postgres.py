@@ -23,6 +23,7 @@ from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _stat
 from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
 from tests.canonical_actor_fixtures import seed_field_fixture
 from domains.authorization.field_provisioning import assign_new_representative_default
+from services import get_company_local_date
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
 
 pytestmark = [
@@ -373,6 +374,19 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         )
         assert old_period_again.status_code == 409
 
+        # An explicit recurring zone schedule moves to the next company
+        # business date when closing. It does NOT revive this historical
+        # route ID or touch its old visit/finance/stock evidence.
+        async with pg.session() as db:
+            zone = await db.scalar(select(Zone).where(
+                Zone.company_id == tenant.company_id,
+                Zone.id == int(launch["zone_id"]),
+            ).with_for_update())
+            local_day = await get_company_local_date(db, tenant.company_id)
+            zone.start_date = local_day
+            zone.interval_days = 7
+            await db.commit()
+
         closed = await http.put(
             url, headers=owner,
             json=_body("CLOSE", 5, period=new_assignment["periods"][-1][0]),
@@ -384,6 +398,28 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert final["real_stock"]["balances"] == before["real_stock"]["balances"]
         assert final["real_stock"]["movements"] == before["real_stock"]["movements"]
         assert final["real_stock"]["visits"] == before["real_stock"]["visits"]
+        async with pg.session() as db:
+            zone = await db.scalar(select(Zone).where(
+                Zone.company_id == tenant.company_id,
+                Zone.id == int(launch["zone_id"]),
+            ))
+            assert zone.start_date == local_day + timedelta(days=7)
+            assert zone.interval_days == 7
+            replacement = DispatchRoute(
+                company_id=tenant.company_id,
+                zone_id=int(launch["zone_id"]),
+                driver_id=other_driver,
+                vehicle_id=other_vehicle,
+                source_location_id=tenant.location_id,
+                status="waiting",
+                dispatch_date=zone.start_date,
+            )
+            db.add(replacement)
+            await db.commit()
+            assert replacement.id != route_id
+        assert (await _snapshot(pg, tenant, route_id, car_location, key))[
+            "real_stock"
+        ]["movements"] == before["real_stock"]["movements"]
         print("M02_BOUND_S1_POSTPONE_RESUME_SIGNED_CUSTODY_ABA_NO_STOCK=PASS", flush=True)
 
 
