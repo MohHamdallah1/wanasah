@@ -2439,6 +2439,10 @@ function DispatchSession() {
           const route = pendingRoutes.find(r => r.id === id);
           if (route) openLifecycle(route, "RESUME");
         }}
+        onCloseRoute={id => {
+          const route = pendingRoutes.find(r => r.id === id);
+          if (route) openLifecycle(route, "CLOSE");
+        }}
       />
       <ZoneRecycleBinModal isOpen={dispatchAdmitted && isZoneRecycleBinOpen} onClose={() => setIsZoneRecycleBinOpen(false)} recycleSearchQuery={zoneRecycleSearchQuery} onRecycleSearchQueryChange={setZoneRecycleSearchQuery} filteredRecycleBin={filteredZoneRecycleBin} onRestoreZone={handleRestoreZone} />
       <ShopBulkImportModal
