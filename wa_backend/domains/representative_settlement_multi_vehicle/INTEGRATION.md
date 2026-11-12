@@ -90,3 +90,38 @@ settle races; all-car money counted once; signed-history/RLS protection; S2 with
 unchanged vehicle balances and independent counters; exact final HEAD CI.
 
 MERGE READY: NO until all integrated acceptance passes. No Codex, no self-merge.
+
+## Worker2 TAKEOVER — 2026-11-12, independent closure
+
+Owner explicitly paused M05 Draft PR #946 unchanged and assigned Worker2 **same** M04 Draft PR #944 following original Worker3 HEAD `856f0becb9e924fa68a60856ef97b720db351733`. Main remains merged M02 `6a312476858eb6322b79c082d54a1cc97e590228`; M03 PR #943 remains DRAFT/UNMERGED. No M03/Driver, M05/Dashboard/Flutter, owner MAIN, or pre-existing dirty Worker3 worktree was changed. A clean separate detached checkout was used for focused tests. No Codex or self-merge.
+
+### Completed and committed independent integrations
+
+- **Stocktake call-site lock order**: in the VEHICLE_RECON branches of `api/warehouse/stocktake.py::approve_stocktake_session` and `services.py::post_approved_stocktake_adjustments`, after WorkSession lock and **before** location guard, lock sorted canonical session vehicle responsibility via the existing M04 helper. Historical one-vehicle path is unchanged.
+- **Frozen period shortage price**: only the VEHICLE_RECON DRIVER_SHORTAGE price call delegates through exact session and **vehicle location** to M04's frozen price seam. Ambiguous, unknown, malformed or mismatched prices require explicit review (no arbitrary first/last route or 500 from missing price rows).
+- **Vehicle Load**: `domains/inventory_vehicle_load/service.py::resolve_vehicle_load_owner` checks genuine canonical current vehicle period/custody before legacy route ownership, returns ROUTE/SETTLEMENT_REQUIRED and refuses unsafe ambiguity. Existing under-Vehicle-lock recheck remains.
+- **Canonical Backoffice credentials**: stocktake recount verifier authenticates current tenant DASHBOARD `CompanyPrincipal`, verifies current location-level `stocktake.recount` grant, and uses the legacy Driver solely as audit FK. Stocktake approval password uses current active canonical BACKOFFICE principal hash; wrong-password audit remains. Real PG16 regression includes genuine different Driver/principal usernames, FIELD denial, wrong tenant/location/password, canonical password rotation, unchanged legacy password rejection and same-token grant revocation. Stocktake cancellation remains untouched by this bounded approval.
+- **Historical AST fixture parity**: old one-car test fixture acknowledges absence of canonical M01 periods and restores its previously missing begin/complete command controls, preserving original assertions without test skips.
+- **M05 read-side contract**: new `GET /admin/sessions/{session_id}/inventory-custody/vehicles` supplies bounded, all-or-nothing, capability-scoped exact S1 vehicle/location, period IDs, custody epoch IDs and checkpoint status. It never infers from `DispatchRoute.work_session_id`, leaks quantity, or claims finance-ready. Denies partial location scope with 403 and stale/ambiguous checkpoint evidence with 409. **Endpoint intentionally 503 until ordered M04 migration activates the checkpoint schema**, not a silent legacy fallback.
+- **New isolated M04 CI workflow** `.github/workflows/dispatch-m04-vehicle-custody.yml`: focused domain/frozen test gate and genuine restricted PG16+Bearer read/credential gate. It explicitly does NOT run/mark the final writer acceptance before M03 and M04 ordered schema. The shared `dispatch-p0-route-stock-safety.yml` was intentionally **not modified** while Worker1 M03 owns its changes.
+
+### Test evidence and release limits
+
+- Detached clean source on committed HEAD `8c07028610ee4095cca8d4d9ee2fb6b6efd71165`: **112 passed + 31 subtests** from eight focused unit/frozen-compatibility files, no skips; one harmless third-party deprecation warning.
+- Genuine isolated local **PostgreSQL 16.15** restricted `wanasah_app` role (NOBYPASSRLS, FORCE RLS) with real `/login` Backoffice Bearer and no dependency overrides: **3/3 M04 read/old physical DAMAGED 2.125 settlement tests passed** on same source. On later HEAD `77842523d0a5f34f5ce31ec0c006d1bfb56b81fd`, after adding only FIELD-denial and principal-password-rotation checks to the credential test, that exact focused PG test **1 passed**, two unaffected tests deselected; prior accepted 2 unchanged tests are not falsely attributed to the newer SHA.
+- Compileall Python and `git diff --check` passed on detached worktree. GitHub exact-head CI was queued on last check; only actual job results can be used for CI PASS.
+- Prepared `test_dispatch_m04_write_postgres.py` remains **NOT final acceptance**; `RUN_M04_WRITES_PG16` must not be skipped or counted as PASS when its ordered schema is absent.
+
+### Owner continuity policy (overrides old manual restart wording)
+
+Ahmed completes A/B/A WorkSession S1 and presses FIELD End Work. This freezes S1's daily canonical periods without permanently closing/releasing Zone A or changing its long-lived route assignment. Next morning normal FIELD Start Work must automatically resume remaining Zone A shops under the **same route identity** with a new signed daily S2 period/session, fresh daily counters, and unchanged physically carried A83/B53. **No manual Backoffice RESUME/new route launch**; end-day != financial/custody settle. Worker1 M03 owns this actual state machine, not M04. M04 must accept only CLOSED S1 periods and not confuse legitimate future S2 periods with unresolved S1 evidence.
+
+### Remaining NOT MERGE READY blockers
+
+1. M03 #943 accepted/merged by LEAD, exact new MAIN provided with actual signed End Work and automatic next-day S2 continuation (current M03 DRAFT does not prove the owner correction).
+2. ONE ordered M04 Alembic revision **after** merged M03 `d7a2e9c3f541`; immutable checkpoint mapping/global metadata, tenant composite FKs/FORCE RLS and exact location-specific VehicleRecon unique index; controlled downgrade refusal.
+3. Narrow LEAD-approved original `api/dispatch.py::settle_session` financial readiness delegate, preserving replay-before-settled and once-only session cash/debt/shortage aggregation; never touch M05's `get_active_routes`/readiness paths.
+4. Actual M02+M03 full FIELD S1 A100→83/B60→53 A/B/A, End Work/next-day S2, two signed COUNT_IN_PLACE zero movements, variance independent recount, only explicit PHYSICAL_HANDOFF lot+status, 409/ABA/concurrency and revoke, immutable RLS audit, once-only finance, no fake receipt marker; final PG16/Bearer and exact-head CI.
+5. Shared P0 exact-path ownership workflow M04 admission **after** Worker1's M03 CI ownership changes merge; preserve negative partial/foreign probes. Existing P0 scope failures are not runtime evidence.
+
+**MERGE READY: NO. PR #944 remains DRAFT, original M05 #946 preserved.**
