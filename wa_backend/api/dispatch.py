@@ -4395,28 +4395,32 @@ async def update_route_status(
                     detail="لا يمكن تشغيل خط سير على منطقة مؤرشفة.",
                 )
 
-            conflict = (
-                await db.execute(
-                    select(DispatchRoute.id)
-                    .filter(
+            if target_status in {"active", "waiting"}:
+                try:
+                    await assert_route_resources_available(
+                        db, company_id=company_id, zone_id=int(route.zone_id),
+                        driver_id=int(target_driver_id),
+                        vehicle_id=int(target_vehicle_id),
+                        exclude_route_id=int(route.id),
+                    )
+                except LifecycleConflict as exc:
+                    raise HTTPException(
+                        status_code=409, detail={"code": exc.code},
+                    ) from exc
+            else:
+                # Even a postponed legacy route keeps its zone, never a car.
+                occupied_zone = await db.scalar(
+                    select(DispatchRoute.id).where(
                         DispatchRoute.company_id == company_id,
                         DispatchRoute.id != route.id,
-                        DispatchRoute.status.in_(sorted(operational_statuses)),
-                        or_(
-                            DispatchRoute.driver_id == target_driver_id,
-                            DispatchRoute.vehicle_id == target_vehicle_id,
-                            DispatchRoute.zone_id == route.zone_id,
-                        ),
+                        DispatchRoute.zone_id == route.zone_id,
+                        DispatchRoute.status.in_(("active", "waiting", "postponed")),
+                    ).limit(1)
+                )
+                if occupied_zone is not None:
+                    raise HTTPException(
+                        status_code=409, detail={"code": "ZONE_RESERVED_BY_OTHER_ROUTE"},
                     )
-                    .order_by(DispatchRoute.id.asc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if conflict is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="المنطقة أو المندوب أو السيارة مستخدمة حالياً في خط سير تشغيلي آخر.",
-                )
 
         if bound_session is None and target_driver_id is not None and driver_changed:
             unsettled = (
