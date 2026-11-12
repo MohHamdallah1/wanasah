@@ -111,6 +111,8 @@ def load_routes():
         # Legacy single-route test mode: the real M03 canonical-start boundary
         # is covered by restricted PostgreSQL/Bearer tests, not by a fake DB.
         start_session_from_planned_period=AsyncMock(return_value=None),
+        require_previous_day_closed=AsyncMock(),
+        prepare_next_day_period=AsyncMock(return_value=False),
         freeze_end_of_day_execution=AsyncMock(),
         SessionPeriodRejected=SessionPeriodRejected,
         vehicle_is_operational=Mock(

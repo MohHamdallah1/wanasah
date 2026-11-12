@@ -516,6 +516,7 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         required = {
             "start_work_session": {
                 "start_session_from_planned_period", "begin_idempotent_operation",
+                "require_previous_day_closed", "prepare_next_day_period",
                 "complete_idempotent_operation", "db.commit", "db.rollback",
             },
             "end_work_session": {
@@ -643,6 +644,10 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             },
             "domains.work_session_multi_route.read": {"read_current_execution"},
             "domains.work_session_multi_route.end": {"freeze_end_of_day_execution"},
+            "domains.work_session_multi_route.continuity": {
+                "require_previous_day_closed", "prepare_next_day_period",
+            },
+            "domains.dispatch.route_execution.models": {"DispatchRouteExecutionPeriod"},
         })
 
         # M03 changed helpers must remain read-only and location-scoped.

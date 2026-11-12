@@ -544,6 +544,7 @@ jobs:
               "wa_backend/domains/work_session_multi_route/read.py",
               "wa_backend/domains/work_session_multi_route/start.py",
             "wa_backend/domains/work_session_multi_route/end.py",
+            "wa_backend/domains/work_session_multi_route/continuity.py",
               "wa_backend/models.py",
               "wa_backend/alembic/versions/d7a2e9c3f541_m03_multi_vehicle_session_keys.py",
               "wa_backend/tests/test_dispatch_m03_integrated_postgres.py",
@@ -563,7 +564,7 @@ jobs:
               ".github/workflows/dispatch-p0-route-stock-safety.yml",
           }
           m03_941_distinct = (m03_941_required - p0_allowed - auth_session_allowed) | m03_941_tests
-          assert len(m03_941_required) == 10
+          assert len(m03_941_required) == 11
           assert len(m03_941_tests) == 8
 
           def ownership_mode(candidate):

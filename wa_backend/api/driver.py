@@ -102,10 +102,14 @@ from domains.work_session_multi_route.context import (
     PeriodProof, SessionPeriodRejected, resolve_active_execution,
     find_planned_period, execution_envelope,
 )
+from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from domains.work_session_multi_route.start import (
     start_session_from_planned_period, establish_session_vehicle_opening,
 )
 from domains.work_session_multi_route.read import read_current_execution
+from domains.work_session_multi_route.continuity import (
+    require_previous_day_closed, prepare_next_day_period,
+)
 from domains.work_session_multi_route.end import freeze_end_of_day_execution
 
 from api.field_transfer_contracts import (
@@ -305,6 +309,14 @@ async def start_work_session(
             )
 
         # خط السير الفعال يجب أن يكون من نفس الشركة ونفس المندوب.
+        # An active yesterday session is not a new day's valid starting
+        # point. Crucially, the old unsettled prohibition above stays intact.
+        await require_previous_day_closed(
+            db, company_id=int(company_id), driver_id=int(driver_id),
+        )
+
+        # Keep manager-authorized M02 PLANNED periods ahead of automatic
+        # continuation, including a legitimate approved route change.
         canonical_start = await start_session_from_planned_period(
             db,
             field_context=field_context,
@@ -313,6 +325,22 @@ async def start_work_session(
             latitude=payload.latitude,
             longitude=payload.longitude,
         )
+        if canonical_start is None:
+            # Only from a full settled previous FIELD day and exactly unchanged
+            # assignment; this creates a signed PLANNED period, not a route
+            # status transition or an automatic physical stock movement.
+            prepared = await prepare_next_day_period(
+                db, field_context=field_context, driver_id=int(driver_id),
+                company_local_date=company_local_date, request_id=request_id,
+            )
+            if prepared:
+                canonical_start = await start_session_from_planned_period(
+                    db, field_context=field_context, driver_id=int(driver_id),
+                    company_local_date=company_local_date,
+                    latitude=payload.latitude, longitude=payload.longitude,
+                )
+                if canonical_start is None:
+                    raise SessionPeriodRejected("M03_DAY2_PLANNED_PERIOD_LOST")
         if canonical_start is not None:
             if session_start_record is None:
                 raise SessionPeriodRejected("M03_START_REQUEST_ID_REQUIRED")
@@ -328,6 +356,7 @@ async def start_work_session(
                     driver_id=driver_id,
                     dispatch_date=company_local_date,
                     status="active",
+                    assignment_context_revision=1,
                 )
                 .order_by(DispatchRoute.id.asc())
                 .with_for_update()
@@ -935,12 +964,50 @@ async def update_visit(
 
         visit.shop = shop
 
-        if visit.work_session and visit.work_session.inventory_reconciled_at is not None:
+        current_route = execution.route
+        carryover_from_settled_day = False
+        if (
+            execution.canonical and visit.status == "Pending"
+            and visit.outcome == "Pending" and visit.work_session is not None
+            and visit.work_session_id != active_session.id
+            and visit.work_session.company_id == company_id
+            and visit.work_session.driver_id == driver_id
+            and visit.work_session.end_time is not None
+            and visit.work_session.is_settled
+            and visit.work_session.inventory_reconciled_at is not None
+            and visit.work_session.session_date < active_session.session_date
+            and visit.operational_date >= current_route.dispatch_date
+            and visit.operational_date <= visit.work_session.session_date
+            and shop.zone_id == current_route.zone_id
+            and visit.execution_period_id is None
+            and visit.execution_evidence_state == "UNBOUND"
+            and visit.current_sales_revision_id is None
+            and visit.financial_evidence_frozen_at is None
+            and not visit.items and not visit.returns
+            and Decimal(visit.cash_collected or 0) == 0
+            and Decimal(visit.debt_paid or 0) == 0
+            and Decimal(visit.final_amount_due or 0) == 0
+        ):
+            prior_route_period = await db.scalar(
+                select(DispatchRouteExecutionPeriod.id).where(
+                    DispatchRouteExecutionPeriod.company_id == company_id,
+                    DispatchRouteExecutionPeriod.route_id == current_route.id,
+                    DispatchRouteExecutionPeriod.work_session_id == visit.work_session_id,
+                    DispatchRouteExecutionPeriod.evidence_origin == "CANONICAL",
+                    DispatchRouteExecutionPeriod.state == "CLOSED",
+                ).limit(1)
+            )
+            carryover_from_settled_day = prior_route_period is not None
+
+        if (
+            visit.work_session and visit.work_session.inventory_reconciled_at is not None
+            and not carryover_from_settled_day
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="مرفوض: لا يمكن تعديل زيارة بعد ختم التسوية المخزنية لجلسة العمل.",
             )
-        if visit.work_session and visit.work_session.is_settled:
+        if visit.work_session and visit.work_session.is_settled and not carryover_from_settled_day:
             raise HTTPException(
                 status_code=403,
                 detail="مرفوض: لا يمكن تعديل زيارة تم تسويتها ماليًا واعتمادها من الإدارة.",
@@ -952,7 +1019,11 @@ async def update_visit(
                 detail="مرفوض أمنياً: لا تملك صلاحية التعديل على هذه الزيارة.",
             )
 
-        if visit.work_session_id is not None and visit.work_session_id != active_session.id:
+        if (
+            visit.work_session_id is not None
+            and visit.work_session_id != active_session.id
+            and not carryover_from_settled_day
+        ):
             raise HTTPException(
                 status_code=409,
                 detail="الزيارة مرتبطة بجلسة عمل أخرى ولا يجوز نقلها بين الجلسات أثناء التحديث.",
@@ -979,8 +1050,6 @@ async def update_visit(
             )
 
         # M02 canonical period is authoritative after route/vehicle switching.
-        current_route = execution.route
-
         if current_route is None:
             raise HTTPException(
                 status_code=403,
@@ -3890,10 +3959,23 @@ async def get_driver_visits(
         if active_session is not None
         else active_route.dispatch_date
     )
+    # An unchanged canonical route spans business days: show its original
+    # pending Visit IDs, retaining their original operational_date and S1
+    # audit. Do not copy, re-date, or bind them during a read/start.
+    pending_window = (
+        and_(
+            Visit.operational_date >= active_route.dispatch_date,
+            Visit.operational_date <= operational_date,
+            Visit.execution_period_id.is_(None),
+            Visit.execution_evidence_state == "UNBOUND",
+        )
+        if execution is not None and execution.canonical
+        else Visit.operational_date == operational_date
+    )
     condition = or_(
         and_(
             Visit.status == "Pending",
-            Visit.operational_date == operational_date,
+            pending_window,
             Shop.zone_id == active_route.zone_id,
         ),
         Visit.work_session_id == session_id_val,

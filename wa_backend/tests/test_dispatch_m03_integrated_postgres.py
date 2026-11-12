@@ -7,6 +7,7 @@ complete BEFORE the route switch window.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
@@ -503,6 +504,7 @@ async def test_m03_field_day_end_a_b_a_closes_only_signed_period_and_exposes_day
                 id=pending_id, company_id=g.tenant, shop_id=remain.id,
                 driver_id=g.field.driver.id, operational_date=date.today(),
                 status="Pending", outcome="Pending", sequence=4,
+                work_session_id=g.session,
             ))
             await db.commit()
     finally:
@@ -598,7 +600,8 @@ async def test_m03_field_day_end_a_b_a_closes_only_signed_period_and_exposes_day
             unfinished = await db.scalar(select(Visit).where(
                 Visit.company_id == g.tenant, Visit.id == pending_id))
             assert unfinished.status == "Pending"
-            assert unfinished.work_session_id is None
+            assert unfinished.work_session_id == g.session
+            old_visit_date = unfinished.operational_date
             old_day = s1.session_date
     finally:
         tenant_context.reset(token)
@@ -653,22 +656,150 @@ async def test_m03_field_day_end_a_b_a_closes_only_signed_period_and_exposes_day
     finally:
         tenant_context.reset(token)
 
-    # The existing Start Work has neither a new PLANNED period nor a route
-    # on day2. Real authenticated HTTP proves there is no automatic
-    # continuation today; it is a business-policy BLOCKER, not an approved fix.
-    s2 = await g.client.post("/driver/sessions/start", headers=day2_headers, json={})
-    assert s2.status_code == 400, s2.text
+    # OWNER-APPROVED S2: exact existing FIELD Start Work HTTP, no Backoffice
+    # RESUME/POSTPONE/launch, and two simultaneous lost-201 retries. Driver
+    # row + idempotency advisory lock must produce ONE session/period.
+    s2, s2_race = await asyncio.gather(
+        g.client.post("/driver/sessions/start", headers=day2_headers, json={}),
+        g.client.post("/driver/sessions/start", headers=day2_headers, json={}),
+    )
+    assert s2.status_code == 201, s2.text
+    assert s2_race.status_code == 201 and s2_race.json() == s2.json(), s2_race.text
+    s2_id = s2.json()["session_id"]
+    assert s2_id != g.session
+    s2_proof = await _current(g)
+    assert s2_proof["session_id"] == s2_id
+    assert s2_proof["route_id"] == g.route
+    assert s2_proof["vehicle_location_id"] == g.location
+    assert s2_proof["assignment_context_revision"] == 5
+    assert s2_proof["period_id"] not in {p1, proof_b["period_id"], proof_a["period_id"]}
+    assert s2.json()["execution_context"]["period_id"] == s2_proof["period_id"]
+    assert await _move_count(g) == before_end_moves
+    replay = await g.client.post("/driver/sessions/start", headers=day2_headers, json={})
+    assert replay.status_code == 201 and replay.json() == s2.json()
+    another = await g.client.post(
+        "/driver/sessions/start",
+        headers={**_headers(g.token), "Idempotency-Key": str(uuid4())},
+        json={},
+    )
+    assert another.status_code == 409, another.text
+    assert await _move_count(g) == before_end_moves
+
+    # Same old Pending Visit ID/operation date appears exactly ONCE.
+    visits_http = await g.client.get("/driver/visits", headers=_headers(g.token))
+    assert visits_http.status_code == 200, visits_http.text
+    visits_payload = visits_http.json()["visits"]
+    assert [item["visit_id"] for item in visits_payload].count(pending_id) == 1
+    dashboard = await g.client.get("/driver/dashboard", headers=_headers(g.token))
+    assert dashboard.status_code == 200, dashboard.text
+    assert dashboard.json()["execution_context"]["session_id"] == s2_id
+
+    # Previous offline S1 envelopes never authorize a day2 command.
+    old_replay = await g.client.put(f"/visits/{pending_id}", json={
+        "request_id": str(uuid4()), "outcome": "NoSale",
+        "notes": "Stale S1 on next-day S2",
+    }, headers=_headers(g.token, p1, 2, epoch_a))
+    assert old_replay.status_code == 409, old_replay.text
+    assert await _move_count(g) == before_end_moves
+
     token = tenant_context.set(g.tenant)
     try:
         async with AsyncSession(g.admin) as db:
+            s1_db = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            s2_db = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == s2_id))
+            assert s1_db.end_time is not None and s1_db.is_settled
+            assert s2_db.session_date == day2 and s2_db.end_time is None
+            assert not s2_db.is_settled and s2_db.inventory_reconciled_at is None
+            assert s2_db.commercial_context_id == s1_db.commercial_context_id
             assert await db.scalar(select(func.count()).select_from(WorkSession).where(
                 WorkSession.company_id == g.tenant,
                 WorkSession.driver_id == g.field.driver.id,
                 WorkSession.session_date == day2,
-            )) == 0
-            assert await db.scalar(select(Visit.status).where(
-                Visit.company_id == g.tenant, Visit.id == pending_id,
-            )) == "Pending"
+            )) == 1
+            assert await db.scalar(select(func.count()).select_from(
+                DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.work_session_id == s2_id,
+                DispatchRouteExecutionPeriod.state == "ACTIVE",
+            )) == 1
+            assert await db.scalar(select(func.count()).select_from(Visit).where(
+                Visit.company_id == g.tenant,
+                Visit.work_session_id == s2_id,
+            )) == 0  # zero sales, money and visits start in new daily session
+            leftover = await db.scalar(select(Visit).where(
+                Visit.company_id == g.tenant, Visit.id == pending_id))
+            assert leftover.status == "Pending"
+            assert leftover.operational_date == old_visit_date
+            assert leftover.work_session_id == g.session  # no Start Work rewrite
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            zone = await db.scalar(select(Zone).where(
+                Zone.company_id == g.tenant, Zone.id == g.zone))
+            assert (route.status, route.driver_id, route.vehicle_id, route.zone_id,
+                    zone.start_date, zone.interval_days) == (
+                original[0], original[1], original[2], original[3],
+                original[5], original[6],
+            )
+            assert route.assignment_context_revision == 5
+            snapshots = (await db.scalars(select(SessionInventorySnapshot).where(
+                SessionInventorySnapshot.company_id == g.tenant,
+                SessionInventorySnapshot.work_session_id == s2_id,
+                SessionInventorySnapshot.stock_status == "AVAILABLE",
+            ))).all()
+            assert {(row.location_id, int(row.starting_quantity)) for row in snapshots} == {
+                (g.location, 83)
+            }
+            old_sales = (await db.scalars(select(Visit).where(
+                Visit.company_id == g.tenant, Visit.id.in_([g.visit, v2, v3]),
+            ))).all()
+            assert all(v.work_session_id == g.session for v in old_sales)
+            assert sum(Decimal(v.cash_collected) for v in old_sales) == Decimal("3.000")
     finally:
         tenant_context.reset(token)
+
+    # Sales permission is a DISTINCT, existing owner-controlled session
+    # authorization, not a route launch/resume; M03 MUST NOT auto-grant it.
+    # This first attempted visit must remain blocked until separately approved.
+    denied_sale = await g.client.put(
+        f"/visits/{pending_id}",
+        json={"request_id": str(uuid4()), "outcome": "NoSale",
+              "notes": "Must keep session sell permission"},
+        headers=_headers(g.token, s2_proof["period_id"], 5, s2_proof["custody_epoch_id"]),
+    )
+    assert denied_sale.status_code == 403, denied_sale.text
+    authorized = await g.client.put(
+        f"/admin/sessions/{s2_id}/authorize",
+        json={"is_authorized": True},
+        headers=backoffice,
+    )
+    assert authorized.status_code == 200, authorized.text
+
+    # Only a genuine S2 command may finish the ORIGINAL pending Visit ID.
+    # Its original day is retained; no duplicate Visit or old posted edit.
+    posted = await g.client.put(
+        f"/visits/{pending_id}",
+        json={"request_id": str(uuid4()), "outcome": "NoSale",
+              "notes": "Unfinished same-zone shop visited on S2"},
+        headers=_headers(g.token, s2_proof["period_id"], 5, s2_proof["custody_epoch_id"]),
+    )
+    assert posted.status_code == 200, posted.text
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            done = await db.scalar(select(Visit).where(
+                Visit.company_id == g.tenant, Visit.id == pending_id))
+            assert done.status == "Completed"
+            assert done.operational_date == old_visit_date
+            assert done.work_session_id == s2_id
+            assert done.execution_period_id == s2_proof["period_id"]
+            assert await db.scalar(select(func.count()).select_from(Visit).where(
+                Visit.company_id == g.tenant,
+                Visit.shop_id == done.shop_id,
+                Visit.operational_date == old_visit_date,
+            )) == 1
+    finally:
+        tenant_context.reset(token)
+    assert await _move_count(g) == before_end_moves
     assert (await _physical(g, g.location), await _physical(g, location_b)) == (83, 53)

@@ -645,3 +645,110 @@ async def test_m03_historical_v1_end_keeps_old_route_and_no_period(gate):
         tenant_context.reset(token)
     after = await _truth(g)
     assert before[4:] == after[4:]  # unchanged movements and all physical balances
+
+
+
+async def test_m03_nextday_refuses_unreconciled_and_revoked_custody_and_stale_route(gate):
+    """True FIELD HTTP on PG16: no S2 on incomplete finance/inventory or stale authority.
+
+    SETTLED is a clearly TEST-ONLY precondition; the real financial approval
+    belongs to M04, which is not merged into this M03-owned scope.
+    """
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    from models import Company
+    g = gate
+    period_id, epoch_id, _ = await _set_period(g)
+    rejected = await g.client.put("/driver/transfers/batch_respond", json={
+        "transfers": [{"transfer_id": t, "status": "rejected",
+                       "reason": "M03 next-day strict closure"} for t in g.transfers],
+    }, headers=_headers(g.token))
+    assert rejected.status_code == 200, rejected.text
+    ended = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert ended.status_code == 200, ended.text
+    moves = await _truth(g)
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            previous = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            assert previous.end_time is not None and not previous.is_settled
+            company = await db.scalar(select(Company).where(
+                Company.id == g.tenant).with_for_update())
+            company.timezone = "Pacific/Kiritimati"
+            day2 = datetime.now(timezone.utc).astimezone(ZoneInfo("Pacific/Kiritimati")).date()
+            assert day2 > previous.session_date
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+    headers = {**_headers(g.token), "Idempotency-Key": str(uuid4())}
+    unsettled = await g.client.post("/driver/sessions/start",
+                                   headers=headers, json={})
+    assert unsettled.status_code == 400, unsettled.text
+    assert await _truth(g) == moves
+
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            previous = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.id == g.session,
+            ).with_for_update())
+            previous.inventory_reconciled_at = utc_now()
+            previous.inventory_reconciled_by = g.field.driver.id
+            previous.is_settled = True  # test-only full settlement precondition
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            epoch.ended_at = utc_now()
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    revoked = await g.client.post("/driver/sessions/start", headers=headers, json={})
+    assert revoked.status_code == 409, revoked.text
+    assert revoked.json()["error"]["code"] == "M03_VEHICLE_CUSTODY_REQUIRED"
+    assert await _truth(g) == moves
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            epoch.ended_at = None  # exact fixture restores pre-revocation state
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route,
+            ).with_for_update())
+            route.assignment_context_revision += 1  # manager changed context
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+    stale = await g.client.post("/driver/sessions/start", headers=headers, json={})
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["error"]["code"] == "M03_DAY2_ROUTE_CHANGED_OR_NOT_ACTIVE"
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            assert await db.scalar(select(func.count()).select_from(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.driver_id == g.field.driver.id,
+                WorkSession.session_date == day2,
+            )) == 0
+            assert await db.scalar(select(func.count()).select_from(
+                DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.route_id == g.route,
+                DispatchRouteExecutionPeriod.context_revision > 2,
+            )) == 0
+            old_period = await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.id == period_id,
+            ))
+            assert old_period.state == "CLOSED" and old_period.ended_at is not None
+    finally:
+        tenant_context.reset(token)
+    assert await _truth(g) == moves
