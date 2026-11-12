@@ -5324,6 +5324,12 @@ async def post_approved_stocktake_adjustments(
         ).scalar_one_or_none()
         if locked_probe_session is None:
             raise InventoryMutationError("جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.")
+        from domains.representative_settlement_multi_vehicle.inventory_integration import (
+            lock_canonical_recon_vehicles,
+        )
+        await lock_canonical_recon_vehicles(
+            db_session, company_id=company_id, session_id=int(probe_work_session_id),
+        )
 
     # الترحيل عملية حصرية على الموقع؛ يمنع أي حركة متزامنة أثناء تثبيت جميع الفروقات.
     await acquire_inventory_location_guard(
@@ -5905,15 +5911,15 @@ async def post_approved_stocktake_adjustments(
                 "DRIVER_SHORTAGE يتطلب WorkSession مرتبطاً بالسياق التجاري."
             )
         try:
-            shortage_unit_prices = (
-                await resolve_work_session_pack_prices_bulk(
-                    db_session,
-                    company_id=company_id,
-                    work_session_id=int(
-                        session.related_work_session_id
-                    ),
-                    variant_ids=shortage_variant_ids,
-                )
+            from domains.representative_settlement_multi_vehicle.period_pricing import (
+                resolve_recon_shortage_prices,
+            )
+            shortage_unit_prices = await resolve_recon_shortage_prices(
+                db_session,
+                company_id=company_id,
+                work_session_id=int(session.related_work_session_id),
+                vehicle_location_id=int(session.location_id),
+                variant_ids=shortage_variant_ids,
             )
         except PricingError as exc:
             raise InventoryMutationError(
