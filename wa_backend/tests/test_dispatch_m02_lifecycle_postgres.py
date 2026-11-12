@@ -20,6 +20,9 @@ from models import (
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _state
+from tests.test_dispatch_p0_route_stock_safety_postgres import _vehicle
+from tests.canonical_actor_fixtures import seed_field_fixture
+from domains.authorization.field_provisioning import assign_new_representative_default
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
 
 pytestmark = [
@@ -285,7 +288,56 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
         assert after_second_pause["real_stock"]["movements"] == before["real_stock"]["movements"]
         assert after_second_pause["periods"][-1][-1] is True
 
-        closed = await http.put(url, headers=owner, json=_body("CLOSE", 4))
+        # M02 multi-actor/multi-car: a newly authorized FIELD representative
+        # with explicitly accepted responsibility for empty B can resume the
+        # ORIGINAL postponed route. A's stock and prior S1 identity stay put.
+        async with pg.session() as db:
+            another_field = await seed_field_fixture(db, tenant.company_id)
+            await assign_new_representative_default(
+                db, tenant.company_id, another_field.context.representative_id,
+            )
+            await db.commit()
+            other_driver = int(another_field.driver.id)
+        other_vehicle, other_location = await _vehicle(pg, tenant)
+        other_custody_revision = await _explicitly_accept_vehicle(
+            pg, tenant, driver_id=other_driver,
+            vehicle_id=other_vehicle, vehicle_location=other_location,
+        )
+        other_resume = _body(
+            "RESUME", 4, driver=other_driver,
+            vehicle=other_vehicle, custody=other_custody_revision,
+        )
+        active_other = await http.put(url, headers=owner, json=other_resume)
+        assert active_other.status_code == 200, active_other.text
+        assert active_other.json()["context_revision"] == 5
+        new_assignment = await _snapshot(pg, tenant, route_id, car_location, key)
+        assert new_assignment["periods"][-1][1:4] == (
+            "PLANNED", other_driver, other_vehicle
+        )
+        assert new_assignment["legacy_session"] == before["legacy_session"]
+        assert new_assignment["real_stock"]["balances"] == before["real_stock"]["balances"]
+        assert new_assignment["real_stock"]["movements"] == before["real_stock"]["movements"]
+        assert new_assignment["real_stock"]["visits"] == before["real_stock"]["visits"]
+        async with pg.session() as db:
+            assert int(await db.scalar(select(func.count()).select_from(
+                InventoryMovement
+            ).where(
+                InventoryMovement.company_id == tenant.company_id,
+                InventoryMovement.source_location_id == other_location,
+            )) or 0) == 0
+        # Repeating stale earlier A period against now-visible B cannot
+        # mutate anything, even though the route ID remains the same.
+        old_period_again = await http.put(
+            url, headers=owner, json=_body(
+                "POSTPONE", 3, period=after_resume["periods"][-1][0],
+            ),
+        )
+        assert old_period_again.status_code == 409
+
+        closed = await http.put(
+            url, headers=owner,
+            json=_body("CLOSE", 5, period=new_assignment["periods"][-1][0]),
+        )
         assert closed.status_code == 200, closed.text
         assert closed.json()["status"] == "closed"
         assert closed.json()["zone_reserved"] is False
