@@ -53,7 +53,7 @@ class M01RouteLifecycleStore:
         # M01 schema is required: importing a missing table fails loudly rather
         # than allowing an unsafe non-epoch legacy fallback.
         from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
-        from domains.vehicle_custody.models import VehicleCustodyEpoch
+        from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 
         resources = await lock_route_resources(
             db, company_id=company_id, route_id=route_id,
