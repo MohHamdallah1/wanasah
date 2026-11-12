@@ -1,0 +1,240 @@
+"""M02 real restricted PG16 + authenticated Backoffice Bearer lifecycle gate.
+
+RUN ONLY after M01 #940 is MERGED and the M02 follow-up index migration is
+applied. This fixture seeds genuine explicit FIELD custodian acceptance; it
+never claims an unreviewed vehicle was implicitly handed to anyone.
+"""
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime, timezone, timedelta
+import hashlib
+import os
+from uuid import uuid4
+
+import pytest
+from sqlalchemy import func, select
+from models import (
+    DispatchRoute, WorkSession, RouteCommercialContext, InventoryMovement,
+)
+from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
+from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _state
+from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
+
+pytestmark = [
+    pytest.mark.skipif(
+        os.getenv("WANASAH_DISPATCH_M02_PG_GATE") != "1",
+        reason="Requires disposable PG16 M01+M02 accepted migrations and real Bearer",
+    ),
+    pytest.mark.asyncio(loop_scope="function"),
+]
+
+
+def _body(action, revision, *, period=None, driver=None, vehicle=None, custody=None, key=None):
+    result = {
+        "action": action,
+        "request_id": str(key or uuid4()),
+        "expected_context_revision": revision,
+        "expected_period_id": period,
+    }
+    if action == "RESUME":
+        result.update({
+            "target_driver_id": driver,
+            "target_vehicle_id": vehicle,
+            "expected_vehicle_custody_revision": custody,
+        })
+    return result
+
+
+async def _snapshot(pg, tenant, route_id, vehicle_location, launch_key):
+    from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+    async with pg.session() as db:
+        route = await db.scalar(select(DispatchRoute).where(
+            DispatchRoute.company_id == tenant.company_id,
+            DispatchRoute.id == route_id,
+        ))
+        periods = (await db.scalars(select(DispatchRouteExecutionPeriod).where(
+            DispatchRouteExecutionPeriod.company_id == tenant.company_id,
+            DispatchRouteExecutionPeriod.route_id == route_id,
+        ).order_by(DispatchRouteExecutionPeriod.id))).all()
+        return {
+            "status": route.status,
+            "assignment_revision": int(route.assignment_context_revision),
+            "legacy_session": route.work_session_id,
+            "periods": [(int(p.id), p.state, p.driver_id, p.vehicle_id,
+                         int(p.context_revision), p.ended_at is not None)
+                        for p in periods],
+            "real_stock": await _state(pg, tenant, launch_key, vehicle_location),
+        }
+
+
+async def _explicitly_accept_vehicle(pg, tenant, *, driver_id, vehicle_id, vehicle_location):
+    """Synthetic fixture simulates signed receiver evidence, NOT API handoff.
+
+    M04 owns production signed acceptance. This helper seeds that prerequisite
+    under restricted tenant RLS so M02 can test rejection/approval honestly.
+    """
+    from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
+    from domains.identity.migration.models import IdentityLegacyDriverMap
+    async with pg.session() as db:
+        bridge = await db.scalar(select(IdentityLegacyDriverMap).where(
+            IdentityLegacyDriverMap.company_id == tenant.company_id,
+            IdentityLegacyDriverMap.legacy_driver_id == driver_id,
+        ))
+        assert bridge and bridge.field_principal_id and bridge.field_representative_id
+        current = await db.scalar(select(VehicleCustodyEpoch).where(
+            VehicleCustodyEpoch.company_id == tenant.company_id,
+            VehicleCustodyEpoch.vehicle_id == vehicle_id,
+            VehicleCustodyEpoch.ended_at.is_(None),
+        ).with_for_update())
+        revision = int(await db.scalar(select(func.coalesce(
+            func.max(VehicleCustodyEpoch.context_revision), 0,
+        )).where(
+            VehicleCustodyEpoch.company_id == tenant.company_id,
+            VehicleCustodyEpoch.vehicle_id == vehicle_id,
+        )) or 0) + 1
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if current is not None:
+            assert current.state == "NEEDS_REVIEW", "Existing accepted custodian cannot be overwritten"
+            # Review closes the unknown responsibility window at signed
+            # acceptance time; no physical transfer or backdated ownership.
+            current.started_at = current.started_at or now
+            current.ended_at = now
+        signed = VehicleCustodyEpoch(
+            company_id=tenant.company_id,
+            vehicle_id=vehicle_id,
+            vehicle_location_id=vehicle_location,
+            custodian_kind="FIELD_REPRESENTATIVE",
+            custodian_principal_id=int(bridge.field_principal_id),
+            field_representative_id=int(bridge.field_representative_id),
+            accepted_by_principal_id=int(bridge.field_principal_id),
+            state="ACCEPTED", context_revision=revision,
+            started_at=now,
+            request_id=str(uuid4()),
+            payload_hash=hashlib.sha256(b"m02-synthetic-field-signed-acceptance").hexdigest(),
+            handoff_reference="M02-SIGNED-FIELD-FIXTURE",
+        )
+        db.add(signed)
+        await db.commit()
+        return revision
+
+
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_stock(pg):
+    tenant, foreign = pg.tenants
+    key, launch, car_location = await _prepared_route(pg, tenant)
+    async with _real_http() as http:
+        owner = await _owner(http, pg, tenant)
+        foreign_owner = await _owner(http, pg, foreign)
+        launch_result = await http.post("/dispatch/route", headers=owner, json=launch)
+        assert launch_result.status_code == 201, launch_result.text
+        route_id = int(launch_result.json()["route_id"])
+        async with pg.session() as db:
+            context_id = await db.scalar(select(RouteCommercialContext.id).where(
+                RouteCommercialContext.company_id == tenant.company_id,
+                RouteCommercialContext.dispatch_route_id == route_id,
+            ))
+            assert context_id
+            # Existing M01-compatible session-bound route under the same
+            # legitimate FIELD driver; M02 command itself is real Bearer HTTP.
+            s1 = WorkSession(
+                company_id=tenant.company_id, driver_id=int(launch["driver_id"]),
+                commercial_context_id=context_id,
+                session_date=datetime.now(timezone.utc).date(),
+                start_time=datetime.now(timezone.utc).replace(tzinfo=None),
+                is_settled=False,
+            )
+            db.add(s1)
+            await db.flush()
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == tenant.company_id,
+                DispatchRoute.id == route_id,
+            ).with_for_update())
+            route.work_session_id = s1.id
+            await db.commit()
+
+        before = await _snapshot(pg, tenant, route_id, car_location, key)
+        pause_key = uuid4()
+        pause = _body("POSTPONE", 1, key=pause_key)
+        url = f"/dispatch/route/{route_id}/lifecycle"
+        missing_bearer = await http.put(url, json=pause)
+        assert missing_bearer.status_code == 401, missing_bearer.text
+        wrong_tenant = await http.put(url, headers=foreign_owner, json=pause)
+        assert wrong_tenant.status_code in (403, 404), wrong_tenant.text
+
+        paused = await http.put(url, headers=owner, json=pause)
+        assert paused.status_code == 200, paused.text
+        assert paused.json()["status"] == "postponed"
+        assert paused.json()["context_revision"] == 2
+        assert paused.json()["live_assets_reserved"] is False
+        replay = await http.put(url, headers=owner, json=pause)
+        assert replay.status_code == 200 and replay.json() == paused.json()
+        wrong_payload = await http.put(
+            url, headers=owner, json={**pause, "expected_context_revision": 2},
+        )
+        assert wrong_payload.status_code == 409, wrong_payload.text
+        legacy_bypass = await http.put(
+            f"/dispatch/route/{route_id}/status", headers=owner,
+            json={"status": "active"},
+        )
+        assert legacy_bypass.status_code == 409, legacy_bypass.text
+
+        after_pause = await _snapshot(pg, tenant, route_id, car_location, key)
+        assert after_pause["status"] == "postponed"
+        assert before["real_stock"]["balances"] == after_pause["real_stock"]["balances"]
+        assert before["real_stock"]["movements"] == after_pause["real_stock"]["movements"]
+        assert before["real_stock"]["visits"] == after_pause["real_stock"]["visits"]
+        assert before["real_stock"]["cost_events"] == after_pause["real_stock"]["cost_events"]
+        assert after_pause["legacy_session"] == before["legacy_session"]
+
+        denied = _body("RESUME", 2, driver=int(launch["driver_id"]),
+                       vehicle=int(launch["vehicle_id"]), custody=1)
+        no_proof = await http.put(url, headers=owner, json=denied)
+        assert no_proof.status_code == 409, no_proof.text
+        custody_revision = await _explicitly_accept_vehicle(
+            pg, tenant, driver_id=int(launch["driver_id"]),
+            vehicle_id=int(launch["vehicle_id"]), vehicle_location=car_location,
+        )
+        resume = _body("RESUME", 2, driver=int(launch["driver_id"]),
+                       vehicle=int(launch["vehicle_id"]), custody=custody_revision)
+        simultaneous = await asyncio.gather(*[
+            http.put(url, headers=owner, json=resume) for _ in range(2)
+        ])
+        assert [x.status_code for x in simultaneous] == [200, 200], [
+            x.text for x in simultaneous
+        ]
+        assert simultaneous[0].json() == simultaneous[1].json()
+        assert simultaneous[0].json()["context_revision"] == 3
+        assert simultaneous[0].json()["status"] == "active"
+        after_resume = await _snapshot(pg, tenant, route_id, car_location, key)
+        assert len(after_resume["periods"]) == len(after_pause["periods"]) + 1
+        assert after_resume["periods"][-1][4] == 3
+        assert after_resume["real_stock"]["balances"] == before["real_stock"]["balances"]
+        assert after_resume["real_stock"]["movements"] == before["real_stock"]["movements"]
+        assert after_resume["real_stock"]["visits"] == before["real_stock"]["visits"]
+        assert after_resume["legacy_session"] == before["legacy_session"]
+        stale = await http.put(
+            url, headers=owner,
+            json=_body("POSTPONE", 2, period=after_resume["periods"][-1][0]),
+        )
+        assert stale.status_code == 409
+        closed_period = await http.put(
+            url, headers=owner,
+            json=_body("POSTPONE", 3, period=after_resume["periods"][-1][0]),
+        )
+        assert closed_period.status_code == 200, closed_period.text
+        assert closed_period.json()["context_revision"] == 4
+        after_second_pause = await _snapshot(pg, tenant, route_id, car_location, key)
+        assert after_second_pause["real_stock"]["balances"] == before["real_stock"]["balances"]
+        assert after_second_pause["real_stock"]["movements"] == before["real_stock"]["movements"]
+        assert after_second_pause["periods"][-1][-1] is True
+
+        closed = await http.put(url, headers=owner, json=_body("CLOSE", 4))
+        assert closed.status_code == 200, closed.text
+        assert closed.json()["status"] == "closed"
+        assert closed.json()["zone_reserved"] is False
+        final = await _snapshot(pg, tenant, route_id, car_location, key)
+        assert final["real_stock"]["balances"] == before["real_stock"]["balances"]
+        assert final["real_stock"]["movements"] == before["real_stock"]["movements"]
+        assert final["real_stock"]["visits"] == before["real_stock"]["visits"]
+        print("M02_BOUND_S1_POSTPONE_RESUME_SIGNED_CUSTODY_ABA_NO_STOCK=PASS", flush=True)
