@@ -164,7 +164,7 @@ from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDr
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
 DispatchRouteRequest, VehicleInventoryItemResponse, RouteLiveInventoryItemResponse, AdjustRouteInventoryRequest,
 RouteTransferResponse, DispatchShopResponse, BulkUpdateShopItem, AdminAddShopRequest, ActiveRouteResponse,
-UpdateRouteStatusRequest, AddZoneRequest, ArchivedZoneResponse, EditShopDetailsRequest, ShortageResponseItem,
+M05RouteReadinessResponse, UpdateRouteStatusRequest, AddZoneRequest, ArchivedZoneResponse, EditShopDetailsRequest, ShortageResponseItem,
 CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, ForceCancelHandshakeRequest)
 
 
@@ -3956,6 +3956,36 @@ async def get_active_routes(
         })
         
     return res
+
+
+# M05 read-only target readiness is a bounded pair probe, never inventory/sale mutation.
+from domains.dispatch.route_execution.readiness.probe import (
+    LifecycleReadinessRejected, read_lifecycle_readiness,
+)
+
+
+@router.get(
+    "/dispatch/route/{route_id}/lifecycle/readiness",
+    response_model=M05RouteReadinessResponse, status_code=200,
+)
+async def get_route_lifecycle_readiness_m05(
+    route_id: int,
+    target_driver_id: int = Query(..., gt=0),
+    target_vehicle_id: int = Query(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+):
+    # Both route and target car require current DB location grants. Do not
+    # return candidate identities/financial/stock fields on a failed probe.
+    await require_route(access, "dispatch.execute", route_id)
+    await require_vehicle(access, "dispatch.execute", target_vehicle_id)
+    try:
+        return await read_lifecycle_readiness(
+            db, access=access, route_id=route_id,
+            driver_id=target_driver_id, vehicle_id=target_vehicle_id,
+        )
+    except LifecycleReadinessRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
 
 
 # M02: canonical route periods and custody epochs are authoritative here. This
