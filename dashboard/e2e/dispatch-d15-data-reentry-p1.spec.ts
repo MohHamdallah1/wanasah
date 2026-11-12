@@ -48,12 +48,17 @@ async function chooseLaunch(page: Page) {
   for (const i of [3, 0, 1, 2]) {
     const slot = slots.nth(i);
     const button = slot.locator(":scope > div.relative > button");
-    if (!await button.isEnabled()) { selected.push(""); continue; }
+    // An actually selected value is required for a meaningful persistence
+    // test. Skipping a temporarily disabled field would make the test falsely
+    // report success with empty Launch context.
+    await expect(button).toBeEnabled({ timeout: 25000 });
     await button.click();
     const choices = slot.locator("div.absolute.top-full button");
-    if (await choices.count()) await choices.first().click();
-    else await button.click();
-    selected.push((await button.textContent() ?? "").trim());
+    await expect(choices.first()).toBeVisible({ timeout: 25000 });
+    await choices.first().click();
+    const label = (await button.textContent() ?? "").trim();
+    expect(label.length).toBeGreaterThan(0);
+    selected.push(label);
   }
   return selected;
 }
@@ -72,7 +77,10 @@ async function sample(page: Page, tab: Tab, label: string, expected: {
         const launch = document.querySelector(".dispatch-launch-config") as HTMLElement | null;
         const table = document.querySelector(".dispatch-shop-table") as HTMLElement | null;
         const tabNode = document.querySelector('.dispatch-tab-list [role=tab][aria-selected=true]') as HTMLElement | null;
-        const names = [...document.querySelectorAll(".dispatch-launch-config > div.relative.mt-2 button")];
+        // Count the four SELECT BUTTONS only; the prior broad selector also
+        // captured a transient dropdown option during its exit transition.
+        const names = [...document.querySelectorAll(
+          ".dispatch-launch-config > div.relative.mt-2 > div.relative > button")];
         const text = target?.textContent || "";
         w.__d15DataFrames.push({
           tab,label,ms:Math.round(performance.now()-started),
