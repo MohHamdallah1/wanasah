@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
+import { lifecycleCopy } from "./copy";
 import { CustomSelect } from "@/components/ui/custom-select";
 import type { PendingRoute } from "@/types/dispatch";
 import {
@@ -39,7 +40,8 @@ export function RouteLifecyclePanel({
   authorized: () => boolean;
   onCommitted: (receipt: RouteLifecycleReceipt) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
+  const copy = lifecycleCopy(i18n.language);
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState<"checking" | "no" | "yes">("checking");
   const [result, setResult] = useState<RouteLifecycleOutcome | null>(null);
@@ -92,33 +94,31 @@ export function RouteLifecyclePanel({
   const isPostponed = route?.status === "postponed";
   const denied = !verified;
   const statusCopy = result?.kind === "committed"
-    ? t("common.confirm")
-    : result?.kind === "denied" ? t("access.failed")
-    : result?.kind === "conflict" ? t("network.invalidResponse")
-    : t("network.timeout");
+    ? copy.success : result?.kind === "denied" ? copy.accessDenied
+    : result?.kind === "conflict" ? copy.conflict : copy.unknown;
 
   return (
     <Modal isOpen={isOpen} onClose={working ? () => undefined : onClose}
-      title={t("dispatchRouteSafety.followUp")} maxWidth="max-w-xl">
+      title={copy.title} maxWidth="max-w-xl">
       <div className="space-y-3" dir={i18n.dir()} data-testid="m05-lifecycle-panel">
         <p className="text-sm font-medium">{route?.zoneName || "—"}</p>
         {denied && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
-          {t("access.failed")}
+          {copy.noEvidence}
         </p>}
         {isPostponed && (
           <div className="grid gap-3 sm:grid-cols-2">
-            <CustomSelect label={t("dispatchRouteSafety.driver")} value={selectedDriver}
+            <CustomSelect label={copy.driver} value={selectedDriver}
               options={drivers} onChange={onDriverChange} disabled={working || pending !== "no"}/>
-            <CustomSelect label={t("dispatchRouteSafety.vehicle")} value={selectedVehicle}
+            <CustomSelect label={copy.vehicle} value={selectedVehicle}
               options={vehicles} onChange={onVehicleChange} disabled={working || pending !== "no"}/>
           </div>
         )}
-        <p className="text-xs text-slate-600">{t("dispatchRouteSafety.separateStock")}</p>
+        <p className="text-xs text-slate-600">{copy.separatedStock}</p>
         {result && <p role="status" className="rounded-lg border p-2 text-sm">{statusCopy}</p>}
         {pending === "yes" && (
           <button type="button" disabled={!verified || working} onClick={() => void execute()}
             className="rounded-lg border px-4 py-2 text-sm font-bold disabled:opacity-50">
-            {t("common.retry")}
+            {copy.retry}
           </button>
         )}
         <div className="flex flex-wrap gap-2">
@@ -126,19 +126,19 @@ export function RouteLifecyclePanel({
             <button type="button" disabled={!allowed || !targetReady}
               onClick={() => void execute("RESUME")}
               className="rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50">
-              {t("dispatchRouteSafety.followUp")}
+              {copy.resume}
             </button>
           ) : (
             <>
               <button type="button" disabled={!allowed}
                 onClick={() => void execute("POSTPONE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
-                {t("common.confirm")}
+                {copy.postpone}
               </button>
               <button type="button" disabled={!allowed}
                 onClick={() => void execute("CLOSE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
-                {t("common.close")}
+                {copy.close}
               </button>
             </>
           )}
