@@ -3930,6 +3930,7 @@ async def route_lifecycle_m02(
     payload: RouteLifecycleIntent,
     db: AsyncSession = Depends(get_db),
     access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     # Before M01 schema joins MAIN, this route MUST be unavailable, not an
     # unversioned legacy fallback. Canonical subject is the signed principal,
@@ -3949,7 +3950,11 @@ async def route_lifecycle_m02(
             db,
             company_id=access.company_id,
             route_id=route_id,
-            actor_id=access.subject.principal_id,
+            # operation_idempotency.created_by still has an exact tenant FK
+            # to Driver; canonical principal is carried separately by the
+            # store for immutable period + audit attribution. Never equate
+            # the two IDs or use Driver as an authorization grant.
+            actor_id=int(legacy_actor.id),
             intent=payload,
             store=M01RouteLifecycleStore(
                 actor_principal_id=access.subject.principal_id,
