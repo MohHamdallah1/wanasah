@@ -44,7 +44,9 @@ export function PostponedRoutesModal({
                         onClick={() => onRestore(route.id)}
                         className="inline-flex gap-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">
                         <RotateCcw className="h-4 w-4" />
-                        {ar ? "اختيار واستئناف" : "Select and resume"}
+                        {route.assignmentContextRevision === 1 && route.currentPeriodId == null
+                          ? (ar ? "استعادة" : "Restore")
+                          : (ar ? "اختيار واستئناف" : "Select and resume")}
                       </button>
                       <button type="button" disabled={route.can_execute !== true}
                         onClick={() => onCloseRoute(route.id)}
