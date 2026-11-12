@@ -278,15 +278,25 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
             "reason": "Synthetic rejected recount authorizer",
-            "authorizer_username": authorizer_legacy_username,
+            "authorizer_username": recounter_name,
             "authorizer_password": "BadSyntheticRecountCredential",
         }, headers=auth_header)
         assert denied_recount.status_code == 403, denied_recount.text
+        # A valid canonical password cannot authorize the legacy Driver
+        # username. No Driver-password fallback is allowed.
+        denied_legacy = await client.post(f"{base}/{sid}/recount", json={
+            "request_id": _body_id(),
+            "count_attempt_id": first_attempt,
+            "reason": "Reject historical operational username",
+            "authorizer_username": authorizer_legacy_username,
+            "authorizer_password": recounter_password,
+        }, headers=auth_header)
+        assert denied_legacy.status_code == 403, denied_legacy.text
         recounted = _check(await client.post(f"{base}/{sid}/recount", json={
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
             "reason": "Independent physical recount for zero stock",
-            "authorizer_username": authorizer_legacy_username,
+            "authorizer_username": recounter_name,
             "authorizer_password": recounter_password,
         }, headers=auth_header))
         assert recounted["requires_independent_counter"] is True
@@ -716,7 +726,7 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_recount_attempt["attempt_id"],
             "reason": "Same authorized account physically verifies discrepancy",
-            "authorizer_username": operator_legacy_username,
+            "authorizer_username": operator_name,
             "authorizer_password": operator_password,
         }
         forbidden_recount = await client.post(
@@ -736,6 +746,12 @@ async def assert_real_http_stocktake(
                   "authorizer_password": "WrongPassword"},
             headers=auth_header)
         assert wrong_recount.status_code == 403
+        rejected_legacy = await client.post(
+            f"{base}/{optional_recount_sid}/recount",
+            json={**recount_body, "request_id": _body_id(),
+                  "authorizer_username": operator_legacy_username},
+            headers=auth_header)
+        assert rejected_legacy.status_code == 403
         permitted = _check(await client.post(
             f"{base}/{optional_recount_sid}/recount", json=recount_body,
             headers=auth_header))

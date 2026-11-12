@@ -12,6 +12,7 @@ M04_EXACT = frozenset([
   ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
   ".github/workflows/live-stock-v1-r3-physical-location-truth.yml",
   ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+  ".github/workflows/stocktake-v1-history-799.yml",
   ".github/workflows/v1-return-cost-fidelity-closure.yml",
   "dashboard/e2e/dispatch-d12-scale.spec.ts",
   "wa_backend/alembic/env.py",
@@ -46,6 +47,7 @@ M04_EXACT = frozenset([
   "wa_backend/models.py",
   "wa_backend/services.py",
   "wa_backend/tests/test_cp14c_stocktake_lifecycle_postgres.py",
+  "wa_backend/tests/stocktake_v1_real_http_pg16_helper.py",
   "wa_backend/tests/test_dispatch_m04_commands.py",
   "wa_backend/tests/test_dispatch_m04_domain.py",
   "wa_backend/tests/test_dispatch_m04_financial_domain.py",
@@ -66,7 +68,7 @@ M04_UNIQUE = frozenset({
     "wa_backend/domains/representative_settlement_multi_vehicle/checkpoints.py",
     "wa_backend/tests/test_dispatch_m04_full_m03_postgres.py",
 })
-assert M04_UNIQUE <= M04_EXACT and len(M04_EXACT) == 55
+assert M04_UNIQUE <= M04_EXACT and len(M04_EXACT) == 57
 
 
 def m04_mode(candidate):
@@ -104,7 +106,7 @@ def selftest():
         else:
             raise AssertionError(f"M04 foreign was admitted: {foreign}")
     assert not m04_mode({".github/workflows/dispatch-shop-finance-p0-acceptance.yml"})
-    print("M04_942_EXACT_SELFTEST=PASS exact=55 missing=55 foreign=5")
+    print("M04_942_EXACT_SELFTEST=PASS exact=57 missing=57 foreign=5")
 
 
 if __name__ == "__main__":

@@ -573,7 +573,7 @@ jobs:
           # Only M04-exclusive source identifies this mode. Historical D07,
           # F06, Finance and Stocktake candidate sets still take their own gates.
           m04_942_unique = set(m04_policy["M04_UNIQUE"])
-          assert len(m04_942_exact) == 55 and len(m04_942_unique) == 4
+          assert len(m04_942_exact) == 57 and len(m04_942_unique) == 4
 
           def ownership_mode(candidate):
               if candidate & m04_942_unique:
@@ -704,7 +704,7 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
-          # M04 exact policy: all 55 files together, no partial or foreign set.
+          # M04 exact policy: all 57 files together, no partial or foreign set.
           assert ownership_mode(m04_942_exact) == 'M04_942_EXACT'
           for missing in sorted(m04_942_exact):
               try: ownership_mode(m04_942_exact - {missing})
@@ -718,7 +718,7 @@ jobs:
               try: ownership_mode(m04_942_exact | {foreign})
               except AssertionError: pass
               else: raise AssertionError(f'M04 foreign accepted: {foreign}')
-          print('M04_942_P0_OWNER=PASS exact=55 missing=55 foreign=5')
+          print('M04_942_P0_OWNER=PASS exact=57 missing=57 foreign=5')
 
           # M03 positive and adversarial ownership probes: all original
           # evidence required, test-only subset optional, no unrelated paths.
