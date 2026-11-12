@@ -36,6 +36,10 @@ class RouteLifecycleState:
     # Current vehicle epoch for the requested destination, not source.
     target_vehicle_custody_revision: int | None
     target_vehicle_custody_accepted: bool
+    # M01 canonical FieldRepresentative owner/accepted handoff must match
+    # the requested representative. A vehicle epoch held by somebody ELSE
+    # is NOT permission to assign its loaded physical location to this actor.
+    target_vehicle_custody_matches_target: bool = False
     zone_active: bool = True
 
 
@@ -53,6 +57,9 @@ class LifecycleDecision:
     open_period_vehicle_id: int | None
     zone_reserved: bool
     live_assets_reserved: bool
+    # The zone's future date is advanced by its authoritative local calendar.
+    # Scheduling a later visit creates a SEPARATE route ID; never recycle this.
+    schedule_zone_next: bool = False
 
     @property
     def inventory_movements(self) -> tuple[()]:
@@ -114,6 +121,8 @@ def decide_lifecycle(
         if not state.target_vehicle_custody_accepted:
             # Approval from real custody is mandatory even for an empty car.
             raise LifecycleConflict("VEHICLE_CUSTODY_ACCEPTANCE_REQUIRED")
+        if not state.target_vehicle_custody_matches_target:
+            raise LifecycleConflict("VEHICLE_CUSTODIAN_MISMATCH")
         return LifecycleDecision(
             route_id=state.route_id, company_id=state.company_id,
             zone_id=state.zone_id, old_status=state.status, status="active",
@@ -143,5 +152,6 @@ def decide_lifecycle(
             end_period_id=state.open_period_id,
             open_period_driver_id=None, open_period_vehicle_id=None,
             zone_reserved=False, live_assets_reserved=False,
+            schedule_zone_next=True,
         )
     raise LifecycleConflict("ROUTE_ACTION_UNSUPPORTED")
