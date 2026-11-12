@@ -55,10 +55,25 @@ class M01RouteLifecycleStore:
         from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
         from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 
+        # Pre-read historical/current session identities solely for lock order.
+        # Re-verify the period under the ordered FOR UPDATE locks below.
+        maybe_period_session_ids = (
+            await db.execute(
+                select(DispatchRouteExecutionPeriod.work_session_id).where(
+                    DispatchRouteExecutionPeriod.company_id == company_id,
+                    DispatchRouteExecutionPeriod.route_id == route_id,
+                    DispatchRouteExecutionPeriod.ended_at.is_(None),
+                    DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
+                )
+            )
+        ).scalars().all()
         resources = await lock_route_resources(
             db, company_id=company_id, route_id=route_id,
             target_driver_id=intent.target_driver_id,
             target_vehicle_id=intent.target_vehicle_id,
+            additional_session_ids=tuple(
+                sorted(int(i) for i in maybe_period_session_ids if i is not None)
+            ),
         )
         self.resources = resources
         route = resources.route
@@ -78,8 +93,15 @@ class M01RouteLifecycleStore:
         if self.period is not None and (
             self.period.context_revision != route.assignment_context_revision
             or self.period.state not in ("PLANNED", "ACTIVE")
+            or self.period.work_session_id not in (None, *resources.sessions.keys())
         ):
             raise LifecycleConflict("CURRENT_PERIOD_REVISION_MISMATCH")
+        if self.period is not None and self.period.work_session_id is not None:
+            current_session = resources.sessions.get(int(self.period.work_session_id))
+            if current_session is None or current_session.driver_id != self.period.driver_id:
+                raise LifecycleConflict("CURRENT_PERIOD_SESSION_MISMATCH")
+        else:
+            current_session = resources.session
 
         # Legacy rev 1 still has route driver+vehicle as the available
         # pre-M01 assignment, but can be POSTPONED with no fabricated
@@ -179,7 +201,7 @@ class M01RouteLifecycleStore:
         else:
             custody_matches = False
 
-        bound_session = resources.session
+        bound_session = current_session
         if self.period is not None:
             live_driver_id = self.period.driver_id
             live_vehicle_id = self.period.vehicle_id
