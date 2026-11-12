@@ -79,10 +79,10 @@ See `wa_backend/tests/test_dispatch_m00_target_contract_scenario.py`: target **d
 
 Acceptance of target **later**: PG16 NOBYPASSRLS/FORCE RLS, same-token revoked 403, A1/A2/B denial, real signed FIELD/Backoffice Bearer, 409 concurrent zone/driver/vehicle/custody, idempotency replay, rollback, source/warehouse lot/FEFO/movement/COGS evidence, Flutter offline stale context and Dashboard AR/EN 390/1440 no D15 regression. M00 only freezes these gates; it does not claim them green.
 
-## 6. Mandatory V1 scope decision before M01+
+## 6. V1 scope decision — EXPLICIT OWNER APPROVAL RECEIVED (2026-11-12)
 
-**STOP — documented scope mismatch, not an implementation permission.** `V1_SCOPE_FREEZE.md` §5.3 owner-approved October 18 amendment expressly requires receiver-confirmed **Vehicle→Warehouse** physical handoff before final settlement. `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md` §3–4 implements that path. The November 12 multi-route plan instead requests `COUNT_IN_PLACE` as an additional valid settlement mode and a session spanning several routes/vehicles.
+The original October 18 scope required real Vehicle→Warehouse receiving before settlement. On **2026-11-12** the owner explicitly approved amending frozen V1 to add multi-route/multi-vehicle sessions plus vehicle `COUNT_IN_PLACE` while the goods physically remain inside the vehicle, **without removing actual `PHYSICAL_HANDOFF` when goods really enter a warehouse**.
 
-This is **more than** fixing a broken existing V1 workflow; it adds/changes business behavior in frozen V1. Approval of this design/plan or an ordinary "continue M00" is not explicit approval to alter `V1_SCOPE_FREEZE.md`. **No M01 schema/runtime feature writes and no M02–M06 behavior changes** until owner explicitly approves the exact V1 scope amendment. Upon approval, update `V1_SCOPE_FREEZE.md` FIRST, retaining `PHYSICAL_HANDOFF` as the real warehouse-receiving alternative, then implement in stage order with independent gates.
+`V1_SCOPE_FREEZE.md` §5.3/§5.4 and `INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md` have been amended in this PR **before any M01+ code**. M01–M06 may now proceed in their documented staged order after this approved documentation checkpoint merges. This approval does **not** authorize unscoped vehicle-to-vehicle transfers or bypassing explicit responsibility, counting, finance, inventory, location or role checks.
 
-**M00 ownership:** source audit/contracts and non-production synthetic scenario only; all seven stages are still unchecked until M00 PR, CI, review, merge and local exact-MAIN readback.
+**M00 ownership:** source audit/contracts and non-production synthetic scenario only; M01–M06 remain unchecked until implementation and full restricted PG16/real HTTP/FIELD/visual acceptance. M00 becomes `[x]` after its documentation PR, CI, lead review, merge and local exact-MAIN readback.
