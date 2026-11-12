@@ -134,7 +134,8 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
         json={"request_id": str(uuid4()), "outcome": "Sale", "cash_collected": "1",
               "cart_items": [{"product_variant_id": g.variant["id"], "packs_quantity": 1}]},
     )
-    assert forbidden_visit.status_code in (403, 404), forbidden_visit.text
+    assert forbidden_visit.status_code == 409, forbidden_visit.text
+    assert forbidden_visit.json()["error"]["code"] == "M03_NO_ACTIVE_EXECUTION_PERIOD"
     assert await _move_count(g) == baseline
 
     await _sale(g, b_visit, 7, b)

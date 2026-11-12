@@ -4,6 +4,8 @@
 
 **Starting exact merged MAIN:** `c1a6d8e16f3c64a63c8419a61b54f60ce4d6aae3`. All M01–M04 are merged. M05 [#945 / PR #946](https://github.com/MohHamdallah1/wanasah/pull/946) was Draft/unmerged at M06 kickoff. This M06 branch may modify only test, isolated CI and evidence files. It must never change M05/Flutter/Dashboard/backend production contracts or bypass canonical authorization.
 
+**Verified independent UI baseline before M05:** [M06 GitHub run #43321894019](https://github.com/MohHamdallah1/wanasah/actions/runs/43321894019), job `real-owner-visual`: genuine PG16 D12 seed **1/1 PASS**, production-built Dashboard, Chromium **4/4 PASS** (AR/EN × 1440/390), each real D15 SPA reentry screenshot captured; 100 route rows, 20–25 observed Chromium frames, no outer overflow / synthetic zero. Uploaded artifact `m06-owner-real-chromium-43321894019`. This does **NOT** prove M05 integrated features or owner visual approval.
+
 ## Source → scenario → evidence (strict, not speculative)
 
 | Owner checkpoint / threat | Accepted canonical evidence already on merged MAIN | New M06 evidence | Acceptance |
