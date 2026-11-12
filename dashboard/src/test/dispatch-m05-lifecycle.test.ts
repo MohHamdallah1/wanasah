@@ -25,7 +25,7 @@ describe("M05 exact read and lifecycle intent", () => {
     const proof = parseRouteAssignmentProof(route);
     expect(proof).not.toBeNull();
     const intent = createLifecycleIntent("RESUME", proof!, {
-      vehicleId: 6, representativeId: 7, custodyRevision: 12,
+      vehicleId: 6, driverId: 7, custodyRevision: 12,
       accepted: true, authorized: true,
     });
     expect(intent).toEqual({
@@ -41,7 +41,7 @@ describe("M05 exact read and lifecycle intent", () => {
     expect(createLifecycleIntent("POSTPONE", live!).expected_period_id).toBe(37);
     expect(createLifecycleIntent("CLOSE", live!).expected_context_revision).toBe(5);
     expect(() => createLifecycleIntent("RESUME", live!, {
-      vehicleId: 6, representativeId: 7, custodyRevision: 12, accepted: true, authorized: true,
+      vehicleId: 6, driverId: 7, custodyRevision: 12, accepted: true, authorized: true,
     })).toThrow();
   });
 
