@@ -3850,8 +3850,14 @@ async def get_active_routes(
         access, company_directory=company_shop_scope,
     )
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
-    driver_ids = list({r.driver_id for r in routes if r.driver_id})
-    session_ids = list({r.work_session_id for r in routes if r.work_session_id})
+    # Current-period identity is authoritative whenever signed and readable.
+    # No historic-driver fallback when M02 has no live period.
+    driver_ids = list({driver for r in routes
+        for driver in (current_periods.get(r.id, {}).get("driver_id"), r.driver_id)
+        if driver})
+    session_ids = list({session for r in routes
+        for session in (current_periods.get(r.id, {}).get("session_id"), r.work_session_id)
+        if session})
     
     zones_map = {}
     if zone_ids:
@@ -3921,7 +3927,10 @@ async def get_active_routes(
     for r in routes:
         # اللوجيك الأصلي: إذا كان الخط نشطاً والمندوب موجوداً، احسب الزيارات المعلقة للمندوب.
         # أما إذا كان موقوفاً أو بدون مندوب، فالمحلات المتبقية هي كل محلات المنطقة.
-        if r.status == 'active' and r.driver_id:
+        current_driver = current_periods.get(r.id, {}).get("driver_id")
+        if r.status == 'active' and current_driver:
+            shops_remaining = pending_visits_map.get(current_driver, 0)
+        elif r.status == 'active' and r.assignment_context_revision == 1 and r.driver_id:
             shops_remaining = pending_visits_map.get(r.driver_id, 0)
         else:
             shops_remaining = zone_shops_map.get(r.zone_id, 0)
@@ -3948,6 +3957,9 @@ async def get_active_routes(
             "currentVehicleId": current_periods.get(r.id, {}).get("vehicle_id"),
             "currentVehicleLocationId": current_periods.get(r.id, {}).get("location_id"),
             "currentPeriodState": current_periods.get(r.id, {}).get("state"),
+            "currentDriverName": drivers_map.get(current_periods.get(r.id, {}).get("driver_id"))
+                if current_periods.get(r.id, {}).get("driver_id") else None,
+            "currentWorkSessionId": current_periods.get(r.id, {}).get("session_id"),
             "can_execute": executable_routes[r.id] and (
                 current_periods.get(r.id, {}).get("may_execute", False)
                 if r.id in current_periods else True
