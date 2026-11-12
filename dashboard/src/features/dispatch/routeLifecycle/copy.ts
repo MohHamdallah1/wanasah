@@ -16,6 +16,9 @@ const labels = {
     conflict: "تغيّرت بيانات الخط أو العهدة. راجع الطلب الأصلي قبل أي تغيير.",
     unknown: "لم يتأكد رد الخادم. تم حفظ الطلب الأصلي لإعادة المحاولة دون تكرار.",
     accessDenied: "تعذر التحقق من صلاحياتك الحالية.",
+    custodyMissing: "عهدة السيارة غير معتمدة لهذا المندوب أو تغيّرت منذ آخر تحقق.",
+    targetBusy: "المندوب أو السيارة مرتبط بخط آخر حاليًا.",
+    assignmentStale: "تغيّر تعيين الخط. حدّث البيانات قبل تنفيذ الأمر.",
   },
   en: {
     title: "Route execution",
@@ -31,6 +34,9 @@ const labels = {
     conflict: "Route or custody evidence changed. Review the original command before changing anything.",
     unknown: "Server outcome is unconfirmed. The original command is saved for safe retry.",
     accessDenied: "Your current permission could not be verified.",
+    custodyMissing: "Vehicle custody is not signed for this representative or has changed.",
+    targetBusy: "The representative or vehicle is assigned to another route.",
+    assignmentStale: "Route assignment changed. Refresh signed data before acting.",
   },
 } as const;
 
