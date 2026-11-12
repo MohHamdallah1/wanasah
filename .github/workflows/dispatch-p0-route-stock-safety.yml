@@ -517,7 +517,31 @@ jobs:
           }
           assert len(dispatch_d11_881_exact) == 16
 
+          # M01 #937: exact additive route-period / custody schema ownership.
+          # This is NOT a blanket backend, migration or dispatch permission.
+          m01_937_exact = {
+              "wa_backend/alembic/versions/b7e2c4a9d631_m01_route_periods_vehicle_custody.py",
+              "wa_backend/domains/dispatch/__init__.py",
+              "wa_backend/domains/dispatch/route_execution/__init__.py",
+              "wa_backend/domains/dispatch/route_execution/models.py",
+              "wa_backend/domains/dispatch/route_execution/vehicle_custody_models.py",
+              "wa_backend/models.py",
+              "wa_backend/tests/test_dispatch_m01_postgres.py",
+          }
+          m01_937_unique = m01_937_exact - p0_allowed - auth_session_allowed
+          m01_937_with_ci = m01_937_exact | {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+          }
+          assert len(m01_937_exact) == 7 and len(m01_937_unique) == 6
+
           def ownership_mode(candidate):
+              if candidate & m01_937_unique:
+                  assert candidate in (m01_937_exact, m01_937_with_ci), (
+                      f"Forbidden M01 #937 exact ownership: "
+                      f"missing={sorted(m01_937_exact - candidate)} "
+                      f"extra={sorted(candidate - m01_937_with_ci)}"
+                  )
+                  return "M01_937_EXACT"
               # D15 #918: exact real-panel presentation correction only.
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_real_content_scope.py")["d15_real_content_mode"](candidate):
                   return "DISPATCH_D15_918_REAL_CONTENT_EXACT"
@@ -624,6 +648,34 @@ jobs:
               assert not unexpected, f"Forbidden P0/auth-session scope: {sorted(unexpected)}"
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
+
+          # M01 authorization ownership: exact source set with/without this
+          # single shared CI-policy file, and no subset or foreign additions.
+          assert ownership_mode(m01_937_exact) == "M01_937_EXACT"
+          assert ownership_mode(m01_937_with_ci) == "M01_937_EXACT"
+          for missing in m01_937_exact:
+              for scoped in (m01_937_exact, m01_937_with_ci):
+                  try:
+                      ownership_mode(scoped - {missing})
+                  except AssertionError as exc:
+                      assert missing in str(exc), (missing, exc)
+                  else:
+                      raise AssertionError(f"Partial M01 #937 accepted: {missing}")
+          for foreign in (
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/alembic/versions/foreign.py",
+              "wa_backend/domains/inventory/services.py",
+              "wa_backend/tests/test_dispatch_m02_lifecycle_policy.py",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  ownership_mode(m01_937_with_ci | {foreign})
+              except AssertionError as exc:
+                  assert foreign in str(exc), (foreign, exc)
+              else:
+                  raise AssertionError(f"Foreign M01 #937 accepted: {foreign}")
 
           # #847 mandatory positive/negative contract probes on every run.
           # A partial set containing *new* #842/#843 paths must fail;
