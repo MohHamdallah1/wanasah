@@ -68,12 +68,12 @@ def decide_lifecycle(
         raise LifecycleConflict("ROUTE_CONTEXT_REVISION_STALE")
     if state.status not in {"active", "waiting", "postponed", "closed"}:
         raise LifecycleConflict("ROUTE_STATUS_INVALID")
-    if state.work_session_settled:
-        raise LifecycleConflict("SESSION_ALREADY_SETTLED")
     if state.context_revision >= 2**63 - 1:
         raise LifecycleConflict("ROUTE_CONTEXT_REVISION_EXHAUSTED")
 
     if intent.action == "POSTPONE":
+        if state.work_session_settled:
+            raise LifecycleConflict("SESSION_ALREADY_SETTLED")
         if state.status not in {"active", "waiting"}:
             raise LifecycleConflict("ROUTE_NOT_LIVE")
         if state.open_period_id is None:
@@ -96,6 +96,9 @@ def decide_lifecycle(
     if intent.action == "RESUME":
         if state.status != "postponed":
             raise LifecycleConflict("ROUTE_NOT_POSTPONED")
+        # A route postponed yesterday may resume under a NEW period/day, even
+        # when its historical legacy WorkSession has been financially settled.
+        # M01 must verify the target period/session rather than reusing S1.
         if state.open_period_id is not None:
             raise LifecycleConflict("ROUTE_ALREADY_HAS_LIVE_PERIOD")
         if intent.expected_period_id is not None:
@@ -122,6 +125,8 @@ def decide_lifecycle(
         )
 
     if intent.action == "CLOSE":
+        if state.open_period_id is not None and state.work_session_settled:
+            raise LifecycleConflict("SESSION_ALREADY_SETTLED")
         if state.status == "closed":
             # Identical retry is resolved by the durable operation receipt,
             # not by unversioned state-idempotence which hides changed intent.
