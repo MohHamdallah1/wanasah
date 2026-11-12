@@ -8,6 +8,7 @@
     "src/features/operations/representativeSettlement/VehicleCountReadPanel.tsx",
     "src/test/dispatch-m05-lifecycle.test.ts",
     "src/test/dispatch-m05-command.test.ts",
+    "src/test/dispatch-m05-panel.test.tsx",
     "src/pages/DispatchBoard.tsx",
     "src/components/dispatch/PendingRoutesTable.tsx",
     "src/components/dispatch/PostponedRoutesModal.tsx"
