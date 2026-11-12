@@ -180,7 +180,6 @@ def test_same_uuid_exact_payload_deterministic_hash_and_changed_body_rejected():
      "target_vehicle_id": 9},
     {"action": "CLOSE", "request_id": str(uuid4()), "expected_context_revision": 4,
      "expected_vehicle_custody_revision": 3},
-    {"action": "POSTPONE", "request_id": str(uuid4()), "expected_context_revision": 4},
 ])
 def test_legacy_or_implicit_inventory_commands_fail_closed(payload):
     with pytest.raises(ValidationError):
@@ -204,3 +203,21 @@ def test_finished_session_rejects_stale_live_mutation_but_allows_reopen_yesterda
         decide_lifecycle(state(work_session_settled=True), intent("POSTPONE"))
     assert decide_lifecycle(state("postponed", work_session_settled=True),
                             intent("RESUME")).status == "active"
+
+def test_pre_m01_live_legacy_postpone_rev1_no_fabricated_period():
+    legacy = state(
+        "active", context_revision=1, open_period_id=None,
+        legacy_live_without_period=True,
+    )
+    result = decide_lifecycle(
+        legacy, intent("POSTPONE", expected_context_revision=1, expected_period_id=None)
+    )
+    assert result.end_period_id is None
+    assert result.status == "postponed"
+    assert result.live_assets_reserved is False
+    assert result.inventory_movements == ()
+    with pytest.raises(LifecycleConflict, match="ROUTE_LIVE_PERIOD_MISSING"):
+        decide_lifecycle(
+            replace(legacy, context_revision=2),
+            intent("POSTPONE", expected_context_revision=2, expected_period_id=None),
+        )
