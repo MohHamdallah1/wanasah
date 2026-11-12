@@ -19,8 +19,8 @@ type AuthFetch = (path: string, init?: RequestInit) => Promise<unknown>;
 
 export function RouteLifecyclePanel({
   isOpen, onClose, route, assignment, drivers, vehicles, selectedDriver,
-  selectedVehicle, onDriverChange, onVehicleChange, signedCustody,
-  actorScope, fetch, authorized, onCommitted,
+  selectedVehicle, onDriverChange, onVehicleChange,
+  actorScope, fetch, authorized, onCommitted, initialAction,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -33,18 +33,19 @@ export function RouteLifecyclePanel({
   selectedVehicle: string;
   onDriverChange: (value: string) => void;
   onVehicleChange: (value: string) => void;
-  /** Exact current accepted target Driver+Vehicle evidence from Backend. */
-  signedCustody: VehicleAcceptanceProof | null;
   actorScope: string | null;
   fetch: AuthFetch;
   authorized: () => boolean;
   onCommitted: (receipt: RouteLifecycleReceipt) => void;
+  initialAction?: LifecycleAction;
 }) {
   const { i18n } = useTranslation();
   const copy = lifecycleCopy(i18n.language);
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState<"checking" | "no" | "yes">("checking");
   const [result, setResult] = useState<RouteLifecycleOutcome | null>(null);
+  const [signedCustody, setSignedCustody] = useState<VehicleAcceptanceProof | null>(null);
+  const [probeError, setProbeError] = useState("");
   const verified = !!assignment && !!route && assignment.routeId === Number(route.id) &&
     route.can_execute === true && !!actorScope && authorized();
   const targetReady = !!signedCustody && signedCustody.accepted === true &&
@@ -52,11 +53,36 @@ export function RouteLifecyclePanel({
     String(signedCustody.driverId) === selectedDriver &&
     String(signedCustody.vehicleId) === selectedVehicle;
   const allowed = verified && pending === "no" && !working;
+  useEffect(() => {
+    setSignedCustody(null);
+    setProbeError("");
+    if (!isOpen || !route || route.status !== "postponed" || !verified ||
+        !selectedDriver || !selectedVehicle || !/^\\d+$/.test(selectedDriver) ||
+        !/^\\d+$/.test(selectedVehicle)) return;
+    const controller = new AbortController();
+    const path = `/dispatch/route/${route.id}/lifecycle/readiness?` +
+      `target_driver_id=${encodeURIComponent(selectedDriver)}&target_vehicle_id=${encodeURIComponent(selectedVehicle)}`;
+    void fetch(path, { cache: "no-store", signal: controller.signal })
+      .then(raw => {
+        if (controller.signal.aborted || !authorized() || !assignment ||
+            !raw || typeof raw !== "object" || Array.isArray(raw)) return;
+        const proof = raw as Partial<VehicleAcceptanceProof> & { assignmentContextRevision?: number };
+        if (proof.accepted === true && proof.authorized === true &&
+            proof.driverId === Number(selectedDriver) && proof.vehicleId === Number(selectedVehicle) &&
+            Number.isSafeInteger(proof.custodyRevision) && (proof.custodyRevision ?? 0) > 0 &&
+            proof.assignmentContextRevision === assignment.assignmentRevision) {
+          setSignedCustody(proof as VehicleAcceptanceProof);
+        } else setProbeError(copy.noEvidence);
+      }).catch(() => { if (!controller.signal.aborted) setProbeError(copy.noEvidence); });
+    return () => controller.abort();
+  }, [isOpen, route?.id, route?.status, verified, selectedDriver, selectedVehicle,
+    assignment?.assignmentRevision, fetch, authorized, copy.noEvidence]);
 
   useEffect(() => {
     if (!isOpen || !route || !actorScope) { setPending("checking"); return; }
     let fresh = true;
     setPending("checking");
+    setResult(null);
     void hasPendingRouteLifecycle(actorScope, Number(route.id))
       .then(exists => { if (fresh) setPending(exists ? "yes" : "no"); })
       .catch(() => { if (fresh) setPending("yes"); }); // corrupted durable record: fail closed
@@ -102,8 +128,8 @@ export function RouteLifecyclePanel({
       title={copy.title} maxWidth="max-w-xl">
       <div className="space-y-3" dir={i18n.dir()} data-testid="m05-lifecycle-panel">
         <p className="text-sm font-medium">{route?.zoneName || "—"}</p>
-        {denied && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
-          {copy.noEvidence}
+        {(denied || (isPostponed && probeError)) && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
+          {probeError || copy.noEvidence}
         </p>}
         {isPostponed && (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -130,11 +156,11 @@ export function RouteLifecyclePanel({
             </button>
           ) : (
             <>
-              <button type="button" disabled={!allowed}
+              {initialAction !== "CLOSE" && <button type="button" disabled={!allowed}
                 onClick={() => void execute("POSTPONE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
                 {copy.postpone}
-              </button>
+              </button>}}
               <button type="button" disabled={!allowed}
                 onClick={() => void execute("CLOSE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
