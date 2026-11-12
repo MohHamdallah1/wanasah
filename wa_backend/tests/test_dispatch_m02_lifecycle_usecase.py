@@ -163,3 +163,19 @@ async def test_authority_denial_precedes_even_idempotency_lookup(monkeypatch):
             intent=command(),store=Store(state()),
             authorize_route=deny,authorize_vehicle=deny,
         )
+
+def test_lock_snapshot_fences_assignment_revision_not_inventory_adjustment_revision():
+    from types import SimpleNamespace
+    from domains.dispatch.route_execution.lifecycle.resource_locks import _snapshot_identity
+
+    def route(*, assignment_revision, adjustment_revision):
+        return SimpleNamespace(
+            driver_id=21, vehicle_id=42, zone_id=7, work_session_id=9,
+            status="postponed",
+            assignment_context_revision=assignment_revision,
+            adjustment_context_revision=adjustment_revision,
+        )
+
+    first = _snapshot_identity(route(assignment_revision=3, adjustment_revision=200))
+    assert first == _snapshot_identity(route(assignment_revision=3, adjustment_revision=201))
+    assert first != _snapshot_identity(route(assignment_revision=4, adjustment_revision=200))
