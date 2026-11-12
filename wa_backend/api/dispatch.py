@@ -147,6 +147,10 @@ from domains.pricing.context import (
 )
 from domains.taxation.core import TaxError, require_active_jurisdictions
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.dispatch.route_execution.lifecycle.conflicts import (
+    assert_route_resources_available,
+    assert_current_signed_vehicle_responsibility,
+)
 from domains.uom_authority import UomAuthorityError, load_variant_uom_authorities
 from domains.dispatch_route_load import (
     allocate_route_base_batches, allocate_route_return_batches, canonical_route_delta, canonical_adjustment_target,
@@ -1605,11 +1609,22 @@ async def dispatch_route(
             vehicle_id=payload.vehicle_id,
         )
         await require_location(access, 'dispatch.execute', int(source_location.id))
-        await _dispatch_assert_vehicle_custody_reconciled(
-            db,
-            company_id=company_id,
-            vehicle_id=payload.vehicle_id,
-        )
+        # Explicit M01 accepted custody may supersede a HISTORICAL unsettled
+        # route's last driver/vehicle link without changing physical inventory.
+        # If nobody has signed for the car, preserve the older 409 gate.
+        try:
+            accepted_custody = await assert_current_signed_vehicle_responsibility(
+                db, company_id=company_id,
+                driver_id=int(payload.driver_id),
+                vehicle_id=int(payload.vehicle_id),
+                vehicle_location_id=int(vehicle_location_id),
+            )
+        except LifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+        if not accepted_custody:
+            await _dispatch_assert_vehicle_custody_reconciled(
+                db, company_id=company_id, vehicle_id=payload.vehicle_id,
+            )
 
         # إنشاء Route جديد أثناء WorkSession قائمة يفتح باب تبديل عهدة ضمني؛ ممنوع.
         active_session = (
@@ -1651,27 +1666,16 @@ async def dispatch_route(
                 detail="المندوب لديه جلسة سابقة بانتظار التسوية المالية ولا يمكن إطلاق يوم جديد له.",
             )
 
-        # Fail-fast واضح؛ PostgreSQL partial unique indexes يبقون خط الدفاع النهائي ضد السباق.
-        conflict = (
-            await db.execute(
-                select(DispatchRoute.id)
-                .filter(
-                    DispatchRoute.company_id == company_id,
-                    DispatchRoute.status.in_(["active", "waiting", "postponed"]),
-                    or_(
-                        DispatchRoute.zone_id == payload.zone_id,
-                        DispatchRoute.driver_id == payload.driver_id,
-                        DispatchRoute.vehicle_id == payload.vehicle_id,
-                    ),
-                )
-                .limit(1)
+        # Zone is reserved even by postponed; live driver/vehicle are
+        # reserved by legacy rev1 routes or canonical open M01 periods only.
+        # The launch path already holds sorted Driver+Vehicle+Zone row locks.
+        try:
+            await assert_route_resources_available(
+                db, company_id=company_id, zone_id=int(payload.zone_id),
+                driver_id=int(payload.driver_id), vehicle_id=int(payload.vehicle_id),
             )
-        ).scalar_one_or_none()
-        if conflict is not None:
-            raise HTTPException(
-                status_code=409,
-                detail="المنطقة أو المندوب أو السيارة مستخدمة حالياً في خط سير فعال/معلق.",
-            )
+        except LifecycleConflict as exc:
+            raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
 
         use_canonical_base = payload.inventory_base is not None
         if use_canonical_base and payload.inventory:
@@ -2800,6 +2804,24 @@ async def adjust_route_inventory(
     await require_route(access, 'dispatch.execute', route_id)
 
     company_id = access.company_id
+    # Adjust Load's legacy context binds route.vehicle_id, not the M01
+    # canonical execution period's physical vehicle location. Once M02 has
+    # switched an assignment, an old explicit stock command (including
+    # delayed offline retries) must not apply against historical car A or
+    # silently migrate to current car B. A period-aware stock command is
+    # introduced by the owning downstream scope; fail closed until then.
+    assignment_revision = await db.scalar(
+        select(DispatchRoute.assignment_context_revision).where(
+            DispatchRoute.company_id == company_id,
+            DispatchRoute.id == route_id,
+        )
+    )
+    if assignment_revision is not None and int(assignment_revision) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ROUTE_CURRENT_EPOCH_REQUIRED",
+                    "message": "A current execution period is required for load adjustments."},
+        )
     use_canonical_base = any(getattr(item, "delta_base", None) is not None for item in payload.deltas)
 
     # Backward-compatible trusted in-process callers (there are no production
@@ -3912,6 +3934,73 @@ async def get_active_routes(
     return res
 
 
+# M02: canonical route periods and custody epochs are authoritative here. This
+# action remains a small HTTP adapter; all transitions/locks are domain-owned.
+from domains.dispatch.route_execution.lifecycle.intent import RouteLifecycleIntent
+from domains.dispatch.route_execution.lifecycle.policy import LifecycleConflict
+from domains.dispatch.route_execution.lifecycle.usecase import execute_route_lifecycle
+from domains.dispatch.route_execution.lifecycle.store import M01RouteLifecycleStore
+
+
+@router.put("/dispatch/route/{route_id}/lifecycle", status_code=200)
+async def route_lifecycle_m02(
+    route_id: int,
+    payload: RouteLifecycleIntent,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+    legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
+):
+    # Before M01 schema joins MAIN, this route MUST be unavailable, not an
+    # unversioned legacy fallback. Canonical subject is the signed principal,
+    # never the historical Driver row used by the admin compatibility API.
+    if not hasattr(DispatchRoute, "assignment_context_revision"):
+        raise HTTPException(status_code=503, detail={"code": "M01_SCHEMA_REQUIRED"})
+    from dispatch_access import require_route, require_vehicle
+
+    async def authorize_route(rid: int) -> None:
+        await require_route(access, "dispatch.execute", rid)
+
+    async def authorize_vehicle(vid: int) -> None:
+        await require_vehicle(access, "dispatch.execute", vid)
+
+    try:
+        return await execute_route_lifecycle(
+            db,
+            company_id=access.company_id,
+            route_id=route_id,
+            # operation_idempotency.created_by still has an exact tenant FK
+            # to Driver; canonical principal is carried separately by the
+            # store for immutable period + audit attribution. Never equate
+            # the two IDs or use Driver as an authorization grant.
+            actor_id=int(legacy_actor.id),
+            intent=payload,
+            store=M01RouteLifecycleStore(
+                actor_principal_id=access.subject.principal_id,
+            ),
+            authorize_route=authorize_route,
+            authorize_vehicle=authorize_vehicle,
+        )
+    except LifecycleConflict as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    except OperationIdempotencyError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    except IntegrityError as exc:
+        await db.rollback()
+        # Keep constraint evidence server-side only; HTTP deliberately does
+        # not expose tenant/vehicle identifiers or PostgreSQL internals.
+        logger.error(
+            "M02 route lifecycle PG constraint failure: %s",
+            getattr(getattr(exc, "orig", None), "sqlstate", None)
+            or type(getattr(exc, "orig", exc)).__name__,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=409, detail={"code": "ROUTE_LIFECYCLE_CONCURRENT_CONFLICT"},
+        ) from exc
+
+
 # =========================================
 # 15. تغيير حالة خط السير (تبديل مندوب، تغيير حالة، تعديل حمولة) - (Zero Trust & No Phantoms)
 # =========================================
@@ -3924,6 +4013,36 @@ async def update_route_status(
     legacy_actor: Driver = Depends(get_current_backoffice_legacy_driver),
 ):
     await require_route(access, 'dispatch.execute', route_id)
+
+    # Legacy status-only commands must never mutate a canonical M02 epoch
+    # without its signed current context/UUID. Keeps old safe V1 route writes
+    # unchanged until M01 is actually available; no silent fallback once M02
+    # has created a period or changed assignment_context_revision.
+    if hasattr(DispatchRoute, "assignment_context_revision"):
+        from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+
+        changed_revision = await db.scalar(
+            select(DispatchRoute.assignment_context_revision).where(
+                DispatchRoute.company_id == access.company_id,
+                DispatchRoute.id == route_id,
+            )
+        )
+        current_period = await db.scalar(
+            select(DispatchRouteExecutionPeriod.id).where(
+                DispatchRouteExecutionPeriod.company_id == access.company_id,
+                DispatchRouteExecutionPeriod.route_id == route_id,
+                DispatchRouteExecutionPeriod.ended_at.is_(None),
+                DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
+            ).limit(1)
+        )
+        if changed_revision is not None and (
+            int(changed_revision) > 1 or current_period is not None
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "ROUTE_CURRENT_EPOCH_REQUIRED",
+                        "message": "Use the versioned lifecycle command."},
+            )
 
     # Route status and assignments are never inventory commands. Reject even
     # an empty legacy target map: callers must use the canonical Adjust Load
@@ -4307,28 +4426,32 @@ async def update_route_status(
                     detail="لا يمكن تشغيل خط سير على منطقة مؤرشفة.",
                 )
 
-            conflict = (
-                await db.execute(
-                    select(DispatchRoute.id)
-                    .filter(
+            if target_status in {"active", "waiting"}:
+                try:
+                    await assert_route_resources_available(
+                        db, company_id=company_id, zone_id=int(route.zone_id),
+                        driver_id=int(target_driver_id),
+                        vehicle_id=int(target_vehicle_id),
+                        exclude_route_id=int(route.id),
+                    )
+                except LifecycleConflict as exc:
+                    raise HTTPException(
+                        status_code=409, detail={"code": exc.code},
+                    ) from exc
+            else:
+                # Even a postponed legacy route keeps its zone, never a car.
+                occupied_zone = await db.scalar(
+                    select(DispatchRoute.id).where(
                         DispatchRoute.company_id == company_id,
                         DispatchRoute.id != route.id,
-                        DispatchRoute.status.in_(sorted(operational_statuses)),
-                        or_(
-                            DispatchRoute.driver_id == target_driver_id,
-                            DispatchRoute.vehicle_id == target_vehicle_id,
-                            DispatchRoute.zone_id == route.zone_id,
-                        ),
+                        DispatchRoute.zone_id == route.zone_id,
+                        DispatchRoute.status.in_(("active", "waiting", "postponed")),
+                    ).limit(1)
+                )
+                if occupied_zone is not None:
+                    raise HTTPException(
+                        status_code=409, detail={"code": "ZONE_RESERVED_BY_OTHER_ROUTE"},
                     )
-                    .order_by(DispatchRoute.id.asc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if conflict is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="المنطقة أو المندوب أو السيارة مستخدمة حالياً في خط سير تشغيلي آخر.",
-                )
 
         if bound_session is None and target_driver_id is not None and driver_changed:
             unsettled = (

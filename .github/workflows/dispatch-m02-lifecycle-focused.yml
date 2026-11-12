@@ -1,0 +1,40 @@
+name: M02 focused lifecycle policy (pre-M01 schema gate)
+
+on:
+  push:
+    branches: ["worker2/m02-route-lifecycle-938"]
+    paths:
+      - "wa_backend/domains/dispatch/route_execution/lifecycle/**"
+      - "wa_backend/tests/test_dispatch_m02_lifecycle_*.py"
+      - ".github/workflows/dispatch-m02-lifecycle-focused.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  m02-focused-policy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      ENVIRONMENT: test
+      # Test-only inert URL; no PG connection occurs before M01 is merged.
+      DATABASE_URL: postgresql+asyncpg://m02_test@127.0.0.1:15439/m02_unavailable
+      SECRET_KEY: M02FocusedTestsOnlyStrongKeyAbc1234567890
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install existing canonical backend test dependencies
+        run: |
+          python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio
+      - name: M02 modules syntax and focused executable policy/transaction tests
+        working-directory: wa_backend
+        run: |
+          python -m compileall -q domains/dispatch/route_execution/lifecycle
+          python -m pytest -q --disable-warnings -p no:cacheprovider \
+            tests/test_dispatch_m02_lifecycle_policy.py \
+            tests/test_dispatch_m02_lifecycle_usecase.py
+      - name: Focused diff whitespace
+        run: git diff --check
