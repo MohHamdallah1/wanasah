@@ -1,7 +1,7 @@
 """M01 vehicle responsibility ledger. A custody change never moves inventory."""
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKeyConstraint,
-    Index, Integer, String, UniqueConstraint, text,
+    Index, Integer, String, ForeignKey, UniqueConstraint, text,
 )
 from models import Base, InventoryLocation, utc_now
 from domains.identity.models import FieldRepresentative
@@ -64,7 +64,7 @@ class VehicleCustodyEpoch(Base):
         Index("ix_vehicle_custody_session", "company_id", "related_session_id", "id"),
     )
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    company_id = Column(Integer, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="RESTRICT"), nullable=False)
     vehicle_id = Column(Integer, nullable=False)
     vehicle_location_id = Column(Integer, nullable=False)
     custodian_kind = Column(String(32), nullable=False)

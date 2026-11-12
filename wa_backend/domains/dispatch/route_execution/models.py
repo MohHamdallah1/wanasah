@@ -1,7 +1,7 @@
 """M01 persistence only: historical links never confer live assignment authority."""
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKeyConstraint,
-    Index, Integer, String, UniqueConstraint, text,
+    Index, Integer, String, ForeignKey, UniqueConstraint, text,
 )
 from models import Base, utc_now
 
@@ -71,7 +71,7 @@ class DispatchRouteExecutionPeriod(Base):
         Index("ix_route_period_route_history", "company_id", "route_id", "id"),
     )
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    company_id = Column(Integer, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id", ondelete="RESTRICT"), nullable=False)
     route_id = Column(Integer, nullable=False)
     work_session_id = Column(Integer, nullable=True)
     driver_id = Column(Integer, nullable=False)

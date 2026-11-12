@@ -168,6 +168,7 @@ class M01PostgresTest(unittest.TestCase):
             a, b, second = asyncio.run(_fixtures(os.environ["DATABASE_URL_MIGRATION"], name))
             route_before = asyncio.run(self._routes(os.environ["DATABASE_URL_MIGRATION"], name))
             command.upgrade(cfg, "b7e2c4a9d631")
+            command.check(cfg)  # Fail CI-like if ORM and actual migration drift.
             asyncio.run(self._assertions(os.environ["DATABASE_URL"], os.environ["DATABASE_URL_MIGRATION"], name, a, b, second))
             route_after = asyncio.run(self._routes(os.environ["DATABASE_URL_MIGRATION"], name))
             self.assertEqual(route_before, route_after, "M01 changed legacy route/read state")

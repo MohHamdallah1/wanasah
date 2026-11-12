@@ -95,29 +95,29 @@ def upgrade() -> None:
         CONSTRAINT uq_route_period_visit_context
             UNIQUE(company_id, id, work_session_id, driver_id, vehicle_location_id, context_revision),
         CONSTRAINT fk_route_period_tenant_route
-            FOREIGN KEY(company_id,route_id) REFERENCES dispatch_routes(company_id,id),
+            FOREIGN KEY(company_id,route_id) REFERENCES dispatch_routes(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_session_driver
             FOREIGN KEY(company_id,work_session_id,driver_id)
-            REFERENCES work_sessions(company_id,id,driver_id),
+            REFERENCES work_sessions(company_id,id,driver_id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_driver
-            FOREIGN KEY(company_id,driver_id) REFERENCES drivers(company_id,id),
+            FOREIGN KEY(company_id,driver_id) REFERENCES drivers(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_representative
             FOREIGN KEY(company_id,field_representative_id)
-            REFERENCES field_representatives(company_id,id),
+            REFERENCES field_representatives(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_vehicle
-            FOREIGN KEY(company_id,vehicle_id) REFERENCES vehicles(company_id,id),
+            FOREIGN KEY(company_id,vehicle_id) REFERENCES vehicles(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_vehicle_location
             FOREIGN KEY(company_id,vehicle_location_id,vehicle_id)
-            REFERENCES inventory_locations(company_id,id,vehicle_id),
+            REFERENCES inventory_locations(company_id,id,vehicle_id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_commercial
             FOREIGN KEY(company_id,commercial_context_id)
-            REFERENCES route_commercial_contexts(company_id,id),
+            REFERENCES route_commercial_contexts(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_starter
             FOREIGN KEY(company_id,started_by_principal_id)
-            REFERENCES company_principals(company_id,id),
+            REFERENCES company_principals(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_route_period_tenant_ender
             FOREIGN KEY(company_id,ended_by_principal_id)
-            REFERENCES company_principals(company_id,id),
+            REFERENCES company_principals(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT ck_route_period_state
             CHECK (state IN ('PLANNED','ACTIVE','CLOSED','HISTORICAL','NEEDS_REVIEW')),
         CONSTRAINT ck_route_period_revision_positive CHECK (context_revision > 0),
@@ -175,21 +175,21 @@ def upgrade() -> None:
         CONSTRAINT uq_vehicle_custody_tenant_id UNIQUE(company_id,id),
         CONSTRAINT uq_vehicle_custody_revision UNIQUE(company_id,vehicle_id,context_revision),
         CONSTRAINT fk_vehicle_custody_tenant_vehicle
-            FOREIGN KEY(company_id,vehicle_id) REFERENCES vehicles(company_id,id),
+            FOREIGN KEY(company_id,vehicle_id) REFERENCES vehicles(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_vehicle_custody_tenant_location_vehicle
             FOREIGN KEY(company_id,vehicle_location_id,vehicle_id)
-            REFERENCES inventory_locations(company_id,id,vehicle_id),
+            REFERENCES inventory_locations(company_id,id,vehicle_id) ON DELETE RESTRICT,
         CONSTRAINT fk_vehicle_custody_tenant_principal_type
             FOREIGN KEY(company_id,custodian_principal_id,custodian_kind)
-            REFERENCES company_principals(company_id,id,principal_type),
+            REFERENCES company_principals(company_id,id,principal_type) ON DELETE RESTRICT,
         CONSTRAINT fk_vehicle_custody_tenant_rep_principal
             FOREIGN KEY(company_id,field_representative_id,custodian_principal_id)
-            REFERENCES field_representatives(company_id,id,principal_id),
+            REFERENCES field_representatives(company_id,id,principal_id) ON DELETE RESTRICT,
         CONSTRAINT fk_vehicle_custody_tenant_session
-            FOREIGN KEY(company_id,related_session_id) REFERENCES work_sessions(company_id,id),
+            FOREIGN KEY(company_id,related_session_id) REFERENCES work_sessions(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT fk_vehicle_custody_tenant_acceptor
             FOREIGN KEY(company_id,accepted_by_principal_id)
-            REFERENCES company_principals(company_id,id),
+            REFERENCES company_principals(company_id,id) ON DELETE RESTRICT,
         CONSTRAINT ck_vehicle_custody_state CHECK (state IN ('ACCEPTED','NEEDS_REVIEW')),
         CONSTRAINT ck_vehicle_custody_kind
             CHECK (custodian_kind IN ('BACKOFFICE','FIELD_REPRESENTATIVE','UNCONFIRMED')),
