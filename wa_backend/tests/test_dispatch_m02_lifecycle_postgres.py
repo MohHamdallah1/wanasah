@@ -208,6 +208,10 @@ async def test_m02_postpone_bound_s1_resume_signed_custody_replay_aba_and_no_sto
             assert historical_session and historical_route
             historical_session.session_date = yesterday
             historical_session.end_time = datetime.now(timezone.utc).replace(tzinfo=None)
+            # Closed financial S1 requires a real reconciler identity and
+            # timestamp >= end_time under the PostgreSQL CHECK contract.
+            historical_session.inventory_reconciled_at = historical_session.end_time
+            historical_session.inventory_reconciled_by = int(launch["driver_id"])
             historical_session.is_settled = True
             historical_route.dispatch_date = yesterday
             await db.commit()
