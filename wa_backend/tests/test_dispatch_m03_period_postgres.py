@@ -218,6 +218,14 @@ async def test_m03_real_bearer_period_proof_stale_and_visit_no_duplication(gate)
     assert actual["commercial_context_id"] == commercial
     assert actual["session_id"] == g.session
 
+    # All FIELD read surfaces must resolve the same canonical execution,
+    # not regress to the legacy route-session binding after a switch.
+    for path in ("/driver/dashboard", "/product_variants", "/driver/visits"):
+        surface = await g.client.get(path, headers=_headers(g.token))
+        assert surface.status_code == 200, (path, surface.text)
+        if path == "/driver/dashboard":
+            assert surface.json()["execution_context"]["period_id"] == p
+
     foreign = await g.client.get(
         "/driver/sessions/execution-context", headers=_headers(g.foreign_token),
     )
