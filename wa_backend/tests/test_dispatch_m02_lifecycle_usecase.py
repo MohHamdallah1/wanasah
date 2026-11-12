@@ -103,7 +103,7 @@ async def test_receipt_and_transition_commit_in_one_transaction(monkeypatch):
     assert response["context_revision"]==13
     assert response["live_assets_reserved"] is False
     assert response["zone_reserved"] is True
-    assert called==[("route",55),("completed",response)]
+    assert called==[("route",55),("vehicle",201),("completed",response)]
     assert (store.locked,store.guarded,store.applied)==(1,1,1)
     assert (db.flushes,db.commits,db.rollbacks)==(1,1,0)
 
@@ -179,3 +179,30 @@ def test_lock_snapshot_fences_assignment_revision_not_inventory_adjustment_revis
     first = _snapshot_identity(route(assignment_revision=3, adjustment_revision=200))
     assert first == _snapshot_identity(route(assignment_revision=3, adjustment_revision=201))
     assert first != _snapshot_identity(route(assignment_revision=4, adjustment_revision=200))
+
+
+@pytest.mark.asyncio
+async def test_current_period_vehicle_scope_not_historical_route_vehicle(monkeypatch):
+    db=Db()
+    active=state()
+    # The same route was A yesterday; current PLANNED/ACTIVE period now uses
+    # B. A granted historic route must NEVER authorize changing B's period.
+    from dataclasses import replace
+    active=replace(active,active_vehicle_id=202,open_period_id=33)
+    store=Store(active)
+    async def begin(*args,**kwargs):return object(),None
+    calls=[]
+    async def authorize_route(rid):calls.append(("route",rid))
+    async def authorize_vehicle(vid):
+        calls.append(("vehicle",vid))
+        if vid == 202:raise PermissionError("current vehicle B denied")
+    monkeypatch.setattr(usecase,"begin_idempotent_operation",begin)
+    with pytest.raises(PermissionError,match="current vehicle B denied"):
+        await usecase.execute_route_lifecycle(
+            db,company_id=9,route_id=55,actor_id=51,intent=command(),
+            store=store,authorize_route=authorize_route,
+            authorize_vehicle=authorize_vehicle,
+        )
+    assert calls==[("route",55),("vehicle",202)]
+    assert store.applied==0 and store.guarded==0
+    assert db.rollbacks==1 and db.commits==0
