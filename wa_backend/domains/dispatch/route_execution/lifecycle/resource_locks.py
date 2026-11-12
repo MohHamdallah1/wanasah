@@ -121,7 +121,9 @@ async def lock_route_resources(
         select(DispatchRoute).where(
             DispatchRoute.company_id == company_id,
             DispatchRoute.id == route_id,
-        ).order_by(DispatchRoute.id.asc()).with_for_update()
+        ).order_by(DispatchRoute.id.asc())
+        .execution_options(populate_existing=True)
+        .with_for_update()
     )
     if route is None:
         raise LifecycleConflict("ROUTE_NOT_FOUND")
