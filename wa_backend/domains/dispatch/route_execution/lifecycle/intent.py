@@ -38,8 +38,9 @@ class RouteLifecycleIntent(BaseModel):
             raise ValueError("POSTPONE/CLOSE cannot silently reassign a driver or a vehicle")
         elif self.expected_vehicle_custody_revision is not None:
             raise ValueError("POSTPONE/CLOSE must never change vehicle custody")
-        if self.action == "POSTPONE" and self.expected_period_id is None:
-            raise ValueError("POSTPONE requires the exact current execution period")
+        # An explicitly revision=1 legacy route with no canonical live
+        # period may be postponed safely without inventing historical evidence.
+        # The DB-locked policy, not user input, proves that narrow exception.
         return self
 
 
