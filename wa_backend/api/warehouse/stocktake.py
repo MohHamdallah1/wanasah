@@ -2510,6 +2510,14 @@ async def approve_stocktake_session(
                     status_code=409,
                     detail="جلسة العمل المرتبطة بـ VEHICLE_RECON غير موجودة أو خارج الشركة.",
                 )
+            # A multi-car reconciliation takes all sorted Vehicle locks
+            # before a location guard, just like its signed count writer.
+            from domains.representative_settlement_multi_vehicle.inventory_integration import (
+                lock_canonical_recon_vehicles,
+            )
+            await lock_canonical_recon_vehicles(
+                db, company_id=company_id, session_id=int(probed_work_session_id),
+            )
 
         await acquire_inventory_location_guard(db, company_id, location_id, exclusive=True)
 
