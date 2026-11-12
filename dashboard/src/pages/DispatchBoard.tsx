@@ -2055,7 +2055,7 @@ function DispatchSession() {
                   final action share a continuous surface, not three cards. */}
               <section data-testid="dispatch-launch-workbench"
                 className="dispatch-surface mt-2 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-3 px-4 pb-3 pt-3 sm:grid-cols-2 2xl:grid-cols-4">
+                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-3 px-4 pb-3 pt-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="col-span-full flex min-w-0 items-center gap-2 text-sm font-extrabold text-slate-800">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-[#166a94]">
                       <Rocket aria-hidden="true" className="h-4 w-4" />
@@ -2063,7 +2063,6 @@ function DispatchSession() {
                     {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
                   </div>
                 
-                {/* +++ تمرير labelBg="bg-slate-50" ليذوب العنوان في خلفية الحاوية تماماً +++ */}
                 <CustomSelect labelBg="bg-white" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
                 <CustomSelect labelBg="bg-white" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
                 <CustomSelect labelBg="bg-white" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
