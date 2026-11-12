@@ -6,10 +6,17 @@ import 'package:dio/dio.dart';
 import '../../../core/db/local_database.dart';
 import '../../../core/network/api_client.dart';
 import '../application/visit_replay_adapter.dart';
+import '../../work_session/data/execution_context.dart';
 
 typedef VisitReplaySend = Future<Response<dynamic>> Function(
   String path, {
   required Map<String, dynamic> data,
+});
+
+typedef VisitReplaySendWithProof = Future<Response<dynamic>> Function(
+  String path, {
+  required Map<String, dynamic> data,
+  required Map<String, String> headers,
 });
 
 typedef VisitBalanceUpdate = Future<void> Function(
@@ -36,7 +43,9 @@ class LocalVisitReplayAdapter implements VisitReplayAdapter {
     required VisitReplaySend send,
     required VisitBalanceUpdate updateBalance,
     required VisitCommandFinalize finalize,
+    VisitReplaySendWithProof? sendWithProof,
   })  : _send = send,
+        _sendWithProof = sendWithProof,
         _updateBalance = updateBalance,
         _finalize = finalize;
 
@@ -48,6 +57,8 @@ class LocalVisitReplayAdapter implements VisitReplayAdapter {
     final db = database ?? LocalDatabase.instance;
     return LocalVisitReplayAdapter(
       send: (path, {required data}) => client.put(path, data: data),
+      sendWithProof: (path, {required data, required headers}) =>
+          client.put(path, data: data, options: Options(headers: headers)),
       updateBalance: db.updateShopBalanceLocally,
       finalize: ({
         required commandRecordId,
@@ -79,6 +90,7 @@ class LocalVisitReplayAdapter implements VisitReplayAdapter {
   }
 
   final VisitReplaySend _send;
+  final VisitReplaySendWithProof? _sendWithProof;
   final VisitBalanceUpdate _updateBalance;
   final VisitCommandFinalize _finalize;
 
@@ -91,12 +103,26 @@ class LocalVisitReplayAdapter implements VisitReplayAdapter {
       ..remove('idempotency_key')
       ..remove('quarantine_reason');
 
+    // Legacy rows remain legacy. Canonical M03 commands carry immutable
+    // proof in the same durable record as their UUID; do not send it as
+    // an unsupported JSON body field and NEVER replace it with today's car.
+    final rawProof = body.remove('execution_context');
+    ExecutionContextProof? proof;
+    if (rawProof != null) {
+      if (rawProof is! Map) throw const FormatException('M05_STALE_EXECUTION_CONTEXT');
+      proof = ExecutionContextProof.fromJson(Map<String, dynamic>.from(rawProof));
+      if (_sendWithProof == null) throw StateError('M05_PROTECTED_TRANSPORT_REQUIRED');
+    }
+
     final requestId = body['request_id']?.toString().trim() ?? '';
     if (requestId.isEmpty) {
       throw StateError('submit_sale is missing its durable request_id.');
     }
 
-    final response = await _send('/visits/$visitId', data: body);
+    final response = proof == null
+        ? await _send('/visits/$visitId', data: body)
+        : await _sendWithProof!(
+            '/visits/$visitId', data: body, headers: proof.requestHeaders);
     if (response.statusCode == null ||
         response.statusCode! < 200 ||
         response.statusCode! >= 300) {
