@@ -1,18 +1,35 @@
 """M01 vehicle responsibility ledger. A custody change never moves inventory."""
 from sqlalchemy import (
     BigInteger, CheckConstraint, Column, DateTime, ForeignKeyConstraint,
-    Index, Integer, String, ForeignKey, UniqueConstraint, text,
+    Index, Integer, String, ForeignKey, UniqueConstraint, Table, event, text,
 )
 from models import Base, InventoryLocation, utc_now
-from domains.identity.models import FieldRepresentative
-
-# Parent composite keys bind a period/epoch to the *actual* vehicle or principal.
+# Parent composite keys bind a period/epoch to the actual vehicle or principal.
 Index("uq_inv_location_company_id_vehicle_id",
       InventoryLocation.company_id, InventoryLocation.id, InventoryLocation.vehicle_id,
       unique=True)
-Index("uq_field_rep_company_id_principal_id",
-      FieldRepresentative.company_id, FieldRepresentative.id, FieldRepresentative.principal_id,
-      unique=True)
+
+
+def _attach_field_representative_index(table: Table, metadata) -> None:
+    """Register the tenant/representative/principal FK key regardless of import order.
+
+    Identity may import models.Base first; importing Identity back here would
+    make that module partially initialized (circular dependency).
+    """
+    if table.name != "field_representatives" or metadata is not Base.metadata:
+        return
+    if "uq_field_rep_company_id_principal_id" in {index.name for index in table.indexes}:
+        return
+    Index("uq_field_rep_company_id_principal_id",
+          table.c.company_id, table.c.id, table.c.principal_id,
+          unique=True)
+
+
+_existing_representatives = Base.metadata.tables.get("field_representatives")
+if _existing_representatives is not None:
+    _attach_field_representative_index(_existing_representatives, Base.metadata)
+else:
+    event.listen(Table, "after_parent_attach", _attach_field_representative_index)
 
 
 class VehicleCustodyEpoch(Base):

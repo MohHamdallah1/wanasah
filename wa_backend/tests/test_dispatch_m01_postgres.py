@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 from uuid import uuid4
 
@@ -137,6 +139,16 @@ async def _fixtures(migration_url, database):
 
 
 class M01MetadataTest(unittest.TestCase):
+    def test_import_order_identity_first_is_cycle_free(self):
+        result = subprocess.run(
+            [sys.executable, "-c",
+             "from domains.identity.models import FieldRepresentative; import models; "
+             "assert 'uq_field_rep_company_id_principal_id' in "
+             "{i.name for i in FieldRepresentative.__table__.indexes}"],
+            cwd=BACKEND, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_mapping_registers_bounded_tables(self):
         from models import Base, DispatchRoute, Visit
         names = Base.metadata.tables
