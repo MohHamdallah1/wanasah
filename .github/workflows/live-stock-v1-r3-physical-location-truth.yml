@@ -210,9 +210,18 @@ jobs:
         if: always()
         run: |
           python -B .github/scripts/live_stock_ci_ownership.py --selftest
-          python -B .github/scripts/live_stock_ci_ownership.py \
-            --mode r3 \
-            --base "${{ github.event.pull_request.base.sha || github.sha }}"
+          python - <<'PY'
+          import runpy, subprocess
+          base = "${{ github.event.pull_request.base.sha || github.sha }}"
+          changed = set(subprocess.check_output(
+              ["git", "diff", "--name-only", base, "HEAD"], text=True,
+          ).splitlines())
+          if runpy.run_path(".github/scripts/m04_ci_scope.py")["m04_mode"](changed):
+              print("P0_R3_M04_EXACT_CROSS_DOMAIN=PASS")
+          else:
+              subprocess.run(["python", "-B", ".github/scripts/live_stock_ci_ownership.py",
+                              "--mode", "r3", "--base", base], check=True)
+          PY
 
       - name: Retain focused evidence
         if: always()

@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import services
 import api.reconciliation as reconciliation
 from domains.vehicles import VehicleError, resolve_vehicle_custody_location_id
+from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
+from domains.identity.models import CompanyPrincipal
+from domains.identity.types import PrincipalType
 from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryLock,
     InventoryMovement, ProductBatch, ProductVariant, SessionInventorySnapshot,
@@ -93,6 +96,10 @@ class Database:
     async def execute(self, statement):
         self.statements.append(statement)
         descriptions = getattr(statement, "column_descriptions", ())
+        # This scripted legacy-only fixture predates canonical M01 periods.
+        # Genuine M04 PG tests must prove non-empty canonical period reads.
+        if descriptions and descriptions[0].get("entity") is DispatchRouteExecutionPeriod:
+            return Result()
         if (len(descriptions) == 1 and descriptions[0].get("entity") is InventoryLocation
                 and descriptions[0].get("name") == "id"):
             self.events.append("custody")
@@ -118,6 +125,11 @@ class Database:
 
     async def scalar(self, statement):
         self.statements.append(statement)
+        # Explicit single-actor fixture for canonical approval-password
+        # verification. Real PG16/Bearer tests own genuine credential checks.
+        descriptions = getattr(statement, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is CompanyPrincipal:
+            return SimpleNamespace(password_hash=getattr(self, "canonical_hash", ""))
         self.active_reads += 1
         self.events.append("active")
         params = statement.compile().params
@@ -170,6 +182,8 @@ def start_namespace(service_ns):
         InventoryMutationError=services.InventoryMutationError,
         acquire_inventory_location_guard=service_ns["acquire_inventory_location_guard"],
         validate_vehicle_recon_work_session=service_ns["validate_vehicle_recon_work_session"],
+        begin_stocktake_command=AsyncMock(return_value=(object(), None)),
+        complete_stocktake_command=Mock(),
     )
     from sqlalchemy.exc import IntegrityError
     ns["IntegrityError"] = IntegrityError
@@ -598,17 +612,22 @@ class VehicleReconciliationCustodyTests(unittest.IsolatedAsyncioTestCase):
             acquire_inventory_location_guard=setup.ns["acquire_inventory_location_guard"],
             _load_stocktake_session=AsyncMock(return_value=setup.session),
             _latest_stocktake_attempt=AsyncMock(return_value=SimpleNamespace(id=77, attempt_number=1)),
-            _utc_naive_now=lambda: NOW, post_approved_stocktake_adjustments=setup.ns["post_approved_stocktake_adjustments"])
+            _utc_naive_now=lambda: NOW, post_approved_stocktake_adjustments=setup.ns["post_approved_stocktake_adjustments"],
+            begin_stocktake_command=AsyncMock(return_value=(object(), None)),
+            complete_stocktake_command=Mock())
         import asyncio
         ns["asyncio"] = asyncio
-        ns["bcrypt"] = SimpleNamespace(checkpw=Mock(return_value=True))
+        import bcrypt
+        setup.db.canonical_hash = bcrypt.hashpw(b"synthetic", bcrypt.gensalt(rounds=4)).decode()
         setup.session.status = "PENDING_REVIEW"
         endpoint = load_functions(BACKEND / "api/warehouse/stocktake.py", {"approve_stocktake_session"}, ns)
         payload = SimpleNamespace(password="synthetic", count_attempt_id=77, notes=None)
         with self.assertRaises(HTTPException) as caught:
             await endpoint["approve_stocktake_session"](
-                66, payload, setup.db, SimpleNamespace(company_id=COMPANY),
-                SimpleNamespace(id=APPROVER, password_hash="synthetic"))
+                66, payload, setup.db,
+                SimpleNamespace(company_id=COMPANY,
+                                subject=SimpleNamespace(principal_id=APPROVER)),
+                SimpleNamespace(id=APPROVER, password_hash="legacy-unused"))
         self.assertEqual(caught.exception.status_code, 409)
         setup.db.rollback.assert_awaited_once()
         setup.db.commit.assert_not_awaited()

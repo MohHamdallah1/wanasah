@@ -30,9 +30,8 @@ for (const width of [1440, 390]) {
     const started = Date.now();
     await page.goto("/dispatch");
     await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 60000 });
-    // D15 loads Routes independently of the (possibly enormous) Shops list.
-    // Routes-tab first paint needs init + active routes + shortages only;
-    // requesting Shops here would regress D15 and first-route latency.
+    // D15 Routes must first paint independently of (potentially huge) Shops.
+    // Verify signed route reads now; real Shops are fetched when Launch opens.
     const firstPaint = ["/dispatch/init", "/dispatch/active_routes", "/dispatch/shortages"];
     await expect.poll(() => firstPaint.every(path => seen.get(path)?.status === 200),
       { timeout: 60000 }).toBe(true);
@@ -47,6 +46,7 @@ for (const width of [1440, 390]) {
     const launchStart = Date.now();
     await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
     await expect(page.getByRole("tab", { name: /إطلاق خط جديد/ })).toHaveAttribute("aria-selected", "true");
+    await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
     const launchSelectMs = Date.now() - launchStart;
     const result = {
       width, loadMs, launchSelectMs, ...rendered,

@@ -52,6 +52,47 @@ _STATUS = frozenset(("AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED
 _COMPLETE = "REPRESENTATIVE_CUSTODY_RECEIVED"
 
 
+@router.get("/admin/sessions/{session_id}/inventory-custody/vehicles")
+async def read_session_vehicle_responsibilities(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+):
+    """S1 exact canonical vehicle/custody membership and signed checkpoint states.
+
+    No historical last-route car, quantity leakage, or implied financial approval.
+    """
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    from domains.representative_settlement_multi_vehicle.read_model import read_session_vehicle_membership
+    try:
+        return await read_session_vehicle_membership(
+            db, access=access, session_id=session_id,
+        )
+    except CustodyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={
+            "code": exc.code, "context": exc.context,
+        }) from None
+
+
+@router.get("/admin/sessions/{session_id}/inventory-custody/vehicles/{vehicle_id}")
+async def read_session_vehicle_count_sheet(
+    session_id: int,
+    vehicle_id: int,
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_READ),
+):
+    from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+    from domains.representative_settlement_multi_vehicle.read_model import read_vehicle_count_sheet
+    try:
+        return await read_vehicle_count_sheet(
+            db, access=access, session_id=session_id, vehicle_id=vehicle_id,
+        )
+    except CustodyRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={
+            "code": exc.code, "context": exc.context,
+        }) from None
+
+
 class CustodyCount(BaseModel):
     line_key: str = Field(min_length=24, max_length=24)
     actual_quantity: str = Field(min_length=1, max_length=50)
@@ -91,6 +132,9 @@ async def _capability(access: BackofficeCapabilityAccess, code: str, location: i
 
 
 async def _session_and_vehicle(db: AsyncSession, company_id: int, session_id: int, *, lock: bool, allow_closed: bool = False):
+    from domains.representative_settlement_multi_vehicle.inventory_integration import canonical_session
+    if await canonical_session(db, company_id=company_id, session_id=session_id):
+        raise HTTPException(status_code=409, detail={"code": "EXPLICIT_VEHICLE_CUSTODY_COMMAND_REQUIRED"})
     query = select(WorkSession).where(
         WorkSession.company_id == company_id, WorkSession.id == session_id
     )
@@ -224,75 +268,13 @@ async def _persist_variance(
     db: AsyncSession, *, company_id: int, work: WorkSession, vehicle_location_id: int,
     actor_id: int, rows: dict, actual: dict, notes: str | None,
 ):
-    # Use the canonical Stocktake session/attempt schema; its existing approval
-    # posts DRIVER_SHORTAGE/DRIVER_SURPLUS and enforces independent recount.
     from api.warehouse.stocktake import _requires_independent_stocktake_recount
-    await db.flush()
-    reference = f"VREC-{uuid4().hex[:12].upper()}"
-    session = StocktakeSession(
-        company_id=company_id, location_id=vehicle_location_id,
-        reference_number=reference, stocktake_type="VEHICLE_RECON",
-        status="PENDING_REVIEW", related_work_session_id=work.id,
-        started_by=actor_id, snapshot_cutoff_at=_now(), notes=notes,
+    from domains.representative_settlement_multi_vehicle.variance import persist_variance
+    return await persist_variance(
+        db, company_id=company_id, work=work, vehicle_location_id=vehicle_location_id,
+        actor_id=actor_id, rows=rows, actual=actual, notes=notes,
+        requires_independent_recount=_requires_independent_stocktake_recount,
     )
-    db.add(session)
-    await db.flush()
-    db.add(InventoryLock(
-        company_id=company_id, stocktake_session_id=session.id,
-        location_id=vehicle_location_id, created_by=actor_id,
-    ))
-    attempt = StocktakeCountAttempt(
-        company_id=company_id, stocktake_session_id=session.id,
-        attempt_number=1, counted_by=actor_id,
-    )
-    db.add(attempt)
-    await db.flush()
-    pairs = []
-    for row in rows.values():
-        line = StocktakeLine(
-            company_id=company_id, stocktake_session_id=session.id,
-            product_variant_id=row["variant_id"], batch_id=row["batch_id"],
-            stock_status=row["stock_status"], line_origin="SNAPSHOT",
-            expected_quantity=row["expected_quantity"],
-        )
-        db.add(line)
-        await db.flush()
-        quantity = actual[row["line_key"]]
-        variance = quantity - row["expected_quantity"]
-        db.add(StocktakeCountAttemptLine(
-            company_id=company_id, stocktake_session_id=session.id,
-            count_attempt_id=attempt.id, stocktake_line_id=line.id,
-            expected_quantity=row["expected_quantity"],
-            actual_quantity=quantity, variance_quantity=variance,
-        ))
-        pairs.append((row["expected_quantity"], variance))
-    attempt.requires_independent_recount = await _requires_independent_stocktake_recount(
-        db, company_id, pairs
-    )
-    db.add(SystemAuditLog(
-        company_id=company_id, admin_id=actor_id,
-        target_id=f"WorkSession_{work.id}",
-        action_type="REPRESENTATIVE_CUSTODY_VARIANCE",
-        old_value=f"expected_vehicle_location={vehicle_location_id}",
-        new_value=json.dumps({
-            "reconciliation_reference": reference,
-            "actor": actor_id, "driver": work.driver_id,
-            "differences": [{
-                "sku": r["sku"], "lot": r["batch_number"],
-                "stock_status": r["stock_status"],
-                "expected": canonical_quantity(r["expected_quantity"]),
-                "actual": canonical_quantity(actual[r["line_key"]]),
-            } for r in rows.values() if actual[r["line_key"]] != r["expected_quantity"]],
-        }, ensure_ascii=False)[:4000],
-    ))
-    return {
-        "status": "REVIEW_REQUIRED",
-        "review_required": True,
-        "reconciliation_reference": reference,
-        "requires_independent_recount": bool(attempt.requires_independent_recount),
-        "movement_count": 0,
-    }
-
 
 @router.post("/admin/sessions/{session_id}/inventory-custody/receive")
 async def receive_representative_custody(
@@ -654,3 +636,9 @@ async def submit_representative_recount(
         "attempt_number": result["attempt_number"],
         "requires_independent_recount": result["requires_independent_recount"],
     }
+
+
+# The explicit writer remains fail-closed until the ordered M04 schema contract
+# and M02/M03 location-scoped prerequisites are installed by Alembic.
+from domains.representative_settlement_multi_vehicle.http import build_command_router
+router.include_router(build_command_router(variance_writer=_persist_variance))

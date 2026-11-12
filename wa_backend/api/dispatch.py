@@ -1030,6 +1030,25 @@ async def settle_session(
             raise HTTPException(status_code=409, detail="الجلسة تمت تسويتها مالياً مسبقاً.")
         if session.end_time is None:
             raise HTTPException(status_code=400, detail="لا يمكن التسوية المالية قبل إنهاء يوم العمل.")
+        # Canonical M03 sessions require independently signed evidence from
+        # EVERY vehicle before once-only money settlement. Never infer from
+        # the latest mutable DispatchRoute vehicle or merely End Work.
+        from domains.representative_settlement_multi_vehicle.financial_readiness import (
+            has_canonical_session_periods, require_financial_custody_ready,
+        )
+        from domains.representative_settlement_multi_vehicle.contracts import CustodyRejected
+        canonical_m04 = await has_canonical_session_periods(
+            db, company_id=company_id, session_id=session.id,
+        )
+        if canonical_m04:
+            try:
+                await require_financial_custody_ready(
+                    db, access=access, session_id=session.id,
+                )
+            except CustodyRejected as exc:
+                raise HTTPException(status_code=exc.status, detail={
+                    "code": exc.code, "context": exc.context,
+                }) from None
         if session.inventory_reconciled_at is None or session.inventory_reconciled_by is None:
             raise HTTPException(
                 status_code=409,
@@ -1066,7 +1085,7 @@ async def settle_session(
                 ).limit(1)
             )
         ).scalar_one_or_none()
-        if custody_received is None:
+        if not canonical_m04 and custody_received is None:
             raise HTTPException(
                 status_code=409,
                 detail={"code": "RECEIVER_CUSTODY_HANDOFF_REQUIRED"},

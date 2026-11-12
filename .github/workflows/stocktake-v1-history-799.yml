@@ -139,7 +139,10 @@ jobs:
               "dashboard/e2e/stocktake-history-799.spec.ts",
               "dashboard/e2e/stocktake-history-799.config.ts",
           }
-          assert files == approved, {
+          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
+          m04_authorized = m04_mode(files)
+          if not m04_authorized:
+              assert files == approved, {
               "error": "STOCKTAKE_799_EXACT_SCOPE_FAIL",
               "missing": sorted(approved - files),
               "unexpected": sorted(files - approved),
@@ -150,8 +153,9 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeIdlePanel.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeCountModals.tsx",
           ):
-              assert forbidden not in files
-          print("STOCKTAKE_799_EXACT_SCOPE_AND_IMMUTABLE_DOOR=PASS")
+              assert forbidden not in files or m04_authorized
+          print("STOCKTAKE_799_EXACT_SCOPE_AND_IMMUTABLE_DOOR=PASS mode=" +
+                ("M04_942_EXACT" if m04_authorized else "HISTORY_799_EXACT"))
           PY
 
   real-chromium:

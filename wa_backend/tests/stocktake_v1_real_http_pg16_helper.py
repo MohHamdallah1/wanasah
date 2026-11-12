@@ -94,6 +94,8 @@ async def assert_real_http_stocktake(
             Driver.id == a.operator.driver_id,
         ))
         assert operator_name and recounter_name and authorizer_legacy_username and operator_legacy_username
+        assert recounter_name != authorizer_legacy_username
+        assert operator_name != operator_legacy_username
         await db.commit()
 
     # Rebuild only this disposable company through the real canonical
@@ -278,7 +280,7 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
             "reason": "Synthetic rejected recount authorizer",
-            "authorizer_username": authorizer_legacy_username,
+            "authorizer_username": recounter_name,
             "authorizer_password": "BadSyntheticRecountCredential",
         }, headers=auth_header)
         assert denied_recount.status_code == 403, denied_recount.text
@@ -286,7 +288,7 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_attempt,
             "reason": "Independent physical recount for zero stock",
-            "authorizer_username": authorizer_legacy_username,
+            "authorizer_username": recounter_name,
             "authorizer_password": recounter_password,
         }, headers=auth_header))
         assert recounted["requires_independent_counter"] is True
@@ -716,7 +718,7 @@ async def assert_real_http_stocktake(
             "request_id": _body_id(),
             "count_attempt_id": first_recount_attempt["attempt_id"],
             "reason": "Same authorized account physically verifies discrepancy",
-            "authorizer_username": operator_legacy_username,
+            "authorizer_username": operator_name,
             "authorizer_password": operator_password,
         }
         forbidden_recount = await client.post(

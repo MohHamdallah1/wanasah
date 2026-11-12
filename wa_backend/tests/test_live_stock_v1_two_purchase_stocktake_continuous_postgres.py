@@ -33,6 +33,7 @@ from models import (
     role_permissions,
 )
 from schemas import VisitUpdateRequest
+from domains.identity.models import CompanyPrincipal
 from tests.canonical_actor_fixtures import seed_ordinary_backoffice_fixture
 from tests import test_costed_driver_sale_correction_real_c2_db as sale_correction_fixture
 
@@ -113,11 +114,17 @@ class ContinuousTwoPurchaseSaleReturnStocktakeTests(
             )
         await self.db.commit()
         recounter_username = await self.db.scalar(
-            select(Driver.username).where(
-                Driver.company_id == self.tenant,
-                Driver.id == recounter.driver_id,
+            select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id == self.tenant,
+                CompanyPrincipal.id == recounter.context.principal_id,
+                CompanyPrincipal.principal_type == 'BACKOFFICE',
+                CompanyPrincipal.is_active.is_(True),
             )
         )
+        legacy_username = await self.db.scalar(select(Driver.username).where(
+            Driver.company_id == self.tenant, Driver.id == recounter.driver_id,
+        ))
+        self.assertNotEqual(recounter_username, legacy_username)
         self.assertIsNotNone(recounter_username)
         return counter, recounter, str(recounter_username), password
 

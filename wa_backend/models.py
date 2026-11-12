@@ -3629,6 +3629,7 @@ class StocktakeSession(Base):
             'uq_vehicle_recon_work_session',
             'company_id',
             'related_work_session_id',
+            'location_id',
             unique=True,
             postgresql_where=text(
                 "stocktake_type = 'VEHICLE_RECON' "
