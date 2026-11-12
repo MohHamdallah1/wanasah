@@ -27,8 +27,8 @@ export function RouteLifecyclePanel({
   route: PendingRoute | null;
   /** Fresh authorized period/custody truth; legacy fields cannot substitute. */
   assignment: RouteAssignmentProof | null;
-  drivers: readonly Choice[];
-  vehicles: readonly Choice[];
+  drivers: Choice[];
+  vehicles: Choice[];
   selectedDriver: string;
   selectedVehicle: string;
   onDriverChange: (value: string) => void;
