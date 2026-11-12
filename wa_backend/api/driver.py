@@ -106,6 +106,7 @@ from domains.work_session_multi_route.start import (
     start_session_from_planned_period, establish_session_vehicle_opening,
 )
 from domains.work_session_multi_route.read import read_current_execution
+from domains.work_session_multi_route.end import freeze_end_of_day_execution
 
 from api.field_transfer_contracts import (
     field_transfer_batch_route, transfer_batch_error, attributed_transfer_error,
@@ -642,10 +643,25 @@ async def end_work_session(
             )
 
         # التسوية ليست مسؤولية هذا endpoint؛ هو يغلق يوم العمل فقط.
-        active_session.end_time = get_utc_now()
+        # FIELD End Work closes today's signed execution evidence, NOT the
+        # DispatchRoute / zone assignment and never a physical stock command.
+        ended_at = get_utc_now()
+        await freeze_end_of_day_execution(
+            db,
+            company_id=int(company_id),
+            session_id=int(active_session.id),
+            driver_id=int(driver_id),
+            field_representative_id=int(field_context.representative_id),
+            principal_id=int(field_context.principal_id),
+            ended_at=ended_at,
+        )
+        active_session.end_time = ended_at
         await db.commit()
         return {"message": "تم إنهاء الجلسة بنجاح."}
 
+    except SessionPeriodRejected as exc:
+        await db.rollback()
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_detail()) from exc
     except HTTPException:
         await db.rollback()
         raise

@@ -21,7 +21,7 @@ RETURN_COST_SHA = "51a0810cee5e7c13fe7222822e4f68972a6350ba"
 # The exact approved M02 base, NOT a new digest of modified M03 bodies.
 M03_BASE_SHA = "6a312476858eb6322b79c082d54a1cc97e590228"
 M03_CHANGED_FROZEN = frozenset({
-    "start_work_session", "update_visit", "get_driver_dashboard",
+    "start_work_session", "end_work_session", "update_visit", "get_driver_dashboard",
     "get_products", "get_driver_visits",
 })
 M03_CHANGED_HELPERS = frozenset({
@@ -518,6 +518,9 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                 "start_session_from_planned_period", "begin_idempotent_operation",
                 "complete_idempotent_operation", "db.commit", "db.rollback",
             },
+            "end_work_session": {
+                "freeze_end_of_day_execution", "db.commit", "db.rollback",
+            },
             "update_visit": {
                 "resolve_active_execution", "begin_idempotent_operation",
                 "complete_idempotent_operation", "db.commit", "db.rollback",
@@ -535,8 +538,15 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         self.assertIn("field_context.company_id", source)
         self.assertIn("legacy_actor.id", source)
         self.assertNotIn("legacy_actor.company_id", source)
-        if name in ("start_work_session", "update_visit"):
+        if name in ("start_work_session", "end_work_session", "update_visit"):
             self.assertIn("SessionPeriodRejected", source)
+        if name == "end_work_session":
+            self.assertIn("active_session.end_time = ended_at", source)
+            self.assertIn("freeze_end_of_day_execution", source)
+            self.assertLess(source.index("freeze_end_of_day_execution("),
+                            source.index("active_session.end_time = ended_at"))
+            self.assertLess(source.index("active_session.end_time = ended_at"),
+                            source.index("await db.commit()"))
         if name == "start_work_session":
             self.assertIn("OperationIdempotencyError", source)
         if name == "start_work_session":
@@ -578,6 +588,7 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
         # Adversarial mutation: guards must be enforced, not decorative.
         for name, removed in (
             ("start_work_session", "start_session_from_planned_period"),
+            ("end_work_session", "freeze_end_of_day_execution"),
             ("update_visit", "resolve_active_execution"),
             ("update_visit", "begin_idempotent_operation"),
             ("get_driver_dashboard", "read_current_execution"),
@@ -631,6 +642,7 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                 "start_session_from_planned_period", "establish_session_vehicle_opening",
             },
             "domains.work_session_multi_route.read": {"read_current_execution"},
+            "domains.work_session_multi_route.end": {"freeze_end_of_day_execution"},
         })
 
         # M03 changed helpers must remain read-only and location-scoped.

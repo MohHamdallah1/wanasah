@@ -111,6 +111,7 @@ def load_routes():
         # Legacy single-route test mode: the real M03 canonical-start boundary
         # is covered by restricted PostgreSQL/Bearer tests, not by a fake DB.
         start_session_from_planned_period=AsyncMock(return_value=None),
+        freeze_end_of_day_execution=AsyncMock(),
         SessionPeriodRejected=SessionPeriodRejected,
         vehicle_is_operational=Mock(
             side_effect=lambda vehicle: bool(
@@ -405,6 +406,10 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                           "inventory_transfer_headers.workflow_type = 'HANDSHAKE'", "inventory_transfer_headers.status = 'PENDING'"):
             self.assertIn(condition, sql(handshake))
         self.assertEqual(setup.session.end_time, NOW)
+        self.namespace["freeze_end_of_day_execution"].assert_awaited_once_with(
+            setup.db, company_id=7, session_id=601, driver_id=303,
+            field_representative_id=202, principal_id=101, ended_at=NOW,
+        )
         self.assertFalse(setup.session.is_settled)
         self.assert_transactions(setup.db)
 
@@ -423,6 +428,7 @@ class DriverSessionFieldContextCutoverTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(rejected.exception.status_code, 404 if reason == "missing_session" else 400)
                 self.assertEqual(setup.db.execute.await_count, 2 if reason == "pending_handshake" else 1)
                 self.assertIsNone(setup.session.end_time)
+                self.namespace["freeze_end_of_day_execution"].assert_not_awaited()
                 self.assertFalse(setup.session.is_settled)
                 self.assert_transactions(setup.db, commits=0, rollbacks=1)
 

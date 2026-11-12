@@ -567,3 +567,81 @@ async def test_m03_location_scoped_snapshot_and_s2_reuse_preserves_historical_s1
             await db.rollback()
     finally:
         tenant_context.reset(token)
+
+
+
+async def test_m03_end_work_rejects_revoked_vehicle_custody_atomically(gate):
+    """Signed FIELD end fails closed if current vehicle responsibility vanished."""
+    g = gate
+    period_id, epoch_id, _ = await _set_period(g)
+    rejection = await g.client.put(
+        "/driver/transfers/batch_respond",
+        json={"transfers": [
+            {"transfer_id": item, "status": "rejected", "reason": "M03 day-end negative"}
+            for item in g.transfers
+        ]},
+        headers=_headers(g.token),
+    )
+    assert rejection.status_code == 200, rejection.text
+    before = await _truth(g)
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+                VehicleCustodyEpoch.company_id == g.tenant,
+                VehicleCustodyEpoch.id == epoch_id,
+            ).with_for_update())
+            assert epoch is not None and epoch.state == "ACCEPTED"
+            epoch.ended_at = utc_now()
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    denied = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert denied.status_code == 409, denied.text
+    assert denied.json()["error"]["code"] == "M03_VEHICLE_CUSTODY_REQUIRED"
+    assert await _truth(g) == before
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            session = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            period = await db.scalar(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.id == period_id))
+            assert session.end_time is None
+            assert period.state == "ACTIVE" and period.ended_at is None
+    finally:
+        tenant_context.reset(token)
+
+
+async def test_m03_historical_v1_end_keeps_old_route_and_no_period(gate):
+    """Historical V1 End Work still commits without fabricating M01 evidence."""
+    g = gate
+    rejected = await g.client.put("/driver/transfers/batch_respond", json={
+        "transfers": [{"transfer_id": t, "status": "rejected", "reason": "legacy V1"}
+                      for t in g.transfers],
+    }, headers=_headers(g.token))
+    assert rejected.status_code == 200, rejected.text
+    before = await _truth(g)  # handshake rejection has separate logged movements
+    ended = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert ended.status_code == 200, ended.text
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            session = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            assert session.end_time is not None and not session.is_settled
+            assert route.status == "active"
+            assert route.driver_id == g.field.driver.id
+            assert await db.scalar(select(func.count()).select_from(
+                DispatchRouteExecutionPeriod).where(
+                    DispatchRouteExecutionPeriod.company_id == g.tenant,
+                    DispatchRouteExecutionPeriod.work_session_id == g.session,
+                )) == 0
+    finally:
+        tenant_context.reset(token)
+    after = await _truth(g)
+    assert before[4:] == after[4:]  # unchanged movements and all physical balances

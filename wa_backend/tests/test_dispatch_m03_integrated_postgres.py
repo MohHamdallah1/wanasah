@@ -441,3 +441,234 @@ async def test_m03_real_s1_r1_a_r2_b_r1_a_signed_sale_and_physical_truth(gate):
     finally:
         tenant_context.reset(token)
     assert (await _physical(g,g.location),await _physical(g,location_b))==(83,53)
+
+
+
+async def test_m03_field_day_end_a_b_a_closes_only_signed_period_and_exposes_day2_policy(gate):
+    """Real FIELD HTTP End Work, physical A/B truth, no dashboard command for S2.
+
+    The day-two attempts intentionally assert the CURRENT frozen policy rather
+    than silently invent a PLANNED period or relax prior-day settlement.
+    """
+    g = gate
+    p1, epoch_a, _ = await _set_period(g)
+    r2, car_b, location_b, v2, v3, epoch_b = await _prepare_real_b(g)
+    assert (await _physical(g, g.location), await _physical(g, location_b)) == (100, 60)
+    owner_login = await g.client.post("/login", json={
+        "company_code": g.company_code, "username": g.owner_name,
+        "password": PASSWORD,
+    })
+    assert owner_login.status_code == 200, owner_login.text
+    backoffice = {"Authorization": "Bearer " + owner_login.json()["token"]}
+
+    # Genuine pending HANDSHAKE must be rejected/received before End Work.
+    blocked = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert blocked.status_code == 400, blocked.text
+    reject = await g.client.put("/driver/transfers/batch_respond", json={
+        "transfers": [{"transfer_id": t, "status": "rejected",
+                       "reason": "M03 end-day verified"} for t in g.transfers],
+    }, headers=_headers(g.token))
+    assert reject.status_code == 200, reject.text
+
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            zone = await db.scalar(select(Zone).where(
+                Zone.company_id == g.tenant, Zone.id == g.zone))
+            original = (
+                route.status, route.driver_id, route.vehicle_id,
+                route.zone_id, route.assignment_context_revision,
+                zone.start_date, zone.interval_days,
+            )
+            original_shop = await db.scalar(select(Shop).where(
+                Shop.company_id == g.tenant,
+                Shop.id == g.visit_shop_id,
+            )) if hasattr(g, "visit_shop_id") else None
+            if original_shop is None:
+                prev = await db.scalar(select(Visit).where(
+                    Visit.company_id == g.tenant, Visit.id == g.visit))
+                original_shop = await db.scalar(select(Shop).where(
+                    Shop.company_id == g.tenant, Shop.id == prev.shop_id))
+            # Unvisited Zone A shop must survive End Work and next-day denial.
+            remain = Shop(company_id=g.tenant, zone_id=g.zone,
+                          name="M03 unfinished " + uuid4().hex[:10],
+                          tax_jurisdiction_id=original_shop.tax_jurisdiction_id,
+                          max_debt_limit=Decimal("500000"), is_active=True)
+            db.add(remain)
+            await db.flush()
+            pending_id = 1_819_000_000 + int(uuid4().hex[:5], 16)
+            db.add(Visit(
+                id=pending_id, company_id=g.tenant, shop_id=remain.id,
+                driver_id=g.field.driver.id, operational_date=date.today(),
+                status="Pending", outcome="Pending", sequence=4,
+            ))
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    first = await _current(g)
+    assert first["period_id"] == p1
+    await _sale(g, g.visit, 12, first)
+    url1, url2 = f"/dispatch/route/{g.route}/lifecycle", f"/dispatch/route/{r2}/lifecycle"
+    postpone_a = await g.client.put(url1, json=_intent("POSTPONE", 2, period=p1),
+                                  headers=backoffice)
+    assert postpone_a.status_code == 200, postpone_a.text
+    resume_b = await g.client.put(url2, json=_intent(
+        "RESUME", 1, driver=g.field.driver.id, vehicle=car_b, custody=1,
+    ), headers=backoffice)
+    assert resume_b.status_code == 200, resume_b.text
+    proof_b = await _current(g)
+    assert proof_b["vehicle_location_id"] == location_b
+    assert proof_b["custody_epoch_id"] == epoch_b
+    await _sale(g, v2, 7, proof_b)
+    postpone_b = await g.client.put(url2, json=_intent(
+        "POSTPONE", 2, period=proof_b["period_id"],
+    ), headers=backoffice)
+    assert postpone_b.status_code == 200, postpone_b.text
+    resume_a = await g.client.put(url1, json=_intent(
+        "RESUME", 3, driver=g.field.driver.id, vehicle=g.vehicle, custody=1,
+    ), headers=backoffice)
+    assert resume_a.status_code == 200, resume_a.text
+    proof_a = await _current(g)
+    assert proof_a["period_id"] not in (p1, proof_b["period_id"])
+    assert proof_a["assignment_context_revision"] == 4
+    assert proof_a["vehicle_location_id"] == g.location
+    await _sale(g, v3, 5, proof_a)
+    assert (await _physical(g, g.location), await _physical(g, location_b)) == (83, 53)
+    # Compare against A->B->A settled route identity at the precise End
+    # boundary, NOT its old revision 2 before the two M02 RESUME commands.
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            last_route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            zone_at_end = await db.scalar(select(Zone).where(
+                Zone.company_id == g.tenant, Zone.id == g.zone))
+            original = (
+                last_route.status, last_route.driver_id, last_route.vehicle_id,
+                last_route.zone_id, last_route.assignment_context_revision,
+                zone_at_end.start_date, zone_at_end.interval_days,
+            )
+            assert original[:5] == ("active", g.field.driver.id, g.vehicle, g.zone, 4)
+    finally:
+        tenant_context.reset(token)
+    before_end_moves = await _move_count(g)
+
+    # End Work performs NO dashboard POSTPONE/CLOSE/WAITING command.
+    end = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert end.status_code == 200, end.text
+    assert await _move_count(g) == before_end_moves
+    assert (await _physical(g, g.location), await _physical(g, location_b)) == (83, 53)
+    again = await g.client.put("/driver/sessions/end", headers=_headers(g.token))
+    assert again.status_code == 404, again.text  # existing endpoint replay semantics
+    assert await _move_count(g) == before_end_moves
+
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            s1 = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session))
+            assert s1.end_time is not None and not s1.is_settled
+            periods = (await db.scalars(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == g.tenant,
+                DispatchRouteExecutionPeriod.work_session_id == g.session,
+            ).order_by(DispatchRouteExecutionPeriod.id))).all()
+            assert len(periods) == 3
+            assert {x.state for x in periods} == {"CLOSED"}
+            assert all(x.ended_at is not None for x in periods)
+            latest = next(x for x in periods if x.id == proof_a["period_id"])
+            assert latest.ended_at == s1.end_time
+            assert latest.ended_by_principal_id == g.field.context.principal_id
+            assert latest.reason == "WORK_SESSION_ENDED"
+            route = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant, DispatchRoute.id == g.route))
+            zone = await db.scalar(select(Zone).where(
+                Zone.company_id == g.tenant, Zone.id == g.zone))
+            assert (route.status, route.driver_id, route.vehicle_id, route.zone_id,
+                    route.assignment_context_revision, zone.start_date, zone.interval_days) == original
+            visits = (await db.scalars(select(Visit).where(
+                Visit.company_id == g.tenant,
+                Visit.id.in_([g.visit, v2, v3]),
+            ))).all()
+            assert len(visits) == 3 and {x.status for x in visits} == {"Completed"}
+            assert sum(Decimal(x.cash_collected) for x in visits) == Decimal("3.000")
+            assert {x.execution_period_id for x in visits} == {x.id for x in periods}
+            unfinished = await db.scalar(select(Visit).where(
+                Visit.company_id == g.tenant, Visit.id == pending_id))
+            assert unfinished.status == "Pending"
+            assert unfinished.work_session_id is None
+            old_day = s1.session_date
+    finally:
+        tenant_context.reset(token)
+
+    # Exact old offline envelope must not execute after End Work.
+    denied = await g.client.put(f"/visits/{pending_id}", json={
+        "request_id": str(uuid4()), "outcome": "NoSale",
+        "notes": "Stale offline S1 command after End Work",
+    }, headers=_headers(g.token, p1, 2, epoch_a))
+    assert denied.status_code in (403, 409), denied.text
+    assert await _move_count(g) == before_end_moves
+
+    # Real next business date BEFORE both HTTP Start Work attempts; shift
+    # tenant timezone only in this disposable PG16 fixture, never auth logic.
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            tenant_company = await db.scalar(select(Company).where(
+                Company.id == g.tenant).with_for_update())
+            tenant_company.timezone = "Pacific/Kiritimati"
+            day2 = datetime.now(timezone.utc).astimezone(ZoneInfo("Pacific/Kiritimati")).date()
+            assert day2 > old_day
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    day2_key = str(uuid4())
+    day2_headers = {**_headers(g.token), "Idempotency-Key": day2_key}
+    pre_settlement = await g.client.post("/driver/sessions/start",
+                                        headers=day2_headers, json={})
+    assert pre_settlement.status_code == 400, pre_settlement.text
+    # This is test-only evidence of *already authorized* S1 settlement, NOT a
+    # production settlement bypass or a change to the real finance workflow.
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            old = await db.scalar(select(WorkSession).where(
+                WorkSession.company_id == g.tenant, WorkSession.id == g.session
+            ).with_for_update())
+            sealed = utc_now()
+            old.is_settled = True
+            old.inventory_reconciled_at = sealed
+            old.inventory_reconciled_by = g.field.driver.id
+            for snap in (await db.scalars(select(SessionInventorySnapshot).where(
+                SessionInventorySnapshot.company_id == g.tenant,
+                SessionInventorySnapshot.work_session_id == g.session,
+            ).with_for_update())).all():
+                snap.ending_quantity = Decimal("83") if snap.location_id == g.location else Decimal("53")
+                snap.settled_at = sealed
+                snap.settled_by = g.field.driver.id
+            await db.commit()
+    finally:
+        tenant_context.reset(token)
+
+    # The existing Start Work has neither a new PLANNED period nor a route
+    # on day2. Real authenticated HTTP proves there is no automatic
+    # continuation today; it is a business-policy BLOCKER, not an approved fix.
+    s2 = await g.client.post("/driver/sessions/start", headers=day2_headers, json={})
+    assert s2.status_code == 400, s2.text
+    token = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin) as db:
+            assert await db.scalar(select(func.count()).select_from(WorkSession).where(
+                WorkSession.company_id == g.tenant,
+                WorkSession.driver_id == g.field.driver.id,
+                WorkSession.session_date == day2,
+            )) == 0
+            assert await db.scalar(select(Visit.status).where(
+                Visit.company_id == g.tenant, Visit.id == pending_id,
+            )) == "Pending"
+    finally:
+        tenant_context.reset(token)
+    assert (await _physical(g, g.location), await _physical(g, location_b)) == (83, 53)
