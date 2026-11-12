@@ -346,7 +346,7 @@ void main() {
     );
     expect(sync, isNot(contains("await _api.put('/visits/\$visitId'")));
 
-    expect(visitAdapter, contains("await _send('/visits/\$visitId', data: body);"));
+    expect(visitAdapter, contains("await _send('/visits/\$visitId', data: body)"));
     expect(visitAdapter, contains('db.finalizeVisitCommandLocalState('));
     expect(visitAdapter, isNot(contains('deletePendingSync')));
     expect(visitAdapter, isNot(contains('markPendingSyncPending')));
