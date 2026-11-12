@@ -9,6 +9,8 @@
 > **Scope boundary:** V2-only ideas are intentionally not duplicated here. They live in `VERSION_2_FUTURE_FEATURES.md`.
 >
 > **Authority:** `ARCHITECTURE.md`, `V1_SCOPE_FREEZE.md`, the Unified Inventory Movement authority, Inventory Costing, canonical permissions, and the current Backend contracts remain authoritative. Do not rebuild the Inventory engine to implement this plan.
+>
+> **2026-11-12 V1 amendment (supersedes mandatory warehouse handoff only where goods remain in the Vehicle):** The owner approved an additional `COUNT_IN_PLACE` ended-session custody reconciliation with signed receiver/custodian evidence and **zero** Vehicle→Warehouse movements when the counted remainder stays in the vehicle. The existing `PHYSICAL_HANDOFF` path in §§3–4 remains binding for goods actually handed to a warehouse. Multi-route/multi-vehicle sessions must count all relevant vehicles and preserve the authoritative vehicle location. This addendum does **not** assert either new runtime mode is implemented. Implementation and full gates: `docs/plans/DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md` M01–M06.
 
 ---
 
