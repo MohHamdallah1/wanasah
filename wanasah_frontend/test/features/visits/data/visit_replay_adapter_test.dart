@@ -9,9 +9,11 @@ LocalVisitReplayAdapter adapter({
   required VisitReplaySend send,
   VisitBalanceUpdate? updateBalance,
   VisitCommandFinalize? finalize,
+  VisitReplaySendWithProof? sendWithProof,
 }) {
   return LocalVisitReplayAdapter(
     send: send,
+    sendWithProof: sendWithProof,
     updateBalance: updateBalance ?? (visitId, newBalance) async {},
     finalize: finalize ??
         ({
@@ -92,6 +94,59 @@ void main() {
       expect(jsonEncode(payload), before);
       expect(balanceVisitId, 77);
       expect(balance, 123.45);
+    });
+
+    test('staged A/B/A proof is sent only in immutable original headers', () async {
+      var legacyCalls = 0;
+      Map<String, String>? headers;
+      Map<String, dynamic>? exactBody;
+      final replay = adapter(
+        send: (path, {required data}) async {
+          legacyCalls++;
+          throw StateError('Canonical period must never use legacy transport');
+        },
+        sendWithProof: (path, {required data, required headers: sent}) async {
+          headers = Map<String, String>.from(sent);
+          exactBody = Map<String, dynamic>.from(data);
+          return Response<dynamic>(
+            requestOptions: RequestOptions(path: path), statusCode: 200,
+          );
+        },
+      );
+      final original = <String, dynamic>{
+        'visitId': 77, 'request_id': 'unchanged-uuid', 'outcome': 'NoSale',
+        'execution_context': <String, dynamic>{
+          'session_id': 11, 'route_id': 23, 'period_id': 47,
+          'vehicle_id': 6, 'vehicle_location_id': 69,
+          'assignment_context_revision': 3, 'custody_epoch_id': 15,
+        },
+      };
+      final frozen = jsonEncode(original);
+      await replay.dispatch(original);
+      expect(legacyCalls, 0);
+      expect(headers, <String, String>{
+        'X-Execution-Period-ID': '47',
+        'X-Assignment-Context-Revision': '3',
+        'X-Vehicle-Custody-Epoch-ID': '15',
+      });
+      expect(exactBody!['request_id'], 'unchanged-uuid');
+      expect(exactBody!.containsKey('execution_context'), isFalse);
+      expect(jsonEncode(original), frozen);
+    });
+
+    test('malformed or unverifiable old offline epoch never reaches network', () async {
+      var sends = 0;
+      final replay = adapter(
+        send: (path, {required data}) async {
+          sends++;
+          return Response<dynamic>(requestOptions: RequestOptions(path: path), statusCode: 200);
+        },
+      );
+      await expectLater(replay.dispatch(<String, dynamic>{
+        'visitId': 9, 'request_id': 'original',
+        'execution_context': <String, dynamic>{'period_id': 4},
+      }), throwsFormatException);
+      expect(sends, 0);
     });
 
     test('missing durable request_id fails before transport', () async {
