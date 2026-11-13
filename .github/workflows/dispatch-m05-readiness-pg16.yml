@@ -8,6 +8,7 @@ on:
       - "wa_backend/schemas.py"
       - "wa_backend/domains/dispatch/route_execution/readiness/**"
       - "wa_backend/tests/test_dispatch_m05_reads_postgres.py"
+      - "wa_backend/tests/test_dispatch_m05_launch_availability_postgres.py"
       - ".github/workflows/dispatch-m05-readiness-pg16.yml"
   workflow_dispatch:
 
@@ -41,7 +42,9 @@ jobs:
           python -m py_compile wa_backend/api/dispatch.py wa_backend/schemas.py \
             wa_backend/domains/dispatch/route_execution/readiness/current_periods.py \
             wa_backend/domains/dispatch/route_execution/readiness/probe.py \
-            wa_backend/tests/test_dispatch_m05_reads_postgres.py
+            wa_backend/domains/dispatch/route_execution/readiness/launch_resources.py \
+            wa_backend/tests/test_dispatch_m05_reads_postgres.py \
+            wa_backend/tests/test_dispatch_m05_launch_availability_postgres.py
       - name: Start disposable PostgreSQL 16
         run: |
           docker run --detach --name m05-pg \
@@ -86,6 +89,7 @@ jobs:
         run: >-
           python -B -m pytest -p no:cacheprovider -q -s --tb=short
           tests/test_dispatch_m05_reads_postgres.py
+          tests/test_dispatch_m05_launch_availability_postgres.py
       - name: Preserve focused test evidence
         if: always()
         uses: actions/upload-artifact@v4

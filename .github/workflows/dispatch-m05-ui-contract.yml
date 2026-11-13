@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "dashboard/src/features/dispatch/routeLifecycle/**"
+      - "dashboard/src/features/dispatch/launchResources/**"
+      - "dashboard/src/test/dispatch-m05-launch-availability.test.tsx"
       - "dashboard/src/features/operations/representativeSettlement/vehicleCountRead.ts"
       - "dashboard/src/features/operations/representativeSettlement/vehicleResponsibilityRead.ts"
       - "dashboard/src/features/operations/representativeSettlement/vehicleCountCommand.ts"
@@ -53,7 +55,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci --no-audit --no-fund
       - name: Strict M02/M04 typed M05 contract and client source
-        run: npx vitest run src/test/dispatch-m05-lifecycle.test.ts src/test/dispatch-m05-vehicle-responsibilities.test.ts src/test/dispatch-m05-m04-count.test.tsx src/test/dispatch-m05-command.test.ts src/test/dispatch-m05-panel.test.tsx
+        run: npx vitest run src/test/dispatch-m05-lifecycle.test.ts src/test/dispatch-m05-vehicle-responsibilities.test.ts src/test/dispatch-m05-m04-count.test.tsx src/test/dispatch-m05-launch-availability.test.tsx src/test/dispatch-m05-command.test.ts src/test/dispatch-m05-panel.test.tsx
       - name: Dashboard typecheck
         run: npx tsc --noEmit -p tsconfig.m05.json
       - name: Dashboard production build

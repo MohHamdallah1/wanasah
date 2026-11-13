@@ -44,6 +44,8 @@ import { RecycleBinModal } from "@/components/dispatch/RecycleBinModal";
 import { BulkTransferModal } from "@/components/dispatch/BulkTransferModal";
 import { ZoneModal } from "@/components/dispatch/ZoneModal";
 import { PostponedRoutesModal } from "@/components/dispatch/PostponedRoutesModal";
+import { LaunchResourceSelect } from "@/features/dispatch/launchResources/LaunchResourceSelect";
+import { selectionBlocked, useLaunchResourceAvailability } from "@/features/dispatch/launchResources/launchResourceRead";
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
@@ -300,6 +302,21 @@ function DispatchSession() {
   const [lifecycleDriverId, setLifecycleDriverId] = useState("");
   const [lifecycleVehicleId, setLifecycleVehicleId] = useState("");
   const sourceAccess = useInventoryAccess(selectedSourceWarehouseId ? Number(selectedSourceWarehouseId) : null);
+  const launchAvailability = useLaunchResourceAvailability({
+    fetch: authenticatedFetch,
+    actorScope,
+    admitted: Boolean(onDispatchRoute && activeTab === "launch" &&
+      accessState === "ready" && dispatchReadState === "ready" &&
+      readParts.init && grants.launch && !reentryPending &&
+      !inventoryAccess.isFetching && !sourceAccess.isFetching),
+    driverId: selectedDriverId, vehicleId: selectedVehicleId,
+    routeEvidence: pendingRoutes,
+  });
+  const launchResourcesReady = launchAvailability.fresh && !selectionBlocked(
+    launchAvailability.data, {
+      zoneId: selectedZoneId, driverId: selectedDriverId,
+      vehicleId: selectedVehicleId, warehouseId: selectedSourceWarehouseId,
+    });
   // Preserve this session's React workspace between Dashboard pages. Immediately
   // fence the hidden route (including portals and asynchronous commands) BEFORE
   // paint. On return, check genuine signed /inventory/access/me; no old company,
@@ -498,12 +515,12 @@ function DispatchSession() {
     authorized: Boolean(onDispatchRoute && !reentryPending && activeTab === "launch" &&
       accessState === "ready" && dispatchReadState === "ready" &&
       !inventoryAccess.isFetching && !sourceAccess.isFetching &&
-      grants.launch && selectedSourceWarehouseId &&
+      grants.launch && selectedSourceWarehouseId && launchResourcesReady &&
       sourceAccess.can("dispatch.execute") && !routeLaunchPendingOwner && !routeLaunch.hasUnresolved),
     current: () => Boolean(isDashboardSessionCurrent(session!) && onDispatchRoute &&
       !reentryPending && !inventoryAccess.isFetching && !sourceAccess.isFetching &&
       accessState === "ready" && dispatchReadState === "ready" &&
-      grants.launch && !dispatchDeniedRef.current),
+      grants.launch && launchResourcesReady && !dispatchDeniedRef.current),
     fetch: authenticatedFetch,
   });
   // A verified original UUID receipt is business truth, even when its first
@@ -1145,6 +1162,12 @@ function DispatchSession() {
 
   const handleDispatchRoute = async () => {
     const admitted = captureUiRead();
+    if (!launchResourcesReady) {
+      toast.error(i18n.language.startsWith("ar")
+        ? "المورد المحدد غير متاح؛ راجع السبب عند القائمة واختر موردًا مصرحًا"
+        : "A selected resource is unavailable. Review its status and choose an authorized option.");
+      return;
+    }
     if (routeLaunch.busy || routeLaunch.hasUnresolved) {
       toast.info(routeLaunch.message);
       return;
@@ -2108,26 +2131,44 @@ function DispatchSession() {
                     {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
                   </div>
                 
-                <CustomSelect labelBg="bg-white" label="المنطقة" options={tabReady ? zones.map(z => ({ id: z.id, label: z.name, scheduleStatus: z.scheduleStatus })) : []} value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المنطقة" : "—"} />
-                <CustomSelect labelBg="bg-white" label="المندوب" options={tabReady ? drivers.map(d => ({ id: d.id, label: d.name })) : []} value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر المندوب" : "—"} />
-                <CustomSelect labelBg="bg-white" label="السيارة" options={tabReady ? vehicles.map(v => ({ id: v.id, label: v.label })) : []} value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId} disabled={!commandsAdmitted} placeholder={tabReady ? "اختر السيارة" : "—"} />
-                <CustomSelect
-                  labelBg="bg-white"
-                  label="مستودع المصدر"
-                  options={tabReady ? warehouses : []}
-                  value={tabReady ? selectedSourceWarehouseId : ""}
-                  onChange={changeSourceWarehouse}
-                  disabled={!commandsAdmitted}
-                  placeholder={tabReady ? "اختر مستودع المصدر" : "—"}
-                />
+                <LaunchResourceSelect kind="zones"
+                  label={i18n.language.startsWith("ar") ? "المنطقة" : "Zone"}
+                  options={tabReady ? launchAvailability.data?.zones ?? [] : []}
+                  value={tabReady ? selectedZoneId : ""} onChange={setSelectedZoneId}
+                  disabled={!commandsAdmitted || !launchAvailability.fresh}
+                  placeholder={i18n.language.startsWith("ar") ? "اختر المنطقة" : "Select zone"} />
+                <LaunchResourceSelect kind="drivers"
+                  label={i18n.language.startsWith("ar") ? "المندوب" : "Representative"}
+                  options={tabReady ? launchAvailability.data?.drivers ?? [] : []}
+                  value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId}
+                  disabled={!commandsAdmitted || !launchAvailability.fresh}
+                  placeholder={i18n.language.startsWith("ar") ? "اختر المندوب" : "Select representative"} />
+                <LaunchResourceSelect kind="vehicles"
+                  label={i18n.language.startsWith("ar") ? "السيارة" : "Vehicle"}
+                  options={tabReady ? launchAvailability.data?.vehicles ?? [] : []}
+                  value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId}
+                  disabled={!commandsAdmitted || !launchAvailability.fresh}
+                  placeholder={i18n.language.startsWith("ar") ? "اختر السيارة" : "Select vehicle"} />
+                <LaunchResourceSelect kind="warehouses"
+                  label={i18n.language.startsWith("ar") ? "مستودع المصدر" : "Source warehouse"}
+                  options={tabReady ? launchAvailability.data?.warehouses ?? [] : []}
+                  value={tabReady ? selectedSourceWarehouseId : ""} onChange={changeSourceWarehouse}
+                  disabled={!commandsAdmitted || !launchAvailability.fresh}
+                  placeholder={i18n.language.startsWith("ar") ? "اختر مستودع المصدر" : "Select source warehouse"} />
+                {launchAvailability.error && tabReady && <p role="alert"
+                  className="col-span-full text-xs text-amber-800">
+                  {i18n.language.startsWith("ar")
+                    ? "تعذر التحقق من التوفر الحالي للمصادر؛ لا يمكن إطلاق الخط قبل إعادة التحقق."
+                    : "Current resource availability is unverified; route launch is blocked until authoritative verification."}
+                </p>}
                 {/* Commercial readiness belongs to the same four-selector
                     launch configuration, not a second full-width page card.
                     Worker2 owns the panel internals; its real props and
                     Backend verification stay unchanged. */}
                 <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0 border-t border-slate-100 pt-2">
                   <CommercialPreflightPanel language={i18n.language}
-                    status={tabReady ? commercialPreflight.status : "choose"}
-                    evidence={tabReady ? commercialPreflight.evidence : null}
+                    status={tabReady && launchResourcesReady ? commercialPreflight.status : "choose"}
+                    evidence={tabReady && launchResourcesReady ? commercialPreflight.evidence : null}
                     onRefresh={commercialPreflight.refresh}
                     onNavigateToTab={(next) => { if (tabAllowed(next)) setActiveTab(next); }}
                     canNavigateToTab={(next) => tabAllowed(next)} />
@@ -2152,7 +2193,7 @@ function DispatchSession() {
               <div className="sticky bottom-0 z-20 rounded-b-2xl border-t border-slate-200 bg-white px-4 py-2.5">
                 <div className="flex items-center justify-end">
                   <button
-                    disabled={!commandsAdmitted || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
+                    disabled={!commandsAdmitted || !launchResourcesReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1e87bb] px-5 py-2 text-sm font-extrabold text-white shadow-sm hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb] focus-visible:ring-offset-2 sm:w-auto"

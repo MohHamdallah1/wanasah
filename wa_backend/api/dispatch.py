@@ -3992,6 +3992,30 @@ async def get_active_routes(
     return res
 
 
+# M05 bounded signed launch availability; the route writer still rechecks under
+# locks. This read NEVER turns a POSTPONED zone into an available zone or keeps
+# its old driver/car reserved. Auth is the real Backoffice Bearer principal.
+from domains.dispatch.route_execution.readiness.launch_resources import (
+    LaunchAvailabilityRejected, read_launch_resource_availability,
+)
+
+
+@router.get("/dispatch/launch/resource-availability", status_code=200)
+async def get_dispatch_launch_availability_m05(
+    selected_driver_id: int | None = Query(None, gt=0),
+    selected_vehicle_id: int | None = Query(None, gt=0),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
+):
+    try:
+        return await read_launch_resource_availability(
+            db, access=access, selected_driver_id=selected_driver_id,
+            selected_vehicle_id=selected_vehicle_id,
+        )
+    except LaunchAvailabilityRejected as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+
+
 # M05 read-only target readiness is a bounded pair probe, never inventory/sale mutation.
 from domains.dispatch.route_execution.readiness.probe import (
     LifecycleReadinessRejected, read_lifecycle_readiness,
