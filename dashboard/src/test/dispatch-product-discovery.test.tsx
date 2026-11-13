@@ -90,6 +90,11 @@ describe("Dispatch cursor pickers", () => {
     expect(table.querySelectorAll("colgroup col")).toHaveLength(5);
     const input = table.querySelector<HTMLInputElement>("#route-base-1000")!;
     expect(input).toHaveValue("");
+    expect(input).toHaveAttribute("autocomplete", "off");
+    expect(input).toHaveAttribute("autocorrect", "off");
+    expect(input).toHaveAttribute("autocapitalize", "off");
+    expect(input).toHaveAttribute("spellcheck", "false");
+    expect(input).toHaveClass("h-9");
     expect(input.closest("td")?.querySelector("p")).toBeNull();
     expect(input.title).toContain("0 EACH");
     fireEvent.focus(input);

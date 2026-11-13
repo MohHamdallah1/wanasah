@@ -83,7 +83,9 @@ export function RouteLoadProductTable({
       <td title={unit ? formatRouteLoadQuantity(physical, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
       <td className="min-w-0 overflow-hidden whitespace-nowrap px-2 py-1 text-center">
         <label className="sr-only" htmlFor={`route-base-${product.id}`}>{t("dispatchRouteLoad.target")} — {product.name}</label>
-        <input id={`route-base-${product.id}`} type="text" inputMode="decimal" disabled={!unit || !canEdit} value={targetInputValue}
+        <input id={`route-base-${product.id}`} type="text" inputMode="decimal"
+          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+          disabled={!unit || !canEdit} value={targetInputValue}
           aria-invalid={!!unit && !review}
           onFocus={(event) => event.currentTarget.select()}
           title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}${review ? ` — ${formatRouteLoadQuantity(target, unit)}` : ""}` : t("dispatchRouteLoad.loading")}
@@ -93,7 +95,7 @@ export function RouteLoadProductTable({
               onTargetChange(product.id, product.name, unit, event.target.value);
             }
           }}
-          className="h-8 w-24 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-sm tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
+          className="h-9 w-24 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-sm tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
       </td>
       <td title={unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}</td>
       <td className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center text-slate-600">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"
