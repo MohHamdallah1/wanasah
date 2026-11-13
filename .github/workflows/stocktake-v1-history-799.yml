@@ -139,23 +139,77 @@ jobs:
               "dashboard/e2e/stocktake-history-799.spec.ts",
               "dashboard/e2e/stocktake-history-799.config.ts",
           }
-          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
-          m04_authorized = m04_mode(files)
-          if not m04_authorized:
-              assert files == approved, {
-              "error": "STOCKTAKE_799_EXACT_SCOPE_FAIL",
-              "missing": sorted(approved - files),
-              "unexpected": sorted(files - approved),
+          # Independent #808 cursor hardening is allowed only as an exact
+          # five-file PR (both scope guards, both decoders, one real PG test).
+          # This never turns the historical #799 immutable door into a wildcard.
+          cursor_808 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-history-799.yml",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/tests/test_stocktake_808_bigint_cursor_real_pg16.py",
           }
+          m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
+
+          def exact_owner_mode(paths):
+              if m04_mode(paths):
+                  return "M04_942_EXACT"
+              if paths == approved:
+                  return "HISTORY_799_EXACT"
+              if paths == cursor_808:
+                  return "CURSOR_BIGINT_808_EXACT"
+              raise AssertionError({
+                  "error": "STOCKTAKE_799_EXACT_SCOPE_FAIL",
+                  "history_missing": sorted(approved - paths),
+                  "history_unexpected": sorted(paths - approved),
+                  "cursor_808_missing": sorted(cursor_808 - paths),
+                  "cursor_808_unexpected": sorted(paths - cursor_808),
+              })
+
+          # Prove both historical exact #799 and independent #808 are valid;
+          # every missing owner file, foreign file and mixed set stays invalid.
+          assert exact_owner_mode(approved) == "HISTORY_799_EXACT"
+          assert exact_owner_mode(cursor_808) == "CURSOR_BIGINT_808_EXACT"
+          for valid_set in (approved, cursor_808):
+              for missing in valid_set:
+                  sample = valid_set - {missing}
+                  try:
+                      exact_owner_mode(sample)
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Missing scope file admitted: {missing}")
+              for foreign in (
+                  "wa_backend/models.py",
+                  "dashboard/src/pages/inventory/Tab4Ledger.tsx",
+                  "wanasah_frontend/lib/main.dart",
+              ):
+                  try:
+                      exact_owner_mode(valid_set | {foreign})
+                  except AssertionError:
+                      pass
+                  else:
+                      raise AssertionError(f"Foreign scope file admitted: {foreign}")
+          for mixed in (approved | cursor_808, approved | {"wa_backend/api/warehouse/stocktake.py"},
+                        cursor_808 | {"wa_backend/api/warehouse/stocktake_history.py"}):
+              try:
+                  exact_owner_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError("Mixed owner scope admitted")
+
+          mode = exact_owner_mode(files)
           for forbidden in (
               "wa_backend/api/warehouse/stocktake.py",
               "wa_backend/models.py",
               "dashboard/src/pages/inventory/stocktake/StocktakeIdlePanel.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeCountModals.tsx",
           ):
-              assert forbidden not in files or m04_authorized
-          print("STOCKTAKE_799_EXACT_SCOPE_AND_IMMUTABLE_DOOR=PASS mode=" +
-                ("M04_942_EXACT" if m04_authorized else "HISTORY_799_EXACT"))
+              assert (forbidden not in files or mode == "M04_942_EXACT"
+                      or (mode == "CURSOR_BIGINT_808_EXACT"
+                          and forbidden == "wa_backend/api/warehouse/stocktake.py"))
+          print("STOCKTAKE_799_EXACT_SCOPE_AND_IMMUTABLE_DOOR=PASS mode=" + mode)
           PY
 
   real-chromium:
