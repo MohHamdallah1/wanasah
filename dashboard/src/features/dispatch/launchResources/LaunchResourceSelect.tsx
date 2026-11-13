@@ -36,7 +36,7 @@ export function LaunchResourceSelect({
     if (disabled || !entry.available) return;
     onChange(entry.id); setOpen(false);
   };
-  return <div ref={ref} className="relative mt-1 min-w-0"
+  return <div ref={ref} className="relative mt-2 min-w-0"
     data-testid={"m05-launch-" + kind} dir={i18n.dir()}>
     <span className={"absolute -top-2 z-10 bg-white px-1.5 text-[10px] font-black text-slate-500 " +
       (ar ? "right-3" : "left-3")}>{label}</span>
