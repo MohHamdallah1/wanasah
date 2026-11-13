@@ -536,7 +536,23 @@ jobs:
               "docs/plans/DISPATCH_LAUNCH_UOM_CUSTODY_RECOVERY_V1_PLAN.md",
           }
           assert len(u01_carton_codec_exact) == 6
+          # D21 #970: architecture UOM authority + bounded Route Launch UX.
+          # Exact nine-file scope, including all three frozen owner guards.
+          d21_launch_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "ARCHITECTURE.md",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/loadProductSearchMatch.ts",
+              "dashboard/src/i18n/dispatchProductSearch.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+          }
+          assert len(d21_launch_exact) == 9
           def ownership_mode(candidate):
+              if candidate == d21_launch_exact:
+                  return "D21_LAUNCH_EXACT"
               if candidate == u01_carton_codec_exact:
                   return "U01_CARTON_CODEC_EXACT"
               if candidate == d20_input_exact:

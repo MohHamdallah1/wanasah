@@ -1,5 +1,5 @@
 export const dispatchProductSearch = {
-  ar: { search: "بحث المنتجات", hint: "اكتب حرفين على الأقل من اسم المنتج أو رمزه.", context: "اختر السيارة ومستودع المصدر للبحث.",
+  ar: { search: "بحث المنتجات", clearSearch: "مسح البحث", rowNumber: "رقم المنتج", hint: "اكتب حرفين على الأقل من اسم المنتج أو رمزه.", context: "اختر السيارة ومستودع المصدر للبحث.",
     error: "تعذر البحث عن المنتجات.", empty: "لا توجد منتجات مؤهلة مطابقة.", window: "يمكن تحميل نتائج أخرى. تبقى المنتجات المختارة ظاهرة عند الانتقال.",
     scrollWindow: "مرّر بشكل طبيعي؛ يتم تحميل النتائج القريبة تلقائيًا دون تكديس الكتالوج في الذاكرة.", loadingWindow: "جاري تحميل النتائج القريبة...",
     end: "تظهر آخر النتائج. تبقى المنتجات المختارة ظاهرة عند البحث أو الانتقال.",
@@ -7,7 +7,7 @@ export const dispatchProductSearch = {
     managementTitle: "الحمولة المستهدفة للسيارة", product: "المنتج", cartons: "الكمية المستهدفة (كرتونة)", clear: "تصفير جميع الكميات", unavailable: "منتج غير متاح",
     quantity: "الكمية", add: "إضافة", chooseQuantity: "اختر منتجًا وأدخل كمية صحيحة.",
   },
-  en: { search: "Search products", hint: "Enter at least two characters of the product name or SKU.", context: "Select a vehicle and source warehouse to search.",
+  en: { search: "Search products", clearSearch: "Clear search", rowNumber: "Product row number", hint: "Enter at least two characters of the product name or SKU.", context: "Select a vehicle and source warehouse to search.",
     error: "Could not search products.", empty: "No matching eligible products.", window: "More results are reachable. Selected products stay visible between pages.",
     scrollWindow: "Scroll naturally; nearby results load automatically without retaining the full catalog in memory.", loadingWindow: "Loading nearby results...",
     end: "End of results. Selected products stay visible when searching or changing pages.",
