@@ -252,6 +252,12 @@ function DispatchSession() {
     discoveryAccess?.permissions.includes("shop.financial.read"));
   const canReadZoneArchive = grants.zones && Boolean(discoveryAccess?.permissions.includes("dispatch.read"));
   const productScope = discoveryAccess ? `${discoveryAccess.company_id}:${discoveryAccess.principal_id}` : null;
+  // Preserve the exact same authenticated session's signed presentation on
+  // navigation reentry, while commands await refreshed capability evidence.
+  // useInventoryAccess is itself generation/identity-keyed and hides 401/403.
+  const presentationProductScope = inventoryAccess.data &&
+    accessState !== "denied" && accessState !== "error"
+    ? `${inventoryAccess.data.company_id}:${inventoryAccess.data.principal_id}` : null;
   const actorScope = accessState === "ready" ? dispatchActorScope(session, discoveryAccess) : null;
   const hydratedScopeRef = useRef<string | null>(null);
   const asyncEpochRef = useRef(createDispatchAsyncEpoch(session!));
@@ -293,6 +299,7 @@ function DispatchSession() {
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
   const [routeLoadNames, setRouteLoadNames] = useState<Record<string, string>>({});
+  const [launchActionsHost, setLaunchActionsHost] = useState<HTMLDivElement | null>(null);
 
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [routeModalType, setRouteModalType] = useState<"follow_up" | "transfer">("follow_up");
@@ -464,10 +471,18 @@ function DispatchSession() {
   const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
   const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
   const [vehicleInventoryLoadedForContext, setVehicleInventoryLoadedForContext] = useState<string | null>(null);
+  const [vehicleInventoryLoadedForSelection, setVehicleInventoryLoadedForSelection] = useState<string | null>(null);
+  const completedVehicleLoadRef = useRef<string | null>(null);
+  const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
   const activeRouteContext = pendingRoutes.find((route) => route.id === activeRoute?.id) ?? activeRoute;
-  const vehicleLoadContext = JSON.stringify([productScope, selectedVehicleId, isRouteModalOpen
+  const vehicleLoadContext = JSON.stringify([presentationProductScope, selectedVehicleId, isRouteModalOpen
     ? [activeRouteContext?.id, activeRouteContext?.sourceWarehouseId] : selectedSourceWarehouseId]);
-  const vehicleCustodyReady = vehicleInventoryLoadedForContext === vehicleLoadContext;
+  const vehicleLoadSelectionContext = JSON.stringify([
+    vehicleLoadContext, selectedZoneId, selectedDriverId, vehicleInventoryReloadKey,
+  ]);
+  const vehicleCustodyReady = Boolean(presentationProductScope && selectedVehicleId &&
+    vehicleInventoryLoadedForContext === vehicleLoadContext &&
+    vehicleInventoryLoadedForSelection === vehicleLoadSelectionContext);
   const routeLaunchActor = useMemo(() =>
     actorScope && Number.isSafeInteger(Number(selectedSourceWarehouseId)) &&
     Number(selectedSourceWarehouseId) > 0 &&
@@ -604,8 +619,9 @@ function DispatchSession() {
     setSelectedZoneId(""); setSelectedDriverId(""); setSelectedVehicleId("");
     setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
     setVehicleInventoryLoadedForContext(null);
+    setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
   };
-  const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
 
   const clearDispatchPrivateState = useCallback(() => {
     setZones([]); setShops([]); setShortages([]); setPendingRoutes([]);
@@ -619,6 +635,8 @@ function DispatchSession() {
     setActiveTab("routes"); setSelectedZoneIdForZones(""); setSelectedZoneId("");
     setSelectedDriverId(""); setSelectedVehicleId(""); setSelectedSourceWarehouseId("");
     setVehicleInventoryLoadedForContext(null);
+    setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
     setShortageZoneId(""); setShortageShopId(""); setShortageDriverId("");
     setShopForm(emptyShopForm("")); setEditingShopId(null);
     setZoneFormName(""); setEditingZoneId(null);
@@ -990,15 +1008,19 @@ function DispatchSession() {
 
   useEffect(() => {
     if (!selectedVehicleId) {
-
       setRouteLoadCurrent({});
       setRouteLoadTargets({});
       setRouteLoadUnits({});
       setRouteLoadNames({});
       setVehicleInventoryLoadedForContext(null);
+      setVehicleInventoryLoadedForSelection(null);
+      completedVehicleLoadRef.current = null;
       return;
     }
-
+    // A same-session dashboard return must not erase verified custody and
+    // force an identical GET. Authorization still gates every command.
+    if (accessState !== "ready" || dispatchReadState !== "ready" || !actorScope) return;
+    if (completedVehicleLoadRef.current === vehicleLoadSelectionContext) return;
 
     setRouteLoadCurrent({});
     setRouteLoadTargets({});
@@ -1009,6 +1031,8 @@ function DispatchSession() {
     const requestedDriverId = selectedDriverId;
     const controller = new AbortController();
     setVehicleInventoryLoadedForContext(null);
+    setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
 
     const admitted = captureUiRead();
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
@@ -1035,17 +1059,22 @@ function DispatchSession() {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
           return [String(item.product_id), String(item.product_name || item.product_id)];
         })));
+        completedVehicleLoadRef.current = vehicleLoadSelectionContext;
         setVehicleInventoryLoadedForContext(vehicleLoadContext);
+        setVehicleInventoryLoadedForSelection(vehicleLoadSelectionContext);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || !admitted()) return;
         setVehicleInventoryLoadedForContext(null);
+        setVehicleInventoryLoadedForSelection(null);
+        completedVehicleLoadRef.current = null;
         toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
 
     return () => controller.abort();
   }, [selectedVehicleId, selectedZoneId, selectedDriverId, vehicleLoadContext,
-    vehicleInventoryReloadKey, actorScope, accessState, dispatchReadState, authenticatedFetch, t]);
+    vehicleLoadSelectionContext, actorScope, accessState, dispatchReadState,
+    authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
 
@@ -2130,13 +2159,13 @@ function DispatchSession() {
               {/* ONE real launch operation: selectors, readiness, products and
                   final action share a continuous surface, not three cards. */}
               <section data-testid="dispatch-launch-workbench"
-                className="dispatch-surface relative mt-4 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                className="dispatch-surface relative mt-4 flex min-h-[440px] min-w-0 w-full flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div data-testid="dispatch-launch-border-title"
                   className="dispatch-panel-label absolute -top-3.5 end-6 z-20 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e87bb] to-[#166a94] px-4 py-1.5 text-sm font-black text-white shadow-md">
                   <Rocket aria-hidden="true" className="h-4 w-4" />
                   {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
                 </div>
-                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-1 px-3 pb-1 pt-5 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="dispatch-launch-config grid grid-cols-1 gap-x-2 gap-y-1 px-2.5 pb-1 pt-5 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
                 
                 <LaunchResourceSelect kind="zones"
                   label={i18n.language.startsWith("ar") ? "المنطقة" : "Zone"}
@@ -2162,6 +2191,8 @@ function DispatchSession() {
                   value={tabReady ? selectedSourceWarehouseId : ""} onChange={changeSourceWarehouse}
                   disabled={!commandsAdmitted || !launchAvailability.fresh}
                   placeholder={i18n.language.startsWith("ar") ? "اختر مستودع المصدر" : "Select source warehouse"} />
+                <div ref={setLaunchActionsHost} data-testid="dispatch-launch-actions-slot"
+                  className="col-span-full flex min-h-10 min-w-0 items-center justify-end sm:col-span-2 xl:col-span-1" />
                 {launchAvailability.error && tabReady && <p role="alert"
                   className="col-span-full text-xs text-amber-800">
                   {i18n.language.startsWith("ar")
@@ -2182,9 +2213,16 @@ function DispatchSession() {
                 </div>
               </div>
 
-              <RouteLoadProductTable pending={!tabReady} vehicleId={tabReady ? selectedVehicleId : ""} warehouseId={tabReady ? selectedSourceWarehouseId : ""} scope={tabReady ? productScope : null}
-                current={tabReady && vehicleCustodyReady ? routeLoadCurrent : {}} targets={tabReady && vehicleCustodyReady ? routeLoadTargets : {}}
-                units={tabReady && vehicleCustodyReady ? routeLoadUnits : {}} names={tabReady && vehicleCustodyReady ? routeLoadNames : {}} custodyReady={commandsAdmitted && vehicleCustodyReady}
+              <RouteLoadProductTable pending={!presentationProductScope || (!tabReady && !vehicleCustodyReady)}
+                vehicleId={presentationProductScope ? selectedVehicleId : ""}
+                warehouseId={presentationProductScope ? selectedSourceWarehouseId : ""}
+                scope={presentationProductScope}
+                current={presentationProductScope && vehicleCustodyReady ? routeLoadCurrent : {}}
+                targets={presentationProductScope && vehicleCustodyReady ? routeLoadTargets : {}}
+                units={presentationProductScope && vehicleCustodyReady ? routeLoadUnits : {}}
+                names={presentationProductScope && vehicleCustodyReady ? routeLoadNames : {}}
+                custodyReady={vehicleCustodyReady} commandReady={commandsAdmitted && vehicleCustodyReady}
+                actionsHost={launchActionsHost}
                 onClear={() => setRouteLoadTargets({})}
                 onRestoreClear={(previous) => {
                   if (commandsAdmitted && vehicleCustodyReady) setRouteLoadTargets(previous);

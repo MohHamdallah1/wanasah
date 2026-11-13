@@ -493,7 +493,21 @@ jobs:
               "wa_backend/tests/test_dispatch_d17_browser_fixture.py",
           }
           assert len(d17_957_exact) == 13
+          # D18 #959: owner-directed frontend-only density + signed warm-window fix.
+          # Exact seven-file scope; no business, auth or historical gate bypass.
+          d18_959_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/useDispatchProductWindow.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d17-atomic-first-window.test.tsx",
+          }
+          assert len(d18_959_exact) == 7
           def ownership_mode(candidate):
+              if candidate == d18_959_exact:
+                  return "D18_959_EXACT"
               if candidate == d17_957_exact:
                   return "D17_957_EXACT"
               if "dashboard/src/test/dispatch-d17-atomic-first-window.test.tsx" in candidate:

@@ -5,7 +5,11 @@ import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTab
 import type { RouteLoadUom } from "@/features/dispatch/routeLoadUom";
 
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
+const signedSession = vi.hoisted(() => ({
+  current: null as { generation: string; identity: string } | null,
+}));
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => api.fetch }));
+vi.mock("@/hooks/useDashboardSession", () => ({ useDashboardSession: () => signedSession.current }));
 const unit: RouteLoadUom = {
   base_uom_id: 1, base_uom_code: "EACH", base_uom_name: "Each",
   quantity_scale: 0, quantity_step: "1", display_uom_name: "Each", display_factor_to_base: "1",
@@ -51,6 +55,7 @@ function Product({ ready, vehicle = "17", warehouse = "21", scope = "company:one
 const rows = () => [...document.querySelectorAll<HTMLTableRowElement>("[data-product-id]")];
 beforeEach(async () => {
   api.fetch.mockReset();
+  signedSession.current = null;
   fakeObservers.length = 0;
   vi.stubGlobal("IntersectionObserver", FakeObserver);
   await setAppLanguage("en");
@@ -162,5 +167,27 @@ describe("D17 joined first window, actual API-shaped deferred responses", () => 
     view.rerender(<Product ready pending={false} />);
     await screen.findByText("Warehouse 80");
     expect(rows()).toHaveLength(81);
+  });
+
+  it("retains a signed first window across tab unmount, but never across login generations", async () => {
+    signedSession.current = { generation: "d18-session-one", identity: "company:actor-one" };
+    api.fetch.mockResolvedValue(response(warehouseProducts.slice(0, 2), null));
+    const first = render(<Product ready />);
+    await screen.findByText("Warehouse 1");
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const sameSession = render(<Product ready />);
+    expect(screen.getByText("Warehouse 1")).toBeInTheDocument();
+    await act(async () => { await Promise.resolve(); });
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+    sameSession.unmount();
+
+    signedSession.current = { generation: "d18-session-two", identity: "company:actor-one" };
+    const newLogin = render(<Product ready />);
+    expect(screen.queryByText("Warehouse 1")).not.toBeInTheDocument();
+    await waitFor(() => expect(api.fetch).toHaveBeenCalledTimes(2));
+    await screen.findByText("Warehouse 1");
+    newLogin.unmount();
   });
 });

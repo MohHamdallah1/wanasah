@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { RotateCcw, Trash2 } from "lucide-react";
+import { createPortal } from "react-dom";
+import { RotateCcw, Trash2, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
 import type { DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchProductSearch";
 import { formatRouteLoadQuantity, routeLoadReview, type RouteLoadUom } from "@/features/dispatch/routeLoadUom";
 import type { Quantity } from "@/lib/quantity";
-import { ProductSearchControls } from "./ProductSearchControls";
 import { MeasuredProductTableBody } from "./DispatchProductWindow";
 import { useDispatchWindowSentinels } from "@/features/dispatch/useDispatchWindowSentinels";
 
@@ -15,6 +15,7 @@ type TargetSnapshot = { scopeKey: string; values: Record<string, Quantity> };
 export function RouteLoadProductTable({
   vehicleId, warehouseId, scope, current, targets, units, names,
   onTargetChange, onClear, onRestoreClear, custodyReady = true, pending = false,
+  commandReady = true, actionsHost,
 }: {
   vehicleId: string; warehouseId: string; scope: string | null;
   current: Record<string, Quantity>; targets: Record<string, Quantity>;
@@ -24,6 +25,8 @@ export function RouteLoadProductTable({
   onClear: () => void;
   onRestoreClear: (values: Record<string, Quantity>) => void;
   custodyReady?: boolean;
+  commandReady?: boolean;
+  actionsHost?: HTMLElement | null;
 }) {
   const { t, i18n } = useTranslation();
   const isArabic = i18n.language.startsWith("ar");
@@ -53,7 +56,7 @@ export function RouteLoadProductTable({
   useEffect(() => {
     if (clearSnapshot && Object.keys(targets).length !== 0) setClearSnapshot(null);
   }, [clearSnapshot, targets]);
-  const canEdit = firstRevealReady;
+  const canEdit = firstRevealReady && commandReady && !page.loading;
   const canUndo = canEdit && clearSnapshot?.scopeKey === scopeKey;
 
   const clearAll = () => {
@@ -97,41 +100,59 @@ export function RouteLoadProductTable({
     </tr>;
   };
 
-  // The virtualized table keeps its own intentional 820px horizontal
-  // scrollport; nothing may expand the Launch workspace or hide real rows.
-  return <section data-testid="dispatch-launch-products" aria-busy={joinedPending}
-    data-first-window-ready={firstRevealReady ? "true" : "false"} className="w-full min-w-0 flex-1">
-    <div className="flex flex-col gap-2 border-y border-slate-200 bg-slate-50/50 px-3 py-2.5 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
-      <div className="min-w-0 flex-1">
-        <ProductSearchControls search={search} onChange={setSearch} page={page}
-          enabled={!!endpoint} pending={joinedPending} hasPinnedItems={firstRevealReady && pinned.length > 0} compactWindowed />
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <button type="button" onClick={clearAll}
-          disabled={!canEdit || Object.keys(targets).length === 0}
-          title={isArabic ? "تصفير الحمولة المستهدفة مع إمكانية التراجع" : "Clear target quantities; undo is available"}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
-          <Trash2 aria-hidden="true" className="h-4 w-4" />
-          {isArabic ? "تصفير الكل" : "Clear all"}
-        </button>
-        <button type="button" onClick={undoClear} disabled={!canUndo}
-          title={isArabic ? "استرجاع الكميات كما كانت قبل آخر تصفير" : "Restore the quantities before the last clear"}
-          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-bold text-[#166a94] hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
-          <RotateCcw aria-hidden="true" className="h-4 w-4" />
-          {isArabic ? "تراجع" : "Undo clear"}
-        </button>
-      </div>
-    </div>
-    <div className="min-w-0 overflow-x-auto">
+  // These commands own the table's undo snapshot but are rendered alongside
+  // the four selectors. They do not create a second toolbar or extra row.
+  const actions = <div className="flex items-center justify-end gap-1.5" data-testid="dispatch-launch-load-actions">
+    <button type="button" onClick={clearAll}
+      disabled={!canEdit || Object.keys(targets).length === 0}
+      title={isArabic ? "تصفير الحمولة المستهدفة مع إمكانية التراجع" : "Clear target quantities; undo is available"}
+      className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+      <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+      {isArabic ? "تصفير الكل" : "Clear all"}
+    </button>
+    <button type="button" onClick={undoClear} disabled={!canUndo}
+      title={isArabic ? "استرجاع الكميات كما كانت قبل آخر تصفير" : "Restore the quantities before the last clear"}
+      className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-2 text-[11px] font-bold text-[#166a94] hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+      <RotateCcw aria-hidden="true" className="h-3.5 w-3.5" />
+      {isArabic ? "تراجع" : "Undo clear"}
+    </button>
+  </div>;
+
+  // A stable, full-size workbench: signed first-page/loading/empty transitions
+  // never collapse the table card or move its floating launch action.
+  return <>
+    {actionsHost ? createPortal(actions, actionsHost) : actionsHost === undefined ? actions : null}
+    <section data-testid="dispatch-launch-products" aria-busy={joinedPending}
+      data-first-window-ready={firstRevealReady ? "true" : "false"}
+      className="flex min-h-[300px] w-full min-w-0 flex-1 flex-col">
+      <div className="min-w-0 flex-1 overflow-x-auto">
       <table className="w-full min-w-[820px] text-sm">
         <thead><tr className="border-b border-slate-200 bg-slate-100/80 text-slate-600">
-          <th className="px-3 py-3 text-start">{t("dispatchProductSearch.product")}</th>
+          <th className="w-[32%] px-3 py-2 text-start">
+            <label className="relative block w-full max-w-[300px]">
+              <span className="sr-only">{t("dispatchProductSearch.search")}</span>
+              <Search aria-hidden="true" className="pointer-events-none absolute end-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input type="text" aria-label={t("dispatchProductSearch.search")}
+                placeholder={t("dispatchProductSearch.search")} maxLength={100}
+                value={search} disabled={!endpoint} onChange={event => setSearch(event.target.value)}
+                className="h-8 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 pe-9 text-xs font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
+            </label>
+          </th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.current")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.target")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.difference")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.action")}</th>
         </tr></thead>
         {!firstRevealReady && contextSelected && !page.error && <tbody data-testid="dispatch-first-window-pending" aria-hidden="true"><tr><td colSpan={5} className="h-[72px] p-0"><div className="mx-3 h-8 rounded-lg bg-slate-50" /></td></tr></tbody>}
+        {page.error && <tbody><tr><td colSpan={5} className="p-3 text-sm">
+          <div role="alert" className="flex items-center gap-3 text-amber-800">
+            <span>{t("dispatchProductSearch.error")}</span>
+            <button type="button" onClick={page.retry} className="rounded-lg border border-amber-200 px-3 py-1.5 font-semibold">
+              {t("common.retry")}
+            </button>
+          </div>
+        </td></tr></tbody>}
+        {firstRevealReady && !pinned.length && page.items.length === 0 && <tbody><tr><td colSpan={5} className="p-4 text-center text-sm text-slate-500">{t("dispatchProductSearch.empty")}</td></tr></tbody>}
         {firstRevealReady && !!pinned.length && <tbody>{pinned.map(renderRow)}</tbody>}
         {firstRevealReady && page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
         <tbody ref={topRef} data-window-boundary="top" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
@@ -144,5 +165,6 @@ export function RouteLoadProductTable({
         {firstRevealReady && page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
       </table>
     </div>
-  </section>;
+    </section>
+  </>;
 }
