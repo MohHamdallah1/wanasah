@@ -146,6 +146,16 @@ jobs:
               "dashboard/src/test/dispatch-d17-atomic-first-window.test.tsx",
           }
           assert len(d18_959_exact) == 7
+          # D19 #961: compact-only owner launch rows, fixed columns and blank target.
+          # Strict five-file scope; preserves all authorization/route/stock gates.
+          d19_961_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+          }
+          assert len(d19_961_exact) == 5
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
@@ -171,7 +181,7 @@ jobs:
               m05_authorized = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](files)
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
-              assert (files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+              assert (files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"

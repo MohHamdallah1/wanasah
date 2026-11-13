@@ -75,27 +75,28 @@ export function RouteLoadProductTable({
     const unit = units[product.id] || product.load;
     const physical = current[product.id] || "0";
     const target = targets[product.id] || "0";
+    const targetInputValue = target === "0" ? "" : target;
     let review: ReturnType<typeof routeLoadReview> | null = null;
     try { if (unit) review = routeLoadReview(physical, target, unit); } catch { /* Preserve the editable draft. */ }
     return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
-      <td className="px-3 py-3 font-semibold text-slate-700">{product.name}</td>
-      <td className="px-3 py-3 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
-      <td className="relative px-3 py-2 text-center">
+      <td title={product.name} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-1.5 font-semibold text-slate-700">{product.name}</td>
+      <td title={unit ? formatRouteLoadQuantity(physical, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
+      <td className="min-w-0 overflow-hidden whitespace-nowrap px-2 py-1 text-center">
         <label className="sr-only" htmlFor={`route-base-${product.id}`}>{t("dispatchRouteLoad.target")} — {product.name}</label>
-        <input id={`route-base-${product.id}`} type="text" inputMode="decimal" disabled={!unit || !canEdit} value={target}
+        <input id={`route-base-${product.id}`} type="text" inputMode="decimal" disabled={!unit || !canEdit} value={targetInputValue}
           aria-invalid={!!unit && !review}
-          title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
+          onFocus={(event) => event.currentTarget.select()}
+          title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}${review ? ` — ${formatRouteLoadQuantity(target, unit)}` : ""}` : t("dispatchRouteLoad.loading")}
           onChange={(event) => {
             if (unit) {
               setClearSnapshot(null);
               onTargetChange(product.id, product.name, unit, event.target.value);
             }
           }}
-          className="h-9 w-24 rounded-lg border border-slate-300 bg-white px-2 text-center tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100 sm:w-28" />
-        {unit && review && <p className="mt-1 text-[11px] text-slate-500">{formatRouteLoadQuantity(target, unit)}</p>}
+          className="h-8 w-24 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-sm tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
       </td>
-      <td className="px-3 py-3 text-center tabular-nums">{unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}</td>
-      <td className="px-3 py-3 text-center text-slate-600">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"
+      <td title={unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}</td>
+      <td className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center text-slate-600">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"
         : review.direction === "UNLOAD" ? "dispatchRouteLoad.unload" : "dispatchRouteLoad.unchanged")}</td>
     </tr>;
   };
@@ -126,9 +127,16 @@ export function RouteLoadProductTable({
       data-first-window-ready={firstRevealReady ? "true" : "false"}
       className="flex min-h-[300px] w-full min-w-0 flex-1 flex-col">
       <div className="min-w-0 flex-1 overflow-x-auto">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full min-w-[820px] table-fixed text-sm">
+        <colgroup>
+          <col style={{ width: "35%" }} />
+          <col style={{ width: "20%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "12%" }} />
+        </colgroup>
         <thead><tr className="border-b border-slate-200 bg-slate-100/80 text-slate-600">
-          <th className="w-[32%] px-3 py-2 text-start">
+          <th className="px-2.5 py-2 text-start">
             <label className="relative block w-full max-w-[300px]">
               <span className="sr-only">{t("dispatchProductSearch.search")}</span>
               <Search aria-hidden="true" className="pointer-events-none absolute end-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
