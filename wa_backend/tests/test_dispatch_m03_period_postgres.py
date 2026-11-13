@@ -7,7 +7,8 @@ M02's operational POSTPONE/RESUME is separately gated after its merge.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import os
 from decimal import Decimal
 from uuid import uuid4
@@ -70,7 +71,14 @@ async def gate():
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://m03-real-verify",
     ) as client:
-        g = await seed_business(admin)
+        # Only the M04 S1→S2 full financial gate needs an explicit yesterday.
+        # Seed S1 BEFORE INSERT: WorkSession's commercial context is immutable.
+        m04_day_one = (
+            datetime.now(timezone.utc).astimezone(ZoneInfo("Pacific/Kiritimati")).date()
+            - timedelta(days=1)
+            if os.getenv("RUN_M04_FULL_INTEGRATED") == "1" else None
+        )
+        g = await seed_business(admin, session_date_override=m04_day_one)
         foreign = await seed_business(admin)
         g.client = client
         async def login(company, username):
