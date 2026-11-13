@@ -51,6 +51,17 @@ async function chooseLaunch(page: Page) {
     const button = slot.locator(":scope > div.relative > button");
     await expect(button).toBeEnabled({ timeout: 25000 });
     await button.click();
+    // BEFORE on frozen MAIN still uses unversioned CustomSelect motion items.
+    // AFTER on M05 uses signed listbox options with native disabled reasons.
+    if (await button.getAttribute("aria-haspopup") !== "listbox") {
+      const legacy = slot.locator("div.absolute.top-full button");
+      await expect(legacy.first()).toBeVisible({ timeout: 25000 });
+      await legacy.first().click();
+      const label = (await button.textContent() ?? "").trim();
+      expect(label.length).toBeGreaterThan(0);
+      selected.push(label);
+      continue;
+    }
     const options = slot.locator('div[role="listbox"] button[role="option"]');
     await expect.poll(async () => options.count(), { timeout: 25000 }).toBeGreaterThan(0);
     // Use an explicit enabled native option: some signed FIELD identities are

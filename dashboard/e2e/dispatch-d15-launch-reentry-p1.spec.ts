@@ -33,6 +33,16 @@ async function selectAuthorizedChoices(page: Page) {
     const button = slot.locator(":scope > div.relative > button");
     await expect(button, "Signed resource control must be interactive").toBeEnabled({ timeout: 25000 });
     await button.click();
+    // The workflow compares frozen MAIN (legacy CustomSelect) to signed M05.
+    // Only M05 supplies native-disabled listbox roles; retain the original
+    // baseline option path without changing any production selector.
+    if (await button.getAttribute("aria-haspopup") !== "listbox") {
+      const legacy = slot.locator("div.absolute.top-full button");
+      await expect(legacy.first()).toBeVisible({ timeout: 25000 });
+      await legacy.first().click();
+      selected++;
+      continue;
+    }
     const enabled = slot.locator('div[role="listbox"] button[role="option"]:not(:disabled)');
     const blocked = slot.locator('div[role="listbox"] button[role="option"]:disabled');
     const options = slot.locator('div[role="listbox"] button[role="option"]');
