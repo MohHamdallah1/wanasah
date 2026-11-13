@@ -66,7 +66,10 @@ export function PendingRoutesTable({
 
     if (route.can_execute !== true) return radarButton;
 
-    if (route.shopsRemaining === 0) {
+    // A genuinely paused signed route must offer CONTINUE before its final
+    // CLOSE, even when every scheduled shop was already visited. Zero
+    // remaining shops is not permission to discard its WAITING lifecycle.
+    if (route.shopsRemaining === 0 && route.status !== "waiting") {
       return (
         <>
           {radarButton}
