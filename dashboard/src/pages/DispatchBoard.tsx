@@ -2425,12 +2425,13 @@ function DispatchSession() {
         fetch={authenticatedFetch}
         authorized={lifecycleAuthorized}
         onCommitted={() => {
-          const admitted = captureUiRead();
           setIsLifecycleModalOpen(false);
           toast.success(i18n.language.startsWith("ar") ? "تم تنفيذ أمر الخط وتأكيده" : "Route command confirmed");
-          void authenticatedFetch("/dispatch/active_routes", { cache: "no-store" })
-            .then(raw => { if (admitted() && Array.isArray(raw)) setPendingRoutes(raw); })
-            .catch(err => { if (admitted()) toast.error(getErrorMessage(err)); });
+          // Read the committed WAITING/ACTIVE route through the same
+          // session-scoped, permission-fenced publisher as ordinary page
+          // refreshes. captureUiRead() used to drop a genuine HTTP 200 after
+          // a modal/context transition, leaving the old ACTIVE card painted.
+          fetchInitialData("routes");
         }}
       />
       {dispatchAdmitted && isRouteModalOpen && (

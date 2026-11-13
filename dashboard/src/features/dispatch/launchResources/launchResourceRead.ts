@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import type { useAuthFetch } from "@/hooks/useAuthFetch";
 type LaunchAuthFetch = ReturnType<typeof useAuthFetch>;
@@ -57,22 +57,36 @@ export function useLaunchResourceAvailability({
   fetch: LaunchAuthFetch; actorScope: string | null;
   admitted: boolean; driverId: string; vehicleId: string; routeEvidence: unknown;
 }) {
+  // A verified same-actor READ may remain visible during an ordinary SPA
+  // return. A new signed availability GET is still mandatory for COMMANDS.
+  // The epoch changes synchronously before effects so a prior response never
+  // becomes command-fresh for even one render on re-admission.
+  const admissionEpoch = useRef(0);
+  const wasAdmitted = useRef(admitted);
+  if (wasAdmitted.current !== admitted) {
+    wasAdmitted.current = admitted;
+    admissionEpoch.current += 1;
+  }
   const [snapshot, setSnapshot] = useState<{
     actor: string; driver: string; vehicle: string; route: unknown;
-    data: LaunchAvailability;
+    epoch: number; data: LaunchAvailability;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (!admitted || !actorScope) {
+    if (!actorScope) {
       setSnapshot(null); setError(null); return;
     }
+    // Hiding Dispatch is not revocation. Keep only this exact actor's signed
+    // presentation snapshot while the next genuine capability/read is pending.
+    if (!admitted) return;
     const controller = new AbortController();
+    const epoch = admissionEpoch.current;
     setError(null);
     void readLaunchAvailability(fetch, driverId, vehicleId, controller.signal)
       .then(data => {
         if (!controller.signal.aborted)
           setSnapshot({ actor: actorScope, driver: driverId,
-            vehicle: vehicleId, route: routeEvidence, data });
+            vehicle: vehicleId, route: routeEvidence, epoch, data });
       })
       .catch(err => {
         if (!controller.signal.aborted) {
@@ -82,8 +96,12 @@ export function useLaunchResourceAvailability({
       });
     return () => controller.abort();
   }, [fetch, actorScope, admitted, driverId, vehicleId, routeEvidence]);
-  const fresh = Boolean(admitted && actorScope && snapshot &&
+  const sameSignedRead = Boolean(actorScope && snapshot && !error &&
     snapshot.actor === actorScope && snapshot.driver === driverId &&
     snapshot.vehicle === vehicleId && snapshot.route === routeEvidence);
-  return { data: fresh ? snapshot?.data ?? null : null, fresh, error };
+  const fresh = Boolean(admitted && sameSignedRead &&
+    snapshot?.epoch === admissionEpoch.current);
+  // data is presentation-only until fresh; selectionBlocked(...), launch,
+  // inventory and FIELD execution retain the original fail-closed proof.
+  return { data: sameSignedRead ? snapshot?.data ?? null : null, fresh, error };
 }

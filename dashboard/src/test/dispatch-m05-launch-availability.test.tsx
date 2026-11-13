@@ -89,6 +89,36 @@ describe("M05 signed live availability — single four selectors", () => {
     })).toBe(true);
   });
 
+  it("keeps only same-actor signed option labels warm across SPA return, but blocks commands until fresh Bearer evidence", async () => {
+    let finishReentry: ((value: ReturnType<typeof snapshot>) => void) | undefined;
+    let reads = 0;
+    const fetch = (async () => {
+      reads += 1;
+      if (reads === 2) return new Promise<ReturnType<typeof snapshot>>(resolve => {
+        finishReentry = resolve;
+      });
+      return snapshot();
+    }) as ReturnType<typeof useAuthFetch>;
+    const props = { fetch, actorScope: "1:2:3", admitted: true,
+      driverId: "10", vehicleId: "20", routeEvidence: "signed-route-1" };
+    const { result, rerender } = renderHook(p => useLaunchResourceAvailability(p), {
+      initialProps: props,
+    });
+    await waitFor(() => expect(result.current.fresh).toBe(true));
+    rerender({ ...props, admitted: false });
+    expect(result.current.fresh).toBe(false);
+    expect(result.current.data?.zones[1]?.label).toBe("Zone B");
+    rerender({ ...props, admitted: true });
+    await waitFor(() => expect(reads).toBe(2));
+    expect(result.current.data?.zones[1]?.label).toBe("Zone B");
+    expect(result.current.fresh).toBe(false);
+    finishReentry!(snapshot());
+    await waitFor(() => expect(result.current.fresh).toBe(true));
+    rerender({ ...props, admitted: false, actorScope: "9:8:7" });
+    expect(result.current.data).toBeNull();
+    expect(result.current.fresh).toBe(false);
+  });
+
   it("changed driver invalidates prior signed pair immediately and refetches, with no cache fallback on denied", async () => {
     const requests: string[] = [];
     const fetch = (async (path: string) => {
