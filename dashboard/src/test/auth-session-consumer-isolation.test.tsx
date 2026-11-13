@@ -520,7 +520,8 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   fireEvent.click(within(warehouseSelect).getByRole("button"));
   fireEvent.click(within(warehouseSelect).getByRole("option", { name: "A-warehouse" }));
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
-  expect(screen.getByRole("textbox", { name: /Target.*A-custody/ })).toHaveValue("25");
+  expect(screen.getByRole("textbox", { name: /Target.*A-custody.*PACK/ })).toHaveValue("3");
+  expect(screen.getByRole("textbox", { name: /Target.*A-custody.*EACH/ })).toHaveValue("1");
   fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   await act(async () => {}); // actual independent signed Routes response
   expect(screen.getByText("A-route")).toBeInTheDocument();
