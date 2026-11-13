@@ -95,6 +95,8 @@ jobs:
           tests/test_dispatch_m05_reads_postgres.py
           tests/test_dispatch_m05_launch_availability_postgres.py
           tests/test_dispatch_m02_lifecycle_policy.py::test_signed_pause_reserves_same_zone_rep_vehicle_with_new_epoch_and_no_stock
+          tests/test_dispatch_m02_lifecycle_policy.py::test_signed_continue_from_pause_keeps_same_rep_car_session_and_no_stock
+          tests/test_dispatch_m02_lifecycle_policy.py::test_signed_pause_continue_retains_same_assets_and_rejects_aba_or_reassignment
       - name: Preserve focused test evidence
         if: always()
         uses: actions/upload-artifact@v4
