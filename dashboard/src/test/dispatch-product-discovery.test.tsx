@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppLanguage } from "@/i18n";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
+import { matchesLoadPinnedProduct } from "@/features/dispatch/loadProductSearchMatch";
 import { RouteManagementModal } from "@/components/dispatch/RouteManagementModal";
 import { ShortageProductPicker } from "@/components/dispatch/ShortageProductPicker";
 import { parseDispatchProductPage } from "@/features/dispatch/useDispatchProductSearch";
@@ -76,6 +77,39 @@ async function lastPage(search = false) {
 }
 
 describe("Dispatch cursor pickers", () => {
+  it("matches Arabic names precisely without showing unrelated car-stock pins", async () => {
+    expect(matchesLoadPinnedProduct("شَعْرِيّة طويلة", "شعريه")).toBe(true);
+    expect(matchesLoadPinnedProduct("زيت زيتون بكر", "زيت بكر")).toBe(true);
+    expect(matchesLoadPinnedProduct("أرز قصير", "شعيرية")).toBe(false);
+
+    const noodle = {
+      id: "2201", name: "شعيرية طويلة",
+      load: { ...unit, product_id: "2201", product_name: "شعيرية طويلة",
+        current_base_quantity: "0", reserved_base_quantity: "0", pending_base_quantity: "0" },
+    };
+    fake.fetch.mockImplementation(async (url: string) => {
+      const term = new URL(url, "http://test").searchParams.get("search");
+      return { items: term ? [noodle] : [products[0]], next_cursor: null, has_more: false };
+    });
+    render(<RouteLoadProductTable vehicleId="17" warehouseId="21" scope="1:3"
+      current={{ "521": "25" }} targets={{}} units={{ "521": unit }} names={{ "521": "أرز قصير" }}
+      onTargetChange={vi.fn()} onClear={vi.fn()} onRestoreClear={vi.fn()} />);
+    await screen.findByText("Matching 1");
+    expect(screen.getByText("أرز قصير").closest("tr")?.firstElementChild).toHaveTextContent("1");
+    const search = screen.getByRole("textbox", { name: "Search products" });
+    expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "شعيرية" } });
+    await screen.findByText("شعيرية طويلة");
+    expect(screen.queryByText("أرز قصير")).not.toBeInTheDocument();
+    expect(screen.getByText("شعيرية طويلة").closest("tr")?.firstElementChild).toHaveTextContent("1");
+    expect(search).toHaveValue("شعيرية");
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search).toHaveValue("");
+    await screen.findByText("أرز قصير");
+    expect(screen.getByText("Matching 1")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Clear search" })).not.toBeInTheDocument();
+  });
+
   it("keeps compact fixed columns and allows replacing a target without a default zero", async () => {
     const changed = vi.fn();
     const props = { vehicleId: "17", warehouseId: "21", scope: "1:3",
@@ -87,8 +121,16 @@ describe("Dispatch cursor pickers", () => {
     await screen.findByText("Matching 1");
     const table = screen.getByRole("table");
     expect(table).toHaveClass("table-fixed");
-    expect(table.querySelectorAll("colgroup col")).toHaveLength(5);
+    expect(table.querySelectorAll("colgroup col")).toHaveLength(6);
     const input = table.querySelector<HTMLInputElement>("#route-base-1000")!;
+    expect(screen.getByText("Matching 1").closest("tr")?.firstElementChild).toHaveTextContent("1");
+    expect(screen.getByText("Matching 2").closest("tr")?.firstElementChild).toHaveTextContent("2");
+    const secondInput = table.querySelector<HTMLInputElement>("#route-base-1001")!;
+    fireEvent.focus(input);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(secondInput).toHaveFocus();
+    fireEvent.keyDown(secondInput, { key: "ArrowUp" });
+    expect(input).toHaveFocus();
     expect(input).toHaveValue("");
     expect(input).toHaveAttribute("autocomplete", "off");
     expect(input).toHaveAttribute("autocorrect", "off");
@@ -152,6 +194,7 @@ describe("Dispatch cursor pickers", () => {
     expect(screen.getByText("Window 1")).toBeVisible(); // selected target is pinned
     expect(screen.queryByText("Window 2")).not.toBeInTheDocument(); // old unselected page was evicted
     expect(screen.getByText("Window 500")).toBeVisible();
+    expect(screen.getByText("Window 500").closest("tr")?.firstElementChild).toHaveTextContent("500");
     expect(container.querySelectorAll("[data-window-page]")).toHaveLength(3);
     expect(container.querySelectorAll("tbody tr").length).toBeLessThanOrEqual(245);
     expect(fake.fetch.mock.calls.every(([url]) => url.includes("limit=80"))).toBe(true);
@@ -218,7 +261,7 @@ describe("Dispatch cursor pickers", () => {
 
   it("Route Launch pins custody and drafts before stock rows, retaining them after stock disappears without duplicates", async () => {
     const current = { id: "521", name: "Vehicle A with zero source stock", load: { ...products[0].load, product_id: "521", product_name: "Vehicle A with zero source stock", current_base_quantity: "25" } };
-    fake.fetch.mockImplementation(async (url: string) => ({ items: new URL(url, "http://test").searchParams.get("search") ? [current] : [products[0]], has_more: false, next_cursor: null }));
+    fake.fetch.mockImplementation(async (url: string) => ({ items: new URL(url, "http://test").searchParams.get("search") ? [] : [products[0]], has_more: false, next_cursor: null }));
     function Pinned() {
       const [targets, setTargets] = useState<Record<string, string>>({});
       const [names, setNames] = useState<Record<string, string>>({ "521": current.name });
@@ -240,14 +283,18 @@ describe("Dispatch cursor pickers", () => {
     expect(screen.queryByText(
       "Scroll naturally; nearby results load automatically without retaining the full catalog in memory."
     )).not.toBeInTheDocument();
-    expect(screen.getAllByText(current.name)).toHaveLength(1);
+    // Search is strict: old vehicle custody/draft pins cannot leak into unrelated results.
+    await waitFor(() => expect(screen.queryByText(current.name)).not.toBeInTheDocument());
+    expect(screen.queryByText("Matching 1")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await screen.findByText(current.name);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);
     expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
-    // A selected draft-only row leaves the pinned list when cleared, but
-    // remains fully recoverable through the single-step Undo action.
-    expect(screen.queryByText("Matching 1")).not.toBeInTheDocument();
+    // Clearing removes the target draft, but the SKU remains discoverable
+    // from the real warehouse result (it must not vanish from stock search).
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("");
     expect(screen.getByText(current.name)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Undo clear" }));
     expect(screen.getByText("Matching 1")).toBeVisible();

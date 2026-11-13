@@ -951,6 +951,44 @@ This is a cross-module design rule, not authorization to change existing
 Product lifecycle, quantity semantics, Pricing or warehouse flows
 without a separate approved plan and proof.
 
+### 17.6.1 Global stock-unit and operator-display authority — owner decision (2026-11-13)
+
+**Permanent, cross-module invariant for Products, Inventory, Dispatch, Warehouse,
+Stocktake, Ledger, Flutter and all future screens:** every inventory balance,
+movement, reservation, calculation, API command and audit record uses the SKU's
+**canonical base stock UOM**. The base can itself be a piece, sealed pack,
+bottle, pouch or another real commercial item; never assume "base = loose each".
+
+The operator must instead see and enter stock using the **largest uniquely
+valid, configured display UOM for that SKU**, regardless of its name (carton,
+pallet, box, pack, etc.), together with any remaining **base-unit** amount when
+an operation needs an exact mixed quantity. When a SKU has no valid larger UOM,
+or its display UOM is identical to its base UOM, show **one explicitly
+base-labelled quantity**, not two redundant controls. The largest display
+UOM is a presentation choice derived from Catalog/UOM's authoritative
+per-SKU conversion; it is **not** universally "carton", is not inferred from
+`packs_per_carton` or translated labels, and is not permission to invent
+advanced V1 product configurations.
+
+For mixed input the operator's intended total is:
+`display_count * exact_display_factor_to_base + base_remainder`.
+Use bounded exact decimal/integer arithmetic; display_count is a nonnegative
+integer, and remainder is less than one full display unit and obeys the SKU
+base step/precision. Split existing canonical base totals back into those
+controls without rounding, mutation or double conversion. Missing or
+ambiguous conversion must fail closed; never guess a package size or silently
+reinterpret a saved base quantity. Labels follow the authenticated SKU's
+actual unit names and the user's locale (RTL/LTR).
+
+**Route Launch specific preservation:** "current vehicle load" remains the
+signed actual stock snapshot. Editing the larger/base **target** fields is
+only a preview of desired final vehicle load and its base-unit delta; no
+Warehouse/Vehicle balance or lot moves until the authorized idempotent
+Launch command posts the existing canonical `inventory_base` difference
+(+ Warehouse→Vehicle, - Vehicle→Warehouse). Preserve FEFO, signed snapshot,
+row isolation, custody, reconciliation, audit, replay fencing and backend
+authorization. Never change database inventory units for a UI improvement.
+
 ---
 
 ## 18. PERMANENT DECISION SUMMARY
