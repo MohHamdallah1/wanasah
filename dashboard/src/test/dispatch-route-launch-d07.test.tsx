@@ -330,6 +330,15 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
     const posts: Recorded[] = [];
     let lookups = 0;
     board.fetch.mockImplementation(async (path: string, opts?: RequestInit): Promise<unknown> => {
+      // Signed read-only availability must be explicitly provided by this
+      // authorized owner fixture: never bypass the fail-closed production read.
+      if (path.startsWith("/dispatch/launch/resource-availability")) return {
+        advisory: true,
+        zones: [{ id: "7", label: "Zone seven", available: true, code: "AVAILABLE" }],
+        drivers: [{ id: "9", label: "Driver", available: true, code: "AVAILABLE" }],
+        vehicles: [{ id: "31", label: "Vehicle", available: true, code: "AVAILABLE" }],
+        warehouses: [{ id: "20", label: "Warehouse", available: true, code: "AVAILABLE" }],
+      };
       if (path === "/dispatch/init") return {
         zones: [{ id: "7", name: "Zone seven", shopsCount: 1 }],
         drivers: [{ id: "9", name: "Driver" }],

@@ -1,87 +1,57 @@
 import { RotateCcw } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
-import { PendingRoute } from "@/types/dispatch";
+import type { PendingRoute } from "@/types/dispatch";
+import { currentLocale } from "@/i18n";
 
-interface PostponedRoutesModalProps {
+export function PostponedRoutesModal({
+  isOpen, onClose, routes, onRestore, onCloseRoute,
+}: {
   isOpen: boolean;
   onClose: () => void;
   routes: PendingRoute[];
-  drivers: { id: string; name: string }[];
-  onUpdateDriver: (id: string, driverId: string) => void;
   onRestore: (id: string) => void;
-}
-
-export function PostponedRoutesModal({
-  isOpen,
-  onClose,
-  routes,
-  drivers,
-  onUpdateDriver,
-  onRestore,
-}: PostponedRoutesModalProps) {
+  onCloseRoute: (id: string) => void;
+}) {
+  const ar = currentLocale().startsWith("ar");
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="🕒 المناطق المؤجلة" maxWidth="max-w-4xl">
-      <div className="space-y-4">
-        {routes.length === 0 ? (
-          <div className="py-12 text-center text-slate-400">لا توجد مناطق مؤجلة</div>
+    <Modal isOpen={isOpen} onClose={onClose}
+      title={ar ? "المناطق المؤجلة" : "Postponed routes"} maxWidth="max-w-4xl">
+      <div className="space-y-3">
+        {!routes.length ? (
+          <p className="py-8 text-center text-sm text-slate-500">
+            {ar ? "لا توجد مناطق مؤجلة" : "No postponed routes"}
+          </p>
         ) : (
-          <div className="rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="text-start p-4 text-slate-500 font-bold">المنطقة</th>
-                  <th className="text-start p-4 text-slate-500 font-bold">المندوب</th>
-                  <th className="text-center p-4 text-slate-500 font-bold">المحلات</th>
-                  <th className="w-32 p-4"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <div className="max-w-full overflow-x-auto rounded-xl border">
+            <table className="w-full min-w-0 text-sm">
+              <thead><tr className="bg-slate-50">
+                <th className="p-3 text-start">{ar ? "المنطقة" : "Zone"}</th>
+                <th className="p-3 text-start">{ar ? "التعيين" : "Assignment"}</th>
+                <th className="p-3 text-center">{ar ? "المحلات" : "Shops"}</th>
+                <th className="p-3"></th>
+              </tr></thead>
+              <tbody>
                 {routes.map(route => (
-                  <tr key={route.id} className="hover:bg-slate-50">
-                    <td className="p-4 font-bold text-slate-800">{route.zoneName}</td>
-                    <td className="p-4">
-                      {route.sessionBound ? (
-                      <span className="font-medium text-slate-700">
-                        {route.driverName || "بدون مندوب"}
-                        <span className="block text-[10px] text-slate-400 mt-1">
-                          مثبت بجلسة العمل
-                        </span>
-                      </span>
-                    ) : (
-                      <select
-                        value={
-                          drivers.some((driver) => driver.id === route.driverId)
-                            ? route.driverId
-                            : ""
-                        }
-                        disabled={route.can_execute !== true}
-                        onChange={(e) => onUpdateDriver(route.id, e.target.value)}
-                        className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
-                      >
-                        <option value="" disabled>
-                          اختر مندوباً نشطاً
-                        </option>
-
-                        {drivers.map((driver) => (
-                          <option key={driver.id} value={driver.id}>
-                            {driver.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
+                  <tr key={route.id} className="border-t">
+                    <td className="p-3 font-semibold">{route.zoneName}</td>
+                    <td className="p-3 text-slate-600">
+                      {ar ? "يُحدد المندوب والسيارة عند الاستئناف" :
+                        "Select both representative and vehicle on resume"}
                     </td>
-                    <td className="p-4 text-center font-bold text-amber-600">{route.shopsRemaining}</td>
-                    <td className="p-4">
-                      <button 
+                    <td className="p-3 text-center">{route.shopsRemaining}</td>
+                    <td className="p-3">
+                      <button type="button" disabled={route.can_execute !== true}
                         onClick={() => onRestore(route.id)}
-                        disabled={
-                          route.can_execute !== true || (!route.sessionBound &&
-                          !drivers.some((driver) => driver.id === route.driverId))
-                        } 
-                        className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> 
-                        استعادة
+                        className="inline-flex gap-2 rounded-lg border px-3 py-2 text-sm disabled:opacity-50">
+                        <RotateCcw className="h-4 w-4" />
+                        {route.assignmentContextRevision === 1 && route.currentPeriodId == null
+                          ? (ar ? "استعادة" : "Restore")
+                          : (ar ? "اختيار واستئناف" : "Select and resume")}
+                      </button>
+                      <button type="button" disabled={route.can_execute !== true}
+                        onClick={() => onCloseRoute(route.id)}
+                        className="ms-2 rounded-lg border px-3 py-2 text-sm text-red-700 disabled:opacity-50">
+                        {ar ? "إغلاق الخط" : "Close route"}
                       </button>
                     </td>
                   </tr>

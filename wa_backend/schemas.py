@@ -1260,8 +1260,27 @@ class ActiveRouteResponse(BaseModel):
     sessionBound: bool
     workSessionId: Optional[str] = None
     adjustmentContextRevision: int = 1
+    # M05 canonical execution, never populated from historic route driver/car.
+    assignmentContextRevision: int = Field(ge=1)
+    currentPeriodId: Optional[int] = Field(default=None, gt=0)
+    currentDriverId: Optional[int] = Field(default=None, gt=0)
+    currentVehicleId: Optional[int] = Field(default=None, gt=0)
+    currentVehicleLocationId: Optional[int] = Field(default=None, gt=0)
+    currentPeriodState: Optional[Literal["PLANNED", "ACTIVE"]] = None
+    currentDriverName: Optional[str] = None
+    currentWorkSessionId: Optional[int] = Field(default=None, gt=0)
     can_execute: bool = False
     commercial_context: Optional[RouteCommercialContextResponse] = None
+
+class M05RouteReadinessResponse(BaseModel):
+    # All fields are returned only on a signed, authorized positive proof.
+    driverId: int = Field(gt=0)
+    vehicleId: int = Field(gt=0)
+    custodyRevision: int = Field(gt=0)
+    assignmentContextRevision: int = Field(gt=0)
+    accepted: Literal[True]
+    authorized: Literal[True]
+
 
 class UpdateRouteStatusRequest(RequestModel):
     status: Optional[Literal["active", "closed", "waiting", "postponed"]] = None

@@ -30,8 +30,12 @@ for (const width of [1440, 390]) {
     const started = Date.now();
     await page.goto("/dispatch");
     await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 60000 });
-    // D15: Routes deliberately does not fetch /dispatch/shops. Record route
-    // DOM before opening Launch, which requires the real Shops response.
+    // D15 Routes must first paint independently of (potentially huge) Shops.
+    // Verify signed route reads now; real Shops are fetched when Launch opens.
+    const firstPaint = ["/dispatch/init", "/dispatch/active_routes", "/dispatch/shortages"];
+    await expect.poll(() => firstPaint.every(path => seen.get(path)?.status === 200),
+      { timeout: 60000 }).toBe(true);
+    expect(seen.has("/dispatch/shops")).toBe(false);
     const rendered = await page.evaluate(() => ({
       domNodes: document.querySelectorAll("*").length,
       visibleRouteRow: document.querySelectorAll(".dispatch-route-row").length,

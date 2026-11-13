@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { setAppLanguage } from "@/i18n";
@@ -57,10 +57,27 @@ beforeEach(async () => {
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+// Exercise the actual signed M05 listbox, not the obsolete native select mock.
+const pick = async (kind: "warehouses" | "vehicles", label: string) => {
+  const box = await screen.findByTestId("m05-launch-" + kind);
+  await waitFor(() => expect(within(box).getByRole("button")).not.toBeDisabled());
+  fireEvent.click(within(box).getByRole("button"));
+  fireEvent.click(within(box).getByRole("option", { name: label }));
+};
+
 it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clearing drafts and ignoring late custody", async () => {
   let custodyReads = 0;
   let finishOld: (value: unknown) => void = () => {};
   fake.fetch.mockImplementation(async (url: string) => {
+    if (url.startsWith("/dispatch/launch/resource-availability")) return {
+      advisory: true, zones: [], drivers: [],
+      vehicles: ["17", "18"].map((id, i) => ({
+        id, label: i ? "Vehicle two" : "Vehicle one", available: true, code: "AVAILABLE",
+      })),
+      warehouses: ["21", "22"].map((id, i) => ({
+        id, label: i ? "Warehouse two" : "Warehouse one", available: true, code: "AVAILABLE",
+      })),
+    };
     if (url === "/dispatch/init") return { zones: [], drivers: [], vehicles: [
       { id: "17", label: "Vehicle one", can_execute: true }, { id: "18", label: "Vehicle two", can_execute: true },
     ], warehouses: [{ id: "21", label: "Warehouse one", can_execute: true }, { id: "22", label: "Warehouse two", can_execute: true }] };
@@ -75,8 +92,7 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
     return [];
   });
   render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
-  await screen.findByRole("option", { name: "Warehouse one" });
-  fireEvent.change(screen.getByRole("combobox", { name: "مستودع المصدر" }), { target: { value: "21" } });
+  await pick("warehouses", "Warehouse one");
   await screen.findByText("Eligible source B");
   await screen.findByText("Current A, zero source stock");
   await waitFor(() => expect(screen.getByRole("textbox", { name: /Target.*Eligible source B/ })).not.toBeDisabled());
@@ -86,10 +102,11 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
 
   // A second in-flight A custody read is deliberately delayed; changing
   // source Warehouse must clear the old Vehicle selection and reject that result.
-  fireEvent.change(screen.getByRole("combobox", { name: "السيارة" }), { target: { value: "18" } });
+  await pick("vehicles", "Vehicle two");
   await waitFor(() => expect(custodyReads).toBe(2));
-  fireEvent.change(screen.getByRole("combobox", { name: "مستودع المصدر" }), { target: { value: "22" } });
-  expect(screen.getByRole("combobox", { name: "السيارة" })).toHaveValue("");
+  await pick("warehouses", "Warehouse two");
+  expect(within(screen.getByTestId("m05-launch-vehicles")).getByRole("button"))
+    .toHaveTextContent("Select vehicle");
   expect(screen.getByRole("textbox", { name: "Search products" })).toHaveValue("");
   expect(screen.queryByText("Eligible source B")).not.toBeInTheDocument();
   expect(screen.queryByText("Current A, zero source stock")).not.toBeInTheDocument();
@@ -98,7 +115,7 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   expect(screen.queryByText("New Warehouse stock")).not.toBeInTheDocument();
   await waitFor(() => expect(custodyReads).toBe(2));
 
-  fireEvent.change(screen.getByRole("combobox", { name: "السيارة" }), { target: { value: "18" } });
+  await pick("vehicles", "Vehicle two");
   await screen.findByText("New Warehouse stock");
   await screen.findByText("Current vehicle two");
   // A newly selected, authorized Vehicle is editable again with a fresh zero draft.

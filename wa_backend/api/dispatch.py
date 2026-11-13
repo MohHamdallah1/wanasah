@@ -164,7 +164,7 @@ from schemas import ( MessageResponse, AuthorizeSessionRequest, AdminDashboardDr
 SessionSettlementReportResponse, SettleSessionRequest, SettleSessionResponse, DispatchInitResponse,
 DispatchRouteRequest, VehicleInventoryItemResponse, RouteLiveInventoryItemResponse, AdjustRouteInventoryRequest,
 RouteTransferResponse, DispatchShopResponse, BulkUpdateShopItem, AdminAddShopRequest, ActiveRouteResponse,
-UpdateRouteStatusRequest, AddZoneRequest, ArchivedZoneResponse, EditShopDetailsRequest, ShortageResponseItem,
+M05RouteReadinessResponse, UpdateRouteStatusRequest, AddZoneRequest, ArchivedZoneResponse, EditShopDetailsRequest, ShortageResponseItem,
 CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, ForceCancelHandshakeRequest)
 
 
@@ -3808,6 +3808,11 @@ async def get_shop_create_operation(
 # =========================================
 # 14. استرجاع خطوط السير النشطة والمؤجلة (غرفة مراقبة المدير)
 # =========================================
+from domains.dispatch.route_execution.readiness.current_periods import (
+    RoutePeriodReadConflict, read_current_route_periods,
+)
+
+
 @router.get("/dispatch/active_routes", response_model=List[ActiveRouteResponse], status_code=200)
 async def get_active_routes(
     db: AsyncSession = Depends(get_db),
@@ -3840,6 +3845,16 @@ async def get_active_routes(
         stmt_routes = stmt_routes.where(DispatchRoute.id == route_id)
     route_rows = (await db.execute(stmt_routes)).all()
     routes = [row[0] for row in route_rows]
+    try:
+        current_periods = await read_current_route_periods(
+            db, access=access, route_ids=[int(route.id) for route in routes],
+        )
+    except RoutePeriodReadConflict as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+    for route in routes:
+        live = current_periods.get(int(route.id))
+        if live is not None and live["revision"] != int(route.assignment_context_revision):
+            raise HTTPException(status_code=409, detail={"code": "M05_ROUTE_ASSIGNMENT_STALE"})
     executable_routes = {row[0].id: bool(row[1]) for row in route_rows}
     commercial_context_by_route = {
         row[0].id: (
@@ -3854,8 +3869,14 @@ async def get_active_routes(
         access, company_directory=company_shop_scope,
     )
     zone_ids = list({r.zone_id for r in routes if r.zone_id})
-    driver_ids = list({r.driver_id for r in routes if r.driver_id})
-    session_ids = list({r.work_session_id for r in routes if r.work_session_id})
+    # Current-period identity is authoritative whenever signed and readable.
+    # No historic-driver fallback when M02 has no live period.
+    driver_ids = list({driver for r in routes
+        for driver in (current_periods.get(r.id, {}).get("driver_id"), r.driver_id)
+        if driver})
+    session_ids = list({session for r in routes
+        for session in (current_periods.get(r.id, {}).get("session_id"), r.work_session_id)
+        if session})
     
     zones_map = {}
     if zone_ids:
@@ -3925,12 +3946,18 @@ async def get_active_routes(
     for r in routes:
         # اللوجيك الأصلي: إذا كان الخط نشطاً والمندوب موجوداً، احسب الزيارات المعلقة للمندوب.
         # أما إذا كان موقوفاً أو بدون مندوب، فالمحلات المتبقية هي كل محلات المنطقة.
-        if r.status == 'active' and r.driver_id:
+        current_driver = current_periods.get(r.id, {}).get("driver_id")
+        if r.status == 'active' and current_driver:
+            shops_remaining = pending_visits_map.get(current_driver, 0)
+        elif r.status == 'active' and r.assignment_context_revision == 1 and r.driver_id:
             shops_remaining = pending_visits_map.get(r.driver_id, 0)
         else:
             shops_remaining = zone_shops_map.get(r.zone_id, 0)
             
-        session_ended = session_ended_map.get(r.work_session_id, False) if r.work_session_id else False
+        live_session = current_periods.get(r.id, {}).get("session_id")
+        session_ended = (session_ended_map.get(live_session, False)
+            if live_session else (session_ended_map.get(r.work_session_id, False)
+                if r.assignment_context_revision == 1 and r.work_session_id else False))
             
         res.append({
             "id": str(r.id),
@@ -3946,11 +3973,77 @@ async def get_active_routes(
             "sessionBound": r.work_session_id is not None,
             "workSessionId": str(r.work_session_id) if r.work_session_id is not None else None,
             "adjustmentContextRevision": int(r.adjustment_context_revision),
-            "can_execute": executable_routes[r.id],
+            "assignmentContextRevision": int(r.assignment_context_revision),
+            "currentPeriodId": current_periods.get(r.id, {}).get("id"),
+            "currentDriverId": current_periods.get(r.id, {}).get("driver_id"),
+            "currentVehicleId": current_periods.get(r.id, {}).get("vehicle_id"),
+            "currentVehicleLocationId": current_periods.get(r.id, {}).get("location_id"),
+            "currentPeriodState": current_periods.get(r.id, {}).get("state"),
+            "currentDriverName": drivers_map.get(current_periods.get(r.id, {}).get("driver_id"))
+                if current_periods.get(r.id, {}).get("driver_id") else None,
+            "currentWorkSessionId": current_periods.get(r.id, {}).get("session_id"),
+            "can_execute": executable_routes[r.id] and (
+                current_periods.get(r.id, {}).get("may_execute", False)
+                if r.id in current_periods else True
+            ),
             "commercial_context": commercial_context_by_route.get(r.id),
         })
         
     return res
+
+
+# M05 bounded signed launch availability; the route writer still rechecks under
+# locks. This read NEVER turns a POSTPONED zone into an available zone or keeps
+# its old driver/car reserved. Auth is the real Backoffice Bearer principal.
+from domains.dispatch.route_execution.readiness.launch_resources import (
+    LaunchAvailabilityRejected, read_launch_resource_availability,
+)
+
+
+@router.get("/dispatch/launch/resource-availability", status_code=200)
+async def get_dispatch_launch_availability_m05(
+    selected_driver_id: int | None = Query(None, gt=0),
+    selected_vehicle_id: int | None = Query(None, gt=0),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_read_access),
+):
+    try:
+        return await read_launch_resource_availability(
+            db, access=access, selected_driver_id=selected_driver_id,
+            selected_vehicle_id=selected_vehicle_id,
+        )
+    except LaunchAvailabilityRejected as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from exc
+
+
+# M05 read-only target readiness is a bounded pair probe, never inventory/sale mutation.
+from domains.dispatch.route_execution.readiness.probe import (
+    LifecycleReadinessRejected, read_lifecycle_readiness,
+)
+
+
+@router.get(
+    "/dispatch/route/{route_id}/lifecycle/readiness",
+    response_model=M05RouteReadinessResponse, status_code=200,
+)
+async def get_route_lifecycle_readiness_m05(
+    route_id: int,
+    target_driver_id: int = Query(..., gt=0),
+    target_vehicle_id: int = Query(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+    access: BackofficeCapabilityAccess = Depends(_dispatch_execute_access),
+):
+    # Both route and target car require current DB location grants. Do not
+    # return candidate identities/financial/stock fields on a failed probe.
+    await require_route(access, "dispatch.execute", route_id)
+    await require_vehicle(access, "dispatch.execute", target_vehicle_id)
+    try:
+        return await read_lifecycle_readiness(
+            db, access=access, route_id=route_id,
+            driver_id=target_driver_id, vehicle_id=target_vehicle_id,
+        )
+    except LifecycleReadinessRejected as exc:
+        raise HTTPException(status_code=exc.status, detail={"code": exc.code}) from exc
 
 
 # M02: canonical route periods and custody epochs are authoritative here. This

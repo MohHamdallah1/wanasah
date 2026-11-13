@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/vite-env.d.ts",
+    "src/features/dispatch/routeLifecycle/**/*.ts",
+    "src/features/dispatch/routeLifecycle/**/*.tsx",
+    "src/features/dispatch/launchResources/**/*.ts",
+    "src/features/dispatch/launchResources/**/*.tsx",
+    "src/features/operations/representativeSettlement/vehicleCountRead.ts",
+    "src/features/operations/representativeSettlement/vehicleResponsibilityRead.ts",
+    "src/features/operations/representativeSettlement/vehicleCountCommand.ts",
+    "src/features/operations/representativeSettlement/VehicleVariancePanel.tsx",
+    "src/features/operations/representativeSettlement/SignedMultiVehicleCustodyJourney.tsx",
+    "src/features/operations/representativeSettlement/RepresentativeSettlementJourney.tsx",
+    "src/features/operations/representativeSettlement/VehicleCountReadPanel.tsx",
+    "src/test/dispatch-m05-lifecycle.test.ts",
+    "src/test/dispatch-m05-vehicle-responsibilities.test.ts",
+    "src/test/dispatch-m05-m04-count.test.tsx",
+    "src/test/dispatch-m05-command.test.ts",
+    "src/test/dispatch-m05-panel.test.tsx",
+    "src/test/dispatch-m05-launch-availability.test.tsx",
+    "src/pages/DispatchBoard.tsx",
+    "src/components/dispatch/PendingRoutesTable.tsx",
+    "src/components/dispatch/PostponedRoutesModal.tsx"
+  ],
+  "exclude": ["node_modules"]
+}

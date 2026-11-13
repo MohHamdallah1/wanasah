@@ -9,6 +9,7 @@ interface PendingRoutesTableProps {
   onPostponeRoute: (id: string) => void;
   onCloseZone: (route: PendingRoute) => void;
   onForceWithdraw: (route: PendingRoute) => void;
+  onContinuePaused?: (route: PendingRoute) => void;
   driverShortagesMap: Record<string, number>;
   pending?: boolean;
   onAdjustInventory: (route: PendingRoute) => void;
@@ -30,6 +31,7 @@ export function PendingRoutesTable({
   onPostponeRoute,
   onCloseZone,
   onForceWithdraw,
+  onContinuePaused,
   driverShortagesMap,
   pending = false,
   onAdjustInventory,
@@ -64,7 +66,10 @@ export function PendingRoutesTable({
 
     if (route.can_execute !== true) return radarButton;
 
-    if (route.shopsRemaining === 0) {
+    // A genuinely paused signed route must offer CONTINUE before its final
+    // CLOSE, even when every scheduled shop was already visited. Zero
+    // remaining shops is not permission to discard its WAITING lifecycle.
+    if (route.shopsRemaining === 0 && route.status !== "waiting") {
       return (
         <>
           {radarButton}
@@ -110,12 +115,17 @@ export function PendingRoutesTable({
         <>
           {radarButton}
           <button
-            onClick={() => onOpenRouteModal(route, "follow_up")}
+            disabled={route.assignmentContextRevision !== 1 && route.currentPeriodId != null && !onContinuePaused}
+            onClick={() => route.assignmentContextRevision !== 1 && route.currentPeriodId != null
+              ? (onContinuePaused ? onContinuePaused(route) : onOpenRouteModal(route, "follow_up"))
+              : onOpenRouteModal(route, "follow_up")}
             className="px-4 py-2 rounded-xl bg-[#1e87bb] text-white text-xs font-bold hover:bg-[#0f766e] transition-colors shadow-sm"
           >
-            {route.sessionBound ? "استئناف نفس الخط" : "متابعة الحمولة"}
+            {route.assignmentContextRevision !== 1 && route.currentPeriodId != null
+              ? (currentLocale().startsWith("ar") ? "متابعة الخط" : "Continue route")
+              : route.sessionBound ? "استئناف نفس الخط" : "متابعة الحمولة"}
           </button>
-          {!route.sessionBound && (
+          {!route.sessionBound && route.assignmentContextRevision === 1 && (
             <button
               onClick={() => onOpenRouteModal(route, "transfer")}
               className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
@@ -168,7 +178,8 @@ export function PendingRoutesTable({
         </div>
       )}
       {routes.map((route) => {
-        const driverShortageCount = driverShortagesMap[route.driverId] || 0;
+        const currentDriver = route.currentDriverId ?? (route.assignmentContextRevision === 1 ? Number(route.driverId) : null);
+        const driverShortageCount = currentDriver ? (driverShortagesMap[String(currentDriver)] || 0) : 0;
 
         return (
           <div
@@ -182,7 +193,7 @@ export function PendingRoutesTable({
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-bold text-slate-800 text-base">{route.zoneName}</h3>
                 <span className="text-slate-300">|</span>
-                <p className="text-sm text-slate-500 font-medium">المندوب: {route.driverName}</p>
+                <p className="text-sm text-slate-500 font-medium">المندوب: {route.currentDriverName || (route.assignmentContextRevision === 1 ? route.driverName : "غير مخصص")}</p>
 
                 {driverShortageCount > 0 && (
                   <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">

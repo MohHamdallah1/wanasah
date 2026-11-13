@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, PositiveInt, model_validator
 class RouteLifecycleIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["POSTPONE", "RESUME", "CLOSE"]
+    action: Literal["PAUSE", "POSTPONE", "RESUME", "CLOSE"]
     request_id: UUID
     expected_context_revision: PositiveInt
     # Required when a currently open execution period must be ended.
@@ -35,9 +35,11 @@ class RouteLifecycleIntent(BaseModel):
             if self.expected_vehicle_custody_revision is None:
                 raise ValueError("RESUME requires the vehicle custody revision")
         elif self.target_driver_id is not None or self.target_vehicle_id is not None:
-            raise ValueError("POSTPONE/CLOSE cannot silently reassign a driver or a vehicle")
+            raise ValueError("PAUSE/POSTPONE/CLOSE cannot silently reassign a driver or a vehicle")
         elif self.expected_vehicle_custody_revision is not None:
-            raise ValueError("POSTPONE/CLOSE must never change vehicle custody")
+            raise ValueError("PAUSE/POSTPONE/CLOSE must never change vehicle custody")
+        if self.action == "PAUSE" and self.expected_period_id is None:
+            raise ValueError("PAUSE requires the exact current signed period")
         # An explicitly revision=1 legacy route with no canonical live
         # period may be postponed safely without inventing historical evidence.
         # The DB-locked policy, not user input, proves that narrow exception.

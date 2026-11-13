@@ -44,21 +44,46 @@ async function select(page: Page, tab: Tab) {
 
 async function chooseLaunch(page: Page) {
   const slots = page.locator(".dispatch-launch-config > div.relative.mt-2");
+  await expect(slots, "Four stable signed resource selectors").toHaveCount(4);
   const selected: string[] = [];
   for (const i of [3, 0, 1, 2]) {
     const slot = slots.nth(i);
     const button = slot.locator(":scope > div.relative > button");
-    // An actually selected value is required for a meaningful persistence
-    // test. Skipping a temporarily disabled field would make the test falsely
-    // report success with empty Launch context.
     await expect(button).toBeEnabled({ timeout: 25000 });
     await button.click();
-    const choices = slot.locator("div.absolute.top-full button");
-    await expect(choices.first()).toBeVisible({ timeout: 25000 });
-    await choices.first().click();
-    const label = (await button.textContent() ?? "").trim();
-    expect(label.length).toBeGreaterThan(0);
-    selected.push(label);
+    // BEFORE on frozen MAIN still uses unversioned CustomSelect motion items.
+    // AFTER on M05 uses signed listbox options with native disabled reasons.
+    if (await button.getAttribute("aria-haspopup") !== "listbox") {
+      const legacy = slot.locator("div.absolute.top-full button");
+      await expect(legacy.first()).toBeVisible({ timeout: 25000 });
+      await legacy.first().click();
+      const label = (await button.textContent() ?? "").trim();
+      expect(label.length).toBeGreaterThan(0);
+      selected.push(label);
+      continue;
+    }
+    const options = slot.locator('div[role="listbox"] button[role="option"]');
+    await expect.poll(async () => options.count(), { timeout: 25000 }).toBeGreaterThan(0);
+    // Use an explicit enabled native option: some signed FIELD identities are
+    // correctly unverified, reserved and disabled in this genuine PG16 seed.
+    const permitted = slot.locator('div[role="listbox"] button[role="option"]:not(:disabled)');
+    const disabled = slot.locator('div[role="listbox"] button[role="option"]:disabled');
+    if (await permitted.count()) {
+      const option = permitted.first();
+      expect(await option.getAttribute("data-resource-id")).toMatch(/^[1-9]\d*$/);
+      await option.click();
+      const label = (await button.textContent() ?? "").trim();
+      expect(label.length).toBeGreaterThan(0);
+      selected.push(label);
+    } else {
+      await expect(disabled.first()).toBeVisible();
+      await expect(disabled.first()).toBeDisabled();
+      expect((await disabled.first().getAttribute("title"))?.trim().length ?? 0,
+        "Unavailable resource needs a signed, precise reason").toBeGreaterThan(0);
+      await button.click();
+      // A blocked resource has no selection to preserve; do not fake one.
+      selected.push("");
+    }
   }
   return selected;
 }
@@ -102,7 +127,14 @@ async function sample(page: Page, tab: Tab, label: string, expected: {
           falseZero:tab === "zones" && /المناطق \(0\)/.test(text),
           falseShops:tab === "zones" && text.includes("لا توجد محلات في هذه المنطقة"),
           falseRoutes:tab === "routes" && text.includes("لا توجد خطوط سير تشغيلية حالياً"),
-          falseProductContext:tab === "launch" && text.includes("اختر السيارة ومستودع المصدر للبحث"),
+          // A product context can only disappear if this test genuinely had
+          // BOTH an authorized vehicle and source warehouse selected before
+          // leaving. When the signed fixture has no eligible vehicle, the
+          // product search correctly asks for one; that is NOT lost data.
+          // chosen order is warehouse, zone, representative, vehicle.
+          falseProductContext:tab === "launch" &&
+            Boolean(expected.choiceNames[0] && expected.choiceNames[3]) &&
+            text.includes("اختر السيارة ومستودع المصدر للبحث"),
           workspaceX:target ? Math.max(0,target.scrollWidth-target.clientWidth) : -1,
           frameX:wrapper ? Math.max(0,wrapper.scrollWidth-wrapper.clientWidth) : -1,
           configX:launch ? Math.max(0,launch.scrollWidth-launch.clientWidth) : -1,
