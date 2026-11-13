@@ -18,6 +18,8 @@ import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
+import '../features/custody/recovery/custody_handoff_screen.dart';
+import '../features/custody/recovery/custody_handoff_strings.dart';
 import '../l10n/generated/app_localizations.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -351,6 +353,16 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (state.refreshIssue != null)
           _buildRefreshIssueBanner(context, state.refreshIssue!),
         _pendingTransfers(state),
+        OutlinedButton.icon(
+          key: const ValueKey('c03-field-custody-handoff'),
+          icon: const Icon(Icons.how_to_reg_outlined),
+          label: Text(CustodyHandoffStrings.of(context).t('start')),
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const CustodyHandoffScreen(),
+            ),
+          ),
+        ),
         VehicleInventorySection(
           products: state.products,
           sellableDisclosure: state.sellableStockDisclosure,

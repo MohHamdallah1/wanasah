@@ -6,12 +6,15 @@ from fastapi.routing import APIRoute
 from main import app
 from api import driver, field_contracts, reconciliation
 from api.vehicles import custody as vehicle_custody
+from api.vehicles import custody_review as vehicle_custody_review
 
 MANIFEST=[
     # C02 adds a real, independently authenticated FIELD receipt. This is
     # part of the protected route registry, never a manifest exclusion.
     ["POST", "/driver/vehicles/{vehicle_id}/custody/confirm",
      "confirm_field_vehicle_custody"],
+    ["POST", "/driver/vehicles/{vehicle_id}/custody/offer-preview",
+     "field_custody_offer_preview"],
     ["GET", "/driver/sessions/execution-context", "get_current_execution_context"],
     [
         "POST",
@@ -122,8 +125,9 @@ def test_complete_d7_registry_without_duplicate_or_alias_bypass():
     modules={driver.__name__,field_contracts.__name__,reconciliation.__name__}
     actual={(m,r.path,r.endpoint.__name__) for r in app.routes if isinstance(r,APIRoute)
             and (r.endpoint.__module__ in modules or (
-                r.endpoint.__module__ == vehicle_custody.__name__
-                and r.path.startswith("/driver/")
+                r.endpoint.__module__ in {
+                    vehicle_custody.__name__, vehicle_custody_review.__name__
+                } and r.path.startswith("/driver/")
             )) for m in r.methods}
     assert actual==expected
     counts=Counter((m,r.path) for r in app.routes if isinstance(r,APIRoute) for m in r.methods)
