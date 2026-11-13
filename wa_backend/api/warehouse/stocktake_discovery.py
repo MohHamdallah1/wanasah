@@ -6,12 +6,13 @@ The canonical count/approval commands remain the only mutation authority.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import json
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import BigInteger, and_, exists, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.authentication.backoffice_authorization import get_current_backoffice_capability_access
@@ -31,6 +32,7 @@ from .stocktake_history import router as terminal_history_router
 router = APIRouter()
 router.include_router(terminal_history_router)
 _MAX_DISCOVERY_BATCH_IDS = 100
+_MAX_PG_BIGINT_ID = (1 << 63) - 1
 
 
 def _cursor(value: int, scope: str) -> str:
@@ -42,12 +44,17 @@ def _cursor(value: int, scope: str) -> str:
 
 def _decode_cursor(value: str, scope: str) -> int:
     try:
-        payload = json.loads(base64.urlsafe_b64decode((value + "=" * (-len(value) % 4)).encode()))
-        assert payload["v"] == 1
-        assert type(payload["id"]) is int and payload["id"] > 0
-        assert payload["s"] == hashlib.sha256(scope.encode()).hexdigest()[:24]
+        payload = json.loads(base64.b64decode(
+            (value + "=" * (-len(value) % 4)).encode("ascii"),
+            altchars=b"-_", validate=True,
+        ))
+        if (type(payload) is not dict or payload.get("v") != 1
+            or type(payload.get("id")) is not int
+            or not 1 <= payload["id"] <= _MAX_PG_BIGINT_ID
+            or payload.get("s") != hashlib.sha256(scope.encode()).hexdigest()[:24]):
+            raise ValueError
         return payload["id"]
-    except (ValueError, TypeError, KeyError, AssertionError, UnicodeDecodeError):
+    except (ValueError, TypeError, UnicodeError, binascii.Error):
         raise HTTPException(status_code=400, detail="Cursor نطاق الجرد المكتشف غير صالح.") from None
 
 
@@ -136,7 +143,9 @@ async def stocktake_discovery_options(
             ))
         scope = f"{company_id}|{session_id}|products|{clean}"
         if cursor is not None:
-            filters.append(ProductVariant.id < _decode_cursor(cursor, scope))
+            filters.append(ProductVariant.id < literal(
+                _decode_cursor(cursor, scope), type_=BigInteger(),
+            ))
         rows = (await db.execute(
             select(*variant_cols).join(UOM, UOM.id == ProductVariant.base_uom_id)
             .where(*filters).order_by(ProductVariant.id.desc()).limit(limit + 1)
@@ -186,7 +195,9 @@ async def stocktake_discovery_options(
             ))
         scope = f"{company_id}|{session_id}|batches|{product_variant_id}|{clean}"
         if cursor is not None:
-            filters.append(ProductBatch.id < _decode_cursor(cursor, scope))
+            filters.append(ProductBatch.id < literal(
+                _decode_cursor(cursor, scope), type_=BigInteger(),
+            ))
     rows = (await db.execute(
         select(
             ProductBatch.id, ProductBatch.product_variant_id, ProductBatch.batch_number,
