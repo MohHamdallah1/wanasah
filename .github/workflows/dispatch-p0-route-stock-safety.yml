@@ -638,7 +638,19 @@ jobs:
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
           }
           assert len(d20_input_exact) == 5
+          # U01 #965: pure exact carton/base codec plus isolated tests only.
+          u01_carton_codec_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/routeLoadTargetParts.ts",
+              "dashboard/src/test/dispatch-route-load-target-parts.test.ts",
+              "docs/plans/DISPATCH_LAUNCH_UOM_CUSTODY_RECOVERY_V1_PLAN.md",
+          }
+          assert len(u01_carton_codec_exact) == 6
           def ownership_mode(candidate):
+              if candidate == u01_carton_codec_exact:
+                  return "U01_CARTON_CODEC_EXACT"
               if candidate == d20_input_exact:
                   return "D20_INPUT_EXACT"
               if candidate == d19_961_exact:
