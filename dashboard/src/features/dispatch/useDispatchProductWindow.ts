@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
+import { useDashboardSession } from "@/hooks/useDashboardSession";
 import {
   DISPATCH_PRODUCT_PAGE_SIZE,
   parseDispatchProductPage,
@@ -26,11 +27,43 @@ interface WindowState {
   heights: Record<number, number>;
   maxVisited: number;
   initialReady: boolean;
+  fetchedAt: number;
 }
 
 type LoadDirection = "next" | "previous";
 
-const emptyState = (key: string): WindowState => ({ key, pages: [], heights: {}, maxVisited: 0, initialReady: false });
+const emptyState = (key: string): WindowState => ({
+  key, pages: [], heights: {}, maxVisited: 0, initialReady: false, fetchedAt: 0,
+});
+
+// A small, session-generation-fenced in-memory snapshot (not localStorage).
+// Retains at most 8 windowed queries (<=3 pages each), never the entire catalog.
+const warmWindows = new Map<string, WindowState>();
+const MAX_WARM_WINDOWS = 8;
+const WARM_TTL_MS = 5 * 60_000;
+const FRESH_WINDOW_MS = 60_000;
+function readWarmWindow(key: string | null): WindowState | null {
+  if (!key) return null;
+  const data = warmWindows.get(key);
+  if (!data) return null;
+  if (Date.now() - data.fetchedAt > WARM_TTL_MS) {
+    warmWindows.delete(key);
+    return null;
+  }
+  warmWindows.delete(key);
+  warmWindows.set(key, data);
+  return data;
+}
+function rememberWarmWindow(key: string | null, state: WindowState): void {
+  if (!key || !state.initialReady || !state.fetchedAt) return;
+  warmWindows.delete(key);
+  warmWindows.set(key, state);
+  while (warmWindows.size > MAX_WARM_WINDOWS) {
+    const oldest = warmWindows.keys().next().value;
+    if (oldest === undefined) break;
+    warmWindows.delete(oldest);
+  }
+}
 
 export function useDispatchProductWindow(
   endpoint: string | null,
@@ -39,10 +72,14 @@ export function useDispatchProductWindow(
   purpose: "LOAD" | "SHORTAGE" = "LOAD",
 ) {
   const authFetch = useAuthFetch();
+  const session = useDashboardSession();
   const query = search.trim();
-  const key = JSON.stringify([scope, endpoint, query, purpose]);
+  const key = JSON.stringify([session?.generation, session?.identity, scope, endpoint, query, purpose]);
+  // Never share a signed discovery window across a login generation, actor,
+  // warehouse, vehicle or search context. Shortage mode keeps its old behavior.
+  const warmKey = purpose === "LOAD" && session && scope && endpoint ? key : null;
   const valid = !!endpoint && !!scope && !(purpose === "SHORTAGE" && query.length < 2) && query.length <= 100;
-  const [state, setState] = useState<WindowState>(() => emptyState(""));
+  const [state, setState] = useState<WindowState>(() => readWarmWindow(warmKey) ?? emptyState(""));
   const [loading, setLoading] = useState(false);
   const [loadingWindow, setLoadingWindow] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -69,30 +106,60 @@ export function useDispatchProductWindow(
     return { index, cursor, items: result.items, nextCursor: result.next_cursor, hasMore: result.has_more };
   }, [authFetch, purpose, requestUrl]);
 
+  // Browsing another Dashboard page or dispatch tab must not lose the first
+  // signed 80-row window; visibility/readiness is still enforced by the caller.
+  useEffect(() => {
+    const revoke = () => warmWindows.clear();
+    window.addEventListener("inventory-permission-denied", revoke);
+    window.addEventListener("dashboard-session-changed", revoke);
+    return () => {
+      window.removeEventListener("inventory-permission-denied", revoke);
+      window.removeEventListener("dashboard-session-changed", revoke);
+    };
+  }, []);
+  useEffect(() => {
+    if (state.key === key) rememberWarmWindow(warmKey, state);
+  }, [key, state, warmKey]);
   useEffect(() => {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
+    const cached = readWarmWindow(warmKey);
     cursorHistory.current = [null];
+    if (cached) for (const page of cached.pages) {
+      if (page.nextCursor) cursorHistory.current[page.index + 1] = page.nextCursor;
+      cursorHistory.current[page.index] = page.cursor;
+    }
     loadingWindowRef.current = false;
     failedRef.current = null;
-    setState(emptyState(key));
+    setState(cached ?? emptyState(key));
     setError(null);
     setLoadingWindow(false);
     if (!valid) {
       setLoading(false);
       return () => controller.abort();
     }
-    setLoading(true);
+    // One-minute fresh signed presentation needs no identical second GET.
+    // An older warm window stays painted while background readback revalidates.
+    if (cached && Date.now() - cached.fetchedAt < FRESH_WINDOW_MS && revision === 0) {
+      setLoading(false);
+      return () => controller.abort();
+    }
+    // During stale-while-revalidate, keep rows painted but disable edits until readback.
+    setLoading(!cached || Date.now() - cached.fetchedAt >= FRESH_WINDOW_MS);
     const timer = setTimeout(() => {
       void fetchPage(0, null, controller.signal)
         .then((page) => {
           if (controller.signal.aborted || keyRef.current !== key) return;
           if (page.hasMore && page.nextCursor) cursorHistory.current[1] = page.nextCursor;
-          setState({ key, pages: [page], heights: {}, maxVisited: 0, initialReady: true });
+          setState({ key, pages: [page], heights: {}, maxVisited: 0, initialReady: true, fetchedAt: Date.now() });
         })
         .catch((failure) => {
-          if (!controller.signal.aborted && keyRef.current === key) setError(failure);
+          if (!controller.signal.aborted && keyRef.current === key) {
+            if (warmKey) warmWindows.delete(warmKey);
+            setState(emptyState(key));
+            setError(failure);
+          }
         })
         .finally(() => {
           if (!controller.signal.aborted && keyRef.current === key) setLoading(false);
@@ -102,7 +169,7 @@ export function useDispatchProductWindow(
       clearTimeout(timer);
       controller.abort();
     };
-  }, [fetchPage, key, query, revision, valid]);
+  }, [fetchPage, key, query, revision, valid, warmKey]);
 
   const loadWindowPage = useCallback(async (index: number, cursor: string | null, direction: LoadDirection) => {
     const controller = controllerRef.current;
@@ -183,7 +250,7 @@ export function useDispatchProductWindow(
   const items = useMemo(() => active.pages.flatMap((page) => page.items), [active.pages]);
   // An empty but completed signed first page is READY; pending, denied,
   // failed or a previous actor/vehicle/warehouse/search key is not.
-  const firstPageReady = valid && !loading && active.initialReady;
+  const firstPageReady = valid && active.initialReady && !error;
 
   const retry = useCallback(() => {
     const failed = failedRef.current;
