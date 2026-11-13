@@ -76,6 +76,37 @@ async function lastPage(search = false) {
 }
 
 describe("Dispatch cursor pickers", () => {
+  it("keeps compact fixed columns and allows replacing a target without a default zero", async () => {
+    const changed = vi.fn();
+    const props = { vehicleId: "17", warehouseId: "21", scope: "1:3",
+      current: {}, targets: {}, units: {}, names: {}, onTargetChange: changed,
+      onClear: vi.fn(), onRestoreClear: vi.fn() };
+    const view = render(<div data-testid="dispatch-launch-workspace">
+      <RouteLoadProductTable {...props} />
+    </div>);
+    await screen.findByText("Matching 1");
+    const table = screen.getByRole("table");
+    expect(table).toHaveClass("table-fixed");
+    expect(table.querySelectorAll("colgroup col")).toHaveLength(5);
+    const input = table.querySelector<HTMLInputElement>("#route-base-1000")!;
+    expect(input).toHaveValue("");
+    expect(input.closest("td")?.querySelector("p")).toBeNull();
+    expect(input.title).toContain("0 EACH");
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "1" } });
+    expect(changed).toHaveBeenLastCalledWith("1000", "Matching 1", expect.objectContaining(unit), "1");
+
+    view.rerender(<div data-testid="dispatch-launch-workspace">
+      <RouteLoadProductTable {...props} targets={{ "1000": "25" }} />
+    </div>);
+    const savedInput = table.querySelector<HTMLInputElement>("#route-base-1000")!;
+    expect(savedInput).toHaveValue("25");
+    savedInput.blur();
+    fireEvent.focus(savedInput);
+    expect(savedInput.selectionStart).toBe(0);
+    expect(savedInput.selectionEnd).toBe(2);
+  });
+
   it("Route Launch scrolls through 500 products while retaining only three discovery pages", async () => {
     const windowProducts = Array.from({ length: 500 }, (_, index) => {
       const id = String(index + 2000), name = `Window ${index + 1}`;

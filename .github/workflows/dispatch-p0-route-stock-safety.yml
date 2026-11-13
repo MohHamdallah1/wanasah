@@ -617,7 +617,20 @@ jobs:
               "dashboard/src/test/dispatch-d17-atomic-first-window.test.tsx",
           }
           assert len(d18_959_exact) == 7
+          # D19 #961: compact-only owner launch rows, fixed columns and blank target.
+          # Strict five-file scope; preserves all authorization/route/stock gates.
+          d19_961_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+          }
+          assert len(d19_961_exact) == 6
           def ownership_mode(candidate):
+              if candidate == d19_961_exact:
+                  return "D19_961_EXACT"
               if candidate == d18_959_exact:
                   return "D18_959_EXACT"
               if candidate == d17_957_exact:
