@@ -5,8 +5,13 @@ from pathlib import Path
 from fastapi.routing import APIRoute
 from main import app
 from api import driver, field_contracts, reconciliation
+from api.vehicles import custody as vehicle_custody
 
 MANIFEST=[
+    # C02 adds a real, independently authenticated FIELD receipt. This is
+    # part of the protected route registry, never a manifest exclusion.
+    ["POST", "/driver/vehicles/{vehicle_id}/custody/confirm",
+     "confirm_field_vehicle_custody"],
     ["GET", "/driver/sessions/execution-context", "get_current_execution_context"],
     [
         "POST",
@@ -116,7 +121,10 @@ def test_complete_d7_registry_without_duplicate_or_alias_bypass():
     expected={(m,p,n) for m,p,n in MANIFEST}
     modules={driver.__name__,field_contracts.__name__,reconciliation.__name__}
     actual={(m,r.path,r.endpoint.__name__) for r in app.routes if isinstance(r,APIRoute)
-            and r.endpoint.__module__ in modules for m in r.methods}
+            and (r.endpoint.__module__ in modules or (
+                r.endpoint.__module__ == vehicle_custody.__name__
+                and r.path.startswith("/driver/")
+            )) for m in r.methods}
     assert actual==expected
     counts=Counter((m,r.path) for r in app.routes if isinstance(r,APIRoute) for m in r.methods)
     assert all(counts[(m,p)]==1 for m,p,_n in MANIFEST)
@@ -129,6 +137,15 @@ def test_complete_d7_registry_without_duplicate_or_alias_bypass():
             guarded.update((m,route.path,route.endpoint.__name__) for m in route.methods)
             assert "get_current_field_capability_access" in names
     assert guarded==expected-{("GET","/visits/{visit_id}","get_visit_details")}
+    # The new C02 route must keep BOTH the original FIELD identity gate and
+    # the capability guard; it must not enter the Manager surface as an alias.
+    custody_routes=[r for r in app.routes if isinstance(r, APIRoute)
+                    and r.path == "/driver/vehicles/{vehicle_id}/custody/confirm"]
+    assert len(custody_routes) == 1 and custody_routes[0].methods == {"POST"}
+    assert custody_routes[0].endpoint.__module__ == vehicle_custody.__name__
+    custody_dependencies={getattr(c,"__name__","")
+                          for c in dependencies(custody_routes[0].dependant)}
+    assert {"get_current_field_context", "get_current_field_capability_access"} <= custody_dependencies
     source=inspect.getsource(driver.get_visit_details)
     field=source.split("if isinstance(current, FieldRequestContext):",1)[1].split("elif",1)[0]
     assert 'require_field_capability("visit.read")(access=access)' in field

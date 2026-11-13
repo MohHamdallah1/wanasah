@@ -16,6 +16,7 @@ from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import _prepared_route
 from tests.test_dispatch_m02_lifecycle_postgres import _body, _explicitly_accept_vehicle
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
+from tests.c02_signed_custody_real_http import accept_prepared_vehicle_by_real_http
 
 pytestmark = [
     pytest.mark.skipif(os.getenv("WANASAH_DISPATCH_M05_PG_GATE") != "1",
@@ -43,6 +44,12 @@ async def test_m05_real_bearer_launch_availability_postponed_releases_only_resou
         owner = await _owner(client, pg, home)
         outsider = await _owner(client, pg, foreign)
         assert (await client.get(path)).status_code == 401
+        # C01 P0 requires a SIGNED canonical FIELD+manager receipt before a
+        # stocked D07 fixture car can be eligible for a real route launch.
+        # This scoped prerequisite does not alter _prepared_route globally.
+        await accept_prepared_vehicle_by_real_http(
+            pg, home, client, owner, body, vehicle_location,
+        )
         before = await client.get(path, headers=owner)
         assert before.status_code == 200, before.text
         before_data = before.json()
