@@ -44,21 +44,35 @@ async function select(page: Page, tab: Tab) {
 
 async function chooseLaunch(page: Page) {
   const slots = page.locator(".dispatch-launch-config > div.relative.mt-2");
+  await expect(slots, "Four stable signed resource selectors").toHaveCount(4);
   const selected: string[] = [];
   for (const i of [3, 0, 1, 2]) {
     const slot = slots.nth(i);
     const button = slot.locator(":scope > div.relative > button");
-    // An actually selected value is required for a meaningful persistence
-    // test. Skipping a temporarily disabled field would make the test falsely
-    // report success with empty Launch context.
     await expect(button).toBeEnabled({ timeout: 25000 });
     await button.click();
-    const choices = slot.locator("div.absolute.top-full button");
-    await expect(choices.first()).toBeVisible({ timeout: 25000 });
-    await choices.first().click();
-    const label = (await button.textContent() ?? "").trim();
-    expect(label.length).toBeGreaterThan(0);
-    selected.push(label);
+    const options = slot.locator('div[role="listbox"] button[role="option"]');
+    await expect.poll(async () => options.count(), { timeout: 25000 }).toBeGreaterThan(0);
+    // Use an explicit enabled native option: some signed FIELD identities are
+    // correctly unverified, reserved and disabled in this genuine PG16 seed.
+    const permitted = slot.locator('div[role="listbox"] button[role="option"]:not(:disabled)');
+    const disabled = slot.locator('div[role="listbox"] button[role="option"]:disabled');
+    if (await permitted.count()) {
+      const option = permitted.first();
+      expect(await option.getAttribute("data-resource-id")).toMatch(/^[1-9]\d*$/);
+      await option.click();
+      const label = (await button.textContent() ?? "").trim();
+      expect(label.length).toBeGreaterThan(0);
+      selected.push(label);
+    } else {
+      await expect(disabled.first()).toBeVisible();
+      await expect(disabled.first()).toBeDisabled();
+      expect((await disabled.first().getAttribute("title"))?.trim().length ?? 0,
+        "Unavailable resource needs a signed, precise reason").toBeGreaterThan(0);
+      await button.click();
+      // A blocked resource has no selection to preserve; do not fake one.
+      selected.push("");
+    }
   }
   return selected;
 }

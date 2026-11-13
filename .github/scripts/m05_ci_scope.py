@@ -17,6 +17,8 @@ M05_EXACT = frozenset({
     '.github/workflows/flutter-v1-field-seams-client-adapters.yml',
     '.github/workflows/live-stock-inflight-authority-acceptance.yml',
     'dashboard/e2e/dispatch-d08-journey.spec.ts',
+    'dashboard/e2e/dispatch-d15-data-reentry-p1.spec.ts',
+    'dashboard/e2e/dispatch-d15-launch-reentry-p1.spec.ts',
     'dashboard/e2e/dispatch-d12-scale.spec.ts',
     'dashboard/src/test/auth-session-consumer-isolation.test.tsx',
     'dashboard/src/test/dispatch-load-context.test.tsx',
