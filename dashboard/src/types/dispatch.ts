@@ -30,6 +30,15 @@ export interface PendingRoute {
   sessionBound: boolean;
   workSessionId?: string | null;
   adjustmentContextRevision?: number;
+  // Signed M05 read-only current assignment, not historic driverId/vehicleId.
+  assignmentContextRevision?: number;
+  currentPeriodId?: number | null;
+  currentDriverId?: number | null;
+  currentVehicleId?: number | null;
+  currentVehicleLocationId?: number | null;
+  currentPeriodState?: "PLANNED" | "ACTIVE" | null;
+  currentDriverName?: string | null;
+  currentWorkSessionId?: number | null;
   can_execute: boolean;
   commercial_context: RouteCommercialContext | null;
 }

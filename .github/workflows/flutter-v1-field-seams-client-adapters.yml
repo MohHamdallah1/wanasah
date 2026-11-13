@@ -159,6 +159,8 @@ jobs:
         run: |
           python - <<'PY'
           import asyncio
+          from dataclasses import replace
+          from domains.work_session_multi_route.context import SessionPeriodRejected
           from datetime import datetime
           from types import SimpleNamespace
           from unittest.mock import AsyncMock
@@ -170,7 +172,9 @@ jobs:
               results = list(setup.db.execute.side_effect)
               session = results[0].scalars().first()
               visit = results[3].scalars().first()
-              route = results[4].scalars().first()
+              # M03's signed execution, not a pre-M03 SQL result slot, owns
+              # the current route identity used by every eligibility probe.
+              route = setup.namespace["resolve_active_execution"].return_value.route
               if reason == "missing_session":
                   results[0] = result()
               elif reason == "sealed_active_session":
@@ -180,7 +184,19 @@ jobs:
               elif reason == "settled_visit_session":
                   visit.work_session = SimpleNamespace(inventory_reconciled_at=None, is_settled=True)
               elif reason == "missing_route":
-                  results[4] = result()
+                  # M03's authoritative resolver, not the obsolete fixed
+                  # SQL-result slot, determines the current route. Exercise
+                  # update_visit's real 403 missing-route guard.
+                  resolved = setup.namespace["resolve_active_execution"].return_value
+                  setup.namespace["resolve_active_execution"].return_value = replace(
+                      resolved, route=None,
+                  )
+              elif reason == "missing_canonical_execution":
+                  # Actual M03 absence of an active canonical period is a 409,
+                  # not a synthetic 403 and NEVER the 418 business boundary.
+                  setup.namespace["resolve_active_execution"].side_effect = (
+                      SessionPeriodRejected("M03_NO_ACTIVE_EXECUTION_PERIOD")
+                  )
               elif reason == "missing_vehicle":
                   route.vehicle_id = None
               elif reason in ("outside_zone", "emergency", "pending_shortage"):
@@ -188,13 +204,17 @@ jobs:
                   if reason == "emergency":
                       visit.is_emergency = True
                   elif reason == "pending_shortage":
-                      results[5] = result(123)
+                      # The signed M03 route is resolved outside db.execute;
+                      # slot 4 is now the real pending-shortage query, not route.
+                      results[4] = result(123)
               elif reason == "active_break":
                   session.break_start_time = datetime(2026, 10, 23)
               elif reason == "unauthorized":
                   session.is_authorized_to_sell = False
               elif reason == "pending_handshake":
-                  results[7] = result(123)
+                  # The obsolete route SELECT is gone; position 6 now carries
+                  # the actual pending-handshake query result.
+                  results[6] = result(123)
               elif reason == "inventory_lock":
                   setup.namespace["check_inventory_locks_batch"].side_effect = ValueError("synthetic lock")
               elif reason == "wrong_driver":
@@ -227,6 +247,7 @@ jobs:
                   ("current_allowed", 418), ("missing_session", 403),
                   ("sealed_active_session", 409), ("sealed_visit_session", 409),
                   ("settled_visit_session", 403), ("missing_route", 403),
+                  ("missing_canonical_execution", 409),
                   ("missing_vehicle", 409), ("outside_zone", 403),
                   ("emergency", 418), ("pending_shortage", 418),
                   ("active_break", 403), ("unauthorized", 403),

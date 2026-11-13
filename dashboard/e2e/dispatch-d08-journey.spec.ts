@@ -129,9 +129,10 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     "/dispatch/shops/bulk_import" && r.request().method() === "POST");
   await importDialog.getByRole("button", { name: "Review and upload shops" }).click();
   expect((await importedShop).status()).toBe(201);
-  if (await importDialog.isVisible()) {
-    await importDialog.locator(".app-modal-header button").click();
-  }
+  // Import POST 201 closes the dialog asynchronously. Its header is
+  // destroyed during dismissal, so racing a second header click is not a
+  // valid business requirement. Verify the actual auto-close contract.
+  await expect(importDialog).not.toBeVisible({ timeout: 15000 });
 
   // Zone edit/archive/restore uses real browser buttons and same-zone shop provenance.
   const zoneList = page.locator(".dispatch-zones-workbench > div:first-child");
@@ -224,16 +225,26 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     r.request().method() === "PUT");
   await waiting.getByRole("button", { name: /تأجيل المنطقة/ }).click();
   expect((await postponed).status()).toBe(200);
-  await page.getByRole("button", { name: /عرض المؤجل/ }).click();
-  const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة/ });
-  await expect(postponedDialog.getByRole("button", { name: "استعادة" })).toBeVisible();
+  await page.getByRole("button", { name: /عرض المؤجل|Show postponed/ }).click();
+  const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة|Postponed routes/ });
+  await expect(postponedDialog.locator("tbody tr")).toHaveCount(1);
+  // This D08 fixture is frozen V1 rev1: no current M02 execution period.
+  // Preserve the real legacy Restore path only for rev1; canonical route
+  // fixtures must use the separate signed M02 RESUME with accepted custody.
+  const legacyRestore = postponedDialog.getByRole("button", { name: /^(استعادة|Restore)$/ });
+  await expect(legacyRestore).toBeVisible();
+  await expect(postponedDialog.getByRole("button", {
+    name: /اختيار واستئناف|Select and resume/,
+  })).toHaveCount(0);
   const restored = page.waitForResponse(r => new URL(r.url()).pathname === routeStatus &&
     r.request().method() === "PUT");
-  await postponedDialog.getByRole("button", { name: "استعادة" }).click();
+  await legacyRestore.click();
   expect((await restored).status()).toBe(200);
   await postponedDialog.locator(".app-modal-header button").click();
   await expect(postponedDialog).not.toBeVisible();
 
+  // Closing this original rev1 route must use its own legacy status writer,
+  // never an unsigned canonical lifecycle command.
   const toClose = page.locator(".dispatch-route-row").first();
   await expect(toClose.getByRole("button", { name: "إغلاق خط السير" })).toBeVisible();
   await toClose.getByRole("button", { name: "إغلاق خط السير" }).click();
@@ -265,11 +276,15 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     if (!reply.ok) throw new Error("Authorized Dispatch init failed: " + reply.status);
     return reply.json();
   }, API);
+  const resourceIds = [
+    String(state.zoneId), String(state.driverId),
+    String(state.vehicleId), String(state.warehouseId),
+  ];
   const choices = [
-    init.zones.find((x: { id: string }) => x.id === String(state.zoneId))?.name,
-    init.drivers.find((x: { id: string }) => x.id === String(state.driverId))?.name,
-    init.vehicles.find((x: { id: string }) => x.id === String(state.vehicleId))?.label,
-    init.warehouses.find((x: { id: string }) => x.id === String(state.warehouseId))?.label,
+    init.zones.find((x: { id: string }) => x.id === resourceIds[0])?.name,
+    init.drivers.find((x: { id: string }) => x.id === resourceIds[1])?.name,
+    init.vehicles.find((x: { id: string }) => x.id === resourceIds[2])?.label,
+    init.warehouses.find((x: { id: string }) => x.id === resourceIds[3])?.label,
   ];
   expect(choices.every(Boolean)).toBe(true);
   const selectors = page.locator(".dispatch-launch-config > .relative.mt-2");
@@ -278,12 +293,20 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   // previous Zone/Representative/Vehicle selections and their stock evidence.
   for (const index of [3, 0, 1, 2]) {
     await selectors.nth(index).locator("button").first().click();
-    await selectors.nth(index).getByRole("button", { name: choices[index], exact: true }).click();
+    // Distinct canonical IDs, not labels: multiple different representatives
+    // can legitimately share a display name in the signed resource list.
+    await selectors.nth(index).locator(
+      `[role="option"][data-resource-id="${resourceIds[index]}"]`,
+    ).click();
     await expect(selectors.nth(index).locator("button").first()).toContainText(choices[index]);
   }
   const readiness = page.getByTestId("d11-commercial-preflight");
-  await expect(readiness.getByRole("status")).toContainText(
+  // D11 renders compact visible "Verified", retaining the complete business
+  // readiness statement as its accessible aria-label. Prove BOTH contracts.
+  const readinessStatus = readiness.getByRole("status");
+  await expect(readinessStatus).toHaveAttribute("aria-label",
     "Checks passed — launch requirements are currently met.", { timeout: 30000 });
+  await expect(readinessStatus).toContainText("Verified");
   const target = page.locator("#route-base-" + state.variantId);
   await expect(target).toBeEnabled({ timeout: 30000 });
   await target.fill("21");

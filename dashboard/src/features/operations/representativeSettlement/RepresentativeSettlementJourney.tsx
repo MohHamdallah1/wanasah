@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { SettlementModal } from "@/components/operations/SettlementModal";
 import { FINANCIAL_SETTLEMENT_READY_STATUS, type DriverData, type SessionSettlementReport } from "@/data/operations-data";
 import type { SettlementAuthFetch } from "./api";
-import { RepresentativeCustodyModal } from "./RepresentativeCustodyModal";
+import { SignedMultiVehicleCustodyJourney } from "./SignedMultiVehicleCustodyJourney";
 
 export function RepresentativeSettlementJourney({
   isOpen, onClose, driver, report, isReportLoading, reportError, onRetryReport,
@@ -21,8 +21,9 @@ export function RepresentativeSettlementJourney({
   onCustodyCompleted: (sessionId: number) => void;
 }) {
   const [phase, setPhase] = useState<"custody" | "financial">("custody");
-  const handleFinancialReady = useCallback((sessionId: number) => {
-    setPhase("financial");
+  const refreshFinancialAuthority = useCallback((sessionId: number) => {
+    // A signed all-car list is NOT financial readiness. Refresh the real BO
+    // session status; only FINANCIAL_SETTLEMENT_READY_STATUS opens the modal.
     onCustodyCompleted(sessionId);
   }, [onCustodyCompleted]);
 
@@ -34,5 +35,7 @@ export function RepresentativeSettlementJourney({
   if (phase === "financial") {
     return <SettlementModal isOpen={isOpen} onClose={onClose} driver={driver} report={report} isReportLoading={isReportLoading} reportError={reportError} onRetryReport={onRetryReport} isSubmitting={isSubmitting} onConfirmSettlement={onConfirmSettlement} />;
   }
-  return <RepresentativeCustodyModal isOpen={isOpen} onClose={onClose} driverName={driver.session.driver_name} sessionId={driver.session.session_id} authFetch={authFetch} onFinancialReady={handleFinancialReady} />;
+  return <SignedMultiVehicleCustodyJourney isOpen={isOpen} onClose={onClose}
+    driverName={driver.session.driver_name} sessionId={driver.session.session_id}
+    authFetch={authFetch} onCountsCompleted={refreshFinancialAuthority} />;
 }

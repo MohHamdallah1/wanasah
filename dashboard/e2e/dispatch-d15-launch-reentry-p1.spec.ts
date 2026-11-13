@@ -26,18 +26,43 @@ async function signIn(page: Page, lang: "ar" | "en") {
 // Never guess a name/id. Choose only an item genuinely served by PG16.
 async function selectAuthorizedChoices(page: Page) {
   const slots = page.locator(".dispatch-launch-config > div.relative.mt-2");
-  if (await slots.count() !== 4) return 0;
+  await expect(slots, "All four signed launch choices are required").toHaveCount(4);
   let selected = 0;
   for (const index of [3, 0, 1, 2]) {
     const slot = slots.nth(index);
     const button = slot.locator(":scope > div.relative > button");
-    if (await button.isDisabled()) continue;
+    await expect(button, "Signed resource control must be interactive").toBeEnabled({ timeout: 25000 });
     await button.click();
-    const choices = slot.locator("div.absolute.top-full button");
-    if (await choices.count()) {
-      await choices.first().click();
+    // The workflow compares frozen MAIN (legacy CustomSelect) to signed M05.
+    // Only M05 supplies native-disabled listbox roles; retain the original
+    // baseline option path without changing any production selector.
+    if (await button.getAttribute("aria-haspopup") !== "listbox") {
+      const legacy = slot.locator("div.absolute.top-full button");
+      await expect(legacy.first()).toBeVisible({ timeout: 25000 });
+      await legacy.first().click();
       selected++;
-    } else await button.click();
+      continue;
+    }
+    const enabled = slot.locator('div[role="listbox"] button[role="option"]:not(:disabled)');
+    const blocked = slot.locator('div[role="listbox"] button[role="option"]:disabled');
+    const options = slot.locator('div[role="listbox"] button[role="option"]');
+    await expect.poll(async () => options.count(), { timeout: 25000 }).toBeGreaterThan(0);
+    if (await enabled.count()) {
+      const candidate = enabled.first();
+      const signedId = await candidate.getAttribute("data-resource-id");
+      expect(signedId, "Only canonical signed option IDs are selectable").toMatch(/^[1-9]\d*$/);
+      await candidate.click();
+      await expect(button, "The selected signed resource should persist").not.toHaveText(/^(اختر|Select) /);
+      selected++;
+    } else {
+      // Some real PG16 fixtures intentionally have no FIELD-verified rep.
+      // Do not click a disabled item or invent a driver to make D15 pass.
+      await expect(blocked.first()).toBeVisible();
+      await expect(blocked.first()).toBeDisabled();
+      expect((await blocked.first().getAttribute("title"))?.trim().length ?? 0,
+        "The blocked signed resource must explain its exact reason").toBeGreaterThan(0);
+      await button.click();
+    }
   }
   return selected;
 }
