@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "playwright/test";
 import { mkdirSync, readFileSync } from "node:fs";
 
-// This is D12's genuine disposable restricted PG16 seed, not a mocked HTTP
-// route or a fabricated Dashboard model. M05's scenario UI is NOT yet on MAIN.
+// Genuine D12 restricted PG16/HTTP on the now M05-merged exact MAIN.
+// This measures four real Dashboard first-load and warm-return viewports;
+// the separate real signed M03->M06 PG16 gate proves business transitions.
 const state = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D12_STATE!, "utf8"));
 const evidence = "node_modules/.cache/dispatch-m06-owner-visual";
-const readPaths = new Set(["/dispatch/init", "/dispatch/shops", "/dispatch/active_routes", "/dispatch/shortages"]);
+const readPaths = new Set(["/dispatch/init", "/dispatch/shops", "/dispatch/active_routes", "/dispatch/shortages", "/dispatch/launch/resource-availability"]);
 
 async function login(page: Page, language: "ar" | "en") {
   await page.goto("/");
@@ -31,11 +32,11 @@ async function navigate(page: Page, target: "dispatch" | "products", mobile: boo
   await expect(page).toHaveURL(new RegExp("/" + target + "$"), { timeout: 25000 });
 }
 
-function sampleReentry() {
+function sampleReentry(expectedRouteRows: number) {
   const w = window as any;
   const started = performance.now();
   const samples: Array<{
-    tabs: number; shell: boolean; routeRows: number;
+    tabs: number; shell: boolean; routeRows: number; warmDataMissing: boolean;
     falseZero: boolean; falseSkeleton: boolean; docWidth: number; viewport: number;
   }> = [];
   w.__m06Samples = samples;
@@ -49,6 +50,7 @@ function sampleReentry() {
         tabs: shell?.querySelectorAll('[role="tab"]').length ?? 0,
         shell: Boolean(shell && (shell as HTMLElement).getClientRects().length > 0),
         routeRows,
+        warmDataMissing: routeRows < expectedRouteRows,
         falseZero: Boolean(
           (stage as HTMLElement | null)?.getClientRects().length &&
           !shell && !stage?.querySelector(".dashboard-access-state") &&
@@ -94,16 +96,18 @@ for (const language of ["ar", "en"] as const) {
       await page.locator('[data-persistent-dispatch-host="true"]')
         .evaluate(node => node.setAttribute("data-m06-mounted", "same"));
       await navigate(page, "products", width === 390);
-      await page.evaluate(sampleReentry);
+      await page.evaluate(sampleReentry, before);
       await navigate(page, "dispatch", width === 390);
       await expect(page.locator(".dispatch-route-row").first()).toBeVisible({ timeout: 45000 });
       await page.waitForTimeout(1200);
       const samples = await page.evaluate(() => ((window as any).__m06Samples ?? []) as Array<{
-        shell: boolean; tabs: number; routeRows: number;
+        shell: boolean; tabs: number; routeRows: number; warmDataMissing: boolean;
         falseZero: boolean; falseSkeleton: boolean; docWidth: number; viewport: number;
       }>);
       expect(samples.length, "Actual SPA return must be measured in Chromium frames").toBeGreaterThan(0);
       expect(samples.filter(s => s.falseZero).length, "No visibly blank Dashboard after signed admission").toBe(0);
+      expect(samples.filter(s => s.warmDataMissing).length,
+        "Previously signed route cards cannot disappear during same-actor SPA return").toBe(0);
       expect(samples.filter(s => s.shell && s.tabs !== 3).length, "No disappearing tabs").toBe(0);
       expect(samples.filter(s => s.falseSkeleton).length, "Never mount a fake loading table").toBe(0);
       expect(samples.filter(s => s.docWidth !== s.viewport).length, "No outer horizontal scroll").toBe(0);
@@ -117,12 +121,36 @@ for (const language of ["ar", "en"] as const) {
       await expect(launch).toHaveAttribute("aria-selected", "true");
       await expect.poll(() => traffic.get("/dispatch/shops") ?? 0, { timeout: 35000 }).toBeGreaterThan(0);
       await expect(page.getByTestId("dispatch-launch-workspace")).toBeVisible();
+      // Never manufacture a real authorized car to make an inactive selector
+      // look green. Check the actual signed resource endpoint and native
+      // disabled evidence; the product prompt may correctly ask for a car.
+      await expect.poll(() => traffic.get("/dispatch/launch/resource-availability") ?? 0,
+        { timeout: 30000 }).toBeGreaterThan(0);
+      const blocked: Record<string, number> = {};
+      for (const kind of ["zones", "drivers", "vehicles", "warehouses"] as const) {
+        const control = page.getByTestId("m05-launch-" + kind);
+        await expect(control).toBeVisible();
+        const toggle = control.locator('button[aria-haspopup="listbox"]');
+        if (await toggle.isEnabled()) {
+          await toggle.click();
+          await expect(control.getByRole("listbox")).toBeVisible();
+          blocked[kind] = await control.locator('[role="option"]:disabled').count();
+          const titles = await control.locator('[role="option"]:disabled').evaluateAll(nodes =>
+            nodes.map(node => (node as HTMLElement).getAttribute("title") || ""));
+          expect(titles.every(Boolean), "Blocked resources require an explicit reason").toBe(true);
+          await toggle.click();
+        } else {
+          blocked[kind] = 0;
+        }
+      }
       await page.screenshot({ path: info.outputPath("owner-launch.png"), fullPage: true });
       const summary = {
         language, width, routeRows: before, sampledFrames: samples.length,
         realSignedResponses: Object.fromEntries(traffic),
+        blockedResourceCounts: blocked,
+        warmDataMissing: samples.filter(s => s.warmDataMissing).length,
         mobile: width === 390,
-        M05Integrated: false, ownerReviewed: false,
+        M05Integrated: true, ownerReviewed: false,
       };
       console.log("M06_OWNER_VISUAL_BASELINE=" + JSON.stringify(summary));
       await info.attach("m06-visual-measurements.json", {

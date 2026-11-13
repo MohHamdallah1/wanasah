@@ -17,6 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import DispatchRoute, Visit, WorkSession
 from tests.field_authorization_phase3_fixture import PASSWORD
+from tests.m06_owner_settlement_gate import (
+    seed_one_original_pending_shop, accept_signed_two_car_settlement_and_s2,
+)
 from tests.test_dispatch_m03_integrated_postgres import (
     gate, _set_period, _prepare_real_b, _physical, _move_count,
     _current, _sale, _headers, _intent,
@@ -35,6 +38,7 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
     g = gate
     a_period, a_epoch, _ = await _set_period(g)
     b_route, b_vehicle, b_location, b_visit, a_last_visit, _ = await _prepare_real_b(g)
+    pending_visit_id = await seed_one_original_pending_shop(g)
     assert (await _physical(g, g.location), await _physical(g, b_location)) == (100, 60)
     sign_in = await g.client.post("/login", json={
         "company_code": g.company_code,
@@ -70,16 +74,57 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
 
     r1 = f"/dispatch/route/{g.route}/lifecycle"
     r2 = f"/dispatch/route/{b_route}/lifecycle"
-    postpone = _intent("POSTPONE", 2, period=a_period)
+    # Real SAME-ASSIGNMENT PAUSE/CONTINUE before switching vehicles.
+    # Both operations are signed against their current period/revision and
+    # must never touch the location-owned 88 remaining physical units.
+    pause_command = _intent("PAUSE", 2, period=a_period)
+    paused = await g.client.put(r1, headers=manager, json=pause_command)
+    assert paused.status_code == 200 and paused.json()["status"] == "waiting", paused.text
+    waiting_rows = await g.client.get("/dispatch/active_routes", headers=manager)
+    assert waiting_rows.status_code == 200, waiting_rows.text
+    waiting = next(x for x in waiting_rows.json() if int(x["id"]) == int(g.route))
+    assert waiting["status"] == "waiting" and waiting["assignmentContextRevision"] == 3
+    waiting_period = waiting["currentPeriodId"]
+    assert waiting_period is not None and waiting_period != a_period
+    held = await g.client.get("/dispatch/launch/resource-availability", headers=manager)
+    assert held.status_code == 200, held.text
+    for kind, identity in (("drivers", g.field.driver.id),
+                           ("vehicles", g.vehicle), ("zones", g.zone)):
+        signed = next(x for x in held.json()[kind] if x["id"] == str(identity))
+        assert signed["available"] is False, (kind, signed)
+    pause_replay = await g.client.put(r1, headers=manager, json=pause_command)
+    assert pause_replay.status_code == 200 and pause_replay.json() == paused.json()
+    continued = await g.client.put(r1, headers=manager, json=_intent(
+        "RESUME", 3, period=waiting_period, driver=g.field.driver.id,
+        vehicle=g.vehicle, custody=1))
+    assert continued.status_code == 200 and continued.json()["status"] == "active", continued.text
+    after_continue = await _current(g)
+    assert after_continue["route_id"] == g.route
+    assert after_continue["session_id"] == g.session
+    assert after_continue["vehicle_location_id"] == g.location
+    assert after_continue["custody_epoch_id"] == a_epoch
+    assert after_continue["period_id"] not in (a_period, waiting_period)
+    assert await _move_count(g) == baseline
+    assert await _physical(g, g.location) == 88
+
+    postpone = _intent("POSTPONE", 4, period=after_continue["period_id"])
     missing = await g.client.put(r1, json=postpone)
     assert missing.status_code == 401
     foreign = await g.client.put(r1, headers=foreign_manager, json=postpone)
     assert foreign.status_code in (403, 404), foreign.text
-    paused = await g.client.put(r1, headers=manager, json=postpone)
-    assert paused.status_code == 200 and paused.json()["status"] == "postponed", paused.text
+    postponed = await g.client.put(r1, headers=manager, json=postpone)
+    assert postponed.status_code == 200 and postponed.json()["status"] == "postponed", postponed.text
     duplicate = await g.client.put(r1, headers=manager, json=postpone)
-    assert duplicate.status_code == 200 and duplicate.json() == paused.json()
+    assert duplicate.status_code == 200 and duplicate.json() == postponed.json()
     assert await _move_count(g) == baseline
+    released = await g.client.get("/dispatch/launch/resource-availability", headers=manager)
+    assert released.status_code == 200, released.text
+    availability = released.json()
+    for kind, identity in (("drivers", g.field.driver.id), ("vehicles", g.vehicle)):
+        entry = next(x for x in availability[kind] if x["id"] == str(identity))
+        assert entry["available"] is True, (kind, entry)
+    zone_a = next(x for x in availability["zones"] if x["id"] == str(g.zone))
+    assert zone_a["available"] is False and zone_a["code"] == "ZONE_POSTPONED_RESERVED"
 
     # Zone A remains reserved; the driver and car A are released by A's
     # POSTPONE. They are not implicitly reassigned or stripped of physical stock.
@@ -148,7 +193,7 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
     assert p_b.status_code == 200, p_b.text
     resumed = await g.client.put(
         r1, headers=manager,
-        json=_intent("RESUME", 3, driver=g.field.driver.id,
+        json=_intent("RESUME", 5, driver=g.field.driver.id,
                      vehicle=g.vehicle, custody=1),
     )
     assert resumed.status_code == 200, resumed.text
@@ -199,4 +244,10 @@ async def test_owner_a_b_a_cross_route_stale_auth_race_without_phantom_stock(gat
             WorkSession.company_id == g.tenant, WorkSession.id == g.session,
         ))
         assert s1.end_time is not None and s1.is_settled is False
-    print("M06_SIGNED_A_B_A_OWNERSHIP_RACE_REPLAY_STALE_TENANT_PHYSICAL=PASS", flush=True)
+    accepted = await accept_signed_two_car_settlement_and_s2(
+        g, manager, _headers(g.token), b_vehicle, b_location, pending_visit_id,
+        {a_period, waiting_period, after_continue["period_id"],
+         b["period_id"], a_again["period_id"]},
+    )
+    assert accepted["stock_a"] == 83 and accepted["stock_b"] == 53
+    print("M06_SIGNED_FULL_PAUSE_CONTINUE_A_B_A_COUNTS_FINANCE_S2=PASS", accepted, flush=True)

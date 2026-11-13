@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/workflows/dispatch-m06-owner-acceptance.yml"
       - "wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py"
+      - "wa_backend/tests/m06_owner_settlement_gate.py"
+      - "wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart"
       - "dashboard/e2e/dispatch-m06-owner-visual.spec.ts"
       - "dashboard/e2e/dispatch-m06-owner-visual.config.ts"
       - "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md"
@@ -41,6 +43,8 @@ jobs:
           exact = {
               ".github/workflows/dispatch-m06-owner-acceptance.yml",
               "wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py",
+              "wa_backend/tests/m06_owner_settlement_gate.py",
+              "wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart",
               "dashboard/e2e/dispatch-m06-owner-visual.spec.ts",
               "dashboard/e2e/dispatch-m06-owner-visual.config.ts",
               "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md",
@@ -65,7 +69,7 @@ jobs:
               try: allowed(exact|{foreign})
               except AssertionError: pass
               else: raise AssertionError(f"M06 accepted foreign {foreign}")
-          print("M06_TEST_ONLY_OWNER_SCOPE=PASS exact=5 missing=5 foreign=5")
+          print("M06_TEST_ONLY_OWNER_SCOPE=PASS exact=7 missing=7 foreign=5")
           PY
           git diff --check "$M06_BASE" "$M06_HEAD"
 
@@ -91,6 +95,9 @@ jobs:
       DATABASE_URL_MIGRATION: postgresql+asyncpg://m06_admin@127.0.0.1:55494/m03_941_m06_acceptance
       WANASAH_DISPATCH_M03_PG_GATE: "1"
       RUN_M06_OWNER_PG16: "1"
+      # The accepted M04 fixture seeds S1 as a REAL preceding business date
+      # before SQL INSERT, so S2 is reached without patching application time.
+      RUN_M04_FULL_INTEGRATED: "1"
       PYTHONPATH: ${{ github.workspace }}/wa_backend:${{ github.workspace }}/wa_backend/tests
     steps:
       - uses: actions/checkout@v4
@@ -148,6 +155,27 @@ jobs:
           name: m06-signed-owner-pg16-${{ github.run_id }}
           path: wa_backend/m06-real-pg16.xml
           if-no-files-found: warn
+
+  flutter-owner-offline-a-b-a:
+    needs: exact-test-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: wanasah_frontend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.29.3"
+          channel: stable
+          cache: true
+      - name: Resolve frozen Flutter dependencies
+        run: flutter pub get
+      - name: M06 only full-day signed FIELD/offline context gate
+        run: flutter test test/features/work_session/m06_full_day_execution_proof_test.dart
 
   real-owner-visual:
     needs: exact-test-only
