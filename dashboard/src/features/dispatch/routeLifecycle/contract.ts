@@ -80,13 +80,18 @@ export function createLifecycleIntent(
   if (action === "RESUME") {
     if (!target || target.accepted !== true || target.authorized !== true ||
         !positive(target.vehicleId) || !positive(target.driverId) ||
-        !positive(target.custodyRevision) || route.currentPeriodId !== null) {
+        !positive(target.custodyRevision)) {
       throw new Error("M05_CURRENT_CUSTODY_REQUIRED");
+    }
+    if (route.currentPeriodId !== null &&
+        (target.driverId !== route.currentDriverId ||
+         target.vehicleId !== route.currentVehicleId)) {
+      throw new Error("M05_PAUSED_ROUTE_REASSIGNMENT_FORBIDDEN");
     }
     return {
       action,
       expected_context_revision: route.assignmentRevision,
-      expected_period_id: null,
+      expected_period_id: route.currentPeriodId,
       expected_vehicle_custody_revision: target.custodyRevision,
       target_driver_id: target.driverId,
       target_vehicle_id: target.vehicleId,

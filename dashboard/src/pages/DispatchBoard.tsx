@@ -1793,9 +1793,13 @@ function DispatchSession() {
     if (!lifecycleAuthorized() || route.can_execute !== true) return;
     setLifecycleRoute(route);
     setLifecycleAction(action);
-    // Historic route.driverId / vehicleId cannot authorize a fresh assignment.
-    setLifecycleDriverId("");
-    setLifecycleVehicleId("");
+    // WAITING current signed period must resume with identical live assets.
+    // Never infer assignment from historic DispatchRoute.driverId/vehicleId.
+    const samePausedRoute = action === "RESUME" && route.status === "waiting" &&
+      route.currentPeriodId != null && route.currentDriverId != null &&
+      route.currentVehicleId != null;
+    setLifecycleDriverId(samePausedRoute ? String(route.currentDriverId) : "");
+    setLifecycleVehicleId(samePausedRoute ? String(route.currentVehicleId) : "");
     setIsRouteModalOpen(false);
     setIsShowPostponedModalOpen(false);
     setIsLifecycleModalOpen(true);
@@ -1817,7 +1821,7 @@ function DispatchSession() {
                     }}
                     onOpenRouteModal={(r, t) => {
                       if (r.assignmentContextRevision !== 1 || r.currentPeriodId != null) {
-                        openLifecycle(r, "POSTPONE");
+                        openLifecycle(r, r.status === "waiting" ? "RESUME" : "POSTPONE");
                         return;
                       }
                       setActiveRoute(r);
@@ -1876,6 +1880,10 @@ function DispatchSession() {
                           }
                         },
                       });
+                    }}
+                    onContinuePaused={route => {
+                      if (route.status === "waiting" && route.assignmentContextRevision > 1 &&
+                          route.currentPeriodId != null) openLifecycle(route, "RESUME");
                     }}
                     onForceWithdraw={route => {
                       if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {

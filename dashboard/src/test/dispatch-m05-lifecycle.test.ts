@@ -40,9 +40,9 @@ describe("M05 exact read and lifecycle intent", () => {
     });
     expect(createLifecycleIntent("POSTPONE", live!).expected_period_id).toBe(37);
     expect(createLifecycleIntent("CLOSE", live!).expected_context_revision).toBe(5);
-    expect(() => createLifecycleIntent("RESUME", live!, {
+    expect(createLifecycleIntent("RESUME", live!, {
       vehicleId: 6, driverId: 7, custodyRevision: 12, accepted: true, authorized: true,
-    })).toThrow();
+    }).expected_period_id).toBe(37);
   });
 
   it("PAUSE keeps the signed current period and reserves all three resources", () => {
@@ -58,6 +58,24 @@ describe("M05 exact read and lifecycle intent", () => {
     });
     expect(() => createLifecycleIntent("PAUSE", parseRouteAssignmentProof(route)!))
       .toThrow("M05_PAUSE_REQUIRES_CURRENT_SIGNED_PERIOD");
+    const same = { driverId: 7, vehicleId: 6, custodyRevision: 11,
+      accepted: true as const, authorized: true as const };
+    expect(createLifecycleIntent("RESUME", live!, same)).toEqual({
+      action: "RESUME", expected_context_revision: 9,
+      expected_period_id: 57, expected_vehicle_custody_revision: 11,
+      target_driver_id: 7, target_vehicle_id: 6,
+    });
+    expect(() => createLifecycleIntent("RESUME", live!, {
+      ...same, driverId: 99,
+    })).toThrow("M05_PAUSED_ROUTE_REASSIGNMENT_FORBIDDEN");
+    expect(createLifecycleIntent("RESUME", live!, {
+      vehicleId: 6, driverId: 7, custodyRevision: 12,
+      accepted: true, authorized: true,
+    }).expected_period_id).toBe(57);
+    expect(() => createLifecycleIntent("RESUME", live!, {
+      vehicleId: 8, driverId: 7, custodyRevision: 12,
+      accepted: true, authorized: true,
+    })).toThrow("M05_PAUSED_ROUTE_REASSIGNMENT_FORBIDDEN");
     const receipt = { request_id: "signed", state: "COMMITTED", route_id: 17,
       action: "PAUSE", status: "waiting", context_revision: 10,
       zone_reserved: true, live_assets_reserved: true };

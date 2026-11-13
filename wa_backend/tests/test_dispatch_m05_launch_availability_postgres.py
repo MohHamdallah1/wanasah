@@ -215,8 +215,44 @@ async def test_m05_signed_pause_keeps_same_vehicle_rep_zone_and_no_stock(pg):
             paused_period_id = int(rows[1].id)
             assert await db.scalar(select(func.count(InventoryMovement.id)).where(
                 InventoryMovement.company_id == home.company_id)) == stock_before
+        ready = await http.get(
+            f"{url}/readiness?target_driver_id={driver_id}&target_vehicle_id={vehicle_id}",
+            headers=owner,
+        )
+        assert ready.status_code == 200, ready.text
+        assert ready.json()["custodyRevision"] == custody_revision
+        assert ready.json()["assignmentContextRevision"] == 4
+        resumed_again_cmd = _body("RESUME", 4, period=paused_period_id,
+                                  driver=driver_id, vehicle=vehicle_id,
+                                  custody=custody_revision)
+        resumed_again = await http.put(url, headers=owner, json=resumed_again_cmd)
+        assert resumed_again.status_code == 200, resumed_again.text
+        assert resumed_again.json()["status"] == "active"
+        assert resumed_again.json()["context_revision"] == 5
+        again_replay = await http.put(url, headers=owner, json=resumed_again_cmd)
+        assert again_replay.status_code == 200 and again_replay.json() == resumed_again.json()
+        assert (await http.put(url, headers=owner, json=_body(
+            "RESUME", 4, period=paused_period_id,
+            driver=driver_id, vehicle=vehicle_id, custody=custody_revision,
+        ))).status_code == 409
+        async with pg.session() as db:
+            periods = (await db.scalars(select(DispatchRouteExecutionPeriod).where(
+                DispatchRouteExecutionPeriod.company_id == home.company_id,
+                DispatchRouteExecutionPeriod.route_id == rid,
+            ).order_by(DispatchRouteExecutionPeriod.id))).all()
+            assert len(periods) == 3 and periods[1].ended_at is not None
+            assert periods[2].ended_at is None and periods[2].context_revision == 5
+            assert (periods[2].driver_id, periods[2].vehicle_id,
+                    periods[2].field_representative_id) == (old_driver, old_vehicle, old_rep)
+            continued_period_id = int(periods[2].id)
+            assert await db.scalar(select(func.count(InventoryMovement.id)).where(
+                InventoryMovement.company_id == home.company_id)) == stock_before
+        occupied_again = (await http.get(availability_path, headers=owner)).json()
+        assert _item(occupied_again, "zones", zone_id)["code"] == "ZONE_ROUTE_RESERVED"
+        assert _item(occupied_again, "drivers", driver_id)["code"] == "REPRESENTATIVE_ON_ROUTE"
+        assert _item(occupied_again, "vehicles", vehicle_id)["code"] == "VEHICLE_ON_ROUTE"
         deferred = await http.put(url, headers=owner,
-                                  json=_body("POSTPONE", 4, period=paused_period_id))
+                                  json=_body("POSTPONE", 5, period=continued_period_id))
         assert deferred.status_code == 200, deferred.text
         assert deferred.json()["status"] == "postponed"
         choices = (await http.get(availability_path, headers=owner)).json()
@@ -224,7 +260,7 @@ async def test_m05_signed_pause_keeps_same_vehicle_rep_zone_and_no_stock(pg):
         assert _item(choices, "drivers", driver_id)["code"] != "REPRESENTATIVE_ON_ROUTE"
         assert _item(choices, "vehicles", vehicle_id)["code"] != "VEHICLE_ON_ROUTE"
         closed = await http.put(url, headers=owner,
-                                json=_body("CLOSE", 5))
+                                json=_body("CLOSE", 6))
         assert closed.status_code == 200, closed.text
         choices = (await http.get(availability_path, headers=owner)).json()
         assert _item(choices, "zones", zone_id)["code"] == "AVAILABLE"

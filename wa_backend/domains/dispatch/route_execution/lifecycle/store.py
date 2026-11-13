@@ -72,7 +72,9 @@ class M01RouteLifecycleStore:
         )).all()
         if len(maybe_periods) > 1:
             raise LifecycleConflict("MULTIPLE_LIVE_PERIODS")
-        pre_current = maybe_periods[0] if (intent.action == "PAUSE" and maybe_periods) else None
+        pre_current = maybe_periods[0] if (
+            maybe_periods and (intent.action == "PAUSE" or intent.action == "RESUME")
+        ) else None
         resources = await lock_route_resources(
             db, company_id=company_id, route_id=route_id,
             target_driver_id=(int(pre_current.driver_id) if pre_current is not None
@@ -99,7 +101,7 @@ class M01RouteLifecycleStore:
         if len(current) > 1:
             raise LifecycleConflict("MULTIPLE_LIVE_PERIODS")
         self.period = current[0] if current else None
-        if intent.action == "PAUSE" and (
+        if (intent.action == "PAUSE" or (intent.action == "RESUME" and route.status == "waiting")) and (
             pre_current is None or self.period is None or
             int(self.period.id) != int(pre_current.id) or
             self.period.driver_id != pre_current.driver_id or
@@ -387,7 +389,9 @@ class M01RouteLifecycleStore:
             self.period.reason = intent.action
 
         if decision.open_period_driver_id is not None:
-            if intent.action == "PAUSE":
+            if intent.action == "PAUSE" or (
+                intent.action == "RESUME" and state.status == "waiting"
+            ):
                 if self.period is None or decision.end_period_id != self.period.id:
                     raise LifecycleConflict("ROUTE_PAUSE_PERIOD_STALE")
                 if (not self.period.field_representative_id or
@@ -397,6 +401,19 @@ class M01RouteLifecycleStore:
                     self.period.driver_id != decision.open_period_driver_id or
                     self.period.vehicle_id != decision.open_period_vehicle_id):
                     raise LifecycleConflict("ROUTE_PAUSE_SIGNED_PROOF_MISSING")
+                if intent.action == "RESUME":
+                    # The client supplies exact signed current custody, not an
+                    # old legacy route car. No reassignment during UNPAUSE.
+                    if (self.target_rep_id != self.period.field_representative_id or
+                        self.vehicle_location_id != self.period.vehicle_location_id or
+                        self.custody is None or self.custody.state != "ACCEPTED"):
+                        raise LifecycleConflict("PAUSED_ROUTE_CUSTODY_CHANGED")
+                    current_session = (
+                        self.resources.sessions.get(int(self.period.work_session_id))
+                        if self.period.work_session_id is not None else None
+                    )
+                    if current_session and current_session.end_time is not None:
+                        raise LifecycleConflict("PAUSED_SESSION_ALREADY_ENDED")
                 # No custody transfer, new WorkSession, or implicit stock move.
                 # A new signed period is essential: historical Visit foreign
                 # keys reference the prior (period_id, context_revision), so
@@ -421,7 +438,7 @@ class M01RouteLifecycleStore:
                     started_at=now, started_by_principal_id=self.actor_principal_id,
                     request_id=str(intent.request_id),
                     payload_hash=lifecycle_request_hash(state.route_id, intent),
-                    reason="PAUSE",
+                    reason=intent.action,
                 ))
             else:
                 if self.target_rep_id is None or self.vehicle_location_id is None:

@@ -78,6 +78,65 @@ def test_signed_pause_reserves_same_zone_rep_vehicle_with_new_epoch_and_no_stock
         intent("PAUSE", target_driver_id=101)
 
 
+def test_signed_continue_from_pause_keeps_same_rep_car_session_and_no_stock():
+    cmd = intent("RESUME", expected_period_id=33,
+                 target_driver_id=100, target_vehicle_id=200)
+    result = decide_lifecycle(state("waiting"), cmd)
+    assert result.status == "active"
+    assert result.next_context_revision == 13
+    assert result.end_period_id == 33
+    assert result.zone_reserved and result.live_assets_reserved
+    assert (result.open_period_driver_id, result.open_period_vehicle_id) == (100, 200)
+    assert result.inventory_movements == () and not result.schedule_zone_next
+    with pytest.raises(LifecycleConflict, match="PAUSED_ROUTE_CANNOT_REASSIGN_ASSETS"):
+        decide_lifecycle(state("waiting"), intent("RESUME", expected_period_id=33))
+    with pytest.raises(LifecycleConflict, match="ROUTE_PERIOD_STALE"):
+        decide_lifecycle(state("waiting"), intent("RESUME", expected_period_id=34,
+                                                  target_driver_id=100, target_vehicle_id=200))
+    with pytest.raises(LifecycleConflict, match="SESSION_ALREADY_SETTLED"):
+        decide_lifecycle(state("waiting", work_session_settled=True), cmd)
+    with pytest.raises(LifecycleConflict, match="VEHICLE_CUSTODY_REVISION_STALE"):
+        decide_lifecycle(state("waiting"), intent("RESUME", expected_period_id=33,
+            target_driver_id=100, target_vehicle_id=200,
+            expected_vehicle_custody_revision=8))
+    with pytest.raises(LifecycleConflict, match="ROUTE_CONTEXT_REVISION_STALE"):
+        decide_lifecycle(state("waiting", context_revision=13), cmd)
+
+
+def test_signed_pause_continue_retains_same_assets_and_rejects_aba_or_reassignment():
+    paused = state("waiting", open_period_id=34, context_revision=13)
+    resumed = decide_lifecycle(paused, intent(
+        "RESUME", expected_context_revision=13, expected_period_id=34,
+        target_driver_id=100, target_vehicle_id=200,
+    ))
+    assert resumed.status == "active"
+    assert resumed.end_period_id == 34 and resumed.next_context_revision == 14
+    assert resumed.zone_reserved and resumed.live_assets_reserved
+    assert (resumed.open_period_driver_id, resumed.open_period_vehicle_id) == (100, 200)
+    assert resumed.inventory_movements == ()
+    with pytest.raises(LifecycleConflict, match="PAUSED_ROUTE_CANNOT_REASSIGN_ASSETS"):
+        decide_lifecycle(paused, intent(
+            "RESUME", expected_context_revision=13, expected_period_id=34,
+            target_driver_id=101, target_vehicle_id=200,
+        ))
+    with pytest.raises(LifecycleConflict, match="ROUTE_PERIOD_STALE"):
+        decide_lifecycle(paused, intent(
+            "RESUME", expected_context_revision=13, expected_period_id=33,
+            target_driver_id=100, target_vehicle_id=200,
+        ))
+    with pytest.raises(LifecycleConflict, match="SESSION_ALREADY_SETTLED"):
+        decide_lifecycle(replace(paused, work_session_settled=True), intent(
+            "RESUME", expected_context_revision=13, expected_period_id=34,
+            target_driver_id=100, target_vehicle_id=200,
+        ))
+    with pytest.raises(LifecycleConflict, match="VEHICLE_CUSTODY_REVISION_STALE"):
+        decide_lifecycle(paused, intent(
+            "RESUME", expected_context_revision=13, expected_period_id=34,
+            target_driver_id=100, target_vehicle_id=200,
+            expected_vehicle_custody_revision=99,
+        ))
+
+
 @pytest.mark.parametrize("status", ["active", "waiting"])
 def test_postpone_keeps_route_and_zone_releases_live_assignment(status):
     result = decide_lifecycle(state(status), intent("POSTPONE"))
