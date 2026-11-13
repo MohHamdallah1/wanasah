@@ -174,6 +174,8 @@ jobs:
           cache: true
       - name: Resolve frozen Flutter dependencies
         run: flutter pub get
+      - name: Provide CI-only dotenv asset required by Flutter pubspec
+        run: printf 'API_BASE_URL=http://127.0.0.1:8000\n' > .env
       - name: M06 only full-day signed FIELD/offline context gate
         run: flutter test test/features/work_session/m06_full_day_execution_proof_test.dart
 
