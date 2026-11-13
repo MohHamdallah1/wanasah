@@ -127,7 +127,7 @@ beforeEach(async () => {
 });
 afterEach(() => {
   cleanup(); clients.forEach(c => c.clear()); clients = [];
-  vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); localStorage.clear();
+  vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); localStorage.clear();
 });
 const router = ({ children }: { children: ReactNode }) => <MemoryRouter>{children}</MemoryRouter>;
 
@@ -438,6 +438,9 @@ describe("adjacent Product Import uses the same captured-session boundary", () =
 });
 
 it("unmounts all A Dispatch state/actions on B login, rejects late A, admits only fresh B and preserves durable drafts", async () => {
+  // This test asserts the real WS actor fencing; give the existing mocked
+  // socket a local API origin (Vite never supplies production env in Vitest).
+  vi.stubEnv("VITE_API_URL", "http://127.0.0.1:4184");
   vi.stubGlobal("crypto", webcrypto);
   const scope = durableScope(1, 11, "dispatch-adjust-base", "9");
   const draft = await getOrCreateDurableCommand(scope, { deltas: [{ product_id: 701, delta_base: "8" }] });
