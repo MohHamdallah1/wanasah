@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { LaunchResourceSelect } from "@/features/dispatch/launchResources/LaunchResourceSelect";
+import { resourceReason } from "@/features/dispatch/launchResources/launchResourceReasons";
 import {
   launchAvailabilitySchema, selectionBlocked, useLaunchResourceAvailability,
 } from "@/features/dispatch/launchResources/launchResourceRead";
@@ -19,12 +20,17 @@ const snapshot = () => ({
   advisory: true as const,
   zones: [{ id: "100", label: "Zone A", available: false,
     code: "ZONE_POSTPONED_RESERVED" as const },
-    { id: "101", label: "Zone B", available: true, code: "AVAILABLE" as const }],
+    { id: "101", label: "Zone B", available: true, code: "AVAILABLE" as const },
+    { id: "102", label: "Zone C", available: true, code: "AVAILABLE" as const }],
   drivers: [{ id: "10", label: "Ahmed", available: true, code: "AVAILABLE" as const },
-    { id: "11", label: "Ali", available: false, code: "REPRESENTATIVE_ON_ROUTE" as const }],
+    { id: "11", label: "Ali", available: false, code: "REPRESENTATIVE_ON_ROUTE" as const },
+    { id: "12", label: "Omar", available: true, code: "AVAILABLE" as const }],
   vehicles: [{ id: "20", label: "Vehicle A", available: true, code: "AVAILABLE" as const },
-    { id: "21", label: "Vehicle B", available: false, code: "VEHICLE_ON_ROUTE" as const }],
-  warehouses: [{ id: "30", label: "WH", available: true, code: "AVAILABLE" as const }],
+    { id: "21", label: "Vehicle B", available: false, code: "VEHICLE_ON_ROUTE" as const },
+    { id: "22", label: "Vehicle C", available: true, code: "AVAILABLE" as const }],
+  warehouses: [{ id: "30", label: "WH", available: true, code: "AVAILABLE" as const },
+    { id: "31", label: "WH locked", available: false, code: "WAREHOUSE_AUDIT_LOCK" as const },
+    { id: "32", label: "WH alternative", available: true, code: "AVAILABLE" as const }],
 });
 beforeEach(() => { language.current = "ar"; });
 afterEach(() => cleanup());
@@ -40,39 +46,114 @@ describe("M05 signed live availability — single four selectors", () => {
     })).toBe(false);
   });
 
-  it("renders one RTL dropdown grouped available first, then truly disabled/unselectable busy drivers", () => {
-    const change = vi.fn();
-    render(<LaunchResourceSelect label="المندوب" kind="drivers" options={snapshot().drivers}
-      value="" onChange={change} disabled={false} placeholder="اختر المندوب"/>);
-    expect(screen.getByTestId("m05-launch-drivers")).toHaveAttribute("dir", "rtl");
-    fireEvent.click(screen.getByRole("button", { name: "اختر المندوب" }));
-    expect(screen.getByText("المتاح (1)")).toBeVisible();
-    expect(screen.getByText("غير المتاح (1)")).toBeVisible();
-    const buttons = screen.getAllByRole("option");
-    expect(buttons.find(x => x.textContent === "Ahmed")?.compareDocumentPosition(
-      buttons.find(x => x.textContent?.includes("Ali"))!,
-    ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const busy = screen.getByRole("option", { name: "Ali" });
-    expect(busy).toBeDisabled();
-    expect(busy).toHaveTextContent("المندوب مرتبط بخط نشط");
-    fireEvent.click(busy);
-    expect(change).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("option", { name: "Ahmed" }));
-    expect(change).toHaveBeenCalledTimes(1);
-    expect(change).toHaveBeenCalledWith("10");
-  });
+  // D16: signed backend order is stable within availability groups for all
+  // four selectors; blocked options are real disabled controls while the
+  // focusable wrapper owns the canonical accessible reason tooltip.
+  for (const lang of ["ar", "en"] as const) {
+    for (const sample of [
+      { kind: "zones" as const, selected: "100", busy: "Zone A",
+        available: ["Zone B", "Zone C"], code: "ZONE_POSTPONED_RESERVED" },
+      { kind: "drivers" as const, selected: "11", busy: "Ali",
+        available: ["Ahmed", "Omar"], code: "REPRESENTATIVE_ON_ROUTE" },
+      { kind: "vehicles" as const, selected: "21", busy: "Vehicle B",
+        available: ["Vehicle A", "Vehicle C"], code: "VEHICLE_ON_ROUTE" },
+      { kind: "warehouses" as const, selected: "31", busy: "WH locked",
+        available: ["WH", "WH alternative"], code: "WAREHOUSE_AUDIT_LOCK" },
+    ]) {
+      it(`D16 ${lang.toUpperCase()} ${sample.kind}: flat available-first, focus/hover reason, selected busy stays inline`, () => {
+        language.current = lang;
+        const change = vi.fn();
+        const options = snapshot()[sample.kind];
+        render(<LaunchResourceSelect label={sample.kind} kind={sample.kind} options={options}
+          value={sample.selected} onChange={change} disabled={false} placeholder="Select resource" />);
+        const root = screen.getByTestId("m05-launch-" + sample.kind);
+        const exactReason = resourceReason(sample.code, lang === "ar");
+        expect(root).toHaveAttribute("dir", lang === "ar" ? "rtl" : "ltr");
+        expect(root.querySelector(":scope > p[role=status]")).toBeNull();
+        const field = screen.getByRole("button", { name: sample.busy });
+        expect(field).toHaveAttribute("aria-describedby");
+        const note = document.getElementById(field.getAttribute("aria-describedby")!);
+        expect(note).toHaveTextContent(exactReason);
+        fireEvent.mouseEnter(field);
+        expect(screen.getByRole("tooltip")).toHaveTextContent(exactReason);
+        fireEvent.mouseLeave(field);
+        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+        fireEvent.click(field);
 
-  it("English LTR vehicle unavailable reason remains visible, not hidden or selectable", () => {
+        const buttons = screen.getAllByRole("option");
+        expect(buttons).toHaveLength(3);
+        expect(buttons.map(x => x.getAttribute("aria-label"))).toEqual([
+          ...sample.available, sample.busy,
+        ]);
+        expect(buttons.map(x => x.hasAttribute("disabled"))).toEqual([false, false, true]);
+        expect(screen.queryByText(/^Available \(/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/^Unavailable \(/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/^المتاح \(/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/^غير المتاح \(/)).not.toBeInTheDocument();
+
+        const blocked = screen.getByRole("option", { name: sample.busy });
+        expect(blocked).toBeDisabled();
+        expect(blocked).toHaveAttribute("title", exactReason);
+        const hintTrigger = blocked.parentElement!;
+        expect(hintTrigger).toHaveAttribute("tabindex", "0");
+        fireEvent.mouseEnter(hintTrigger);
+        expect(screen.getByRole("tooltip")).toHaveTextContent(exactReason);
+        fireEvent.mouseLeave(hintTrigger);
+        expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+        fireEvent.focus(hintTrigger);
+        expect(screen.getByRole("tooltip")).toHaveTextContent(exactReason);
+        fireEvent.click(blocked);
+        fireEvent.keyDown(hintTrigger, { key: "Enter", code: "Enter" });
+        expect(change).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByRole("option", { name: sample.available[0] }));
+        expect(change).toHaveBeenCalledExactlyOnceWith(
+          options.find(x => x.label === sample.available[0])!.id,
+        );
+      });
+    }
+  }
+
+  it("D16 searching stays in stable available-first order and unavailable entries never become enabled", () => {
     language.current = "en";
     const change = vi.fn();
     render(<LaunchResourceSelect label="Vehicle" kind="vehicles" options={snapshot().vehicles}
-      value="21" onChange={change} disabled={false} placeholder="Select vehicle"/>);
-    const root = screen.getByTestId("m05-launch-vehicles");
-    expect(root).toHaveAttribute("dir", "ltr");
-    expect(root).toHaveTextContent("Vehicle assigned to an active or paused route");
-    fireEvent.click(screen.getByRole("button", { name: "Vehicle B" }));
-    expect(screen.getByText("Unavailable (1)")).toBeVisible();
+      value="" onChange={change} disabled={false} placeholder="Select vehicle" />);
+    fireEvent.click(screen.getByRole("button", { name: "Select vehicle" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Vehicle B" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("option", { name: "Vehicle B" })).toBeDisabled();
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("D16 disabled but previously signed busy selection keeps a focusable in-field reason, never opens", () => {
+    language.current = "en";
+    const change = vi.fn();
+    render(<LaunchResourceSelect label="Vehicle" kind="vehicles" options={snapshot().vehicles}
+      value="21" onChange={change} disabled={true} placeholder="Select vehicle" />);
+    const root = screen.getByTestId("m05-launch-vehicles");
+    expect(root.querySelector(":scope > p[role=status]")).toBeNull();
+    const field = screen.getByRole("button", { name: "Vehicle B" });
+    expect(field).toBeDisabled();
+    const focusable = field.parentElement!;
+    expect(focusable).toHaveAttribute("tabindex", "0");
+    fireEvent.focus(focusable);
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      resourceReason("VEHICLE_ON_ROUTE", false),
+    );
+    fireEvent.click(field);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("D16 fail-closed disabled selector does not open or expose previously denied options", () => {
+    const change = vi.fn();
+    render(<LaunchResourceSelect label="Source warehouse" kind="warehouses" options={[]}
+      value="31" onChange={change} disabled={true} placeholder="Select source warehouse" />);
+    const field = screen.getByRole("button", { name: "Select source warehouse" });
+    expect(field).toBeDisabled();
+    fireEvent.click(field);
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("WH locked")).not.toBeInTheDocument();
     expect(change).not.toHaveBeenCalled();
   });
 

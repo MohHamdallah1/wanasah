@@ -575,7 +575,23 @@ jobs:
           m04_942_unique = set(m04_policy["M04_UNIQUE"])
           assert len(m04_942_exact) == 57 and len(m04_942_unique) == 4
 
+          # D16 #955 is strictly one independent UX + owner-gate set.
+          # Historical business, authorization, and Flutter scopes are unchanged.
+          d16_955_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/features/dispatch/launchResources/LaunchResourceSelect.tsx",
+              "dashboard/src/features/dispatch/launchResources/launchResourceReasons.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-m05-launch-availability.test.tsx",
+          }
+          assert len(d16_955_exact) == 7
           def ownership_mode(candidate):
+              if candidate == d16_955_exact:
+                  return "D16_955_EXACT"
+              if "dashboard/src/features/dispatch/launchResources/launchResourceReasons.ts" in candidate:
+                  raise AssertionError("D16 #955 partial or mixed ownership: " + repr(sorted(candidate)))
               if __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](candidate):
                   return 'M05_945_EXACT'
               if candidate & m04_942_unique:
