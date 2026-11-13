@@ -2161,7 +2161,7 @@ function DispatchSession() {
               <section data-testid="dispatch-launch-workbench"
                 className="dispatch-surface relative mt-4 flex min-h-[440px] min-w-0 w-full flex-1 flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
                 <div data-testid="dispatch-launch-border-title"
-                  className="dispatch-panel-label absolute -top-3.5 end-6 z-20 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e87bb] to-[#166a94] px-4 py-1.5 text-sm font-black text-white shadow-md">
+                  className="dispatch-panel-label absolute -top-3.5 start-6 z-20 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e87bb] to-[#166a94] px-4 py-1.5 text-sm font-black text-white shadow-md">
                   <Rocket aria-hidden="true" className="h-4 w-4" />
                   {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
                 </div>

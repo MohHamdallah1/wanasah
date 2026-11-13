@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { RotateCcw, Trash2, Search } from "lucide-react";
+import { RotateCcw, Trash2, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSearchText";
 import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
-import type { DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchProductSearch";
+import { DISPATCH_PRODUCT_PAGE_SIZE, type DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchProductSearch";
+import { matchesLoadPinnedProduct } from "@/features/dispatch/loadProductSearchMatch";
 import { formatRouteLoadQuantity, routeLoadReview, type RouteLoadUom } from "@/features/dispatch/routeLoadUom";
 import type { Quantity } from "@/lib/quantity";
 import { MeasuredProductTableBody } from "./DispatchProductWindow";
@@ -35,9 +36,34 @@ export function RouteLoadProductTable({
     ? `/dispatch/products?purpose=LOAD&vehicle_id=${encodeURIComponent(vehicleId)}&warehouse_id=${encodeURIComponent(warehouseId)}`
     : null;
   const page = useDispatchProductWindow(endpoint, search, scope);
+  // Real vehicle/draft products appear first when unfiltered, but must not
+  // bypass a typed search. Search eligibility and SKU access remain backend-owned.
   const pinned: DispatchDiscoveryProduct[] = [...new Set([...Object.keys(current), ...Object.keys(targets)])]
-    .map((id) => ({ id, name: names[id] || t("dispatchProductSearch.unavailable"), load: null }));
+    .map((id) => ({ id, name: names[id] || t("dispatchProductSearch.unavailable"), load: null }))
+    .filter((product) => matchesLoadPinnedProduct(product.name, search));
   const pinnedIds = useMemo(() => new Set(pinned.map((product) => product.id)), [pinned]);
+  // Retain ONLY the page index of products pinned while scrolling. This lets
+  // numbers stay contiguous after a page is evicted without keeping 50k SKUs.
+  const numberedPinsRef = useRef({ key: "", byId: new Map<string, number>() });
+  if (numberedPinsRef.current.key !== page.queryKey) {
+    numberedPinsRef.current = { key: page.queryKey, byId: new Map<string, number>() };
+  }
+  for (const windowPage of page.pages) {
+    for (const product of windowPage.items) {
+      if (pinnedIds.has(product.id)) numberedPinsRef.current.byId.set(product.id, windowPage.index);
+    }
+  }
+  const numberedPages = page.pages.map((windowPage) => {
+    let next = pinned.length + windowPage.index * DISPATCH_PRODUCT_PAGE_SIZE -
+      [...numberedPinsRef.current.byId].filter(([id, index]) =>
+        pinnedIds.has(id) && index < windowPage.index).length;
+    const items: Array<{ product: DispatchDiscoveryProduct; rowNumber: number }> = [];
+    for (const product of windowPage.items) {
+      if (pinnedIds.has(product.id)) continue;
+      items.push({ product, rowNumber: ++next });
+    }
+    return { ...windowPage, items };
+  });
   const contextSelected = !!endpoint && !!scope;
   const firstRevealReady = contextSelected && custodyReady && !pending && page.firstPageReady;
   const joinedPending = pending || (contextSelected && !firstRevealReady && !page.error);
@@ -71,7 +97,22 @@ export function RouteLoadProductTable({
     setClearSnapshot(null);
   };
 
-  const renderRow = (product: DispatchDiscoveryProduct) => {
+  const onQuantityArrow = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    const kind = event.currentTarget.dataset.routeTargetInput;
+    if (!kind) return;
+    const candidates = Array.from(event.currentTarget.closest("table")?.querySelectorAll<HTMLInputElement>(
+      `input[data-route-target-input="${kind}"]:not(:disabled)`,
+    ) ?? []);
+    const position = candidates.indexOf(event.currentTarget);
+    const next = candidates[position + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!next) return;
+    event.preventDefault();
+    next.focus();
+    next.select();
+  };
+
+  const renderRow = (product: DispatchDiscoveryProduct, rowNumber: number) => {
     const unit = units[product.id] || product.load;
     const physical = current[product.id] || "0";
     const target = targets[product.id] || "0";
@@ -79,11 +120,13 @@ export function RouteLoadProductTable({
     let review: ReturnType<typeof routeLoadReview> | null = null;
     try { if (unit) review = routeLoadReview(physical, target, unit); } catch { /* Preserve the editable draft. */ }
     return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
+      <td className="px-1 py-1.5 text-center text-xs text-slate-500 tabular-nums">{rowNumber}</td>
       <td title={product.name} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-1.5 font-semibold text-slate-700">{product.name}</td>
       <td title={unit ? formatRouteLoadQuantity(physical, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
       <td className="min-w-0 overflow-hidden whitespace-nowrap px-2 py-1 text-center">
         <label className="sr-only" htmlFor={`route-base-${product.id}`}>{t("dispatchRouteLoad.target")} — {product.name}</label>
         <input id={`route-base-${product.id}`} type="text" inputMode="decimal"
+          data-route-target-input="base" onKeyDown={onQuantityArrow}
           autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
           disabled={!unit || !canEdit} value={targetInputValue}
           aria-invalid={!!unit && !review}
@@ -131,30 +174,38 @@ export function RouteLoadProductTable({
       <div className="min-w-0 flex-1 overflow-x-auto">
       <table className="w-full min-w-[820px] table-fixed text-sm">
         <colgroup>
-          <col style={{ width: "35%" }} />
-          <col style={{ width: "20%" }} />
+          <col style={{ width: "5%" }} />
+          <col style={{ width: "34%" }} />
+          <col style={{ width: "19%" }} />
           <col style={{ width: "18%" }} />
-          <col style={{ width: "15%" }} />
-          <col style={{ width: "12%" }} />
+          <col style={{ width: "14%" }} />
+          <col style={{ width: "10%" }} />
         </colgroup>
         <thead><tr className="border-b border-slate-200 bg-slate-100/80 text-slate-600">
+          <th scope="col" aria-label={t("dispatchProductSearch.rowNumber")} className="px-1 py-2 text-center text-xs tabular-nums">#</th>
           <th className="px-2.5 py-2 text-start">
-            <label className="relative block w-full max-w-[300px]">
+            <div className="relative block w-full max-w-[370px]">
               <span className="sr-only">{t("dispatchProductSearch.search")}</span>
               <Search aria-hidden="true" className="pointer-events-none absolute end-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              {search && <button type="button" aria-label={t("dispatchProductSearch.clearSearch")}
+                title={t("dispatchProductSearch.clearSearch")} disabled={!endpoint}
+                onClick={(event) => { event.preventDefault(); setSearch(""); }}
+                className="absolute end-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+                <X aria-hidden="true" className="h-4 w-4" />
+              </button>}
               <input type="text" aria-label={t("dispatchProductSearch.search")}
                 placeholder={t("dispatchProductSearch.search")} maxLength={100}
                 value={search} disabled={!endpoint} onChange={event => setSearch(event.target.value)}
-                className="h-8 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 pe-9 text-xs font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
-            </label>
+                className={`h-9 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100 ${search ? "pe-[4.5rem]" : "pe-9"}`} />
+            </div>
           </th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.current")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.target")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.difference")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.action")}</th>
         </tr></thead>
-        {!firstRevealReady && contextSelected && !page.error && <tbody data-testid="dispatch-first-window-pending" aria-hidden="true"><tr><td colSpan={5} className="h-[72px] p-0"><div className="mx-3 h-8 rounded-lg bg-slate-50" /></td></tr></tbody>}
-        {page.error && <tbody><tr><td colSpan={5} className="p-3 text-sm">
+        {!firstRevealReady && contextSelected && !page.error && <tbody data-testid="dispatch-first-window-pending" aria-hidden="true"><tr><td colSpan={6} className="h-[72px] p-0"><div className="mx-3 h-8 rounded-lg bg-slate-50" /></td></tr></tbody>}
+        {page.error && <tbody><tr><td colSpan={6} className="p-3 text-sm">
           <div role="alert" className="flex items-center gap-3 text-amber-800">
             <span>{t("dispatchProductSearch.error")}</span>
             <button type="button" onClick={page.retry} className="rounded-lg border border-amber-200 px-3 py-1.5 font-semibold">
@@ -162,17 +213,17 @@ export function RouteLoadProductTable({
             </button>
           </div>
         </td></tr></tbody>}
-        {firstRevealReady && !pinned.length && page.items.length === 0 && <tbody><tr><td colSpan={5} className="p-4 text-center text-sm text-slate-500">{t("dispatchProductSearch.empty")}</td></tr></tbody>}
-        {firstRevealReady && !!pinned.length && <tbody>{pinned.map(renderRow)}</tbody>}
-        {firstRevealReady && page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
-        <tbody ref={topRef} data-window-boundary="top" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
-        {firstRevealReady && page.pages.map((windowPage) => (
+        {firstRevealReady && !pinned.length && page.items.length === 0 && <tbody><tr><td colSpan={6} className="p-4 text-center text-sm text-slate-500">{t("dispatchProductSearch.empty")}</td></tr></tbody>}
+        {firstRevealReady && !!pinned.length && <tbody>{pinned.map((product, index) => renderRow(product, index + 1))}</tbody>}
+        {firstRevealReady && page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={6} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
+        <tbody ref={topRef} data-window-boundary="top" aria-hidden="true"><tr><td colSpan={6} className="h-px p-0" /></tr></tbody>
+        {firstRevealReady && numberedPages.map((windowPage) => (
           <MeasuredProductTableBody key={windowPage.index} index={windowPage.index} onMeasure={page.registerPageHeight}>
-            {windowPage.items.filter((product) => !pinnedIds.has(product.id)).map(renderRow)}
+            {windowPage.items.map(({ product, rowNumber }) => renderRow(product, rowNumber))}
           </MeasuredProductTableBody>
         ))}
-        <tbody ref={bottomRef} data-window-boundary="bottom" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
-        {firstRevealReady && page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
+        <tbody ref={bottomRef} data-window-boundary="bottom" aria-hidden="true"><tr><td colSpan={6} className="h-px p-0" /></tr></tbody>
+        {firstRevealReady && page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={6} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
       </table>
     </div>
     </section>
