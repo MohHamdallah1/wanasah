@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import binascii
 import bcrypt
 import hashlib
 import json
@@ -11,7 +12,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import BigInteger, and_, func, literal, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, MultipleResultsFound
 
@@ -87,6 +88,7 @@ from .stocktake_discovery import router as stocktake_discovery_router
 logger = logging.getLogger("wanasah_logger")
 router = APIRouter()
 router.include_router(stocktake_discovery_router)
+_MAX_PG_BIGINT_ID = (1 << 63) - 1
 
 
 def _stocktake_authorization_rejected() -> HTTPException:
@@ -168,8 +170,8 @@ def _decode_stocktake_cursor(
 ) -> int:
     try:
         padding = "=" * (-len(cursor) % 4)
-        raw = base64.urlsafe_b64decode(
-            (cursor + padding).encode("ascii")
+        raw = base64.b64decode(
+            (cursor + padding).encode("ascii"), altchars=b"-_", validate=True
         )
         payload = json.loads(raw.decode("utf-8"))
 
@@ -183,11 +185,11 @@ def _decode_stocktake_cursor(
             raise ValueError
 
         session_id = payload.get("id")
-        if type(session_id) is not int or session_id <= 0:
+        if type(session_id) is not int or not 1 <= session_id <= _MAX_PG_BIGINT_ID:
             raise ValueError
 
         return session_id
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeError, binascii.Error) as exc:
         raise HTTPException(
             status_code=400,
             detail=(
@@ -527,7 +529,9 @@ def _encode_stocktake_cycle_batch_cursor(batch_id: int, *, scope: str) -> str:
 def _decode_stocktake_cycle_batch_cursor(cursor: str, *, expected_scope: str) -> int:
     try:
         padding = "=" * (-len(cursor) % 4)
-        raw = base64.urlsafe_b64decode((cursor + padding).encode("ascii"))
+        raw = base64.b64decode(
+            (cursor + padding).encode("ascii"), altchars=b"-_", validate=True
+        )
         payload = json.loads(raw.decode("utf-8"))
         if (
             not isinstance(payload, dict)
@@ -538,10 +542,10 @@ def _decode_stocktake_cycle_batch_cursor(cursor: str, *, expected_scope: str) ->
         ):
             raise ValueError
         batch_id = payload.get("id")
-        if type(batch_id) is not int or batch_id <= 0:
+        if type(batch_id) is not int or not 1 <= batch_id <= _MAX_PG_BIGINT_ID:
             raise ValueError
         return batch_id
-    except Exception as exc:
+    except (ValueError, TypeError, UnicodeError, binascii.Error) as exc:
         raise HTTPException(
             status_code=400,
             detail="Cursor دفعات الجرد الدوري غير صالح أو لا يطابق النطاق الحالي.",
@@ -644,7 +648,7 @@ async def list_stocktake_cycle_batches(
             cursor,
             expected_scope=scope,
         )
-        stmt = stmt.filter(ProductBatch.id < cursor_id)
+        stmt = stmt.filter(ProductBatch.id < literal(cursor_id, type_=BigInteger()))
 
     rows = (
         await db.execute(
@@ -1226,7 +1230,7 @@ async def list_active_stocktake_sessions(
             cursor,
             expected_scope=scope,
         )
-        stmt = stmt.filter(StocktakeSession.id < cursor_id)
+        stmt = stmt.filter(StocktakeSession.id < literal(cursor_id, type_=BigInteger()))
 
     rows = (
         await db.execute(

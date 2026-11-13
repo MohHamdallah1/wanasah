@@ -286,6 +286,16 @@ jobs:
               ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
               ".github/workflows/stocktake-v1-operator-782.yml",
           }
+          # #808 is an independent cursor hardening PR: both ownership
+          # gates and exactly the two production decoders plus its regression.
+          # Never admit individual files, historical #799 files or unions.
+          cursor_808 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              ".github/workflows/stocktake-v1-history-799.yml",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/api/warehouse/stocktake_discovery.py",
+              "wa_backend/tests/test_stocktake_808_bigint_cursor_real_pg16.py",
+          }
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -306,6 +316,7 @@ jobs:
               frozenset(recount_798): "OPTIONAL_RECOUNT_798",
               frozenset(history_799): "TERMINAL_HISTORY_799",
               frozenset(ci_compat_798_799): "STOCKTAKE_CI_EXACT_COMPAT_798_799",
+              frozenset(cursor_808): "CURSOR_BIGINT_808_EXACT",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -334,7 +345,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799 - cursor_808),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -379,8 +390,28 @@ jobs:
                       pass
                   else:
                       raise AssertionError(f"Foreign path accepted by {label}: {foreign}")
+          # The independent #808 set may not silently become a subset,
+          # superset or mixed feature scope, even when historical paths overlap.
+          assert verify_owner_scope("pull_request", cursor_808) == "CURSOR_BIGINT_808_EXACT"
+          for missing in sorted(cursor_808):
+              incomplete = cursor_808 - {missing}
+              assert frozenset(incomplete) not in valid_scopes
+              try:
+                  verify_owner_scope("pull_request", incomplete)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Incomplete #808 scope admitted: {missing}")
+          for foreign in (*foreign_paths, "wa_backend/api/warehouse/stocktake_history.py"):
+              try:
+                  verify_owner_scope("pull_request", cursor_808 | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign #808 scope admitted: {foreign}")
           for mixed in (history_799 | recount_798, history_799 | ci_compat_798_799,
-                        recount_798 | ci_compat_798_799):
+                        recount_798 | ci_compat_798_799, cursor_808 | history_799,
+                        cursor_808 | recount_798, cursor_808 | ci_compat_798_799):
               assert frozenset(mixed) not in valid_scopes
           for event, sample in (
               ("pull_request", set()),
