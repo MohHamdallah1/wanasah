@@ -2130,8 +2130,8 @@ function DispatchSession() {
               {/* ONE real launch operation: selectors, readiness, products and
                   final action share a continuous surface, not three cards. */}
               <section data-testid="dispatch-launch-workbench"
-                className="dispatch-surface mt-2 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-3 px-4 pb-3 pt-3 sm:grid-cols-2 xl:grid-cols-4">
+                className="dispatch-surface mt-1 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-1.5 px-3 pb-1.5 pt-2 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="col-span-full flex min-w-0 items-center gap-2 text-sm font-extrabold text-slate-800">
                     <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-[#166a94]">
                       <Rocket aria-hidden="true" className="h-4 w-4" />
@@ -2173,7 +2173,7 @@ function DispatchSession() {
                     launch configuration, not a second full-width page card.
                     Worker2 owns the panel internals; its real props and
                     Backend verification stay unchanged. */}
-                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0 border-t border-slate-100 pt-2">
+                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0 border-t border-slate-100 pt-1">
                   <CommercialPreflightPanel language={i18n.language}
                     status={tabReady && launchResourcesReady ? commercialPreflight.status : "choose"}
                     evidence={tabReady && launchResourcesReady ? commercialPreflight.evidence : null}
