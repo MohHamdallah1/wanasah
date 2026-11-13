@@ -516,7 +516,19 @@ jobs:
               "dashboard/src/test/dispatch-load-context.test.tsx",
           }
           assert len(d19_961_exact) == 6
+          # D20: owner-requested quantity-input browser autofill suppression
+          # and 4px row comfort only. Exact frontend + CI guard scope.
+          d20_input_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+          }
+          assert len(d20_input_exact) == 5
           def ownership_mode(candidate):
+              if candidate == d20_input_exact:
+                  return "D20_INPUT_EXACT"
               if candidate == d19_961_exact:
                   return "D19_961_EXACT"
               if candidate == d18_959_exact:
