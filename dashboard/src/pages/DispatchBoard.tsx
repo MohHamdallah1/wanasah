@@ -472,6 +472,7 @@ function DispatchSession() {
   const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
   const [vehicleInventoryLoadedForContext, setVehicleInventoryLoadedForContext] = useState<string | null>(null);
   const [vehicleInventoryLoadedForSelection, setVehicleInventoryLoadedForSelection] = useState<string | null>(null);
+  const completedVehicleLoadRef = useRef<string | null>(null);
   const [vehicleInventoryReloadKey, setVehicleInventoryReloadKey] = useState(0);
   const activeRouteContext = pendingRoutes.find((route) => route.id === activeRoute?.id) ?? activeRoute;
   const vehicleLoadContext = JSON.stringify([presentationProductScope, selectedVehicleId, isRouteModalOpen
@@ -619,6 +620,7 @@ function DispatchSession() {
     setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadUnits({}); setRouteLoadNames({});
     setVehicleInventoryLoadedForContext(null);
     setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
   };
 
   const clearDispatchPrivateState = useCallback(() => {
@@ -634,6 +636,7 @@ function DispatchSession() {
     setSelectedDriverId(""); setSelectedVehicleId(""); setSelectedSourceWarehouseId("");
     setVehicleInventoryLoadedForContext(null);
     setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
     setShortageZoneId(""); setShortageShopId(""); setShortageDriverId("");
     setShopForm(emptyShopForm("")); setEditingShopId(null);
     setZoneFormName(""); setEditingZoneId(null);
@@ -1011,13 +1014,13 @@ function DispatchSession() {
       setRouteLoadNames({});
       setVehicleInventoryLoadedForContext(null);
       setVehicleInventoryLoadedForSelection(null);
+      completedVehicleLoadRef.current = null;
       return;
     }
     // A same-session dashboard return must not erase verified custody and
     // force an identical GET. Authorization still gates every command.
     if (accessState !== "ready" || dispatchReadState !== "ready" || !actorScope) return;
-    if (vehicleInventoryLoadedForContext === vehicleLoadContext &&
-        vehicleInventoryLoadedForSelection === vehicleLoadSelectionContext) return;
+    if (completedVehicleLoadRef.current === vehicleLoadSelectionContext) return;
 
     setRouteLoadCurrent({});
     setRouteLoadTargets({});
@@ -1029,6 +1032,7 @@ function DispatchSession() {
     const controller = new AbortController();
     setVehicleInventoryLoadedForContext(null);
     setVehicleInventoryLoadedForSelection(null);
+    completedVehicleLoadRef.current = null;
 
     const admitted = captureUiRead();
     authenticatedFetch(`/dispatch/inventory/${requestedVehicleId}`, {
@@ -1055,6 +1059,7 @@ function DispatchSession() {
           const item = raw as VehicleInventoryPayload & { product_name?: string };
           return [String(item.product_id), String(item.product_name || item.product_id)];
         })));
+        completedVehicleLoadRef.current = vehicleLoadSelectionContext;
         setVehicleInventoryLoadedForContext(vehicleLoadContext);
         setVehicleInventoryLoadedForSelection(vehicleLoadSelectionContext);
       })
@@ -1062,13 +1067,13 @@ function DispatchSession() {
         if (controller.signal.aborted || !admitted()) return;
         setVehicleInventoryLoadedForContext(null);
         setVehicleInventoryLoadedForSelection(null);
+        completedVehicleLoadRef.current = null;
         toast.error(apiErrorMessage(err, t("dispatchAdjustLoad.loadError")));
       });
 
     return () => controller.abort();
   }, [selectedVehicleId, selectedZoneId, selectedDriverId, vehicleLoadContext,
-    vehicleLoadSelectionContext, vehicleInventoryLoadedForContext,
-    vehicleInventoryLoadedForSelection, actorScope, accessState, dispatchReadState,
+    vehicleLoadSelectionContext, actorScope, accessState, dispatchReadState,
     authenticatedFetch, t]);
 
   useEffect(() => { setIsEditMode(false); setSelectedShopIds([]); setHasUnsavedChanges(false); }, [activeTab]);
