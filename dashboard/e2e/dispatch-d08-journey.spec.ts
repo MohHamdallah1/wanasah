@@ -276,11 +276,15 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     if (!reply.ok) throw new Error("Authorized Dispatch init failed: " + reply.status);
     return reply.json();
   }, API);
+  const resourceIds = [
+    String(state.zoneId), String(state.driverId),
+    String(state.vehicleId), String(state.warehouseId),
+  ];
   const choices = [
-    init.zones.find((x: { id: string }) => x.id === String(state.zoneId))?.name,
-    init.drivers.find((x: { id: string }) => x.id === String(state.driverId))?.name,
-    init.vehicles.find((x: { id: string }) => x.id === String(state.vehicleId))?.label,
-    init.warehouses.find((x: { id: string }) => x.id === String(state.warehouseId))?.label,
+    init.zones.find((x: { id: string }) => x.id === resourceIds[0])?.name,
+    init.drivers.find((x: { id: string }) => x.id === resourceIds[1])?.name,
+    init.vehicles.find((x: { id: string }) => x.id === resourceIds[2])?.label,
+    init.warehouses.find((x: { id: string }) => x.id === resourceIds[3])?.label,
   ];
   expect(choices.every(Boolean)).toBe(true);
   const selectors = page.locator(".dispatch-launch-config > .relative.mt-2");
@@ -289,7 +293,11 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   // previous Zone/Representative/Vehicle selections and their stock evidence.
   for (const index of [3, 0, 1, 2]) {
     await selectors.nth(index).locator("button").first().click();
-    await selectors.nth(index).getByRole("button", { name: choices[index], exact: true }).click();
+    // Distinct canonical IDs, not labels: multiple different representatives
+    // can legitimately share a display name in the signed resource list.
+    await selectors.nth(index).locator(
+      `[role="option"][data-resource-id="${resourceIds[index]}"]`,
+    ).click();
     await expect(selectors.nth(index).locator("button").first()).toContainText(choices[index]);
   }
   const readiness = page.getByTestId("d11-commercial-preflight");

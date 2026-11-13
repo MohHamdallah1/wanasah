@@ -48,16 +48,16 @@ describe("M05 signed live availability — single four selectors", () => {
     fireEvent.click(screen.getByRole("button", { name: "اختر المندوب" }));
     expect(screen.getByText("المتاح (1)")).toBeVisible();
     expect(screen.getByText("غير المتاح (1)")).toBeVisible();
-    const buttons = screen.getAllByRole("button");
+    const buttons = screen.getAllByRole("option");
     expect(buttons.find(x => x.textContent === "Ahmed")?.compareDocumentPosition(
       buttons.find(x => x.textContent?.includes("Ali"))!,
     ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const busy = screen.getByRole("button", { name: "Ali" });
+    const busy = screen.getByRole("option", { name: "Ali" });
     expect(busy).toBeDisabled();
     expect(busy).toHaveTextContent("المندوب مرتبط بخط نشط");
     fireEvent.click(busy);
     expect(change).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Ahmed" }));
+    fireEvent.click(screen.getByRole("option", { name: "Ahmed" }));
     expect(change).toHaveBeenCalledTimes(1);
     expect(change).toHaveBeenCalledWith("10");
   });
@@ -72,7 +72,7 @@ describe("M05 signed live availability — single four selectors", () => {
     expect(root).toHaveTextContent("Vehicle assigned to an active or paused route");
     fireEvent.click(screen.getByRole("button", { name: "Vehicle B" }));
     expect(screen.getByText("Unavailable (1)")).toBeVisible();
-    expect(screen.getAllByRole("button", { name: "Vehicle B" }).some(x => x.hasAttribute("disabled"))).toBe(true);
+    expect(screen.getByRole("option", { name: "Vehicle B" })).toBeDisabled();
     expect(change).not.toHaveBeenCalled();
   });
 

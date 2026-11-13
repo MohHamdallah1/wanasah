@@ -65,7 +65,7 @@ export function LaunchResourceSelect({
         <span className="truncate">{selected?.label || placeholder}</span>
         <ChevronDown className="h-4 w-4 shrink-0"/>
       </button>
-      {open && !disabled && <div aria-label={label}
+      {open && !disabled && <div role="listbox" aria-label={label}
         className="absolute inset-x-0 top-full z-[70] mt-1 flex max-h-[280px] min-w-[240px] max-w-[min(95vw,420px)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
         <label className="relative shrink-0 border-b p-2">
           <Search className="pointer-events-none absolute end-4 top-4 h-4 w-4 text-slate-500"/>
@@ -77,7 +77,7 @@ export function LaunchResourceSelect({
         <div className="min-h-0 overflow-y-auto p-1">
           {available.length > 0 && <p className="px-3 py-1.5 text-xs font-bold text-slate-600">
             {ar ? "المتاح" : "Available"} ({available.length})</p>}
-          {available.map(x => <button aria-pressed={value === x.id}
+          {available.map(x => <button role="option" aria-selected={value === x.id} data-resource-id={x.id}
             aria-label={x.label} key={x.id} type="button"
             onClick={() => choose(x)}
             className="flex w-full min-w-0 items-center rounded-lg px-3 py-2.5 text-start text-sm hover:bg-sky-50">
@@ -85,7 +85,7 @@ export function LaunchResourceSelect({
           </button>)}
           {unavailable.length > 0 && <p className="border-t px-3 py-1.5 text-xs font-bold text-slate-500">
             {ar ? "غير المتاح" : "Unavailable"} ({unavailable.length})</p>}
-          {unavailable.map(x => <button aria-pressed={value === x.id}
+          {unavailable.map(x => <button role="option" aria-selected={value === x.id} data-resource-id={x.id}
             aria-label={x.label} key={x.id} type="button" disabled
             title={resourceReason(x.code, ar)}
             className="flex w-full min-w-0 flex-col rounded-lg px-3 py-2.5 text-start text-sm text-slate-500 opacity-75">

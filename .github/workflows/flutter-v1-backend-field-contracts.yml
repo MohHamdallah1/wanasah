@@ -87,8 +87,23 @@ jobs:
               results.append(failed)
               print(label + " known failures=" + repr(sorted(failed)))
           assert results[0], "Expected historical failures were not reproduced"
-          assert results[0] == results[1], "Regression differs from immutable main baseline"
-          print("HISTORICAL_FAILURE_PARITY=PASS; THESE TESTS ARE NOT CLAIMED PASS")
+          regressions = results[1] - results[0]
+          assert not regressions, ("New failures after M05:", sorted(regressions))
+          # M04 genuinely repaired six frozen vehicle-reconciliation fixtures;
+          # comparing exact failure sets incorrectly rejects those improvements.
+          # Retain explicit evidence of the ONE still-failing source guard:
+          source_guard = (
+              "tests.test_driver_mixed_visit_authorization_cutover.DriverMixedVisitSourceContractTests",
+              "test_frozen_capability_and_owner_authority_evidence",
+          )
+          assert source_guard in results[1], (
+              "Known source-guard result changed; investigate, do not hide failures",
+              sorted(results[1]),
+          )
+          print("HISTORICAL_NO_NEW_FAILURES=PASS improved=" +
+                str(len(results[0] - results[1])) +
+                " remaining=" + repr(sorted(results[1])) +
+                "; REMAINING SOURCE GUARD IS STILL FAILING, NOT CLAIMED PASS")
           PY
       - name: Syntax and whitespace
         run: |
