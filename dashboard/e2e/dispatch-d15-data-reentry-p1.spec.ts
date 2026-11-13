@@ -127,7 +127,14 @@ async function sample(page: Page, tab: Tab, label: string, expected: {
           falseZero:tab === "zones" && /المناطق \(0\)/.test(text),
           falseShops:tab === "zones" && text.includes("لا توجد محلات في هذه المنطقة"),
           falseRoutes:tab === "routes" && text.includes("لا توجد خطوط سير تشغيلية حالياً"),
-          falseProductContext:tab === "launch" && text.includes("اختر السيارة ومستودع المصدر للبحث"),
+          // A product context can only disappear if this test genuinely had
+          // BOTH an authorized vehicle and source warehouse selected before
+          // leaving. When the signed fixture has no eligible vehicle, the
+          // product search correctly asks for one; that is NOT lost data.
+          // chosen order is warehouse, zone, representative, vehicle.
+          falseProductContext:tab === "launch" &&
+            Boolean(expected.choiceNames[0] && expected.choiceNames[3]) &&
+            text.includes("اختر السيارة ومستودع المصدر للبحث"),
           workspaceX:target ? Math.max(0,target.scrollWidth-target.clientWidth) : -1,
           frameX:wrapper ? Math.max(0,wrapper.scrollWidth-wrapper.clientWidth) : -1,
           configX:launch ? Math.max(0,launch.scrollWidth-launch.clientWidth) : -1,
