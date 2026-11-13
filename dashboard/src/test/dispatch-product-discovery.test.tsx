@@ -222,7 +222,7 @@ describe("Dispatch cursor pickers", () => {
     expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
   });
 
-  it("never offers an old clear-undo snapshot after switching the authorized source warehouse", () => {
+  it("never offers an old clear-undo snapshot after switching the authorized source warehouse", async () => {
     function SourceSwitcher() {
       const [warehouseId, setWarehouseId] = useState("21");
       const [targets, setTargets] = useState<Record<string, string>>({ "521": "15" });
@@ -236,6 +236,8 @@ describe("Dispatch cursor pickers", () => {
       </>;
     }
     render(<SourceSwitcher />);
+    // D17 joins the signed first page and vehicle custody before permitting clear.
+    await screen.findByText("Matching 1");
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
     expect(screen.getByRole("button", { name: "Undo clear" })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Switch warehouse" }));

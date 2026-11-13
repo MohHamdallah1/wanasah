@@ -69,7 +69,7 @@ export function CommercialPreflightPanel({
 
   return <section ref={frameRef} data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
     aria-label={text("title")} aria-busy={status === "loading"}
-    className={pending && lastVisibleHeightRef.current === 0 ? "w-full min-w-0" : "w-full min-w-0 min-h-6"}
+    className="w-full min-w-0 min-h-6"
     style={pending ? { minHeight: lastVisibleHeightRef.current } : undefined}>
     {pending ? null : confirmedReady ? (
       <div role="status" aria-live="polite" aria-label={text("ready")}
