@@ -191,6 +191,26 @@ jobs:
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
           }
           assert len(d21_launch_exact) == 9
+          # U02/U03 #969: exactly twelve reviewed Launch files plus these three
+          # independent frozen CI ownership gates. No wildcard or subset.
+          u02_u03_969_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/routeLoadUom.ts",
+              "dashboard/src/i18n/dispatchRouteLoad.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "dashboard/src/test/dispatch-route-load-target-ui.test.tsx",
+              "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
+          }
+          assert len(u02_u03_969_exact) == 15
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
@@ -216,7 +236,7 @@ jobs:
               m05_authorized = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](files)
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
-              assert (files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+              assert (files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
@@ -240,7 +260,7 @@ jobs:
               "dashboard/src/features/dispatch/sessionScope.ts",
               "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and m04_mode(files)), f"D07 forbidden foreign path: {foreign}"
+              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files == u02_u03_969_exact or m04_mode(files))), f"D07 forbidden foreign path: {foreign}"
           print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD
@@ -343,12 +363,36 @@ jobs:
           assert len(cases) == 5, f"D07 focused expected 5, got {len(cases)}"
           assert not invalid, f"D07 real PG16 failed/skipped: {invalid}"
           PY
+      - name: U03 genuine signed largest-UOM/base PG16 six scenarios
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_route_load_uom_contract.py::test_u03_real_signed_base_load_and_reverse_unload_exactly_once
+          --junitxml=u03-real-pg16.xml
+      - name: U03 exact six-case no-skip physical stock manifest
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import os, xml.etree.ElementTree as ET
+          name = "u03-real-pg16.xml"
+          assert os.path.isfile(name), "No genuine U03 PostgreSQL16 evidence"
+          cases = list(ET.parse(name).getroot().iter("testcase"))
+          invalid = [(case.get("name"), state) for case in cases
+                     for state in ("failure", "error", "skipped")
+                     if case.find(state) is not None]
+          print(f"U03_PG16_CASES={len(cases)} failures_or_skips={len(invalid)}")
+          assert len(cases) == 6, f"U03 expected six physical signed cases, got {len(cases)}"
+          assert not invalid, f"U03 physical PG16 failed/skipped: {invalid}"
+          PY
       - name: Publish test evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dispatch-d07-real-pg16-junit-${{ github.run_id }}
-          path: wa_backend/d07-real-pg16.xml
+          path: |
+            wa_backend/d07-real-pg16.xml
+            wa_backend/u03-real-pg16.xml
           if-no-files-found: warn
       - name: Disposable PG diagnostic on failure only
         if: failure()
