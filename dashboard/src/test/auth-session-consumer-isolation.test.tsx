@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { useMemo, useState, type ReactNode } from "react";
 import { webcrypto } from "node:crypto";
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -455,6 +455,15 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
     const zone = a ? "1" : "2", driver = a ? "31" : "32", vehicle = a ? "17" : "27";
     const warehouse = a ? "21" : "22", product = a ? "701" : "702", shop = a ? "51" : "52";
     const name = (suffix: string) => tag + (late ? "LATE-" : "") + suffix;
+    if (path.startsWith("/dispatch/launch/resource-availability")) return {
+      advisory: true,
+      // This actor's existing active route keeps the zone/rep/car reserved.
+      // Distinct B responses stay pending until the B login gate is released.
+      zones: [{ id: zone, label: name("zone"), available: false, code: "ZONE_ROUTE_RESERVED" }],
+      drivers: [{ id: driver, label: name("driver"), available: false, code: "REPRESENTATIVE_ON_ROUTE" }],
+      vehicles: [{ id: vehicle, label: name("vehicle"), available: false, code: "VEHICLE_ON_ROUTE" }],
+      warehouses: [{ id: warehouse, label: name("warehouse"), available: true, code: "AVAILABLE" }],
+    };
     if (path === "/dispatch/init") return {
       zones: [{ id: zone, name: name("zone"), scheduleStatus: "active" }],
       drivers: [{ id: driver, name: name("driver") }],
@@ -493,12 +502,24 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   });
   render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
   await act(async () => {});
-  expect(screen.getByRole("option", { name: "A-zone" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "A-driver" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "A-vehicle" })).toBeInTheDocument();
-  fireEvent.change(screen.getByRole("combobox", { name: "مستودع المصدر" }), { target: { value: "21" } });
+  // The original native select was replaced by real M05 signed dropdowns.
+  // Verify actor-scoped busy reasons remain disabled, not merely filtered out.
+  for (const [kind, label] of [
+    ["zones", "A-zone"], ["drivers", "A-driver"], ["vehicles", "A-vehicle"],
+  ] as const) {
+    const box = screen.getByTestId("m05-launch-" + kind);
+    await act(async () => {}); // Fake timers: flush microtasks without real-time waitFor.
+    expect(within(box).getByRole("button")).not.toBeDisabled();
+    fireEvent.click(within(box).getByRole("button"));
+    expect(within(box).getByRole("option", { name: label })).toBeDisabled();
+    fireEvent.click(within(box).getByRole("button"));
+  }
+  const warehouseSelect = screen.getByTestId("m05-launch-warehouses");
+  await act(async () => {});
+  expect(within(warehouseSelect).getByRole("button")).not.toBeDisabled();
+  fireEvent.click(within(warehouseSelect).getByRole("button"));
+  fireEvent.click(within(warehouseSelect).getByRole("option", { name: "A-warehouse" }));
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
-  expect(screen.getByRole("option", { name: "A-warehouse" })).toBeInTheDocument();
   expect(screen.getByRole("textbox", { name: /Target.*A-custody/ })).toHaveValue("25");
   fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
   await act(async () => {}); // actual independent signed Routes response
