@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import * as ts from "typescript";
 
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
@@ -106,9 +107,41 @@ describe("CP13.5 operations presentation consistency", () => {
     expect(sources.live).toContain('data-cp13-state="empty"');
     expect(sources.transfers).toContain('data-cp13-state={transferList.failure.phase === "first" ? "error" : "stale"}');
     expect(sources.transferTable).toContain('data-cp13-state="empty"');
-    // Desktop Ledger now owns its loading/empty state *inside* the stable
-    // table body, not in a temporary flex sibling that displaces its header.
-    expect(sources.ledger).toContain('<LedgerTable {...commonRows} loading={query.loading} error={query.error || denied} />');
+    // Ledger keeps loading/error *inside* the stable table, keyed to its
+    // current permission scope. Inspect JSX attributes instead of coupling
+    // this contract to one exact textual order of props or whitespace.
+    const ledgerAst = ts.createSourceFile(
+      "Tab4Ledger.tsx", sources.ledger, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+    );
+    const tables: ts.JsxSelfClosingElement[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isJsxSelfClosingElement(node) &&
+          node.tagName.getText(ledgerAst) === "LedgerTable") tables.push(node);
+      ts.forEachChild(node, visit);
+    };
+    visit(ledgerAst);
+    expect(tables).toHaveLength(1);
+    const props = tables[0].attributes.properties;
+    const propExpression = (name: string): ts.Expression | undefined => {
+      const attr = props.find(p => ts.isJsxAttribute(p) && p.name.getText(ledgerAst) === name);
+      expect(attr && ts.isJsxAttribute(attr) && attr.initializer &&
+        ts.isJsxExpression(attr.initializer)).toBeTruthy();
+      return (attr as ts.JsxAttribute).initializer &&
+        ts.isJsxExpression((attr as ts.JsxAttribute).initializer!)
+        ? ((attr as ts.JsxAttribute).initializer as ts.JsxExpression).expression
+        : undefined;
+    };
+    expect(propExpression("key")?.getText(ledgerAst)).toBe("query.scopeKey");
+    expect(props.some(p => ts.isJsxSpreadAttribute(p) &&
+      p.expression.getText(ledgerAst) === "commonRows")).toBe(true);
+    expect(propExpression("loading")?.getText(ledgerAst)).toBe("query.loading");
+    const error = propExpression("error");
+    expect(error && ts.isBinaryExpression(error)).toBe(true);
+    if (error && ts.isBinaryExpression(error)) {
+      expect(error.operatorToken.kind).toBe(ts.SyntaxKind.BarBarToken);
+      expect(error.left.getText(ledgerAst)).toBe("query.error");
+      expect(error.right.getText(ledgerAst)).toBe("denied");
+    }
     expect(sources.ledgerTable).toContain('data-cp13-state={loading ? "loading" : "empty"}');
     expect(sources.ledgerTable).toContain('colSpan={12}');
     expect(sources.transfers).toContain("dir={i18n.dir()}");

@@ -464,6 +464,8 @@ jobs:
           assert len(d07_unique) == 6 and d07_unique <= d07_complete_exact
           assert len(d07_complete_exact) == 14
           def ownership_mode(candidate):
+              if __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](candidate):
+                  return "M05_945_EXACT"
               # D15 #918: exact genuine-panel UI files, no auth or backend scope.
               if __import__("runpy").run_path(".github/scripts/dispatch_d15_real_content_scope.py")["d15_real_content_mode"](candidate):
                   return "DISPATCH_D15_918_REAL_CONTENT_EXACT"

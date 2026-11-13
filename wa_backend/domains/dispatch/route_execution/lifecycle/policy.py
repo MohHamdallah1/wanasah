@@ -82,6 +82,28 @@ def decide_lifecycle(
     if state.context_revision >= 2**63 - 1:
         raise LifecycleConflict("ROUTE_CONTEXT_REVISION_EXHAUSTED")
 
+    if intent.action == "PAUSE":
+        # PAUSE is NOT POSTPONE: the same representative, vehicle and zone
+        # remain reserved under a new signed period/revision. Replayed UUIDs
+        # are handled by the transactional receipt, not an unversioned no-op.
+        if state.status != "active":
+            raise LifecycleConflict("ROUTE_NOT_ACTIVE_FOR_PAUSE")
+        if state.work_session_settled:
+            raise LifecycleConflict("SESSION_ALREADY_SETTLED")
+        if state.open_period_id is None or intent.expected_period_id != state.open_period_id:
+            raise LifecycleConflict("ROUTE_PAUSE_PERIOD_STALE")
+        if state.active_driver_id is None or state.active_vehicle_id is None:
+            raise LifecycleConflict("ROUTE_LIVE_ASSIGNMENT_MISSING")
+        return LifecycleDecision(
+            route_id=state.route_id, company_id=state.company_id,
+            zone_id=state.zone_id, old_status=state.status, status="waiting",
+            next_context_revision=state.context_revision + 1,
+            end_period_id=state.open_period_id,
+            open_period_driver_id=state.active_driver_id,
+            open_period_vehicle_id=state.active_vehicle_id,
+            zone_reserved=True, live_assets_reserved=True,
+        )
+
     if intent.action == "POSTPONE":
         if state.work_session_settled:
             raise LifecycleConflict("SESSION_ALREADY_SETTLED")
@@ -110,6 +132,35 @@ def decide_lifecycle(
         )
 
     if intent.action == "RESUME":
+        if state.status == "waiting" and state.open_period_id is not None:
+            # Continue a genuinely paused route WITHOUT releasing its assets,
+            # ending financial S1, or changing the accepted M01 custodian.
+            if state.work_session_settled:
+                raise LifecycleConflict("SESSION_ALREADY_SETTLED")
+            if intent.expected_period_id != state.open_period_id:
+                raise LifecycleConflict("ROUTE_PERIOD_STALE")
+            if (intent.target_driver_id != state.active_driver_id or
+                    intent.target_vehicle_id != state.active_vehicle_id):
+                raise LifecycleConflict("PAUSED_ROUTE_CANNOT_REASSIGN_ASSETS")
+            if not state.zone_active:
+                raise LifecycleConflict("ZONE_ARCHIVED")
+            if state.target_vehicle_custody_revision is None:
+                raise LifecycleConflict("VEHICLE_CUSTODY_UNVERIFIED")
+            if intent.expected_vehicle_custody_revision != state.target_vehicle_custody_revision:
+                raise LifecycleConflict("VEHICLE_CUSTODY_REVISION_STALE")
+            if not state.target_vehicle_custody_accepted:
+                raise LifecycleConflict("VEHICLE_CUSTODY_ACCEPTANCE_REQUIRED")
+            if not state.target_vehicle_custody_matches_target:
+                raise LifecycleConflict("VEHICLE_CUSTODIAN_MISMATCH")
+            return LifecycleDecision(
+                route_id=state.route_id, company_id=state.company_id,
+                zone_id=state.zone_id, old_status=state.status, status="active",
+                next_context_revision=state.context_revision + 1,
+                end_period_id=state.open_period_id,
+                open_period_driver_id=state.active_driver_id,
+                open_period_vehicle_id=state.active_vehicle_id,
+                zone_reserved=True, live_assets_reserved=True,
+            )
         if state.status != "postponed":
             raise LifecycleConflict("ROUTE_NOT_POSTPONED")
         # A route postponed yesterday may resume under a NEW period/day, even

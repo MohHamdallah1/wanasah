@@ -85,8 +85,10 @@ const parseWarehouseStatusPayload = (value: unknown): WarehouseStatusPayload => 
     inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
   }
   const raw = value as Record<string, unknown>;
-  if (raw.status !== "ACTIVE" && raw.status !== "AUDIT_LOCK") {
+  const verifiedStatus = raw.status;
+  if (verifiedStatus !== "ACTIVE" && verifiedStatus !== "AUDIT_LOCK") {
     inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
+    throw new Error("WAREHOUSE_STATUS_RESPONSE_INVALID");
   }
   const sessionId = raw.stocktake_session_id;
   const reference = raw.stocktake_reference;
@@ -130,7 +132,7 @@ const parseWarehouseStatusPayload = (value: unknown): WarehouseStatusPayload => 
     inventoryContractError("WAREHOUSE_STATUS_RESPONSE_INVALID");
   }
   return {
-    status: raw.status,
+    status: verifiedStatus,
     stocktake_session_id: typeof sessionId === "number" ? sessionId : null,
     stocktake_reference: typeof reference === "string" ? reference.trim() : null,
     stocktake_status: typeof stocktakeStatus === "string" ? stocktakeStatus.trim() : null,

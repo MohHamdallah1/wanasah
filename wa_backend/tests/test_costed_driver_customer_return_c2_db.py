@@ -109,7 +109,11 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
     async def _create_business_fixture(
         self, method: str, *, commercial_context_factory=None,
         second_purchase_price: str | None = None,
+        session_date_override: date | None = None,
     ):
+        if session_date_override is not None and type(session_date_override) is not date:
+            raise TypeError("Synthetic session_date_override must be a date")
+        business_date = session_date_override if session_date_override is not None else date.today()
         await set_cost_policy(
             self.db,
             company_id=self.tenant,
@@ -200,7 +204,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
         if commercial_context_factory is None:
             session = WorkSession(
                 company_id=self.tenant, driver_id=self.field.driver.id,
-                session_date=date.today(),
+                session_date=business_date,
                 is_authorized_to_sell=True,
                 is_settled=False,
             )
@@ -213,7 +217,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             work_session_id=(session.id if session is not None else None),
             source_location_id=self.warehouse_id,
             status=("active" if session is not None else "waiting"),
-            dispatch_date=date.today(),
+            dispatch_date=business_date,
         )
         # The legacy Visit PK in the developer schema does not generate a
         # value for a direct ORM fixture insert. Use an isolated synthetic id;
@@ -222,7 +226,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             id=1_700_000_000 + int(tag[:7], 16) % 300_000_000,
             company_id=self.tenant, shop_id=shop.id,
             driver_id=self.field.driver.id,
-            operational_date=date.today(),
+            operational_date=business_date,
             status="Pending", outcome="Pending",
         )
         # Real driver mobile quantity authority requires exact carton->EACH
@@ -255,7 +259,7 @@ class RealCustomerReturnC2DatabaseTests(unittest.IsolatedAsyncioTestCase):
             session = WorkSession(
                 company_id=self.tenant, driver_id=self.field.driver.id,
                 commercial_context_id=commercial_id,
-                session_date=date.today(),
+                session_date=business_date,
                 is_authorized_to_sell=True,
                 is_settled=False,
             )
