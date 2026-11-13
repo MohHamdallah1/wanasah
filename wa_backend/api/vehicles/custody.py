@@ -10,7 +10,7 @@ from api.authentication.backoffice_compatibility import get_current_backoffice_l
 from api.authentication.field_authorization import require_field_capability
 from api.authentication.dependencies import get_current_field_context
 from database import get_db
-from dispatch_access import require_vehicle
+from domains.dispatch.route_execution.custody.access import require_custody_vehicle_scope
 from domains.auth_sessions.context import FieldRequestContext
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
@@ -46,7 +46,7 @@ async def _manager_vehicle(access: BackofficeCapabilityAccess, vehicle_id: int):
         await access.require("vehicle.manage")
     except BackofficeCapabilityAccessRejected:
         raise HTTPException(403, detail={"code": "CUSTODY_MANAGER_CAPABILITY_DENIED"}) from None
-    await require_vehicle(access, "dispatch.execute", vehicle_id)
+    await require_custody_vehicle_scope(access, vehicle_id)
 
 @router.get("/vehicles/{vehicle_id}/custody/readiness")
 async def read_vehicle_custody_recovery(
