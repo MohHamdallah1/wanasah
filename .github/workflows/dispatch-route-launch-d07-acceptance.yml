@@ -154,8 +154,9 @@ jobs:
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
           }
-          assert len(d19_961_exact) == 5
+          assert len(d19_961_exact) == 6
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.

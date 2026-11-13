@@ -513,8 +513,9 @@ jobs:
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
           }
-          assert len(d19_961_exact) == 5
+          assert len(d19_961_exact) == 6
           def ownership_mode(candidate):
               if candidate == d19_961_exact:
                   return "D19_961_EXACT"

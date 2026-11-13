@@ -118,12 +118,12 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   await pick("vehicles", "Vehicle two");
   await screen.findByText("New Warehouse stock");
   await screen.findByText("Current vehicle two");
-  // A newly selected, authorized Vehicle is editable again with a fresh zero draft.
+  // A newly selected, authorized Vehicle is editable with an empty zero-equivalent draft.
   expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).not.toBeDisabled();
   await act(async () => finishOld([custody("521", "Stale old custody")]));
   expect(screen.queryByText("Stale old custody")).not.toBeInTheDocument();
   expect(screen.queryByText("Eligible source B")).not.toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).toHaveValue("0");
+  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).toHaveValue("");
   const requests = fake.fetch.mock.calls.filter(([url]) => url.startsWith("/dispatch/products?")).map(([url]) => url);
   expect(requests.some((url) => url.includes("vehicle_id=18&warehouse_id=22&search=&limit=80"))).toBe(true);
   expect(requests.filter((url) => url.includes("warehouse_id=22")).every((url) => !url.includes("cursor="))).toBe(true);
