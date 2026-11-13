@@ -7,9 +7,10 @@ import type { useDispatchProductWindow } from "@/features/dispatch/useDispatchPr
 
 type ProductDiscoveryState = ReturnType<typeof useDispatchProductSearch> | ReturnType<typeof useDispatchProductWindow>;
 
-export function ProductSearchControls({ search, onChange, page, enabled = true, pending = false, compactWindowed = false }: {
+export function ProductSearchControls({ search, onChange, page, enabled = true, pending = false, compactWindowed = false, hasPinnedItems = false }: {
   search: string; onChange: (value: string) => void; page: ProductDiscoveryState; enabled?: boolean; pending?: boolean;
   compactWindowed?: boolean;
+  hasPinnedItems?: boolean;
 }) {
   const { t } = useTranslation();
   return <div className="space-y-2">
@@ -20,7 +21,7 @@ export function ProductSearchControls({ search, onChange, page, enabled = true, 
     {!pending && !!page.error && <div role="alert"><p>{apiErrorMessage(page.error, t("dispatchProductSearch.error"))}</p>
       <button type="button" onClick={page.retry}>{t("common.retry")}</button></div>}
     {pending ? <p data-testid="dispatch-product-read-pending" aria-busy="true" className="min-h-5" /> : null}
-    {!pending && !page.loading && !page.error && (!compactWindowed || page.mode !== "windowed" || !enabled || page.searchRequired && search.trim().length < 2 || !page.items.length) && <p role="status" className="text-xs text-slate-500">{t(!enabled ? "dispatchProductSearch.context" : page.searchRequired && search.trim().length < 2
+    {!pending && !page.loading && !page.error && (!compactWindowed || page.mode !== "windowed" || !enabled || page.searchRequired && search.trim().length < 2 || (!page.items.length && !hasPinnedItems)) && <p role="status" className="text-xs text-slate-500">{t(!enabled ? "dispatchProductSearch.context" : page.searchRequired && search.trim().length < 2
       ? "dispatchProductSearch.hint" : page.items.length ? page.mode === "windowed" ? "dispatchProductSearch.scrollWindow" : page.hasMore ? "dispatchProductSearch.window" : "dispatchProductSearch.end" : "dispatchProductSearch.empty")}</p>}
     {!pending && page.mode !== "windowed" && <div className="flex gap-3">
       {page.hasPrevious && <button type="button" disabled={page.loading} onClick={page.previous}>{t("dispatchProductSearch.previous")}</button>}

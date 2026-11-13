@@ -25,11 +25,12 @@ interface WindowState {
   pages: StoredWindowPage[];
   heights: Record<number, number>;
   maxVisited: number;
+  initialReady: boolean;
 }
 
 type LoadDirection = "next" | "previous";
 
-const emptyState = (key: string): WindowState => ({ key, pages: [], heights: {}, maxVisited: 0 });
+const emptyState = (key: string): WindowState => ({ key, pages: [], heights: {}, maxVisited: 0, initialReady: false });
 
 export function useDispatchProductWindow(
   endpoint: string | null,
@@ -88,7 +89,7 @@ export function useDispatchProductWindow(
         .then((page) => {
           if (controller.signal.aborted || keyRef.current !== key) return;
           if (page.hasMore && page.nextCursor) cursorHistory.current[1] = page.nextCursor;
-          setState({ key, pages: [page], heights: {}, maxVisited: 0 });
+          setState({ key, pages: [page], heights: {}, maxVisited: 0, initialReady: true });
         })
         .catch((failure) => {
           if (!controller.signal.aborted && keyRef.current === key) setError(failure);
@@ -180,6 +181,9 @@ export function useDispatchProductWindow(
   }, [active.heights, active.maxVisited, lastIndex]);
 
   const items = useMemo(() => active.pages.flatMap((page) => page.items), [active.pages]);
+  // An empty but completed signed first page is READY; pending, denied,
+  // failed or a previous actor/vehicle/warehouse/search key is not.
+  const firstPageReady = valid && !loading && active.initialReady;
 
   const retry = useCallback(() => {
     const failed = failedRef.current;
@@ -192,6 +196,8 @@ export function useDispatchProductWindow(
 
   return {
     mode: "windowed" as const,
+    queryKey: key,
+    firstPageReady,
     pages: active.pages.map(({ index, items: pageItems }) => ({ index, items: pageItems })),
     items,
     loading,

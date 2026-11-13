@@ -235,7 +235,13 @@ for (const width of [1440, 390] as const) {
         expect(report.maxConfigX).toBeLessThanOrEqual(2);
         if (tab === "routes") expect(report.requests.shops,"Routes must not request the global Shops list").toBe(0);
         if (tab === "launch") expect(report.requests.shops,"Launch must read real Shops for its POST precondition").toBeGreaterThan(0);
-        if (tab === "routes") expect(report.requests.routes).toBeGreaterThan(0);
+        if (tab === "routes" && report.requests.routes === 0) {
+          // D15 keeps same-actor previously signed route rows across SPA returns.
+          // Requiring a redundant GET would penalize the approved warm cache;
+          // require the identical actual route rows when no GET occurred.
+          expect(expected.routeRows, "A warm return must have real signed route rows").toBeGreaterThan(0);
+          await expect(page.locator(".dispatch-route-row")).toHaveCount(expected.routeRows);
+        }
       }
       const now = page.getByTestId("dispatch-" + tab + "-workspace");
       await expect(now).toBeVisible();

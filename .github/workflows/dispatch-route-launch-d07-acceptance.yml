@@ -116,6 +116,24 @@ jobs:
               "dashboard/src/test/dispatch-m05-launch-availability.test.tsx",
           }
           assert len(d16_955_exact) == 7
+          # D17 #957: only this exact owner-approved atomic Launch UI change
+          # and its genuine PG16/Chromium fixture may cross the old CI gates.
+          d17_957_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ProductSearchControls.tsx",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/useDispatchProductWindow.ts",
+              "dashboard/src/features/dispatch/useDispatchWindowSentinels.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/e2e/dispatch-d15-data-reentry-p1.spec.ts",
+              "dashboard/src/test/dispatch-d17-atomic-first-window.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "wa_backend/tests/test_dispatch_d17_browser_fixture.py",
+          }
+          assert len(d17_957_exact) == 13
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
@@ -141,7 +159,7 @@ jobs:
               m05_authorized = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"](files)
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
-              assert (files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+              assert (files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
