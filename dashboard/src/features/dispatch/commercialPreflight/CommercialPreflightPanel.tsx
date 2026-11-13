@@ -19,7 +19,7 @@ export function CommercialPreflightPanel({
   canNavigateToTab?: (tab: DispatchDestination) => boolean;
 }) {
   const frameRef = useRef<HTMLElement | null>(null);
-  const lastVisibleHeightRef = useRef(24);
+  const lastVisibleHeightRef = useRef(0);
   const [expanded, setExpanded] = useState(false);
   const pending = status === "loading" || status === "choose";
   const isArabic = language.toLowerCase().startsWith("ar");
@@ -68,7 +68,8 @@ export function CommercialPreflightPanel({
   };
 
   return <section ref={frameRef} data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
-    aria-label={text("title")} aria-busy={status === "loading"} className="w-full min-w-0 min-h-6"
+    aria-label={text("title")} aria-busy={status === "loading"}
+    className={pending && lastVisibleHeightRef.current === 0 ? "w-full min-w-0" : "w-full min-w-0 min-h-6"}
     style={pending ? { minHeight: lastVisibleHeightRef.current } : undefined}>
     {pending ? null : confirmedReady ? (
       <div role="status" aria-live="polite" aria-label={text("ready")}

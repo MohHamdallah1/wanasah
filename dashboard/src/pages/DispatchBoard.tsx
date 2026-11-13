@@ -2130,14 +2130,13 @@ function DispatchSession() {
               {/* ONE real launch operation: selectors, readiness, products and
                   final action share a continuous surface, not three cards. */}
               <section data-testid="dispatch-launch-workbench"
-                className="dispatch-surface mt-1 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-1.5 px-3 pb-1.5 pt-2 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="col-span-full flex min-w-0 items-center gap-2 text-sm font-extrabold text-slate-800">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-[#166a94]">
-                      <Rocket aria-hidden="true" className="h-4 w-4" />
-                    </span>
-                    {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
-                  </div>
+                className="dispatch-surface relative mt-4 flex min-w-0 w-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div data-testid="dispatch-launch-border-title"
+                  className="dispatch-panel-label absolute -top-3.5 end-6 z-20 flex items-center gap-2 rounded-lg bg-gradient-to-r from-[#1e87bb] to-[#166a94] px-4 py-1.5 text-sm font-black text-white shadow-md">
+                  <Rocket aria-hidden="true" className="h-4 w-4" />
+                  {i18n.language.startsWith("ar") ? "إطلاق خط سير جديد" : "Launch a new route"}
+                </div>
+                <div className="dispatch-launch-config grid grid-cols-1 gap-x-3 gap-y-1 px-3 pb-1 pt-5 sm:grid-cols-2 xl:grid-cols-4">
                 
                 <LaunchResourceSelect kind="zones"
                   label={i18n.language.startsWith("ar") ? "المنطقة" : "Zone"}
@@ -2173,7 +2172,7 @@ function DispatchSession() {
                     launch configuration, not a second full-width page card.
                     Worker2 owns the panel internals; its real props and
                     Backend verification stay unchanged. */}
-                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0 border-t border-slate-100 pt-1">
+                <div data-testid="dispatch-launch-readiness" className="col-span-full min-w-0">
                   <CommercialPreflightPanel language={i18n.language}
                     status={tabReady && launchResourcesReady ? commercialPreflight.status : "choose"}
                     evidence={tabReady && launchResourcesReady ? commercialPreflight.evidence : null}
@@ -2198,13 +2197,13 @@ function DispatchSession() {
 
               {/* The single operation footer remains reachable during large
                   product window scrolling; it is NOT a third card. */}
-              <div className="sticky bottom-0 z-20 rounded-b-2xl border-t border-slate-200 bg-white px-4 py-2.5">
+              <div data-testid="dispatch-launch-floating-action" className="pointer-events-none sticky bottom-2 z-20 bg-transparent px-3 pb-2 pt-0">
                 <div className="flex items-center justify-end">
                   <button
                     disabled={!commandsAdmitted || !launchResourcesReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
                       routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
                     onClick={() => { void handleDispatchRoute(); }}
-                    className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#1e87bb] px-5 py-2 text-sm font-extrabold text-white shadow-sm hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb] focus-visible:ring-offset-2 sm:w-auto"
+                    className="pointer-events-auto inline-flex min-h-11 w-auto max-w-full items-center justify-center gap-2 rounded-lg bg-[#1e87bb] px-5 py-2 text-sm font-extrabold text-white shadow-lg hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb] focus-visible:ring-offset-2"
                   >
                     <Rocket className="w-5 h-5" /> {preflightCopy(i18n.language, "launch")}
                   </button>

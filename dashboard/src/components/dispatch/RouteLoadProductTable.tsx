@@ -35,7 +35,12 @@ export function RouteLoadProductTable({
   const pinned: DispatchDiscoveryProduct[] = [...new Set([...Object.keys(current), ...Object.keys(targets)])]
     .map((id) => ({ id, name: names[id] || t("dispatchProductSearch.unavailable"), load: null }));
   const pinnedIds = useMemo(() => new Set(pinned.map((product) => product.id)), [pinned]);
-  const { topRef, bottomRef } = useDispatchWindowSentinels(page);
+  const contextSelected = !!endpoint && !!scope;
+  const firstRevealReady = contextSelected && custodyReady && !pending && page.firstPageReady;
+  const joinedPending = pending || (contextSelected && !firstRevealReady && !page.error);
+  const { topRef, bottomRef } = useDispatchWindowSentinels(page, {
+    requireUserScroll: true, enabled: firstRevealReady,
+  });
 
   // Undo is a local UI draft snapshot, NEVER an inventory transaction or a
   // second authority. A new actor remounts the workspace; changing vehicle,
@@ -48,7 +53,7 @@ export function RouteLoadProductTable({
   useEffect(() => {
     if (clearSnapshot && Object.keys(targets).length !== 0) setClearSnapshot(null);
   }, [clearSnapshot, targets]);
-  const canEdit = custodyReady && !pending;
+  const canEdit = firstRevealReady;
   const canUndo = canEdit && clearSnapshot?.scopeKey === scopeKey;
 
   const clearAll = () => {
@@ -72,7 +77,7 @@ export function RouteLoadProductTable({
     return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
       <td className="px-3 py-3 font-semibold text-slate-700">{product.name}</td>
       <td className="px-3 py-3 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
-      <td className="px-3 py-2 text-center">
+      <td className="relative px-3 py-2 text-center">
         <label className="sr-only" htmlFor={`route-base-${product.id}`}>{t("dispatchRouteLoad.target")} — {product.name}</label>
         <input id={`route-base-${product.id}`} type="text" inputMode="decimal" disabled={!unit || !canEdit} value={target}
           aria-invalid={!!unit && !review}
@@ -94,11 +99,12 @@ export function RouteLoadProductTable({
 
   // The virtualized table keeps its own intentional 820px horizontal
   // scrollport; nothing may expand the Launch workspace or hide real rows.
-  return <section data-testid="dispatch-launch-products" className="w-full min-w-0 flex-1">
+  return <section data-testid="dispatch-launch-products" aria-busy={joinedPending}
+    data-first-window-ready={firstRevealReady ? "true" : "false"} className="w-full min-w-0 flex-1">
     <div className="flex flex-col gap-2 border-y border-slate-200 bg-slate-50/50 px-3 py-2.5 lg:flex-row lg:items-start lg:justify-between lg:gap-4">
       <div className="min-w-0 flex-1">
         <ProductSearchControls search={search} onChange={setSearch} page={page}
-          enabled={!!endpoint} pending={pending} compactWindowed />
+          enabled={!!endpoint} pending={joinedPending} hasPinnedItems={firstRevealReady && pinned.length > 0} compactWindowed />
       </div>
       <div className="flex shrink-0 items-center gap-2">
         <button type="button" onClick={clearAll}
@@ -125,16 +131,17 @@ export function RouteLoadProductTable({
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.difference")}</th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.action")}</th>
         </tr></thead>
-        {!!pinned.length && <tbody>{pinned.map(renderRow)}</tbody>}
-        {page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
+        {!firstRevealReady && contextSelected && !page.error && <tbody data-testid="dispatch-first-window-pending" aria-hidden="true"><tr><td colSpan={5} className="h-[72px] p-0"><div className="mx-3 h-8 rounded-lg bg-slate-50" /></td></tr></tbody>}
+        {firstRevealReady && !!pinned.length && <tbody>{pinned.map(renderRow)}</tbody>}
+        {firstRevealReady && page.topSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.topSpacerHeight }} /></tr></tbody>}
         <tbody ref={topRef} data-window-boundary="top" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
-        {page.pages.map((windowPage) => (
+        {firstRevealReady && page.pages.map((windowPage) => (
           <MeasuredProductTableBody key={windowPage.index} index={windowPage.index} onMeasure={page.registerPageHeight}>
             {windowPage.items.filter((product) => !pinnedIds.has(product.id)).map(renderRow)}
           </MeasuredProductTableBody>
         ))}
         <tbody ref={bottomRef} data-window-boundary="bottom" aria-hidden="true"><tr><td colSpan={5} className="h-px p-0" /></tr></tbody>
-        {page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
+        {firstRevealReady && page.bottomSpacerHeight > 0 && <tbody aria-hidden="true"><tr><td colSpan={5} style={{ height: page.bottomSpacerHeight }} /></tr></tbody>}
       </table>
     </div>
   </section>;

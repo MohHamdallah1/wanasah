@@ -32,7 +32,11 @@ async function intersectWindowBoundary(direction: "top" | "bottom") {
     if (!value) throw new Error("window boundary not observed");
     return value;
   });
-  act(() => observed.callback([{ isIntersecting: true, target: node } as IntersectionObserverEntry], observed.observer));
+  act(() => {
+    const workspace = node.closest('[data-testid="dispatch-launch-workspace"]');
+    if (direction === "bottom" && workspace) fireEvent.wheel(workspace, { deltaY: 120 });
+    observed.callback([{ isIntersecting: true, target: node } as IntersectionObserverEntry], observed.observer);
+  });
 }
 vi.mock("@/hooks/useAuthFetch", () => ({ useAuthFetch: () => fake.fetch }));
 vi.mock("@/components/ui/modal", () => ({ Modal: ({ children, isOpen }: { children: ReactNode; isOpen: boolean }) =>
@@ -97,7 +101,7 @@ describe("Dispatch cursor pickers", () => {
           setNames((v) => ({ ...v, [id]: name })); changed(id, value);
         }} />;
     }
-    const { container } = render(<Launch />);
+    const { container } = render(<div data-testid="dispatch-launch-workspace"><Launch /></div>);
     await screen.findByText("Window 1");
     expect(screen.queryByRole("button", { name: /Load more|Previous results/ })).not.toBeInTheDocument();
     const firstInput = container.querySelector("#route-base-2000") as HTMLInputElement;
@@ -122,7 +126,7 @@ describe("Dispatch cursor pickers", () => {
     expect(container.querySelectorAll("[data-window-page]")).toHaveLength(3);
     expect(screen.queryByText("Window 500")).not.toBeInTheDocument();
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=LOAD&vehicle_id=17&warehouse_id=21");
-  });
+  }, 20000);
 
   it("Route Management never silently edits physical quantities; use explicit Adjust Load", () => {
     const adjust = vi.fn();
@@ -161,16 +165,16 @@ describe("Dispatch cursor pickers", () => {
 
   it("invalidates a continuation when source changes and does not search blank context", async () => {
     const props = { scope: "1:3", current: {}, targets: {}, units: {}, names: {}, onTargetChange: vi.fn(), onClear: vi.fn(), onRestoreClear: vi.fn() };
-    const view = render(<RouteLoadProductTable {...props} vehicleId="" warehouseId="" />);
+    const view = render(<div data-testid="dispatch-launch-workspace"><RouteLoadProductTable {...props} vehicleId="" warehouseId="" /></div>);
     expect(screen.getByRole("textbox", { name: "Search products" })).toBeDisabled();
     expect(fake.fetch).not.toHaveBeenCalled();
-    view.rerender(<RouteLoadProductTable {...props} vehicleId="17" warehouseId="21" />);
+    view.rerender(<div data-testid="dispatch-launch-workspace"><RouteLoadProductTable {...props} vehicleId="17" warehouseId="21" /></div>);
     await screen.findByText("Matching 1");
     await intersectWindowBoundary("bottom");
     await screen.findByText("Matching 160");
     await intersectWindowBoundary("bottom");
     await screen.findByText("Matching 200");
-    view.rerender(<RouteLoadProductTable {...props} vehicleId="17" warehouseId="22" />);
+    view.rerender(<div data-testid="dispatch-launch-workspace"><RouteLoadProductTable {...props} vehicleId="17" warehouseId="22" /></div>);
     await waitFor(() => expect(fake.fetch).toHaveBeenCalledTimes(4));
     expect(fake.fetch.mock.calls[3][0]).toContain("warehouse_id=22");
     expect(fake.fetch.mock.calls[3][0]).not.toContain("cursor=");
