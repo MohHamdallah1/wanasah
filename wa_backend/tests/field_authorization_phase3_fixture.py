@@ -120,7 +120,7 @@ async def new_transfers(g, count=2, destination=None):
     return ids
 
 
-async def seed_business(admin):
+async def seed_business(admin, *, session_date_override: date | None = None):
     token = None
     try:
         async with AsyncSession(admin, expire_on_commit=False) as db:
@@ -169,7 +169,8 @@ async def seed_business(admin):
                 await db.flush()
                 return context_id
             g.visit,g.location,g.batch = await customer_fixture.RealCustomerReturnC2DatabaseTests._create_business_fixture(
-                g,"FIFO",commercial_context_factory=commercial)
+                g,"FIFO",commercial_context_factory=commercial,
+                session_date_override=session_date_override)
             # Normal dispatch supplies an integer sequence. The older direct
             # calculator fixture intentionally omitted fields outside its DTO tests.
             assigned=await db.get(Visit,g.visit)

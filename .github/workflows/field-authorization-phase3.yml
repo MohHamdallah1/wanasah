@@ -149,13 +149,18 @@ jobs:
           base_count, base_failed = results[0]
           head_count, head_failed = results[1]
           assert head_count >= base_count, "Previously covered cases were lost"
-          assert head_failed == base_failed, (
-              "Historical failures changed; investigate genuine new or hidden regressions",
-              sorted(base_failed), sorted(head_failed),
+          new_failures = head_failed - base_failed
+          assert not new_failures, (
+              "New historical regressions found",
+              sorted(new_failures), sorted(base_failed), sorted(head_failed),
           )
+          # A repaired old failing case is progress, not a regression.
+          # Still require complete executed coverage and zero new failures.
+          repaired = base_failed - head_failed
           print(
-              "PHASE3_REGRESSION_PARITY=PASS; "
-              f"historical_failed_cases={len(head_failed)} STILL FAIL; "
+              "PHASE3_NO_NEW_REGRESSIONS=PASS; "
+              f"repaired_historical_cases={len(repaired)}; "
+              f"remaining_historical_failures={sorted(head_failed)}; "
               f"base_cases={base_count} head_cases={head_count}"
           )
           PY
