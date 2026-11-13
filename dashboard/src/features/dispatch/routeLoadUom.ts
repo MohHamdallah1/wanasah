@@ -4,6 +4,9 @@ import {
   type Quantity,
 } from "@/lib/quantity";
 
+// Never serialize a locally invalid mixed-unit input as a physical quantity.
+export const INVALID_ROUTE_LOAD_TARGET = "__INVALID_UOM_DRAFT__";
+
 export interface RouteLoadUom {
   base_uom_id: number;
   base_uom_code: string;
@@ -13,6 +16,12 @@ export interface RouteLoadUom {
   display_uom_name: string | null;
   display_factor_to_base: Quantity | null;
 }
+
+/** The signed SKU UOM/precision identity; never derive it from cartons or labels. */
+export const routeLoadUomIdentity = (unit: RouteLoadUom): string =>
+  JSON.stringify([unit.base_uom_id, unit.base_uom_code, unit.base_uom_name,
+    unit.quantity_scale, unit.quantity_step,
+    unit.display_uom_name, unit.display_factor_to_base]);
 
 export interface RouteLoadVehicleItem extends RouteLoadUom {
   product_id: string;
