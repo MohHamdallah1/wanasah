@@ -34,7 +34,7 @@ def _item(data, kind: str, item_id: int):
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
 async def test_m05_real_bearer_launch_availability_postponed_releases_only_resources(pg):
     home, foreign = pg.tenants
-    _, body, _ = await _prepared_route(pg, home)
+    _, body, vehicle_location = await _prepared_route(pg, home)
     driver_id = int(body["driver_id"])
     vehicle_id = int(body["vehicle_id"])
     zone_id = int(body["zone_id"])
