@@ -72,9 +72,10 @@ describe("Route Launch explicit carton + exact base remainder", () => {
     );
     // The UI must use an explicit carton_factor_to_base; never treat a
     // separate display UOM (potentially PALLET) as a carton automatically.
-    expect(splitRouteLoadTargetBase("25", {
-      ...pieces, display_factor_to_base: "4800",
-    })).toEqual({ cartons: "0", baseRemainder: "25", hasCarton: false });
+    const displayMayBePallet = { ...pieces, display_factor_to_base: "4800" };
+    expect(splitRouteLoadTargetBase("25", displayMayBePallet)).toEqual({
+      cartons: "0", baseRemainder: "25", hasCarton: false,
+    });
   });
 
   it.each(["-1", "1.5", "1e4", "Infinity", "NaN"])(
