@@ -55,25 +55,34 @@ class M01RouteLifecycleStore:
         from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
         from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 
-        # Pre-read historical/current session identities solely for lock order.
-        # Re-verify the period under the ordered FOR UPDATE locks below.
-        maybe_period_session_ids = (
-            await db.execute(
-                select(DispatchRouteExecutionPeriod.work_session_id).where(
-                    DispatchRouteExecutionPeriod.company_id == company_id,
-                    DispatchRouteExecutionPeriod.route_id == route_id,
-                    DispatchRouteExecutionPeriod.ended_at.is_(None),
-                    DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
-                )
-            )
-        ).scalars().all()
+        # Pre-read only for global lock order, NOT authorization. PAUSE must
+        # lock the CURRENT period's real representative and vehicle, rather
+        # than historic DispatchRoute.driver_id/vehicle_id after A->B.
+        # All four identifiers are rechecked after acquiring row locks.
+        maybe_periods = (await db.execute(
+            select(DispatchRouteExecutionPeriod.id,
+                   DispatchRouteExecutionPeriod.work_session_id,
+                   DispatchRouteExecutionPeriod.driver_id,
+                   DispatchRouteExecutionPeriod.vehicle_id).where(
+                DispatchRouteExecutionPeriod.company_id == company_id,
+                DispatchRouteExecutionPeriod.route_id == route_id,
+                DispatchRouteExecutionPeriod.ended_at.is_(None),
+                DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
+            ).order_by(DispatchRouteExecutionPeriod.id.asc())
+        )).all()
+        if len(maybe_periods) > 1:
+            raise LifecycleConflict("MULTIPLE_LIVE_PERIODS")
+        pre_current = maybe_periods[0] if (intent.action == "PAUSE" and maybe_periods) else None
         resources = await lock_route_resources(
             db, company_id=company_id, route_id=route_id,
-            target_driver_id=intent.target_driver_id,
-            target_vehicle_id=intent.target_vehicle_id,
-            additional_session_ids=tuple(
-                sorted(int(i) for i in maybe_period_session_ids if i is not None)
-            ),
+            target_driver_id=(int(pre_current.driver_id) if pre_current is not None
+                              else intent.target_driver_id),
+            target_vehicle_id=(int(pre_current.vehicle_id) if pre_current is not None
+                               else intent.target_vehicle_id),
+            additional_session_ids=tuple(sorted(
+                int(row.work_session_id) for row in maybe_periods
+                if row.work_session_id is not None
+            )),
         )
         self.resources = resources
         route = resources.route
@@ -90,6 +99,14 @@ class M01RouteLifecycleStore:
         if len(current) > 1:
             raise LifecycleConflict("MULTIPLE_LIVE_PERIODS")
         self.period = current[0] if current else None
+        if intent.action == "PAUSE" and (
+            pre_current is None or self.period is None or
+            int(self.period.id) != int(pre_current.id) or
+            self.period.driver_id != pre_current.driver_id or
+            self.period.vehicle_id != pre_current.vehicle_id or
+            self.period.work_session_id != pre_current.work_session_id
+        ):
+            raise LifecycleConflict("ROUTE_PAUSE_PERIOD_CHANGED_CONCURRENTLY")
         if self.period is not None and (
             self.period.context_revision != route.assignment_context_revision
             or self.period.state not in ("PLANNED", "ACTIVE")
@@ -128,6 +145,34 @@ class M01RouteLifecycleStore:
         self.target_session = None
         self.vehicle_location_id = None
         self.custody = None
+        if intent.action == "PAUSE":
+            # A signed period must retain the SAME genuine accepted M01 vehicle
+            # custody. An already-historic or reassigned epoch cannot be cloned.
+            if self.period is None or (
+                self.period.field_representative_id is None or
+                self.period.vehicle_location_id is None or
+                self.period.request_id is None or self.period.payload_hash is None
+            ):
+                raise LifecycleConflict("ROUTE_PAUSE_SIGNED_PROOF_MISSING")
+            epochs = (await db.execute(
+                select(VehicleCustodyEpoch).where(
+                    VehicleCustodyEpoch.company_id == company_id,
+                    VehicleCustodyEpoch.vehicle_id == self.period.vehicle_id,
+                    VehicleCustodyEpoch.ended_at.is_(None),
+                ).order_by(VehicleCustodyEpoch.id.asc()).with_for_update()
+            )).scalars().all()
+            if len(epochs) != 1:
+                raise LifecycleConflict("ROUTE_PAUSE_CUSTODY_UNVERIFIED")
+            custody = epochs[0]
+            if (
+                custody.state != "ACCEPTED" or
+                custody.custodian_kind != "FIELD_REPRESENTATIVE" or
+                custody.vehicle_location_id != self.period.vehicle_location_id or
+                custody.field_representative_id != self.period.field_representative_id or
+                custody.accepted_by_principal_id is None or
+                custody.request_id is None or custody.payload_hash is None
+            ):
+                raise LifecycleConflict("ROUTE_PAUSE_CUSTODY_CHANGED")
         if intent.action == "RESUME":
             driver_id = intent.target_driver_id
             vehicle_id = intent.target_vehicle_id
@@ -309,6 +354,10 @@ class M01RouteLifecycleStore:
                 DispatchRouteExecutionPeriod.state.in_(("PLANNED", "ACTIVE")),
                 or_(DispatchRouteExecutionPeriod.driver_id == driver_id,
                     DispatchRouteExecutionPeriod.vehicle_id == vehicle_id),
+                # A PAUSE closes/replaces THIS precise period with the same
+                # signed assets; it does not conflict with its own source.
+                *([DispatchRouteExecutionPeriod.id != state.open_period_id]
+                  if decision.end_period_id is not None else []),
             ).limit(1)
         )
         if canonical is not None:
@@ -338,40 +387,78 @@ class M01RouteLifecycleStore:
             self.period.reason = intent.action
 
         if decision.open_period_driver_id is not None:
-            if self.target_rep_id is None or self.vehicle_location_id is None:
-                raise LifecycleConflict("DESTINATION_AUTHORITY_UNVERIFIED")
-            from models import RouteCommercialContext
-            commercial = await db.scalar(
-                select(RouteCommercialContext.id).where(
-                    RouteCommercialContext.company_id == state.company_id,
-                    RouteCommercialContext.dispatch_route_id == state.route_id,
+            if intent.action == "PAUSE":
+                if self.period is None or decision.end_period_id != self.period.id:
+                    raise LifecycleConflict("ROUTE_PAUSE_PERIOD_STALE")
+                if (not self.period.field_representative_id or
+                    not self.period.vehicle_location_id or
+                    not self.period.commercial_context_id or
+                    not self.period.request_id or not self.period.payload_hash or
+                    self.period.driver_id != decision.open_period_driver_id or
+                    self.period.vehicle_id != decision.open_period_vehicle_id):
+                    raise LifecycleConflict("ROUTE_PAUSE_SIGNED_PROOF_MISSING")
+                # No custody transfer, new WorkSession, or implicit stock move.
+                # A new signed period is essential: historical Visit foreign
+                # keys reference the prior (period_id, context_revision), so
+                # mutating that revision would corrupt signed visit evidence.
+                new_driver = int(self.period.driver_id)
+                new_rep = int(self.period.field_representative_id)
+                new_vehicle = int(self.period.vehicle_id)
+                new_location = int(self.period.vehicle_location_id)
+                new_session = self.period.work_session_id
+                new_commercial = int(self.period.commercial_context_id)
+                new_state = "ACTIVE" if new_session is not None else "PLANNED"
+                # Flush CLOSED before INSERT so unique live-driver/vehicle
+                # period guards never see two live periods in our own txn.
+                await db.flush()
+                db.add(DispatchRouteExecutionPeriod(
+                    company_id=state.company_id, route_id=state.route_id,
+                    work_session_id=new_session,
+                    driver_id=new_driver, field_representative_id=new_rep,
+                    vehicle_id=new_vehicle, vehicle_location_id=new_location,
+                    commercial_context_id=new_commercial, state=new_state,
+                    context_revision=decision.next_context_revision,
+                    started_at=now, started_by_principal_id=self.actor_principal_id,
+                    request_id=str(intent.request_id),
+                    payload_hash=lifecycle_request_hash(state.route_id, intent),
+                    reason="PAUSE",
+                ))
+            else:
+                if self.target_rep_id is None or self.vehicle_location_id is None:
+                    raise LifecycleConflict("DESTINATION_AUTHORITY_UNVERIFIED")
+                from models import RouteCommercialContext
+                commercial = await db.scalar(
+                    select(RouteCommercialContext.id).where(
+                        RouteCommercialContext.company_id == state.company_id,
+                        RouteCommercialContext.dispatch_route_id == state.route_id,
+                    )
                 )
-            )
-            if commercial is None:
-                raise LifecycleConflict("COMMERCIAL_CONTEXT_NOT_PUBLISHED")
-            db.add(DispatchRouteExecutionPeriod(
-                company_id=state.company_id, route_id=state.route_id,
-                work_session_id=(
-                    int(self.target_session.id) if self.target_session else None
-                ),
-                driver_id=decision.open_period_driver_id,
-                field_representative_id=self.target_rep_id,
-                vehicle_id=decision.open_period_vehicle_id,
-                vehicle_location_id=self.vehicle_location_id,
-                commercial_context_id=int(commercial),
-                state="ACTIVE" if self.target_session else "PLANNED",
-                context_revision=decision.next_context_revision,
-                started_at=now, started_by_principal_id=self.actor_principal_id,
-                request_id=str(intent.request_id),
-                payload_hash=lifecycle_request_hash(state.route_id, intent),
-                reason="RESUME",
-            ))
+                if commercial is None:
+                    raise LifecycleConflict("COMMERCIAL_CONTEXT_NOT_PUBLISHED")
+                db.add(DispatchRouteExecutionPeriod(
+                    company_id=state.company_id, route_id=state.route_id,
+                    work_session_id=(
+                        int(self.target_session.id) if self.target_session else None
+                    ),
+                    driver_id=decision.open_period_driver_id,
+                    field_representative_id=self.target_rep_id,
+                    vehicle_id=decision.open_period_vehicle_id,
+                    vehicle_location_id=self.vehicle_location_id,
+                    commercial_context_id=int(commercial),
+                    state="ACTIVE" if self.target_session else "PLANNED",
+                    context_revision=decision.next_context_revision,
+                    started_at=now, started_by_principal_id=self.actor_principal_id,
+                    request_id=str(intent.request_id),
+                    payload_hash=lifecycle_request_hash(state.route_id, intent),
+                    reason="RESUME",
+                ))
 
         # Keep legacy route's work_session_id/driver/vehicle as READ-ONLY
         # historical link when a session is bound: its composite tenant FK
         # prevents rewriting driver_id to another person's session. The new
         # period is the CURRENT assignment truth. M03/05 will consume that.
-        if self.resources.session is None and decision.open_period_driver_id is not None:
+        if (intent.action == "RESUME" and self.resources.session is None
+                and decision.open_period_driver_id is not None):
             route.driver_id = decision.open_period_driver_id
             route.vehicle_id = decision.open_period_vehicle_id
             # Old vehicle load plans are NOT stock: a separate explicit

@@ -1879,7 +1879,7 @@ function DispatchSession() {
                     }}
                     onForceWithdraw={route => {
                       if (route.assignmentContextRevision !== 1 || route.currentPeriodId != null) {
-                        openLifecycle(route, "POSTPONE");
+                        openLifecycle(route, "PAUSE");
                         return;
                       }
                       const isAlmostDone = route.shopsRemaining > 0 && route.shopsRemaining <= 5;

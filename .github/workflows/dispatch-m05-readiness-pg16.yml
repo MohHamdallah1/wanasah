@@ -40,6 +40,10 @@ jobs:
         run: |
           python -m pip install -r wa_backend/requirements.txt alembic pytest pytest-asyncio httpx
           python -m py_compile wa_backend/api/dispatch.py wa_backend/schemas.py \
+            wa_backend/domains/dispatch/route_execution/lifecycle/intent.py \
+            wa_backend/domains/dispatch/route_execution/lifecycle/policy.py \
+            wa_backend/domains/dispatch/route_execution/lifecycle/store.py \
+            wa_backend/tests/test_dispatch_m02_lifecycle_policy.py \
             wa_backend/domains/dispatch/route_execution/readiness/current_periods.py \
             wa_backend/domains/dispatch/route_execution/readiness/probe.py \
             wa_backend/domains/dispatch/route_execution/readiness/launch_resources.py \
@@ -90,6 +94,7 @@ jobs:
           python -B -m pytest -p no:cacheprovider -q -s --tb=short
           tests/test_dispatch_m05_reads_postgres.py
           tests/test_dispatch_m05_launch_availability_postgres.py
+          tests/test_dispatch_m02_lifecycle_policy.py::test_signed_pause_reserves_same_zone_rep_vehicle_with_new_epoch_and_no_stock
       - name: Preserve focused test evidence
         if: always()
         uses: actions/upload-artifact@v4

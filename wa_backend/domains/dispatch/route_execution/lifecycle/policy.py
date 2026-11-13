@@ -82,6 +82,28 @@ def decide_lifecycle(
     if state.context_revision >= 2**63 - 1:
         raise LifecycleConflict("ROUTE_CONTEXT_REVISION_EXHAUSTED")
 
+    if intent.action == "PAUSE":
+        # PAUSE is NOT POSTPONE: the same representative, vehicle and zone
+        # remain reserved under a new signed period/revision. Replayed UUIDs
+        # are handled by the transactional receipt, not an unversioned no-op.
+        if state.status != "active":
+            raise LifecycleConflict("ROUTE_NOT_ACTIVE_FOR_PAUSE")
+        if state.work_session_settled:
+            raise LifecycleConflict("SESSION_ALREADY_SETTLED")
+        if state.open_period_id is None or intent.expected_period_id != state.open_period_id:
+            raise LifecycleConflict("ROUTE_PAUSE_PERIOD_STALE")
+        if state.active_driver_id is None or state.active_vehicle_id is None:
+            raise LifecycleConflict("ROUTE_LIVE_ASSIGNMENT_MISSING")
+        return LifecycleDecision(
+            route_id=state.route_id, company_id=state.company_id,
+            zone_id=state.zone_id, old_status=state.status, status="waiting",
+            next_context_revision=state.context_revision + 1,
+            end_period_id=state.open_period_id,
+            open_period_driver_id=state.active_driver_id,
+            open_period_vehicle_id=state.active_vehicle_id,
+            zone_reserved=True, live_assets_reserved=True,
+        )
+
     if intent.action == "POSTPONE":
         if state.work_session_settled:
             raise LifecycleConflict("SESSION_ALREADY_SETTLED")

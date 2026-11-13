@@ -54,6 +54,30 @@ def state(status="active", **changes):
     return RouteLifecycleState(**base)
 
 
+def test_signed_pause_reserves_same_zone_rep_vehicle_with_new_epoch_and_no_stock():
+    cmd = intent("PAUSE", expected_period_id=33)
+    result = decide_lifecycle(state("active"), cmd)
+    assert result.status == "waiting"
+    assert result.zone_reserved and result.live_assets_reserved
+    assert result.next_context_revision == 13
+    assert result.end_period_id == 33
+    assert (result.open_period_driver_id, result.open_period_vehicle_id) == (100, 200)
+    assert not result.schedule_zone_next and result.inventory_movements == ()
+    assert lifecycle_request_hash(55, cmd) == lifecycle_request_hash(55, cmd)
+    with pytest.raises(LifecycleConflict, match="ROUTE_NOT_ACTIVE_FOR_PAUSE"):
+        decide_lifecycle(state("waiting"), cmd)
+    with pytest.raises(LifecycleConflict, match="ROUTE_PAUSE_PERIOD_STALE"):
+        decide_lifecycle(state("active"), intent("PAUSE", expected_period_id=34))
+    with pytest.raises(LifecycleConflict, match="ROUTE_CONTEXT_REVISION_STALE"):
+        decide_lifecycle(state("active", context_revision=13), cmd)
+    with pytest.raises(LifecycleConflict, match="SESSION_ALREADY_SETTLED"):
+        decide_lifecycle(state("active", work_session_settled=True), cmd)
+    with pytest.raises(ValidationError):
+        intent("PAUSE", expected_period_id=None)
+    with pytest.raises(ValidationError):
+        intent("PAUSE", target_driver_id=101)
+
+
 @pytest.mark.parametrize("status", ["active", "waiting"])
 def test_postpone_keeps_route_and_zone_releases_live_assignment(status):
     result = decide_lifecycle(state(status), intent("POSTPONE"))

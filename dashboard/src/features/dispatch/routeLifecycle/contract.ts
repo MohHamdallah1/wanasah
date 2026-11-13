@@ -2,7 +2,7 @@
  * Legacy DispatchRoute.driverId/vehicleId/workSessionId are historic values,
  * never the active execution period or signed vehicle custodian.
  */
-export type LifecycleAction = "POSTPONE" | "RESUME" | "CLOSE";
+export type LifecycleAction = "PAUSE" | "POSTPONE" | "RESUME" | "CLOSE";
 
 export interface RouteAssignmentProof {
   routeId: number;
@@ -34,7 +34,7 @@ export interface RouteLifecycleReceipt {
   request_id: string;
   route_id: number;
   action: LifecycleAction;
-  status: "active" | "postponed" | "closed";
+  status: "active" | "waiting" | "postponed" | "closed";
   context_revision: number;
   zone_reserved: boolean;
   live_assets_reserved: boolean;
@@ -93,6 +93,8 @@ export function createLifecycleIntent(
     };
   }
   if (target) throw new Error("M05_NO_IMPLICIT_REASSIGNMENT");
+  if (action === "PAUSE" && route.currentPeriodId === null)
+    throw new Error("M05_PAUSE_REQUIRES_CURRENT_SIGNED_PERIOD");
   return {
     action,
     expected_context_revision: route.assignmentRevision,
@@ -107,12 +109,14 @@ export function parseLifecycleReceipt(
 ): RouteLifecycleReceipt {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("M05_RECEIPT_INVALID");
   const row = raw as Record<string, unknown>;
-  const status = action === "POSTPONE" ? "postponed" : action === "RESUME" ? "active" : "closed";
+  const status = action === "PAUSE" ? "waiting"
+    : action === "POSTPONE" ? "postponed" : action === "RESUME" ? "active" : "closed";
   if (row.state !== "COMMITTED" || row.request_id !== requestId ||
       row.route_id !== routeId || row.action !== action || row.status !== status ||
       !positive(row.context_revision) || typeof row.zone_reserved !== "boolean" ||
       typeof row.live_assets_reserved !== "boolean" ||
       row.zone_reserved !== (action !== "CLOSE") ||
-      row.live_assets_reserved !== (action === "RESUME")) throw new Error("M05_RECEIPT_INVALID");
+      row.live_assets_reserved !== (action === "RESUME" || action === "PAUSE"))
+    throw new Error("M05_RECEIPT_INVALID");
   return row as unknown as RouteLifecycleReceipt;
 }

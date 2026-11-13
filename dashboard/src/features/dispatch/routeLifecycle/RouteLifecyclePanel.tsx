@@ -58,6 +58,8 @@ export function RouteLifecyclePanel({
   // exception. Versioned periods must carry their real signed current ID.
   const canPostpone = allowed && !!assignment &&
     (assignment.currentPeriodId !== null || assignment.assignmentRevision === 1);
+  const canPause = allowed && route?.status === "active" &&
+    assignment?.currentPeriodId !== null && assignment?.currentPeriodId !== undefined;
   useEffect(() => {
     setSignedCustody(null);
     setProbeError("");
@@ -172,11 +174,17 @@ export function RouteLifecyclePanel({
             </button>
           ) : (
             <>
-              {!isPostponed && initialAction !== "CLOSE" && <button type="button" disabled={!canPostpone}
-                onClick={() => void execute("POSTPONE")}
+              {!isPostponed && initialAction === "PAUSE" && <button type="button" disabled={!canPause}
+                onClick={() => void execute("PAUSE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">
-                {copy.postpone}
+                {copy.pause}
               </button>}
+              {!isPostponed && initialAction !== "CLOSE" && initialAction !== "PAUSE" &&
+                <button type="button" disabled={!canPostpone}
+                  onClick={() => void execute("POSTPONE")}
+                  className="rounded-lg border px-4 py-2 disabled:opacity-50">
+                  {copy.postpone}
+                </button>}
               <button type="button" disabled={!allowed}
                 onClick={() => void execute("CLOSE")}
                 className="rounded-lg border px-4 py-2 disabled:opacity-50">

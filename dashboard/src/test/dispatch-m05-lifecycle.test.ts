@@ -45,6 +45,29 @@ describe("M05 exact read and lifecycle intent", () => {
     })).toThrow();
   });
 
+  it("PAUSE keeps the signed current period and reserves all three resources", () => {
+    const live = parseRouteAssignmentProof({
+      ...route, assignmentContextRevision: 9,
+      currentPeriodId: 57, currentDriverId: 7, currentVehicleId: 6,
+    });
+    const pause = createLifecycleIntent("PAUSE", live!);
+    expect(pause).toEqual({
+      action: "PAUSE", expected_context_revision: 9, expected_period_id: 57,
+      expected_vehicle_custody_revision: null, target_driver_id: null,
+      target_vehicle_id: null,
+    });
+    expect(() => createLifecycleIntent("PAUSE", parseRouteAssignmentProof(route)!))
+      .toThrow("M05_PAUSE_REQUIRES_CURRENT_SIGNED_PERIOD");
+    const receipt = { request_id: "signed", state: "COMMITTED", route_id: 17,
+      action: "PAUSE", status: "waiting", context_revision: 10,
+      zone_reserved: true, live_assets_reserved: true };
+    expect(parseLifecycleReceipt(receipt, 17, "PAUSE", "signed")).toEqual(receipt);
+    expect(() => parseLifecycleReceipt({ ...receipt, live_assets_reserved: false },
+      17, "PAUSE", "signed")).toThrow("M05_RECEIPT_INVALID");
+    expect(() => parseLifecycleReceipt({ ...receipt, status: "postponed" },
+      17, "PAUSE", "signed")).toThrow("M05_RECEIPT_INVALID");
+  });
+
   it("rejects receipt with changed UUID/action/route or counterfeit success", () => {
     const valid = {
       request_id: "original", state: "COMMITTED", route_id: 17,
