@@ -83,6 +83,7 @@ export function LaunchResourceSelect({
             onFocus={() => setHintedId(x.id)} onBlur={() => setHintedId(null)}>
             <button role="option" aria-selected={value === x.id} data-resource-id={x.id}
               aria-label={x.label} type="button" disabled tabIndex={-1}
+              title={resourceReason(x.code, ar)}
               className="pointer-events-none flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2.5 text-start text-sm text-slate-500 disabled:cursor-not-allowed">
               <span className="min-w-0 truncate">{x.label}</span>
               <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-amber-600" />

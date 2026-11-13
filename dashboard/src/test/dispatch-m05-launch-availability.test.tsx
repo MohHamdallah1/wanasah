@@ -93,6 +93,7 @@ describe("M05 signed live availability — single four selectors", () => {
 
         const blocked = screen.getByRole("option", { name: sample.busy });
         expect(blocked).toBeDisabled();
+        expect(blocked).toHaveAttribute("title", exactReason);
         const hintTrigger = blocked.parentElement!;
         expect(hintTrigger).toHaveAttribute("tabindex", "0");
         fireEvent.mouseEnter(hintTrigger);
