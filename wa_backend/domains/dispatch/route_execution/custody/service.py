@@ -190,6 +190,7 @@ async def accept_custody(
     if prior is not None:
         if (int(prior.vehicle_id) != vehicle_id
                 or prior.payload_hash != payload_hash
+                or prior.accepted_by_principal_id != manager_principal_id
                 or prior.state != "ACCEPTED"):
             raise CustodyRejected("CUSTODY_REQUEST_ID_REUSED_WITH_DIFFERENT_BODY")
         await db.commit()  # Release the UUID advisory lock on exact replay.

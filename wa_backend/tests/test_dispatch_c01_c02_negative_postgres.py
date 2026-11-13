@@ -93,6 +93,23 @@ async def test_c02_snapshot_changes_and_live_route_unsettled_fail_closed(gate):
     assert blocked.status_code == 409, blocked.text
     assert blocked.json()["error"]["code"] == "CUSTODY_LIVE_ROUTE_MUST_SETTLE_FIRST"
 
+    # Even a rev2 active route with an incomplete/missing period must block
+    # reassignment; only the genuine settled transition may free custody.
+    tenant = tenant_context.set(g.tenant)
+    try:
+        async with AsyncSession(g.admin, expire_on_commit=False) as db:
+            live = await db.scalar(select(DispatchRoute).where(
+                DispatchRoute.company_id == g.tenant,
+                DispatchRoute.id == route_id,
+            ).with_for_update())
+            live.assignment_context_revision = 2
+            await db.commit()
+    finally:
+        tenant_context.reset(tenant)
+    blocked_rev2 = await g.client.post(url + "/offer", headers=manager, json=payload)
+    assert blocked_rev2.status_code == 409, blocked_rev2.text
+    assert blocked_rev2.json()["error"]["code"] == "CUSTODY_LIVE_ROUTE_MUST_SETTLE_FIRST"
+
     # A historical M01 epoch linked to an OPEN session must not use the
     # absence of an M03 period as a settlement bypass.
     token = tenant_context.set(g.tenant)

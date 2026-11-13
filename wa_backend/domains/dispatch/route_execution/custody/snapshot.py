@@ -13,6 +13,7 @@ from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 from domains.vehicles.eligibility import vehicle_is_operational
 from domains.vehicles.repository import read_canonical_custody_location_id
+from domains.vehicles.contracts import VehicleError
 from services import acquire_inventory_location_guard
 
 from .proofs import CustodyRejected, digest
@@ -38,9 +39,14 @@ async def read_vehicle_state(
 ) -> CustodyState:
     # Lock Vehicle first (like Dispatch lifecycle), then the canonical
     # inventory location. Every stock writer also takes the location guard.
-    location_id = await read_canonical_custody_location_id(
-        db, company_id=company_id, vehicle_id=vehicle_id, require_active=True,
-    )
+    try:
+        location_id = await read_canonical_custody_location_id(
+            db, company_id=company_id, vehicle_id=vehicle_id, require_active=True,
+        )
+    except VehicleError as exc:
+        # Never turn an invalid, inactive, or ambiguous custody location into
+        # an unhandled 500; the caller receives a tenant-safe recovery code.
+        raise CustodyRejected(exc.code, exc.status_code) from exc
     vehicle_query = select(Vehicle).where(
         Vehicle.company_id == company_id, Vehicle.id == vehicle_id,
     )
@@ -131,7 +137,8 @@ async def require_quiescent_vehicle(
     live_route = await db.scalar(select(DispatchRoute.id).where(
         DispatchRoute.company_id == company_id,
         DispatchRoute.vehicle_id == vehicle_id,
-        DispatchRoute.assignment_context_revision == 1,
+        # Both legacy and M02/other revisions must hold the vehicle.
+        # An inconsistent missing period is not permission to reassign.
         DispatchRoute.status.in_(("active", "waiting")),
     ).limit(1))
     live_period = await db.scalar(select(DispatchRouteExecutionPeriod.id).where(
@@ -174,4 +181,22 @@ async def require_quiescent_vehicle(
         ).limit(1)
     )
     if from_existing_epoch is not None:
+        raise CustodyRejected("CUSTODY_PREVIOUS_SESSION_UNSETTLED")
+    # Old postponed/closed route rows can retain a WorkSession association
+    # even where no M03 period and no M01 related_session were backfilled.
+    # Outstanding settlement still prevents assuming responsibility is free.
+    from_legacy_route = await db.scalar(
+        select(WorkSession.id).join(
+            DispatchRoute,
+            (DispatchRoute.company_id == WorkSession.company_id)
+            & (DispatchRoute.work_session_id == WorkSession.id),
+        ).where(
+            WorkSession.company_id == company_id,
+            DispatchRoute.vehicle_id == vehicle_id,
+            or_(WorkSession.end_time.is_(None),
+                WorkSession.is_settled.is_(False),
+                WorkSession.inventory_reconciled_at.is_(None)),
+        ).limit(1)
+    )
+    if from_legacy_route is not None:
         raise CustodyRejected("CUSTODY_PREVIOUS_SESSION_UNSETTLED")

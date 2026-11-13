@@ -149,6 +149,22 @@ async def _movement_count(g):
         )) or 0)
 
 
+async def _ledger_signature(g):
+    """Every persisted movement identity, batch, status and quantity: exact ledger."""
+    async with AsyncSession(g.admin) as db:
+        rows = (await db.execute(select(
+            InventoryMovement.id, InventoryMovement.product_variant_id,
+            InventoryMovement.batch_id, InventoryMovement.quantity,
+            InventoryMovement.movement_kind, InventoryMovement.source_location_id,
+            InventoryMovement.destination_location_id,
+            InventoryMovement.reference_type, InventoryMovement.reference_id,
+            InventoryMovement.source_stock_status, InventoryMovement.destination_stock_status,
+        ).where(InventoryMovement.company_id == g.tenant).order_by(
+            InventoryMovement.id,
+        ))).all()
+        return tuple(tuple(str(v) for v in row) for row in rows)
+
+
 async def test_c01_c02_real_first_accept_and_transfer_signed_snapshot_replay(gate):
     g = gate
     unknown, different, empty = await _setup_cars(g)
@@ -170,6 +186,7 @@ async def test_c01_c02_real_first_accept_and_transfer_signed_snapshot_replay(gat
     )
     assert foreign_offer.status_code in (403, 404)
     before = await _movement_count(g)
+    ledger_before = await _ledger_signature(g)
     old = await g.client.get(path, headers=manager)
     assert old.status_code == 200, old.text
     assert old.json()["state"] == "NEEDS_REVIEW"
@@ -217,6 +234,7 @@ async def test_c01_c02_real_first_accept_and_transfer_signed_snapshot_replay(gat
     assert collision.status_code == 409
     assert collision.json()["error"]["code"] == "CUSTODY_REQUEST_ID_REUSED_WITH_DIFFERENT_BODY"
     assert await _movement_count(g) == before
+    assert await _ledger_signature(g) == ledger_before
     after = await g.client.get(option, headers=manager, params={
         "selected_driver_id":g.field.driver.id, "selected_vehicle_id":car})
     assert next(x for x in after.json()["vehicles"] if x["id"] == str(car))["code"] == "AVAILABLE"
@@ -259,6 +277,7 @@ async def test_c01_c02_real_first_accept_and_transfer_signed_snapshot_replay(gat
         json={"request_id":str(uuid4()), "receiver_proof":proof3})
     assert fresh.status_code == 201, fresh.text
     assert await _movement_count(g) == before
+    assert await _ledger_signature(g) == ledger_before
 
     async with AsyncSession(g.admin) as db:
         epochs = (await db.scalars(select(VehicleCustodyEpoch).where(
