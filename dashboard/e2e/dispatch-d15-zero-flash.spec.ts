@@ -178,7 +178,9 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible({ timeout: 35000 });
     await capture(page, network, 0, "cold:" + language + ":" + width, enforce);
     await page.screenshot({ path: `${imageDir}/${language}-${width}-cold-ready.png` });
-    const labels = dispatchTabLabels[language];
+    // The BEFORE build predates D22 and still uses Arabic chrome in EN mode.
+    // Keep exact AR/EN labels for the AFTER build without relaxing frame assertions.
+    const labels = dispatchTabLabels[enforce ? language : "ar"];
     const routes = page.getByRole("tab", { name: labels.routes, exact: true });
     const launch = page.getByRole("tab", { name: labels.launch, exact: true });
     const zones = page.getByRole("tab", { name: labels.zones, exact: true });

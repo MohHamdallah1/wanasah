@@ -355,8 +355,9 @@ test("D08 real mobile 390px authenticated routes and zone controls", async ({ pa
     page.locator('button[type="submit"]').click(),
   ]);
   await page.goto("/dispatch");
-  await expect(page.getByRole("tab", { name: "Zone structure", exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "Zone structure", exact: true }).click();
+  // This mobile flow uses the default Arabic locale (unlike the English desktop scenario).
+  await expect(page.getByRole("tab", { name: "هيكلة المناطق", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "هيكلة المناطق", exact: true }).click();
   await expect(page.getByRole("button", { name: /منطقة جديدة/ })).toBeVisible();
   const metrics = await page.evaluate(() => ({
     width: window.innerWidth, documentWidth: document.documentElement.scrollWidth,

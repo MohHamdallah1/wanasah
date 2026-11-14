@@ -88,10 +88,15 @@ const launchTabLabels = {
   en: "Launch new route",
 } as const;
 
+// BEFORE measures pre-D22 legacy chrome (Arabic labels in both locales).
+// AFTER measures the actual localized chrome; retain exact accessible names.
+const phaseLaunchLabel = (language: "ar" | "en") =>
+  launchTabLabels[process.env.D15_P1_ENFORCE === "1" ? language : "ar"];
+
 async function prepareLaunch(page: Page, language: "ar" | "en") {
   await page.goto(origin + "/dispatch");
   await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
-  const tab = page.getByRole("tab", { name: launchTabLabels[language], exact: true });
+  const tab = page.getByRole("tab", { name: phaseLaunchLabel(language), exact: true });
   await expect(tab).toBeEnabled({ timeout: 30000 });
   await tab.click();
   await expect(page.getByTestId("dispatch-launch-workspace")).toBeVisible();
@@ -243,7 +248,7 @@ for (const language of ["ar", "en"] as const) for (const width of [1440,390] as 
       await page.screenshot({ path: imageDir + "/" + label.replaceAll(":","-") + "-pending.png" });
       await inspect(page, label, { ...held }, selections);
       await page.screenshot({ path: imageDir + "/" + label.replaceAll(":","-") + "-ready.png" });
-      await expect(page.getByRole("tab", { name: launchTabLabels[language], exact: true })).toHaveAttribute("aria-selected","true");
+      await expect(page.getByRole("tab", { name: phaseLaunchLabel(language), exact: true })).toHaveAttribute("aria-selected","true");
       await setReference(page);
       hold = false;
     }
