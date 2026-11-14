@@ -1,7 +1,5 @@
-import asyncio
 import base64
 import binascii
-import bcrypt
 import hashlib
 import json
 import logging
@@ -2671,11 +2669,19 @@ async def cancel_stocktake_session(
 
     company_id = access.company_id
 
-    password_ok = await asyncio.to_thread(
-        bcrypt.checkpw,
-        payload.password.encode('utf-8'),
-        legacy_actor.password_hash.encode('utf-8'),
-    )
+    from domains.identity.authentication import verify_existing_password
+
+    # The signed BACKOFFICE principal owns the credential; Driver is only
+    # the operational FK used for cancellation, idempotency, and audit.
+    principal = await db.scalar(select(CompanyPrincipal).where(
+        CompanyPrincipal.company_id == company_id,
+        CompanyPrincipal.id == access.subject.principal_id,
+        CompanyPrincipal.principal_type == PrincipalType.BACKOFFICE.value,
+        CompanyPrincipal.is_active.is_(True),
+    ))
+    password_ok = bool(principal is not None and await verify_existing_password(
+        payload.password, principal.password_hash,
+    ))
     if not password_ok:
         db.add(SystemAuditLog(
             company_id=company_id,
