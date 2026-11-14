@@ -10,6 +10,10 @@ const labels = {
   en: "Balance unavailable with your permissions",
 };
 type Language = keyof typeof labels;
+const dispatchTabs = {
+  ar: { routes: "الخطوط النشطة", launch: "إطلاق خط جديد", zones: "هيكلة المناطق" },
+  en: { routes: "Active routes", launch: "Launch new route", zones: "Zone structure" },
+} as const;
 type Identity = "owner" | "reader" | "limited" | "foreign";
 type Credential = { code: string; username: string; password: string };
 const actor = (who: Identity): Credential => state.credentials[who];
@@ -47,9 +51,9 @@ async function signIn(page: Page, who: Identity, language: Language) {
   ]);
 }
 
-async function shopsTab(page: Page, zone: string) {
+async function shopsTab(page: Page, zone: string, language: Language) {
   await page.goto("/dispatch");
-  const tab = page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ });
+  const tab = page.getByRole("tab", { name: dispatchTabs[language].zones, exact: true });
   await expect(tab).toBeVisible({ timeout: 45000 });
   // D15: visible static tab is disabled until the real PG16 signed reads pass.
   await expect(tab).toBeEnabled({ timeout: 45000 });
@@ -87,7 +91,7 @@ async function unavailable(page: Page, shop: string, language: Language) {
   await expect(moneyCell(page, shop)).toContainText(labels[language], { timeout: 20000 });
 }
 
-async function revisitRealBrowserTab(page: Page, selectedZone: string) {
+async function revisitRealBrowserTab(page: Page, selectedZone: string, language: Language) {
   // Real Chromium browser tab away/return and real Dashboard navigation.
   // Do not emulate visibilitychange or intercept any authenticated requests.
   const elsewhere = await page.context().newPage();
@@ -95,8 +99,8 @@ async function revisitRealBrowserTab(page: Page, selectedZone: string) {
   await elsewhere.bringToFront();
   await page.bringToFront();
   await elsewhere.close();
-  const routes = page.getByRole("tab", { name: /الخطوط النشطة|Active routes/ });
-  const zones = page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ });
+  const routes = page.getByRole("tab", { name: dispatchTabs[language].routes, exact: true });
+  const zones = page.getByRole("tab", { name: dispatchTabs[language].zones, exact: true });
   await routes.click();
   await zones.click();
   await expect(zones).toHaveAttribute("aria-selected", "true");
@@ -151,7 +155,7 @@ for (const language of ["ar", "en"] as const) {
         expect(Math.abs(dispatchFrame!.x - productsBox!.x)).toBeLessThanOrEqual(2);
         expect(Math.abs(dispatchFrame!.width - productsBox!.width)).toBeLessThanOrEqual(2);
         await page.goto("/dispatch");
-        const launch = page.getByRole("tab", { name: /إطلاق خط جديد|Launch route/ });
+        const launch = page.getByRole("tab", { name: dispatchTabs[language].launch, exact: true });
         await expect(launch).toBeVisible({ timeout: 45000 });
         await launch.click();
         // D15 compact component intentionally renders NOTHING while selectors
@@ -161,9 +165,9 @@ for (const language of ["ar", "en"] as const) {
         await expect(page.locator(".dispatch-launch-config")).toBeVisible();
         await expect(page.getByText("تتم حركة الفرق تلقائيًا عبر المستودع المختار")).toHaveCount(0);
         // The real final launch verification path is untouched.
-        await shopsTab(page, state.zones.a1);
+        await shopsTab(page, state.zones.a1, language);
         await visibleMoney(page, state.shops.assigned.name, "181.125", language);
-        await shopsTab(page, state.zones.a2);
+        await shopsTab(page, state.zones.a2, language);
         await visibleMoney(page, state.shops.a2.name, "901.125", language);
         const ownerApi = await browserApi<any[]>(page, "/dispatch/shops");
         expect(ownerApi.status).toBe(200);
@@ -171,10 +175,10 @@ for (const language of ["ar", "en"] as const) {
 
         // 2. Company-wide *Backoffice* basic directory, no inherited money.
         await signIn(page, "reader", language);
-        await shopsTab(page, state.zones.a1);
+        await shopsTab(page, state.zones.a1, language);
         await expect(shopRow(page, state.shops.unassigned.name)).toHaveCount(1);
         await unavailable(page, state.shops.assigned.name, language);
-        await shopsTab(page, state.zones.a2);
+        await shopsTab(page, state.zones.a2, language);
         await expect(shopRow(page, state.shops.a2.name)).toHaveCount(1);
         await unavailable(page, state.shops.a2.name, language);
         const readerApi = await browserApi<any[]>(page, "/dispatch/shops");
@@ -191,19 +195,19 @@ for (const language of ["ar", "en"] as const) {
         expect(grantedRow?.financeRedacted).toBe(false);
         expect(Number(grantedRow?.initialDebt)).toBe(901.125);
         console.log("D14_READER_FINANCE_HTTP_AFTER_GRANT=PASS");
-        await revisitRealBrowserTab(page, state.zones.a2);
+        await revisitRealBrowserTab(page, state.zones.a2, language);
         await visibleMoney(page, state.shops.a2.name, "901.125", language);
         expect(await page.evaluate(() => localStorage.getItem("admin_token")))
           .toBe(originalReaderToken);
         toggle("reader", "off");
-        await revisitRealBrowserTab(page, state.zones.a2);
+        await revisitRealBrowserTab(page, state.zones.a2, language);
         await unavailable(page, state.shops.a2.name, language);
         // The old full-page auth notice never flashes during real tab reentry.
         await expect(page.getByText(/جارٍ التحقق من صلاحيات الوصول|Checking access permissions/)).toHaveCount(0);
 
         // 4. A1 warehouse-restricted *Backoffice*, active Visit only.
         await signIn(page, "limited", language);
-        await shopsTab(page, state.zones.a1);
+        await shopsTab(page, state.zones.a1, language);
         await ownScopedRows(page);
         await unavailable(page, state.shops.assigned.name, language);
         await expect(page.getByRole("status")
@@ -218,11 +222,11 @@ for (const language of ["ar", "en"] as const) {
         expect(grantedA1.status).toBe(200);
         expect(grantedA1.data.map(s => s.name)).toEqual([state.shops.assigned.name]);
         expect(Number(grantedA1.data[0].initialDebt)).toBe(181.125);
-        await revisitRealBrowserTab(page, state.zones.a1);
+        await revisitRealBrowserTab(page, state.zones.a1, language);
         await visibleMoney(page, state.shops.assigned.name, "181.125", language);
         await ownScopedRows(page); // Finance grant never confers A2/whole directory.
         toggle("limited", "off");
-        await revisitRealBrowserTab(page, state.zones.a1);
+        await revisitRealBrowserTab(page, state.zones.a1, language);
         await unavailable(page, state.shops.assigned.name, language);
         expect(await page.evaluate(() => localStorage.getItem("admin_token")))
           .toBe(initialLimitedToken);
@@ -230,8 +234,8 @@ for (const language of ["ar", "en"] as const) {
         // 5. Company/account switch: rendered A1 Shop must vanish in foreign B.
         await signIn(page, "foreign", language);
         await page.goto("/dispatch");
-        await expect(page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ })).toBeVisible();
-        await page.getByRole("tab", { name: /هيكلة المناطق|Zones & shops/ }).click();
+        await expect(page.getByRole("tab", { name: dispatchTabs[language].zones, exact: true })).toBeVisible();
+        await page.getByRole("tab", { name: dispatchTabs[language].zones, exact: true }).click();
         await expect(shopRow(page, state.shops.assigned.name)).toHaveCount(0);
         await expect(shopRow(page, state.shops.a2.name)).toHaveCount(0);
         const foreign = await browserApi<any[]>(page, "/dispatch/shops");
