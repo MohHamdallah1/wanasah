@@ -1,4 +1,5 @@
 import type { Quantity } from "@/lib/quantity";
+import { routeLoadUomIdentity, type RouteLoadUom } from "./routeLoadUom";
 import type { Shop, Zone } from "@/types/dispatch";
 
 const prefix = "wanasah:dispatch:d10:";
@@ -18,35 +19,49 @@ export const routeDraftKey = (scope: string, warehouse: string, vehicle: string,
 export const shortageDraftKey = (scope: string) => `${prefix}shortage:${scope}`;
 
 type RouteDraft = { scope: string; warehouse: string; vehicle: string; zone: string; driver: string;
-  base: Record<string, Quantity>; targets: Record<string, Quantity>; version: 1 };
+  base: Record<string, Quantity>; targets: Record<string, Quantity>;
+  unit_signatures: Record<string, string>; version: 2 };
 
 export function saveRouteLoadDraft(scope: string | null, warehouse: string, vehicle: string, zone: string, driver: string,
-  base: Record<string, Quantity>, targets: Record<string, Quantity>): void {
+  base: Record<string, Quantity>, targets: Record<string, Quantity>,
+  units: Record<string, RouteLoadUom>): void {
   if (!safeScope(scope) || ![warehouse, vehicle, zone, driver].every(validId)) return;
   if (Object.keys(targets).length > 160 || Object.keys(base).length > 160) return;
   const entries = Object.entries(targets);
   if (!entries.every(([key, value]) => validId(key) && positiveQty(value))) return;
   if (!Object.entries(base).every(([key, value]) => validId(key) && positiveQty(value))) return;
+  const ids = [...new Set([...Object.keys(base), ...Object.keys(targets)])];
+  // Never save a target without its authenticated UOM fingerprint. A V1
+  // storage row without such evidence must not cross a conversion change.
+  if (ids.some(id => !units[id])) return;
+  const unit_signatures = Object.fromEntries(ids.map(id => [id, routeLoadUomIdentity(units[id])]));
   write(routeDraftKey(scope!, warehouse, vehicle, zone, driver), {
-    scope, warehouse, vehicle, zone, driver, version: 1, base, targets,
+    scope, warehouse, vehicle, zone, driver, version: 2, base, targets, unit_signatures,
   } satisfies RouteDraft);
 }
 export function restoreRouteLoadDraft(scope: string | null, warehouse: string, vehicle: string, zone: string, driver: string,
-  current: Record<string, Quantity>, authorizedProductIds: readonly string[]): Record<string, Quantity> | null {
+  current: Record<string, Quantity>, authorizedUnits: Record<string, RouteLoadUom>): Record<string, Quantity> | null {
   if (!safeScope(scope) || ![warehouse, vehicle, zone, driver].every(validId)) return null;
   const value = read(routeDraftKey(scope!, warehouse, vehicle, zone, driver));
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const draft = value as Partial<RouteDraft>;
-  if (draft.version !== 1 || draft.scope !== scope || draft.warehouse !== warehouse ||
+  if (draft.version !== 2 || draft.scope !== scope || draft.warehouse !== warehouse ||
       draft.vehicle !== vehicle || draft.zone !== zone || draft.driver !== driver ||
-      !draft.base || !draft.targets) return null;
+      !draft.base || !draft.targets || !draft.unit_signatures ||
+      Array.isArray(draft.unit_signatures)) return null;
   const source = Object.entries(draft.base), targets = Object.entries(draft.targets);
   if (targets.length > 160 || source.length > 160 || !source.every(([k,v]) => validId(k) && positiveQty(v)) ||
       !targets.every(([k,v]) => validId(k) && positiveQty(v))) return null;
   // Reuse only when the vehicle's CURRENT physical balance is unchanged; a matching ID is insufficient.
-  const allowed = new Set(authorizedProductIds);
+  const allowed = new Set(Object.keys(authorizedUnits));
   if (source.some(([id, qty]) => !allowed.has(id) || current[id] !== qty)) return null;
   if (targets.some(([id]) => !allowed.has(id))) return null;
+  const ids = [...new Set([...source.map(([id]) => id), ...targets.map(([id]) => id)])];
+  if (Object.keys(draft.unit_signatures).length !== ids.length ||
+      ids.some(id => typeof draft.unit_signatures![id] !== "string" ||
+        draft.unit_signatures![id] !== routeLoadUomIdentity(authorizedUnits[id]))) {
+    return null;
+  }
   return { ...current, ...draft.targets };
 }
 export function clearRouteLoadDraft(scope: string | null, warehouse: string, vehicle: string, zone: string, driver: string): void {

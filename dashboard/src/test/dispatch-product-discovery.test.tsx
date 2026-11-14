@@ -136,22 +136,24 @@ describe("Dispatch cursor pickers", () => {
     expect(input).toHaveAttribute("autocorrect", "off");
     expect(input).toHaveAttribute("autocapitalize", "off");
     expect(input).toHaveAttribute("spellcheck", "false");
-    expect(input).toHaveClass("h-9");
+    expect(input).toHaveClass("h-8");
     expect(input.closest("td")?.querySelector("p")).toBeNull();
-    expect(input.title).toContain("0 EACH");
+    expect(input.title).toContain("EACH");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "1" } });
     expect(changed).toHaveBeenLastCalledWith("1000", "Matching 1", expect.objectContaining(unit), "1");
 
     view.rerender(<div data-testid="dispatch-launch-workspace">
-      <RouteLoadProductTable {...props} targets={{ "1000": "25" }} />
+      <RouteLoadProductTable {...props} targets={{ "1000": "25" }} units={{ "1000": unit }} names={{ "1000": "Matching 1" }} />
     </div>);
     const savedInput = table.querySelector<HTMLInputElement>("#route-base-1000")!;
-    expect(savedInput).toHaveValue("25");
+    const displayInput = table.querySelector<HTMLInputElement>("#route-display-1000")!;
+    expect(savedInput).toHaveValue("1");
+    expect(displayInput).toHaveValue("3");
     savedInput.blur();
     fireEvent.focus(savedInput);
     expect(savedInput.selectionStart).toBe(0);
-    expect(savedInput.selectionEnd).toBe(2);
+    expect(savedInput.selectionEnd).toBe(1);
   });
 
   it("Route Launch scrolls through 500 products while retaining only three discovery pages", async () => {
@@ -184,7 +186,9 @@ describe("Dispatch cursor pickers", () => {
     expect(screen.queryByRole("button", { name: /Load more|Previous results/ })).not.toBeInTheDocument();
     const firstInput = container.querySelector("#route-base-2000") as HTMLInputElement;
     expect(firstInput).toBeTruthy();
-    fireEvent.change(firstInput, { target: { value: "25" } });
+    fireEvent.change(firstInput, { target: { value: "1" } });
+    const firstDisplay = container.querySelector("#route-display-2000") as HTMLInputElement;
+    fireEvent.change(firstDisplay, { target: { value: "3" } });
     expect(changed).toHaveBeenLastCalledWith("2000", "25");
 
     for (const expected of [160, 240, 320, 400, 480, 500]) {
@@ -274,7 +278,7 @@ describe("Dispatch cursor pickers", () => {
     await screen.findByText("Matching 1");
     expect(screen.getAllByRole("row")[1]).toHaveTextContent(current.name);
     expect(screen.queryByText("Zero stock C")).not.toBeInTheDocument();
-    const input = within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox");
+    const input = within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox", { name: /EACH/ });
     fireEvent.change(input, { target: { value: "5" } }); fireEvent.blur(input);
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "changed" } });
     await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=changed"))).toBe(true));
@@ -290,18 +294,18 @@ describe("Dispatch cursor pickers", () => {
     await screen.findByText(current.name);
     expect(screen.getByText("Matching 1")).toBeVisible();
     expect(screen.getAllByRole("row")).toHaveLength(3);
-    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox", { name: /EACH/ })).toHaveValue("5");
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
     // Clearing removes the target draft, but the SKU remains discoverable
     // from the real warehouse result (it must not vanish from stock search).
-    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("");
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox", { name: /EACH/ })).toHaveValue("");
     expect(screen.getByText(current.name)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Undo clear" }));
     expect(screen.getByText("Matching 1")).toBeVisible();
-    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox")).toHaveValue("5");
+    expect(within(screen.getByText("Matching 1").closest("tr")!).getByRole("textbox", { name: /EACH/ })).toHaveValue("5");
     expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
-    fireEvent.change(within(screen.getByText(current.name).closest("tr")!).getByRole("textbox"), { target: { value: "8" } });
+    fireEvent.change(within(screen.getByText(current.name).closest("tr")!).getByRole("textbox", { name: /EACH/ }), { target: { value: "7" } });
     expect(screen.getByRole("button", { name: "Undo clear" })).toBeDisabled();
   });
 

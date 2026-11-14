@@ -662,7 +662,29 @@ jobs:
               "dashboard/src/test/dispatch-product-discovery.test.tsx",
           }
           assert len(d21_launch_exact) == 9
+          # U02/U03 #969: exactly twelve reviewed Launch files plus these three
+          # independent frozen CI ownership gates. No wildcard or subset.
+          u02_u03_969_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/routeLoadUom.ts",
+              "dashboard/src/i18n/dispatchRouteLoad.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-load-context.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+              "dashboard/src/test/dispatch-route-load-target-ui.test.tsx",
+              "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
+          }
+          assert len(u02_u03_969_exact) == 15
           def ownership_mode(candidate):
+              if candidate == u02_u03_969_exact:
+                  return "U02_U03_969_EXACT"
               if candidate == d21_launch_exact:
                   return "D21_LAUNCH_EXACT"
               if candidate == u01_carton_codec_exact:
@@ -1251,6 +1273,24 @@ jobs:
               else:
                   raise AssertionError(f"CP2 product-gate foreign file admitted: {foreign}")
 
+          # Self-test this scope: incomplete and mixed author sets must fail.
+          assert ownership_mode(u02_u03_969_exact) == "U02_U03_969_EXACT"
+          for absent in u02_u03_969_exact:
+              try:
+                  ownership_mode(u02_u03_969_exact - {absent})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"U02/U03 missing owner file admitted: {absent}")
+          for foreign in ("wa_backend/api/dispatch.py",
+                          "wa_backend/domains/inventory/services.py",
+                          "dashboard/src/lib/authStorage.ts"):
+              try:
+                  ownership_mode(u02_u03_969_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"U02/U03 foreign owner file admitted: {foreign}")
           mode = ownership_mode(paths)
           unexpected_probe = "wa_backend/domains/inventory/services.py"
           try:

@@ -6,17 +6,33 @@ import { useLoadProductSearchText } from "@/features/dispatch/useLoadProductSear
 import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
 import { DISPATCH_PRODUCT_PAGE_SIZE, type DispatchDiscoveryProduct } from "@/features/dispatch/useDispatchProductSearch";
 import { matchesLoadPinnedProduct } from "@/features/dispatch/loadProductSearchMatch";
-import { formatRouteLoadQuantity, routeLoadReview, type RouteLoadUom } from "@/features/dispatch/routeLoadUom";
+import { formatRouteLoadQuantity, INVALID_ROUTE_LOAD_TARGET, routeLoadReview, routeLoadUomIdentity, type RouteLoadUom } from "@/features/dispatch/routeLoadUom";
+import { composeRouteLoadTargetBase, splitRouteLoadTargetBase } from "@/features/dispatch/routeLoadTargetParts";
 import type { Quantity } from "@/lib/quantity";
 import { MeasuredProductTableBody } from "./DispatchProductWindow";
 import { useDispatchWindowSentinels } from "@/features/dispatch/useDispatchWindowSentinels";
 
 type TargetSnapshot = { scopeKey: string; values: Record<string, Quantity> };
+type TargetInputDraft = {
+  scopeKey: string;
+  unitKey: string;
+  originBase: string;
+  sentBase: string;
+  display: string;
+  remainder: string;
+  error: string | null;
+};
+
+// Only normalize digit glyphs for EXACT decimal input, never compute with floats.
+const asciiQuantityDigits = (value: string): string => value
+  .replace(/[٠-٩]/g, char => String(char.charCodeAt(0) - 0x660))
+  .replace(/[۰-۹]/g, char => String(char.charCodeAt(0) - 0x6f0))
+  .replace(/٫/g, ".");
 
 export function RouteLoadProductTable({
   vehicleId, warehouseId, scope, current, targets, units, names,
   onTargetChange, onClear, onRestoreClear, custodyReady = true, pending = false,
-  commandReady = true, actionsHost,
+  commandReady = true, actionsHost, intentScope = "",
 }: {
   vehicleId: string; warehouseId: string; scope: string | null;
   current: Record<string, Quantity>; targets: Record<string, Quantity>;
@@ -28,6 +44,7 @@ export function RouteLoadProductTable({
   custodyReady?: boolean;
   commandReady?: boolean;
   actionsHost?: HTMLElement | null;
+  intentScope?: string;
 }) {
   const { t, i18n } = useTranslation();
   const isArabic = i18n.language.startsWith("ar");
@@ -74,9 +91,21 @@ export function RouteLoadProductTable({
   // Undo is a local UI draft snapshot, NEVER an inventory transaction or a
   // second authority. A new actor remounts the workspace; changing vehicle,
   // warehouse, or scope invalidates the previous snapshot.
-  const scopeKey = JSON.stringify([scope, vehicleId, warehouseId]);
+  const scopeKey = JSON.stringify([scope, vehicleId, warehouseId, intentScope]);
   const [clearSnapshot, setClearSnapshot] = useState<TargetSnapshot | null>(null);
-  useEffect(() => setClearSnapshot(null), [scopeKey]);
+  const [inputDrafts, setInputDrafts] = useState<Record<string, TargetInputDraft>>({});
+  useEffect(() => { setClearSnapshot(null); setInputDrafts({}); }, [scopeKey]);
+  // A genuine per-SKU conversion change invalidates an already composed draft.
+  // Never silently reinterpret the old BASE total using a new pack/pallet factor.
+  useEffect(() => {
+    for (const [id, draft] of Object.entries(inputDrafts)) {
+      if (draft.scopeKey !== scopeKey || targets[id] === INVALID_ROUTE_LOAD_TARGET) continue;
+      const live = page.items.find(product => product.id === id)?.load || units[id];
+      if (live && draft.unitKey !== routeLoadUomIdentity(live)) {
+        onTargetChange(id, names[id] || id, live, INVALID_ROUTE_LOAD_TARGET);
+      }
+    }
+  }, [inputDrafts, scopeKey, targets, units, names, page.items, onTargetChange]);
   // A signed inventory refresh or another controller update must NOT let
   // an old Undo overwrite new real targets after the clear operation.
   useEffect(() => {
@@ -88,12 +117,14 @@ export function RouteLoadProductTable({
   const clearAll = () => {
     if (!canEdit || Object.keys(targets).length === 0) return;
     setClearSnapshot({ scopeKey, values: { ...targets } });
+    setInputDrafts({});
     onClear();
   };
 
   const undoClear = () => {
     if (!canUndo || !clearSnapshot) return;
     onRestoreClear({ ...clearSnapshot.values });
+    setInputDrafts({});
     setClearSnapshot(null);
   };
 
@@ -113,32 +144,91 @@ export function RouteLoadProductTable({
   };
 
   const renderRow = (product: DispatchDiscoveryProduct, rowNumber: number) => {
-    const unit = units[product.id] || product.load;
+    const unit = page.items.find(row => row.id === product.id)?.load || units[product.id] || product.load;
     const physical = current[product.id] || "0";
     const target = targets[product.id] || "0";
-    const targetInputValue = target === "0" ? "" : target;
+    const identity = unit ? routeLoadUomIdentity(unit) : "";
+    const candidate = inputDrafts[product.id];
+    const useDraft = !!candidate && candidate.scopeKey === scopeKey &&
+      candidate.unitKey === identity && (target === candidate.sentBase || target === candidate.originBase);
+    let parts: ReturnType<typeof splitRouteLoadTargetBase> | null = null;
+    try { if (unit && target !== INVALID_ROUTE_LOAD_TARGET) parts = splitRouteLoadTargetBase(target, unit); }
+    catch { /* Malformed or newly changed UOM never becomes an allowed target. */ }
+    const draft = useDraft ? candidate : null;
+    const outerValue = draft ? draft.display : parts?.displayQuantity === "0" ? "" : parts?.displayQuantity ?? "";
+    const remainderValue = draft ? draft.remainder :
+      parts?.baseRemainder === "0" ? "" : parts?.baseRemainder ?? "";
+    const hasDisplay = !!parts?.hasDisplayUnit || !!unit?.display_uom_name &&
+      unit?.display_factor_to_base !== null && unit?.display_factor_to_base !== "1";
+    const inputError = draft?.error ?? (!parts && unit && target !== "0" ? "DISPATCH_TARGET_INVALID" : null);
+    const errorLabel = inputError === "DISPATCH_DISPLAY_REMAINDER_TOO_LARGE"
+      ? t("dispatchRouteLoad.remainderTooLarge", { unit: unit?.display_uom_name })
+      : inputError === "DISPATCH_DISPLAY_COUNT_INVALID"
+        ? t("dispatchRouteLoad.displayCountInvalid")
+        : t("dispatchRouteLoad.invalid");
+    const editPart = (kind: "display" | "base", raw: string) => {
+      if (!unit) return;
+      const nextDisplay = kind === "display" ? raw : outerValue;
+      const nextRemainder = kind === "base" ? raw : remainderValue;
+      let sentBase = INVALID_ROUTE_LOAD_TARGET;
+      let error: string | null = null;
+      try {
+        sentBase = composeRouteLoadTargetBase(
+          asciiQuantityDigits(nextDisplay), asciiQuantityDigits(nextRemainder), unit,
+        );
+      } catch (failure) {
+        error = failure instanceof Error ? failure.message : "DISPATCH_TARGET_INVALID";
+      }
+      setInputDrafts(previous => ({
+        ...previous,
+        [product.id]: {
+          scopeKey, unitKey: identity, originBase: draft?.originBase ?? target,
+          sentBase, display: nextDisplay, remainder: nextRemainder, error,
+        },
+      }));
+      setClearSnapshot(null);
+      onTargetChange(product.id, product.name, unit, sentBase);
+    };
     let review: ReturnType<typeof routeLoadReview> | null = null;
-    try { if (unit) review = routeLoadReview(physical, target, unit); } catch { /* Preserve the editable draft. */ }
+    try { if (unit && !inputError) review = routeLoadReview(physical, target, unit); }
+    catch { /* Keep an invalid local edit visible and block any actual movement. */ }
     return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
       <td className="px-1 py-1.5 text-center text-xs text-slate-500 tabular-nums">{rowNumber}</td>
       <td title={product.name} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-1.5 font-semibold text-slate-700">{product.name}</td>
       <td title={unit ? formatRouteLoadQuantity(physical, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
-      <td className="min-w-0 overflow-hidden whitespace-nowrap px-2 py-1 text-center">
-        <label className="sr-only" htmlFor={`route-base-${product.id}`}>{t("dispatchRouteLoad.target")} — {product.name}</label>
-        <input id={`route-base-${product.id}`} type="text" inputMode="decimal"
-          data-route-target-input="base" onKeyDown={onQuantityArrow}
-          autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-          disabled={!unit || !canEdit} value={targetInputValue}
-          aria-invalid={!!unit && !review}
-          onFocus={(event) => event.currentTarget.select()}
-          title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}${review ? ` — ${formatRouteLoadQuantity(target, unit)}` : ""}` : t("dispatchRouteLoad.loading")}
-          onChange={(event) => {
-            if (unit) {
-              setClearSnapshot(null);
-              onTargetChange(product.id, product.name, unit, event.target.value);
-            }
-          }}
-          className="h-9 w-24 max-w-full rounded-lg border border-slate-300 bg-white px-2 text-center text-sm tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100" />
+      <td className="relative min-w-0 px-1.5 py-1 text-center">
+        <div className="flex min-w-0 items-start justify-center gap-1" dir={isArabic ? "rtl" : "ltr"}>
+          {hasDisplay && <label className="flex min-w-0 flex-1 flex-col gap-0.5" title={unit?.display_uom_name ?? undefined}>
+            <span className="truncate text-[10px] font-semibold text-slate-600">{unit?.display_uom_name}</span>
+            <input id={`route-display-${product.id}`} type="text" inputMode="numeric"
+              data-route-target-input="display" onKeyDown={onQuantityArrow}
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+              disabled={!unit || !canEdit} value={outerValue}
+              aria-label={`${t("dispatchRouteLoad.target")} — ${product.name} — ${unit?.display_uom_name}`}
+              aria-invalid={!!inputError} aria-describedby={inputError ? `route-error-${product.id}` : undefined}
+              onFocus={(event) => event.currentTarget.select()}
+              title={unit?.display_uom_name}
+              onChange={(event) => editPart("display", event.target.value)}
+              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100"
+              dir="ltr" />
+          </label>}
+          <label className="flex min-w-0 flex-1 flex-col gap-0.5" title={unit?.base_uom_name}>
+            <span className="truncate text-[10px] font-semibold text-slate-600">{unit?.base_uom_name ?? t("dispatchRouteLoad.loading")}</span>
+            <input id={`route-base-${product.id}`} type="text" inputMode="decimal"
+              data-route-target-input="base" onKeyDown={onQuantityArrow}
+              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+              disabled={!unit || !canEdit} value={remainderValue}
+              aria-label={`${t("dispatchRouteLoad.target")} — ${product.name} — ${unit?.base_uom_name ?? t("dispatchRouteLoad.loading")}`}
+              aria-invalid={!!inputError} aria-describedby={inputError ? `route-error-${product.id}` : undefined}
+              onFocus={(event) => event.currentTarget.select()}
+              title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
+              onChange={(event) => editPart("base", event.target.value)}
+              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100"
+              dir="ltr" />
+          </label>
+        </div>
+        {inputError && <span id={`route-error-${product.id}`} role="alert" title={errorLabel}
+          className="block truncate text-[10px] font-semibold text-rose-700">{errorLabel}</span>}
       </td>
       <td title={unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}</td>
       <td className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center text-slate-600">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"

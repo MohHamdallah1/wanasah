@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401 - genuine PG16 fixture
 
 from domains.dispatch_route_load import (
     allocate_route_base_batches, canonical_route_delta,
@@ -175,3 +176,143 @@ async def test_conflicting_graph_still_fails_before_display_selection():
     with pytest.raises(UomAuthorityError) as caught:
         await route_load_uom_metadata(db, company_id=1, variant_ids=[701])
     assert caught.value.code == "UOM_CONVERSION_GRAPH_AMBIGUOUS"
+
+
+# U03: REAL local PostgreSQL16 (FORCE RLS, runtime NOBYPASSRLS) and
+# canonical Bearer HTTP. UI's U01 codec sends BASE only; never reinterpret it.
+@pytest.mark.skipif(
+    __import__("os").getenv("WANASAH_DISPATCH_D07_PG_GATE") != "1",
+    reason="Requires own isolated U03 PG16 signed test port",
+)
+@pytest.mark.asyncio(loop_scope="function")
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+@pytest.mark.parametrize("display_name,factor,target", [
+    ("CARTON", 50, "1250"),
+    ("CARTON", 50, "1253"),
+    ("PALLET", 4800, "9607"),
+    ("PACK", 8, "25"),
+    ("BASE_ONLY", None, "20"),
+    ("FULL_UNLOAD", None, "0"),
+])
+async def test_u03_real_signed_base_load_and_reverse_unload_exactly_once(
+    pg, display_name, factor, target,
+):
+    from uuid import uuid4
+
+    import httpx
+    from sqlalchemy import select
+    from models import ProductUomConversion, UOM
+    from tests.test_dispatch_route_launch_d07_postgres import (
+        _prepared_route, LoseRoute201,
+    )
+    from tests.test_dispatch_p0_route_stock_safety_postgres import _snapshot, _total
+    from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
+
+    home, foreign = pg.tenants
+    op_id, payload, vehicle_location = await _prepared_route(pg, home)
+    variant_id = str(home.variant_id)
+    if Decimal(target) > Decimal("80"):
+        async with pg.session() as db:
+            receipt = pg.request(
+                lot="U03-" + uuid4().hex[:10],
+                quantity="11000", cost="2",
+            )
+            assert await pg.post(db, receipt) == {"message": "INBOUND_POSTED"}
+    async with pg.session() as db:
+        if factor:
+            uom = UOM(
+                name=f"U03 {display_name} {uuid4().hex[:10]}",
+                code=f"U03{uuid4().hex[:10]}",
+            )
+            db.add(uom)
+            await db.flush()
+            db.add(ProductUomConversion(
+                company_id=home.company_id, product_variant_id=home.variant_id,
+                from_uom_id=uom.id, to_uom_id=home.uom_id,
+                numerator=Decimal(factor), denominator=Decimal("1"),
+                quantity_scale=0,
+            ))
+            await db.commit()
+    async with pg.session() as db:
+        metadata = (await route_load_uom_metadata(
+            db, company_id=home.company_id, variant_ids=[home.variant_id],
+        ))[home.variant_id]
+        assert metadata["display_factor_to_base"] == (str(factor) if factor else None)
+        assert (display_name == "BASE_ONLY" or display_name == "FULL_UNLOAD") == (metadata["display_uom_name"] is None)
+        if factor:
+            assert metadata["display_uom_name"].startswith("U03 " + display_name)
+
+    desired = Decimal(target)
+    current = Decimal("25")
+    before = await _snapshot(pg, home, [vehicle_location])
+    assert _total(before, vehicle_location) == current
+    assert _total(before, home.location_id) >= max(Decimal("0"), desired - current)
+    # The user's editing action has NOT moved stock. Only signed POST may mutate.
+    assert await _snapshot(pg, home, [vehicle_location]) == before
+
+    payload["inventory_base"] = {variant_id: target} if desired else {}
+    payload["expected_inventory_base"] = {variant_id: "25"}
+    payload["request_id"] = str(op_id)
+    async with _real_http() as client:
+        user = await _owner(client, pg, home)
+        outsider = await _owner(client, pg, foreign)
+        leaked = await client.post("/dispatch/route", json=payload, headers=outsider)
+        assert leaked.status_code in (400, 403, 404, 409, 422), leaked.text
+        unauthenticated = await client.post("/dispatch/route", json=payload)
+        assert unauthenticated.status_code == 401
+        assert await _snapshot(pg, home, [vehicle_location]) == before
+
+        stale = await client.post("/dispatch/route", headers=user, json={
+            **payload, "request_id": str(uuid4()),
+            "expected_inventory_base": {variant_id: "24"},
+        })
+        assert stale.status_code in (400, 409, 422), stale.text
+        assert await _snapshot(pg, home, [vehicle_location]) == before
+
+        if target == "1250":
+            # One deliberately dropped *committed* HTTP 201, not a fake success.
+            lost = LoseRoute201()
+            async with httpx.AsyncClient(transport=lost,
+                                         base_url="http://u03-lost-201.test",
+                                         timeout=30) as unreliable:
+                with pytest.raises(httpx.ReadError):
+                    await unreliable.post("/dispatch/route", json=payload, headers=user)
+            assert lost.dropped
+        else:
+            success = await client.post("/dispatch/route", json=payload, headers=user)
+            assert success.status_code == 201, success.text
+
+        after = await _snapshot(pg, home, [vehicle_location])
+        assert _total(after, vehicle_location) == desired
+        assert _total(after, home.location_id) == (
+            _total(before, home.location_id) - (desired - current)
+        )
+        assert after["cost_events"] == before["cost_events"]
+        assert (after["movements"] > before["movements"]) == (desired != current)
+        lookup = await client.get(
+            f"/dispatch/route/create-operations/{op_id}", headers=user,
+        )
+        assert lookup.status_code == 200, lookup.text
+        assert lookup.json()["state"] == "COMMITTED", lookup.text
+
+        # Replaying the original immutable signed intent must NEVER move stock twice.
+        replay = await client.post("/dispatch/route", json=payload, headers=user)
+        assert replay.status_code == 201, replay.text
+        assert await _snapshot(pg, home, [vehicle_location]) == after
+        conflict = await client.post("/dispatch/route", headers=user, json={
+            **payload,
+            "inventory_base": {variant_id: "26"},
+        })
+        assert conflict.status_code == 409, conflict.text
+        assert await _snapshot(pg, home, [vehicle_location]) == after
+
+    print("U03_PG16_SIGNED_BASE_MOVEMENT_PASS", {
+        "display": display_name, "factor": factor, "expected_base": target,
+        "direction": "LOAD" if desired > current else (
+            "UNLOAD" if desired < current else "UNCHANGED"
+        ),
+        "warehouse_before": str(_total(before, home.location_id)),
+        "warehouse_after": str(_total(after, home.location_id)),
+        "vehicle_before": str(current), "vehicle_after": str(desired),
+        "movement_count_delta": after["movements"] - before["movements"],
+    }, flush=True)
