@@ -28,8 +28,6 @@ class VehicleInventorySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 20),
-        const Divider(height: 30, thickness: 1),
         Text(
           l10n.stockVehicleTitle,
           style: Theme.of(context).textTheme.titleLarge,

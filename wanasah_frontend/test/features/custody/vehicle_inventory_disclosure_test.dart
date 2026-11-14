@@ -27,6 +27,25 @@ void main() {
     );
     await tester.pumpAndSettle();
     final stockContext = tester.element(find.byType(VehicleInventorySection));
+    final title = AppLocalizations.of(stockContext).stockVehicleTitle;
+    final sectionColumn = tester.widget<Column>(
+      find
+          .descendant(
+            of: find.byType(VehicleInventorySection),
+            matching: find.byType(Column),
+          )
+          .first,
+    );
+    // No spacer or divider must precede the vehicle stock heading.
+    expect(sectionColumn.children.first, isA<Text>());
+    expect((sectionColumn.children.first as Text).data, title);
+    expect(
+      find.descendant(
+        of: find.byType(VehicleInventorySection),
+        matching: find.byType(Divider),
+      ),
+      findsNothing,
+    );
     expect(
       find.text(AppLocalizations.of(stockContext).stockUnavailable),
       findsOneWidget,
