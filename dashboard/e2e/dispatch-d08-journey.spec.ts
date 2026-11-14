@@ -32,7 +32,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   await expect(page.locator(".dispatch-route-row").first()).toBeVisible();
 
   // Real user Zone create UI, not direct API calls or intercepted network.
-  await page.getByRole("tab", { name: /هيكلة المناطق/ }).click();
+  await page.getByRole("tab", { name: "Zone structure", exact: true }).click();
   await page.getByRole("button", { name: /منطقة جديدة/ }).click();
   const zoneDialog = page.getByRole("dialog");
   await expect(zoneDialog).toBeVisible();
@@ -165,7 +165,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
   expect((await restoredZone).status()).toBe(200);
   await expect(zoneBin).not.toBeVisible();
 
-  await page.getByRole("tab", { name: /الخطوط النشطة/ }).click();
+  await page.getByRole("tab", { name: "Active routes", exact: true }).click();
   const row = page.locator(".dispatch-route-row").first();
   await expect(row.getByRole("button", { name: "متابعة الحمولة" })).toBeEnabled();
   await row.getByRole("button", { name: "متابعة الحمولة" }).click();
@@ -225,7 +225,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
     r.request().method() === "PUT");
   await waiting.getByRole("button", { name: /تأجيل المنطقة/ }).click();
   expect((await postponed).status()).toBe(200);
-  await page.getByRole("button", { name: /عرض المؤجل|Show postponed/ }).click();
+  await page.getByRole("button", { name: /^Show postponed(?: \(\d+\))?$/ }).click();
   const postponedDialog = page.getByRole("dialog", { name: /المناطق المؤجلة|Postponed routes/ });
   await expect(postponedDialog.locator("tbody tr")).toHaveCount(1);
   // This D08 fixture is frozen V1 rev1: no current M02 execution period.
@@ -268,7 +268,7 @@ test("D08 real Dashboard Zone UI → route state → vehicle load → existing o
 
   // Actual Dashboard Launch UI on the freshly CLOSED route's assets, with D11
   // live commercial preflight and original D07 request identity; no mocked wire.
-  await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
+  await page.getByRole("tab", { name: "Launch new route", exact: true }).click();
   const init = await page.evaluate(async origin => {
     const reply = await fetch(origin + "/dispatch/init", {
       headers: { Authorization: "Bearer " + localStorage.getItem("admin_token") },
@@ -355,8 +355,8 @@ test("D08 real mobile 390px authenticated routes and zone controls", async ({ pa
     page.locator('button[type="submit"]').click(),
   ]);
   await page.goto("/dispatch");
-  await expect(page.getByRole("tab", { name: /هيكلة المناطق/ })).toBeVisible();
-  await page.getByRole("tab", { name: /هيكلة المناطق/ }).click();
+  await expect(page.getByRole("tab", { name: "Zone structure", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Zone structure", exact: true }).click();
   await expect(page.getByRole("button", { name: /منطقة جديدة/ })).toBeVisible();
   const metrics = await page.evaluate(() => ({
     width: window.innerWidth, documentWidth: document.documentElement.scrollWidth,
