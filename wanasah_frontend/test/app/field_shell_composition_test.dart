@@ -15,6 +15,7 @@ import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.da
 import 'package:wanasah_frontend/features/custody/domain/pending_return_custody.dart';
 import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
+import 'package:wanasah_frontend/features/custody/recovery/custody_handoff_screen.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_reader.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_sync_coordinator.dart';
 import 'package:wanasah_frontend/features/recovery/data/recovery_data_source.dart';
@@ -110,6 +111,22 @@ void main() {
       expect(find.text('مياه شرب'), findsOneWidget);
       expect(executor.calls, 0);
       await _capture(tester, boundary, 'custody-rtl');
+
+      // C03-FINAL: prove the signed FIELD receiver flow is reachable from
+      // the REAL application Custody destination, not a standalone preview.
+      const handoffKey = ValueKey('c03-field-custody-handoff');
+      expect(find.byKey(handoffKey), findsOneWidget);
+      await tester.ensureVisible(find.byKey(handoffKey));
+      await tester.tap(find.byKey(handoffKey));
+      await tester.pumpAndSettle();
+      expect(find.byType(CustodyHandoffScreen), findsOneWidget);
+      expect(find.byKey(const ValueKey('c03-inspect-stock')), findsOneWidget);
+      // Navigating to the deep receipt route must not falsely accept stock.
+      expect(find.byKey(const ValueKey('c03-field-sign')), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(VehicleInventorySection), findsOneWidget);
+      expect(executor.calls, 0);
       await tester.tap(find.byKey(const ValueKey('shell-tab-home')));
       await tester.pumpAndSettle();
       expect(find.byType(WorkSessionControls), findsOneWidget);
