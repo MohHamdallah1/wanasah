@@ -1,0 +1,51 @@
+{
+  "url": "http://127.0.0.1:4193",
+  "backend": "http://127.0.0.1:4184",
+  "scope": "UNAUTHENTICATED_ACCESS_ONLY",
+  "rows": [
+    {
+      "locale": "ar",
+      "width": 1440,
+      "authRedirect": "PASS",
+      "loginFields": "PASS",
+      "protectedDispatchHidden": "PASS",
+      "noOuterOverflow": "PASS",
+      "jsErrors": 0,
+      "screenshot": "unauth-ar-1440.png",
+      "scrollWidth": 1440
+    },
+    {
+      "locale": "en",
+      "width": 1440,
+      "authRedirect": "PASS",
+      "loginFields": "PASS",
+      "protectedDispatchHidden": "PASS",
+      "noOuterOverflow": "PASS",
+      "jsErrors": 0,
+      "screenshot": "unauth-en-1440.png",
+      "scrollWidth": 1440
+    },
+    {
+      "locale": "ar",
+      "width": 390,
+      "authRedirect": "PASS",
+      "loginFields": "PASS",
+      "protectedDispatchHidden": "PASS",
+      "noOuterOverflow": "PASS",
+      "jsErrors": 0,
+      "screenshot": "unauth-ar-390.png",
+      "scrollWidth": 390
+    },
+    {
+      "locale": "en",
+      "width": 390,
+      "authRedirect": "PASS",
+      "loginFields": "PASS",
+      "protectedDispatchHidden": "PASS",
+      "noOuterOverflow": "PASS",
+      "jsErrors": 0,
+      "screenshot": "unauth-en-390.png",
+      "scrollWidth": 390
+    }
+  ]
+}

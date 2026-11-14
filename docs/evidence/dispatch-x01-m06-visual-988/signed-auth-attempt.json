@@ -1,0 +1,9 @@
+{
+  "signed_auth": "BLOCKED",
+  "reason": "None of the three existing disposed-fixture credentials authenticated against currently running backend port 4184",
+  "attemptedSources": [
+    "wanasah-m06-pause-716-browser-state.json",
+    "wanasah-m06-m05-d12-state-55439.json",
+    "wanasah-c03-final-977-private-live.json"
+  ]
+}
