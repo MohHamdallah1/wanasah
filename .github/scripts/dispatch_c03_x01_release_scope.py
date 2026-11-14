@@ -85,7 +85,15 @@ M06_FILES = frozenset({
 D10_LOCALE_TEST_FILES = frozenset({
     'dashboard/src/test/auth-session-consumer-isolation.test.tsx',
 })
-UNIFIED_RELEASE_FILES = RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES
+D22_E2E_PARITY_FILES = frozenset({
+    'dashboard/e2e/dispatch-d08-journey.spec.ts',
+    'dashboard/e2e/dispatch-d12-scale.spec.ts',
+    'dashboard/e2e/dispatch-d14-browser.spec.ts',
+    'dashboard/e2e/dispatch-d15-launch-reentry-p1.spec.ts',
+    'dashboard/e2e/dispatch-d15-reentry.spec.ts',
+    'dashboard/e2e/dispatch-d15-zero-flash.spec.ts',
+})
+UNIFIED_RELEASE_FILES = RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES | D22_E2E_PARITY_FILES
 
 
 def unified_release_mode(paths):
@@ -114,11 +122,13 @@ def assert_release(paths):
 def selftest():
     assert len(RELEASE_FILES) == 56, len(RELEASE_FILES)
     assert len(D22_FILES) == 3 and len(M06_FILES) == 7 and len(D10_LOCALE_TEST_FILES) == 1
+    assert len(D22_E2E_PARITY_FILES) == 6
     assert not (RELEASE_FILES & D22_FILES)
     assert not (RELEASE_FILES & M06_FILES)
     assert not (D22_FILES & M06_FILES)
     assert not ((RELEASE_FILES | D22_FILES | M06_FILES) & D10_LOCALE_TEST_FILES)
-    assert len(UNIFIED_RELEASE_FILES) == 67
+    assert not ((RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES) & D22_E2E_PARITY_FILES)
+    assert len(UNIFIED_RELEASE_FILES) == 73
 
     def deny(paths):
         assert not release_mode(paths), sorted(paths)
@@ -141,15 +151,17 @@ def selftest():
             assert foreign not in UNIFIED_RELEASE_FILES
             deny(allowed | {foreign})
     # Neither accepted upstream PR, nor either incomplete release, can
-    # masquerade as the 67-file union; 56 and 7 remain separate exact modes.
+    # masquerade as the 73-file union; 56 and 7 remain separate exact modes.
     for partial in (
         D22_FILES, M06_FILES, D22_FILES | M06_FILES,
         RELEASE_FILES | D22_FILES, RELEASE_FILES | M06_FILES,
         RELEASE_FILES | D22_FILES | M06_FILES,
+        RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES,
+        D22_E2E_PARITY_FILES,
     ):
         deny(partial)
     print("C03_X01_X02_RELEASE_SCOPE_SELFTEST=PASS "
-          "original=56 unified=67 missing=123 foreign=8 partial=6")
+          "original=56 unified=73 missing=129 foreign=8 partial=8")
 
 if __name__ == "__main__":
     assert len(sys.argv) == 2 and sys.argv[1] == "--selftest"
