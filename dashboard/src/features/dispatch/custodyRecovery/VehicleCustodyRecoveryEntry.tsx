@@ -12,16 +12,16 @@ import type { Receipt } from "./contract";
  */
 export function VehicleCustodyRecoveryEntry({
   vehicleId, vehicleLabel, reasonCode, drivers, selectedDriverId,
-  actorScope, fetch, authorized, onAccepted,
+  actorScope, fetch, authorized, onAccepted, openOnMount = false,
 }: {
   vehicleId: string; vehicleLabel: string; reasonCode: string;
   drivers: readonly RecoveryDriver[]; selectedDriverId?: string;
-  actorScope: string | null; fetch: AuthorizedFetch;
+  actorScope: string | null; fetch: AuthorizedFetch; openOnMount?: boolean;
   authorized: () => boolean; onAccepted: (receipt: Receipt) => void;
 }) {
   const { i18n } = useTranslation();
   const t = custodyCopy(i18n.language);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(openOnMount);
   if (!reasonCode || reasonCode === "AVAILABLE") return null;
   return <div data-testid="c03-blocked-car-action"
     dir={i18n.dir()} className="min-w-0 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">

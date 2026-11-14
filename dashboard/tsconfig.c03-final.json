@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.app.json",
+  "include": [
+    "src/vite-env.d.ts",
+    "src/pages/DispatchBoard.tsx",
+    "src/features/dispatch/launchResources/*.ts",
+    "src/features/dispatch/launchResources/*.tsx",
+    "src/features/dispatch/custodyRecovery/*.ts",
+    "src/features/dispatch/custodyRecovery/*.tsx",
+    "src/test/dispatch-c03-*.test.ts",
+    "src/test/dispatch-c03-*.test.tsx"
+  ],
+  "exclude": ["node_modules"]
+}
