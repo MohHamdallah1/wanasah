@@ -229,3 +229,13 @@ Security dependency gate (parallel, before production release):
     الأولوية: xlsx/runtime-relevant advisories ثم React Router، وبعدها أدوات build/test مثل Vite/Vitest.
     أي major upgrade يحتاج focused tests + TypeScript + build قبل الدمج.
 ============================================================
+
+============================================================
+M06 — قبول المالك المؤجل / تعدد المسارات وعهدة السيارات
+============================================================
+- [x] اختبار A→B→A الآلي المعزول: PostgreSQL 16 + صلاحيات Bearer حقيقية؛ S1، تأجيل R1، منطقة/سيارة B، العودة إلى A، بيع 12+7+5، الأرصدة A=83 وB=53، عد COUNT_IN_PLACE للسيارتين، تسوية مالية مرة واحدة، بدء S2 بعد التسوية، منع حركة مخزون وهمية. الدليل الدائم: wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py و wa_backend/tests/m06_owner_settlement_gate.py و docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md.
+- [x] Flutter اختبار سياق الفترة والحماية من أوامر FIELD القديمة: wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart.
+- [ ] قبل تجربة المالك الواقعية: إغلاق فجوة واجهة تسليم عهدة السيارة #1009، واستكمال قبول عرض التشغيلة وحالة المخزون والوحدة التجارية بالعربية؛ ممنوع الادعاء أن تجربة النوافذ اعتمدت.
+- [ ] آخر قبول بصري/تشغيلي من المالك: عند توفر حسابَي المدير والمندوب وسيارتين حقيقيتين، اختبار إرسال طلب عهدة إلى تطبيق FIELD، تأكيد الكمية والدفعات فعليًا، قبول/رفض/انتهاء صلاحية وتغيير مندوب، ثم سيناريو M06 الكامل على بيانات تجربة منفصلة. لا نمس العهدة الفعلية أو التسوية المالية للشركة لمجرد الاختبار.
+- [ ] عند اكتمال جميع البنود البرمجية ونتيجة القبول: إغلاق M06 #947 ووضع [x] فقط بدليل صريح، وبعدها إزالة docs/plans/DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md من الخطط النشطة. حتى ذلك الوقت يبقى الملف.
+مراجع: https://github.com/MohHamdallah1/wanasah/issues/947 و https://github.com/MohHamdallah1/wanasah/issues/1009
