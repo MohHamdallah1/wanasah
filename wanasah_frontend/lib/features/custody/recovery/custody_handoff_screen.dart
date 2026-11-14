@@ -50,13 +50,16 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
       final body = error.response?.data;
       final envelope = body is Map ? body['error'] : null;
       final code = envelope is Map ? envelope['code']?.toString() : null;
-      if (error.response?.statusCode == 401 || error.response?.statusCode == 403) {
+      if (error.response?.statusCode == 401 ||
+          error.response?.statusCode == 403) {
         return t.t('denied');
       }
-      if (code != null && (code.contains('STALE') || code.contains('REVISION'))) {
+      if (code != null &&
+          (code.contains('STALE') || code.contains('REVISION'))) {
         return t.t('stale');
       }
-      if (code != null && (code.contains('EXPIRED') || code.contains('PROOF_INVALID'))) {
+      if (code != null &&
+          (code.contains('EXPIRED') || code.contains('PROOF_INVALID'))) {
         return t.t('expired');
       }
     }
@@ -65,38 +68,71 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
 
   Future<void> _inspect(CustodyHandoffStrings t) async {
     if (_busy || _offer.text.trim().isEmpty) return;
-    setState(() { _busy = true; _problem = null; _review = null; _proof = null; _counted = false; });
+    setState(() {
+      _busy = true;
+      _problem = null;
+      _review = null;
+      _proof = null;
+      _counted = false;
+    });
     final offered = _offer.text.trim();
     try {
       final verified = await _client.review(offered);
       if (!mounted || _offer.text.trim() != offered) return;
       setState(() {
-        _review = verified; _reviewedOffer = offered; _proof = null;
+        _review = verified;
+        _reviewedOffer = offered;
+        _proof = null;
       });
     } catch (error) {
       if (mounted) {
-        setState(() { _problem = _failure(error, t); });
+        setState(() {
+          _problem = _failure(error, t);
+        });
       }
     } finally {
-      if (mounted) setState(() { _busy = false; });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
   Future<void> _confirm(CustodyHandoffStrings t) async {
     final review = _review, offered = _reviewedOffer;
-    if (_busy || review == null || offered == null ||
-        !_counted || _offer.text.trim() != offered) {
+    if (_busy ||
+        review == null ||
+        offered == null ||
+        !_counted ||
+        _offer.text.trim() != offered) {
       return;
     }
-    setState(() { _busy = true; _problem = null; });
+    setState(() {
+      _busy = true;
+      _problem = null;
+    });
     try {
       final proof = await _client.confirm(offered, review);
       if (!mounted || _offer.text.trim() != offered) return;
-      setState(() { _proof = proof; _review = null; _counted = false; });
+      setState(() {
+        _proof = proof;
+        _review = null;
+        _counted = false;
+      });
     } catch (error) {
-      if (mounted) setState(() { _problem = _failure(error, t); _counted = false; });
+      if (mounted) {
+        setState(() {
+          _problem = _failure(error, t);
+          _counted = false;
+        });
+      }
     } finally {
-      if (mounted) setState(() { _busy = false; });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -113,9 +149,9 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
     if (signed == null) return;
     await Clipboard.setData(ClipboardData(text: signed));
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(t.t('copied'))),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(t.t('copied'))));
     }
   }
 
@@ -129,7 +165,10 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text(t.t('instruction'), style: Theme.of(context).textTheme.bodyLarge),
+            Text(
+              t.t('instruction'),
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _offer,
@@ -144,7 +183,8 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
                 labelText: t.t('paste'),
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
-                  tooltip: t.t('pasteButton'), onPressed: _busy ? null : _paste,
+                  tooltip: t.t('pasteButton'),
+                  onPressed: _busy ? null : _paste,
                   icon: const Icon(Icons.content_paste),
                 ),
               ),
@@ -153,19 +193,23 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
             if (_proof == null)
               FilledButton.icon(
                 key: const ValueKey('c03-inspect-stock'),
-                onPressed: _busy || _offer.text.trim().isEmpty
-                    ? null : () => _inspect(t),
+                onPressed:
+                    _busy || _offer.text.trim().isEmpty
+                        ? null
+                        : () => _inspect(t),
                 icon: const Icon(Icons.fact_check_outlined),
                 label: Text(t.t('inspect')),
               ),
-            if (_busy) const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            if (_problem != null) Padding(
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              child: Text(_problem!, style: TextStyle(color: scheme.error)),
-            ),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            if (_problem != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Text(_problem!, style: TextStyle(color: scheme.error)),
+              ),
             if (_review != null) ...[
               const SizedBox(height: 12),
               Card(
@@ -174,17 +218,27 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text('${t.t("vehicle")}: ${_review!.vehiclePlate}',
-                        style: Theme.of(context).textTheme.titleMedium),
+                      Text(
+                        '${t.t("vehicle")}: ${_review!.vehiclePlate}',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                       const SizedBox(height: 8),
                       if (_review!.rows.isEmpty) Text(t.t('empty')),
                       for (final item in _review!.rows) ...[
-                        Text((item['product_name'] ?? '').toString(),
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
-                        Text('${t.t("batch")}: ${item["batch_number"] ?? ""}'
-                          '${item["expiry_date"] == null ? "" : " · ${t.t("expiry")}: ${item["expiry_date"]}"}'),
-                        Text('${t.t("base")}: ${item["on_hand_base"] ?? ""} ${item["base_uom"] ?? ""}'),
-                        Text('${t.t("status")}: ${t.status((item["stock_status"] ?? "").toString())}'),
+                        Text(
+                          (item['product_name'] ?? '').toString(),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          '${t.t("batch")}: ${item["batch_number"] ?? ""}'
+                          '${item["expiry_date"] == null ? "" : " · ${t.t("expiry")}: ${item["expiry_date"]}"}',
+                        ),
+                        Text(
+                          '${t.t("base")}: ${item["on_hand_base"] ?? ""} ${item["base_uom"] ?? ""}',
+                        ),
+                        Text(
+                          '${t.t("status")}: ${t.status((item["stock_status"] ?? "").toString())}',
+                        ),
                         if ((item['reserved_base'] ?? '0').toString() != '0')
                           Text('${t.t("reserved")}: ${item["reserved_base"]}'),
                         const Divider(height: 24),
@@ -199,8 +253,12 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
                 title: Text(t.t('count')),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
-                onChanged: _busy ? null :
-                    (value) => setState(() { _counted = value == true; }),
+                onChanged:
+                    _busy
+                        ? null
+                        : (value) => setState(() {
+                          _counted = value == true;
+                        }),
               ),
               FilledButton(
                 key: const ValueKey('c03-field-sign'),
@@ -210,7 +268,10 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
             ],
             if (_proof != null) ...[
               const SizedBox(height: 14),
-              Text(t.t('receipt'), style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                t.t('receipt'),
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 10),
               FilledButton.icon(
                 key: const ValueKey('c03-copy-proof'),

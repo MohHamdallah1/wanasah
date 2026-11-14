@@ -357,11 +357,12 @@ class _DashboardScreenState extends State<DashboardScreen>
           key: const ValueKey('c03-field-custody-handoff'),
           icon: const Icon(Icons.how_to_reg_outlined),
           label: Text(CustodyHandoffStrings.of(context).t('start')),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => const CustodyHandoffScreen(),
-            ),
-          ),
+          onPressed:
+              () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const CustodyHandoffScreen(),
+                ),
+              ),
         ),
         VehicleInventorySection(
           products: state.products,

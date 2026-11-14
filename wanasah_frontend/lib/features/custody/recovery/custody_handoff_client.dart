@@ -9,16 +9,18 @@ import '../../../services/api_constants.dart';
 /// prints request/response bodies, which MUST NEVER include signed custody
 /// offers or receiver proofs. No durable queue, analytics or offline retry.
 class CustodyHandoffClient {
-  CustodyHandoffClient({
-    Dio? dio,
-    AuthTokenStore? tokens,
-  }) : _dio = dio ?? Dio(BaseOptions(
-            baseUrl: ApiConstants.baseUrl,
-            connectTimeout: const Duration(seconds: 25),
-            receiveTimeout: const Duration(seconds: 35),
-            headers: {'Content-Type': 'application/json'},
-          )),
-       _tokens = tokens ?? SecureAuthTokenStore();
+  CustodyHandoffClient({Dio? dio, AuthTokenStore? tokens})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: ApiConstants.baseUrl,
+              connectTimeout: const Duration(seconds: 25),
+              receiveTimeout: const Duration(seconds: 35),
+              headers: {'Content-Type': 'application/json'},
+            ),
+          ),
+      _tokens = tokens ?? SecureAuthTokenStore();
 
   final Dio _dio;
   final AuthTokenStore _tokens;
@@ -31,22 +33,30 @@ class CustodyHandoffClient {
     }
     try {
       final parts = token.split('.');
-      if (parts.length != 2) throw const FormatException('CUSTODY_PROOF_INVALID');
-      final decoded = jsonDecode(utf8.decode(
-        base64Url.decode(base64Url.normalize(parts[0])),
-      ));
+      if (parts.length != 2) {
+        throw const FormatException('CUSTODY_PROOF_INVALID');
+      }
+      final decoded = jsonDecode(
+        utf8.decode(base64Url.decode(base64Url.normalize(parts[0]))),
+      );
       if (decoded is! Map || decoded['purpose'] != 'CUSTODY_OFFER') {
         throw const FormatException('CUSTODY_PROOF_INVALID');
       }
       final id = decoded['vehicle'];
-      if (id is! int || id <= 0) throw const FormatException('CUSTODY_PROOF_INVALID');
+      if (id is! int || id <= 0) {
+        throw const FormatException('CUSTODY_PROOF_INVALID');
+      }
       return id;
     } catch (_) {
       throw const FormatException('CUSTODY_PROOF_INVALID');
     }
   }
 
-  Future<Map<String, dynamic>> _post(int id, String action, Map<String, dynamic> data) async {
+  Future<Map<String, dynamic>> _post(
+    int id,
+    String action,
+    Map<String, dynamic> data,
+  ) async {
     final token = await _tokens.readAccessToken();
     if (token == null || token.isEmpty) {
       throw StateError('CUSTODY_FIELD_NOT_AUTHENTICATED');
@@ -60,7 +70,9 @@ class CustodyHandoffClient {
       ),
     );
     final body = response.data;
-    if (body == null) throw const FormatException('CUSTODY_UNVERIFIED_RESPONSE');
+    if (body == null) {
+      throw const FormatException('CUSTODY_UNVERIFIED_RESPONSE');
+    }
     return body;
   }
 
@@ -81,8 +93,9 @@ class CustodyHandoffClient {
       vehicleId: vehicleId,
       vehiclePlate: response['vehicle_plate'] as String,
       stockSnapshot: response['stock_snapshot'] as String,
-      rows: (response['stock_lines'] as List).map((e) =>
-        Map<String, dynamic>.from(e as Map)).toList(growable: false),
+      rows: (response['stock_lines'] as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false),
     );
   }
 
