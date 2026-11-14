@@ -21,8 +21,12 @@ def digest(value: object) -> str:
         ensure_ascii=False, default=str,
     ).encode("utf-8")).hexdigest()
 
-def signed(kind: str, data: dict) -> str:
-    payload = dict(data, purpose=f"CUSTODY_{kind}", issued_at=int(time()))
+def signed(kind: str, data: dict, *, issued_at: int | None = None) -> str:
+    # Reconstruct server-side proofs from persisted non-secret evidence only.
+    timestamp = int(time()) if issued_at is None else issued_at
+    if type(timestamp) is not int or timestamp <= 0:
+        raise CustodyRejected("CUSTODY_PROOF_INVALID", 422)
+    payload = dict(data, purpose=f"CUSTODY_{kind}", issued_at=timestamp)
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     body = base64.urlsafe_b64encode(raw).rstrip(b"=")
     mac = hmac.new(
