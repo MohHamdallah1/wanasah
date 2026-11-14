@@ -91,6 +91,11 @@ async function measure(page: Page, begin: number, requests: {path: string; at: n
   });
 }
 
+const dispatchTabLabels = {
+  ar: ["الخطوط النشطة", "إطلاق خط جديد", "هيكلة المناطق"],
+  en: ["Active routes", "Launch new route", "Zone structure"],
+} as const;
+
 for (const language of ["ar", "en"] as const) {
   for (const width of [1440, 390] as const) {
     test("D15 real PG16 before-after reentry metrics " + language + " " + width, async ({ page }) => {
@@ -118,9 +123,9 @@ for (const language of ["ar", "en"] as const) {
       const tabs = page.getByRole("tab");
       await expect(tabs).toHaveCount(3, { timeout: 45000 });
       const results = [];
-      for (const tab of ["الخطوط النشطة", "إطلاق خط جديد", "هيكلة المناطق"]) {
-        await page.getByRole("tab", { name: tab }).click();
-        await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true");
+      for (const tab of dispatchTabLabels[language]) {
+        await page.getByRole("tab", { name: tab, exact: true }).click();
+        await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true");
         await navigateInApp(page, 4, mobile);
         await expect(page.locator(".workspace-top-bar-frame:visible").first()).toBeVisible();
         // Exclude an independent Products authorization from the Dispatch
@@ -130,7 +135,7 @@ for (const language of ["ar", "en"] as const) {
         const begin = Date.now();
         await probe(page);
         await navigateInApp(page, 1, mobile);
-        await expect(page.getByRole("tab", { name: tab })).toHaveAttribute("aria-selected", "true", { timeout: 45000 });
+        await expect(page.getByRole("tab", { name: tab, exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 45000 });
         const m = await measure(page, begin, seen);
         console.log("D15_ONE_RETURN_NETWORK=" + JSON.stringify({
           language, width, tab, requests: seen.filter(request => request.at >= begin),
@@ -163,7 +168,7 @@ for (const language of ["ar", "en"] as const) {
       await page.bringToFront();
       await other.close();
       await probe(page);
-      await expect(page.getByRole("tab", { name: "هيكلة المناطق" })).toBeVisible();
+      await expect(page.getByRole("tab", { name: dispatchTabLabels[language][2], exact: true })).toBeVisible();
       const focused = await measure(page, focusedAt, seen);
       const events = await page.evaluate(() => (window as any).__d15VisibilityEvents as string[]);
       // Real headed Chromium in GitHub Xvfb may still report both tabs as
