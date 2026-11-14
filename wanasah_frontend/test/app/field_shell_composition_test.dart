@@ -115,6 +115,14 @@ void main() {
       // C03-FINAL: prove the signed FIELD receiver flow is reachable from
       // the REAL application Custody destination, not a standalone preview.
       const handoffKey = ValueKey('c03-field-custody-handoff');
+      const legacyOptionsKey = ValueKey('field-custody-legacy-options');
+      // Old clipboard handoff is no longer the default route; retain it
+      // under an explicit user expansion for genuine existing requests.
+      expect(find.byKey(legacyOptionsKey), findsOneWidget);
+      expect(find.byKey(handoffKey), findsNothing);
+      await tester.ensureVisible(find.byKey(legacyOptionsKey));
+      await tester.tap(find.byKey(legacyOptionsKey));
+      await tester.pumpAndSettle();
       expect(find.byKey(handoffKey), findsOneWidget);
       await tester.ensureVisible(find.byKey(handoffKey));
       await tester.tap(find.byKey(handoffKey));

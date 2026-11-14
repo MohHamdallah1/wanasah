@@ -360,20 +360,28 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (state.refreshIssue != null)
           _buildRefreshIssueBanner(context, state.refreshIssue!),
         _pendingTransfers(state),
-        // Keep the previously accepted C03 signed-receipt fallback reachable.
-        // New own-principal requests are the primary custody journey.
-        OutlinedButton.icon(
-          key: const ValueKey('c03-field-custody-handoff'),
-          icon: const Icon(Icons.how_to_reg_outlined),
-          label: Text(CustodyHandoffStrings.of(context).t('legacy')),
-          onPressed:
-              () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CustodyHandoffScreen(),
-                ),
-              ),
-        ),
+        // The server-backed own-principal inbox is the primary journey.
         FieldCustodyHandoffInbox(refreshNonce: _custodyInboxVersion),
+        // Keep the historically accepted signed-token protocol accessible
+        // only on deliberate expansion, never ahead of the live inbox.
+        ExpansionTile(
+          key: const ValueKey('field-custody-legacy-options'),
+          title: Text(CustodyHandoffStrings.of(context).t('legacyOptions')),
+          initiallyExpanded: false,
+          children: [
+            OutlinedButton.icon(
+              key: const ValueKey('c03-field-custody-handoff'),
+              icon: const Icon(Icons.how_to_reg_outlined),
+              label: Text(CustodyHandoffStrings.of(context).t('legacy')),
+              onPressed:
+                  () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CustodyHandoffScreen(),
+                    ),
+                  ),
+            ),
+          ],
+        ),
         VehicleInventorySection(
           products: state.products,
           sellableDisclosure: state.sellableStockDisclosure,
