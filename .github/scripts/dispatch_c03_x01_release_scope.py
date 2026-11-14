@@ -66,8 +66,8 @@ RELEASE_FILES = frozenset({
     'wanasah_frontend/test/features/custody/custody_handoff_screen_test.dart',
 })
 
-# X02 includes only the two individually accepted ports on top of the
-# immutable 56-file #983 release. No subset or arbitrary extra path is valid.
+# X02 includes accepted ports and the focused D10 locale-test parity correction
+# on the immutable 56-file #983 release. No incomplete/foreign diff is valid.
 D22_FILES = frozenset({
     'dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx',
     'dashboard/src/features/dispatch/stableUi/dispatchChromeCopy.ts',
@@ -82,7 +82,10 @@ M06_FILES = frozenset({
     'wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py',
     'wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart',
 })
-UNIFIED_RELEASE_FILES = RELEASE_FILES | D22_FILES | M06_FILES
+D10_LOCALE_TEST_FILES = frozenset({
+    'dashboard/src/test/auth-session-consumer-isolation.test.tsx',
+})
+UNIFIED_RELEASE_FILES = RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES
 
 
 def unified_release_mode(paths):
@@ -110,11 +113,12 @@ def assert_release(paths):
 
 def selftest():
     assert len(RELEASE_FILES) == 56, len(RELEASE_FILES)
-    assert len(D22_FILES) == 3 and len(M06_FILES) == 7
+    assert len(D22_FILES) == 3 and len(M06_FILES) == 7 and len(D10_LOCALE_TEST_FILES) == 1
     assert not (RELEASE_FILES & D22_FILES)
     assert not (RELEASE_FILES & M06_FILES)
     assert not (D22_FILES & M06_FILES)
-    assert len(UNIFIED_RELEASE_FILES) == 66
+    assert not ((RELEASE_FILES | D22_FILES | M06_FILES) & D10_LOCALE_TEST_FILES)
+    assert len(UNIFIED_RELEASE_FILES) == 67
 
     def deny(paths):
         assert not release_mode(paths), sorted(paths)
@@ -137,14 +141,15 @@ def selftest():
             assert foreign not in UNIFIED_RELEASE_FILES
             deny(allowed | {foreign})
     # Neither accepted upstream PR, nor either incomplete release, can
-    # masquerade as the 66-file union; 56 and 7 remain separate exact modes.
+    # masquerade as the 67-file union; 56 and 7 remain separate exact modes.
     for partial in (
         D22_FILES, M06_FILES, D22_FILES | M06_FILES,
         RELEASE_FILES | D22_FILES, RELEASE_FILES | M06_FILES,
+        RELEASE_FILES | D22_FILES | M06_FILES,
     ):
         deny(partial)
     print("C03_X01_X02_RELEASE_SCOPE_SELFTEST=PASS "
-          "original=56 unified=66 missing=122 foreign=8 partial=5")
+          "original=56 unified=67 missing=123 foreign=8 partial=6")
 
 if __name__ == "__main__":
     assert len(sys.argv) == 2 and sys.argv[1] == "--selftest"
