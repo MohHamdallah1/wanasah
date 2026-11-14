@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:wanasah_frontend/features/custody/recovery/field_custody_handoff_client.dart';
 import 'package:wanasah_frontend/features/custody/recovery/field_custody_handoff_inbox.dart';
 
-const handoff = '11111111-1111-4111-8111-111111111111';
+const handoff = 37;
 const snapshot =
     'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -56,7 +56,10 @@ class _ServerFixture extends FieldCustodyHandoffClient {
   }
 
   @override
-  Future<FieldCustodyRequest> detail(String id) async {
+  Future<FieldCustodyRequest> detail(
+    int id, {
+    String? previouslyVerifiedPlate,
+  }) async {
     details++;
     expect(id, handoff);
     return record(detail: true);
@@ -83,6 +86,59 @@ class _ServerFixture extends FieldCustodyHandoffClient {
 }
 
 void main() {
+  test(
+    'actual Backend #1015 pending/detail: numeric handoff, verified vehicle plate, UUID separate',
+    () {
+      final pending = <String, dynamic>{
+        'handoff_id': 37,
+        'vehicle_id': 13,
+        'vehicle_plate': '12-25132',
+        'state': 'PENDING',
+        'expires_at': '2026-11-14T13:00:00Z',
+        'target_driver_id': 7,
+        'recipient_label': 'Khaled (khaled)',
+        'context_revision': 1,
+        'stock_snapshot': snapshot,
+      };
+      final decoded = FieldCustodyRequest.fromMap(pending);
+      expect(decoded.handoffId, 37);
+      expect(decoded.vehiclePlate, '12-25132');
+      expect(
+        () => FieldCustodyRequest.fromMap({...pending, 'handoff_id': 0}),
+        throwsFormatException,
+      );
+      expect(
+        () => FieldCustodyRequest.fromMap({
+          ...pending,
+          'handoff_id': '11111111-1111-4111-8111-111111111111',
+        }),
+        throwsFormatException,
+      );
+      expect(
+        () => FieldCustodyRequest.fromMap({...pending, 'vehicle_plate': null}),
+        throwsFormatException,
+      );
+      // The terminal detail endpoint currently returns null plate; only
+      // reuse the plate already received from the authenticated FIELD inbox.
+      final terminal = FieldCustodyRequest.fromMap(
+        {
+          ...pending,
+          'vehicle_plate': null,
+          'state': 'DECLINED',
+          'stock_lines': <Map<String, dynamic>>[],
+        },
+        requireStock: true,
+        previouslyVerifiedPlate: decoded.vehiclePlate,
+      );
+      expect(terminal.state, 'DECLINED');
+      expect(terminal.vehiclePlate, '12-25132');
+      expect(
+        RegExp(r'^[0-9a-f-]{36}$').hasMatch(_ServerFixture().newRequestId()),
+        isTrue,
+      );
+    },
+  );
+
   testWidgets(
     'FIELD own-principal inbox physically confirms one request without clipboard',
     (tester) async {
@@ -161,7 +217,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(server.decisions, 1);
     expect(server.actualDecision, 'DECLINE');
-    expect(server.actualReason, 'DISCREPANCY');
+    expect(server.actualReason, 'DIFFERENCE');
     expect(server.counted, isFalse);
   });
 }

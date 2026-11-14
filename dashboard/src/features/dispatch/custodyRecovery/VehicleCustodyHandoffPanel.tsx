@@ -69,7 +69,7 @@ export function VehicleCustodyHandoffPanel({
         const server=await getCurrentHandoff(fetchRef.current,vehicleId,controller.signal);
         if(!live())return;
         setRecord(server);
-        if(server)setRecipient(String(server.target_driver_id));
+        if(server)setRecipient(active(server)?String(server.target_driver_id):"");
         const value=await loadCustody(fetchRef.current,vehicleId,controller.signal);
         if(!live())return;
         setReady(value.ready);setStock(value.stock);
@@ -238,15 +238,18 @@ export function VehicleCustodyHandoffPanel({
         {historyError&&<p role="status" className="text-sm">{t.unavailableHistory}</p>}
         {!historyLoading&&!historyError&&!history.length&&<p className="text-sm">{t.noneHistory}</p>}
         <ul className="space-y-2">{history.map((entry,i)=>{
-          const undocumented=entry.evidence_origin==="M01_BACKFILL"||
-            (!entry.recipient_label&&!entry.custodian_label);
-          const whom=undocumented?t.unknownHistory:(entry.recipient_label||entry.custodian_label);
+          const undocumented=entry.legacy_unconfirmed===true||
+            entry.state!=="ACCEPTED"||entry.evidence_origin==="M01_BACKFILL"||
+            !entry.recipient_label;
+          const whom=undocumented?t.unknownHistory:entry.recipient_label;
           return <li key={i} className="border-t pt-2 text-sm">
             <p className="font-semibold break-words">{whom}</p>
-            {(entry.started_at||entry.accepted_at)&&<p>{t.since}: {dateLabel(entry.started_at||entry.accepted_at,i18n.language)}</p>}
+            {entry.started_at&&<p>{t.since}: {dateLabel(entry.started_at,i18n.language)}</p>}
+            {undocumented&&entry.legacy_review_logged_at&&
+              <p>{t.logged}: {dateLabel(entry.legacy_review_logged_at,i18n.language)}</p>}
             {entry.ended_at&&<p>{t.until}: {dateLabel(entry.ended_at,i18n.language)}</p>}
-            {(entry.approved_by_label||entry.manager_label)&&
-              <p>{t.approvedBy}: {entry.approved_by_label||entry.manager_label}</p>}
+            {entry.approved_by_label&&
+              <p>{t.approvedBy}: {entry.approved_by_label}</p>}
           </li>;
         })}</ul>
       </section>

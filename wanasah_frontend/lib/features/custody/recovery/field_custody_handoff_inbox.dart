@@ -10,7 +10,7 @@ String _message(BuildContext context, Object error) {
   final t = CustodyHandoffStrings.of(context);
   if (error is DioException) {
     final status = error.response?.statusCode, body = error.response?.data;
-    final details = body is Map ? body['error'] : null;
+    final details = body is Map ? (body['detail'] ?? body['error']) : null;
     final code = details is Map ? (details['code'] ?? '').toString() : '';
     if (status == 401 || status == 403 || code.contains('REVOKED')) {
       return t.t('denied');
@@ -72,6 +72,8 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
     setState(() {
       _loading = true;
       _problem = null;
+      // Never flash a previous authenticated principal's server inbox.
+      _items = const [];
     });
     _client
         .pending()
@@ -105,6 +107,7 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
         builder:
             (_) => FieldCustodyHandoffRequestScreen(
               handoffId: item.handoffId,
+              previouslyVerifiedPlate: item.vehiclePlate,
               client: _client,
             ),
       ),
@@ -138,7 +141,9 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
                 ),
               ],
             ),
-            if (_loading) const LinearProgressIndicator(),
+            // A non-animated status cannot hang FIELD shell composition while
+            // authenticating; the real pending list will render on completion.
+            if (_loading) Text(t.t('inboxLoading')),
             if (_problem != null)
               Text(
                 _problem!,
@@ -146,14 +151,27 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
               ),
             if (!_loading && _problem == null && _items.isEmpty)
               Text(t.t('inboxEmpty')),
-            for (final item in _items)
-              ListTile(
-                key: ValueKey('field-custody-inbox-${item.handoffId}'),
-                contentPadding: EdgeInsets.zero,
-                title: Text(item.vehiclePlate),
-                subtitle: Text(_stateLabel(t, item.state)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _open(item),
+            // Keep existing Custody stock reachable in RecoveryDashboardScroll:
+            // many pending requests scroll inside a bounded, compact inbox.
+            if (_items.isNotEmpty)
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 148),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  primary: false,
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return ListTile(
+                      key: ValueKey('field-custody-inbox-${item.handoffId}'),
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(item.vehiclePlate),
+                      subtitle: Text(_stateLabel(t, item.state)),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _open(item),
+                    );
+                  },
+                ),
               ),
           ],
         ),
@@ -168,8 +186,10 @@ class FieldCustodyHandoffRequestScreen extends StatefulWidget {
     super.key,
     required this.handoffId,
     required this.client,
+    this.previouslyVerifiedPlate,
   });
-  final String handoffId;
+  final int handoffId;
+  final String? previouslyVerifiedPlate;
   final FieldCustodyHandoffClient client;
   @override
   State<FieldCustodyHandoffRequestScreen> createState() =>
@@ -206,7 +226,11 @@ class _FieldCustodyHandoffRequestScreenState
       _counted = false;
     });
     try {
-      final verified = await widget.client.detail(widget.handoffId);
+      final verified = await widget.client.detail(
+        widget.handoffId,
+        previouslyVerifiedPlate:
+            _request?.vehiclePlate ?? widget.previouslyVerifiedPlate,
+      );
       if (!mounted || generation != _generation) return;
       setState(() {
         _request = verified;
@@ -402,7 +426,7 @@ class _FieldCustodyHandoffRequestScreenState
                   ),
                   items: [
                     DropdownMenuItem(
-                      value: 'DISCREPANCY',
+                      value: 'DIFFERENCE',
                       child: Text(t.t('discrepancy')),
                     ),
                     DropdownMenuItem(

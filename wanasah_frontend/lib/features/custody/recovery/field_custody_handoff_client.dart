@@ -12,7 +12,9 @@ const custodyHandoffStates = {
   'COMMITTED',
 };
 final _fingerprint = RegExp(r'^[a-f0-9]{64}$');
-final _id = RegExp(r'^[0-9a-fA-F-]{36}$');
+final _requestId = RegExp(r'^[0-9a-fA-F-]{36}$');
+const _maxSafeId = 9007199254740991;
+bool _validHandoffId(int id) => id > 0 && id <= _maxSafeId;
 
 /// Only a genuine authenticated FIELD principal can enumerate and decide
 /// its OWN vehicle handoffs. No log interceptor, credentials in body, durable
@@ -23,7 +25,8 @@ class FieldCustodyHandoffClient {
           dio ??
           Dio(
             BaseOptions(
-              baseUrl: ApiConstants.baseUrl,
+              // Do not read .env while mounting the FIELD shell.
+              // Resolve only when authenticated HTTP is actually requested.
               connectTimeout: const Duration(seconds: 25),
               receiveTimeout: const Duration(seconds: 35),
               headers: {'Content-Type': 'application/json'},
@@ -38,6 +41,9 @@ class FieldCustodyHandoffClient {
     final token = await _tokens.readAccessToken();
     if (token == null || token.isEmpty) {
       throw StateError('CUSTODY_FIELD_NOT_AUTHENTICATED');
+    }
+    if (_dio.options.baseUrl.isEmpty) {
+      _dio.options.baseUrl = ApiConstants.baseUrl;
     }
     return Options(
       headers: {'Authorization': 'Bearer $token'},
@@ -68,10 +74,21 @@ class FieldCustodyHandoffClient {
         .toList(growable: false);
   }
 
-  Future<FieldCustodyRequest> detail(String handoffId) async {
-    if (!_id.hasMatch(handoffId)) throw const FormatException('CUSTODY_BAD_ID');
+  Future<FieldCustodyRequest> detail(
+    int handoffId, {
+    String? previouslyVerifiedPlate,
+  }) async {
+    if (!_validHandoffId(handoffId)) {
+      throw const FormatException('CUSTODY_BAD_ID');
+    }
     final raw = await _get('/driver/custody/handoffs/$handoffId');
-    final request = FieldCustodyRequest.fromMap(raw, requireStock: true);
+    // Backend intentionally omits plate in terminal detail; only reuse a
+    // plate already returned by an authenticated own-principal FIELD read.
+    final request = FieldCustodyRequest.fromMap(
+      raw,
+      requireStock: true,
+      previouslyVerifiedPlate: previouslyVerifiedPlate,
+    );
     if (request.handoffId != handoffId) {
       throw const FormatException('CUSTODY_WRONG_HANDOFF');
     }
@@ -86,7 +103,7 @@ class FieldCustodyHandoffClient {
     String? reasonCode,
     String? reasonText,
   }) async {
-    if (request.state != 'PENDING' || !_id.hasMatch(requestId)) {
+    if (request.state != 'PENDING' || !_requestId.hasMatch(requestId)) {
       throw const FormatException('CUSTODY_INVALID_DECISION');
     }
     if (decision == 'CONFIRM') {
@@ -95,7 +112,7 @@ class FieldCustodyHandoffClient {
       }
     } else if (decision == 'DECLINE') {
       if (!{
-        'DISCREPANCY',
+        'DIFFERENCE',
         'NOT_MY_GOODS',
         'VEHICLE_UNAVAILABLE',
         'OTHER',
@@ -132,7 +149,10 @@ class FieldCustodyHandoffClient {
       throw const FormatException('CUSTODY_UNVERIFIED_DECISION');
     }
     // Re-read the own-principal server truth, not local optimistic state.
-    final updated = await detail(request.handoffId);
+    final updated = await detail(
+      request.handoffId,
+      previouslyVerifiedPlate: request.vehiclePlate,
+    );
     if (updated.state != raw['state']) {
       throw const FormatException('CUSTODY_DECISION_CHANGED');
     }
@@ -153,7 +173,7 @@ class FieldCustodyRequest {
     this.stockLines = const [],
     this.reasonText,
   });
-  final String handoffId;
+  final int handoffId;
   final int vehicleId;
   final String vehiclePlate;
   final String state;
@@ -165,15 +185,18 @@ class FieldCustodyRequest {
   factory FieldCustodyRequest.fromMap(
     dynamic value, {
     bool requireStock = false,
+    String? previouslyVerifiedPlate,
   }) {
     if (value is! Map) throw const FormatException('CUSTODY_INVALID_RECORD');
     final id = value['handoff_id'], vehicle = value['vehicle_id'];
-    final status = value['state'], plate = value['vehicle_plate'];
+    final status = value['state'];
+    final rawPlate = value['vehicle_plate'];
+    final plate = rawPlate ?? previouslyVerifiedPlate;
     final expiry = value['expires_at'];
-    if (id is! String ||
-        !_id.hasMatch(id) ||
+    if (id is! int ||
+        !_validHandoffId(id) ||
         vehicle is! int ||
-        vehicle <= 0 ||
+        !_validHandoffId(vehicle) ||
         status is! String ||
         !custodyHandoffStates.contains(status) ||
         plate is! String ||
