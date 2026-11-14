@@ -1,6 +1,6 @@
-/// #1016 opt-in: actual merged PG16 HTTP snapshot, never a handwritten
-/// fake FIELD response. Set WANASAH_CUSTODY_1016_CAPTURE to the sanitized
-/// file emitted by test_custody_1016_merged_cross_client_pg16.py.
+// #1016 opt-in: actual merged PG16 HTTP snapshot, never a handwritten
+// fake FIELD response. Set WANASAH_CUSTODY_1016_CAPTURE to the sanitized
+// file emitted by test_custody_1016_merged_cross_client_pg16.py.
 import 'dart:convert';
 import 'dart:io';
 
