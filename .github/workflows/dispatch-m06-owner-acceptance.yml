@@ -51,7 +51,7 @@ jobs:
               "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md",
           }
           # Historical M06-only HEADs need not contain X02's release script.
-          # In a combined MAIN PR, accept ONLY its immutable 66-file manifest.
+          # In a combined MAIN PR, accept ONLY its immutable 67-file manifest.
           scope_path = Path(".github/scripts/dispatch_c03_x01_release_scope.py")
           scope = runpy.run_path(str(scope_path)) if scope_path.is_file() else {}
           if "M06_FILES" in scope:
@@ -84,7 +84,7 @@ jobs:
               denied(exact|{foreign})
           unified = scope.get("UNIFIED_RELEASE_FILES")
           if unified is not None:
-              assert len(unified) == 66
+              assert len(unified) == 67
               assert allowed(unified) == "M06_X02_UNIFIED_RELEASE_EXACT"
               for missing in unified:
                   denied(unified-{missing})
@@ -99,7 +99,7 @@ jobs:
               denied(scope["RELEASE_FILES"] | exact)
           print(f"M06_OWNER_SCOPE=PASS mode={mode} standalone=7 "
                 f"unified={len(unified) if unified is not None else 'absent'} "
-                f"negative_missing=7+{66 if unified is not None else 0} "
+                f"negative_missing=7+{len(unified) if unified is not None else 0} "
                 f"foreign=5+{3 if unified is not None else 0} "
                 f"partial={3 if unified is not None else 0}")
           PY

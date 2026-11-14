@@ -346,7 +346,7 @@ describe("D09 actual DispatchBoard effective grants and revoked view", () => {
         return [];
       });
       render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
-      const tab = await screen.findByRole("tab", { name: /هيكلة المناطق/ });
+      const tab = await screen.findByRole("tab", { name: locale === "ar" ? /هيكلة المناطق/ : /Zone structure/ });
       // Public chrome exists immediately, but dispatch data/actions still
       // await fresh signed Backend admission before becoming interactive.
       await waitFor(() => expect(tab).toBeEnabled());
@@ -525,11 +525,11 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   await act(async () => { await vi.advanceTimersByTimeAsync(500); });
   expect(screen.getByRole("textbox", { name: /Target.*A-custody.*PACK/ })).toHaveValue("3");
   expect(screen.getByRole("textbox", { name: /Target.*A-custody.*EACH/ })).toHaveValue("1");
-  fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Active routes" }));
   await act(async () => {}); // actual independent signed Routes response
   expect(screen.getByText("A-route")).toBeInTheDocument();
   const oldAction = screen.getByRole("button", { name: /تعديل الحمولة/ });
-  fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Requests & shortages/ }));
   await act(async () => {}); // demand-only signed Shops GET if not admitted yet
   const shopAccordion = screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) A-shop/ });
   expect(shopAccordion).toBeInTheDocument();
@@ -572,13 +572,13 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
 
   await act(async () => allowB.resolve());
   expect(screen.getByText("B-route")).toBeInTheDocument();
-  for (const tab of ["إطلاق خط جديد", "هيكلة المناطق", "الخطوط النشطة"]) {
+  for (const tab of ["Launch new route", "Zone structure", "Active routes"]) {
     fireEvent.click(screen.getByRole("tab", { name: tab }));
     expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage)/);
   }
-  fireEvent.click(screen.getByRole("tab", { name: "الخطوط النشطة" }));
+  fireEvent.click(screen.getByRole("tab", { name: "Active routes" }));
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
-  fireEvent.click(screen.getByRole("button", { name: /طلبات ونواقص/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Requests & shortages/ }));
   await act(async () => {});
   expect(screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) B-shop/ })).toBeInTheDocument();
   expect(await readDurableCommand(scope)).toEqual(draft);
