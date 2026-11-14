@@ -65,7 +65,7 @@ export function Tab3Stocktake({
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRecountModal, setShowRecountModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelPreparedFromIdle, setCancelPreparedFromIdle] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<{ sessionId: string; locationId: number } | null>(null);
   const autoRecoveryAttemptRef = useRef<string | null>(null);
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDiscoveredModal, setShowDiscoveredModal] = useState(false);
@@ -160,8 +160,8 @@ export function Tab3Stocktake({
   const actionWorkflow = useStocktakeActions({
     authenticatedFetch,
     durableIdentity,
-    sessionId: stocktakeState.sessionId,
-    sessionLocationId: stocktakeState.sessionLocationId,
+    sessionId: cancelTarget?.sessionId ?? stocktakeState.sessionId,
+    sessionLocationId: cancelTarget?.locationId ?? stocktakeState.sessionLocationId,
     review: stocktakeState.review,
     draftKey: stocktakeState.draftKey,
     sessionKey: stocktakeState.sessionKey,
@@ -224,8 +224,9 @@ export function Tab3Stocktake({
   const openVerifiedCancellation = async () => {
     if (!soleServerSession || !warehouseAccess.can("stocktake.cancel")) return;
     try {
-      if (!await lifecycle.prepareCancellation(soleServerSession)) return;
-      setCancelPreparedFromIdle(true);
+      const target = await lifecycle.prepareCancellation(soleServerSession);
+      if (!target) return;
+      setCancelTarget(target);
       setShowCancelModal(true);
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, uiCopy.sessions.recovery.cancelFailed));
@@ -233,17 +234,10 @@ export function Tab3Stocktake({
   };
 
   const closeCancelModal = () => {
+    // Dismissing the modal leaves the server session and user's count draft
+    // untouched. The command only receives this verified ID while modal opens.
     setShowCancelModal(false);
-    if (!cancelPreparedFromIdle) return;
-    setCancelPreparedFromIdle(false);
-    // Closing a cancellation confirmation does NOT cancel the server session
-    // or erase the saved count draft. Return to the recoverable state.
-    localStorage.removeItem(stocktakeState.sessionKey);
-    stocktakeState.setSessionId(null);
-    stocktakeState.setSessionLocationId(null);
-    stocktakeState.setPhase("COUNTING");
-    stocktakeState.setRows([]);
-    stocktakeState.setReview(null);
+    setCancelTarget(null);
   };
 
   const submitCount = async () => {
@@ -258,7 +252,7 @@ export function Tab3Stocktake({
   const cancel = async () => {
     if (await actionWorkflow.handleCancel()) {
       setShowCancelModal(false);
-      setCancelPreparedFromIdle(false);
+      setCancelTarget(null);
     }
   };
   const start = async () => {

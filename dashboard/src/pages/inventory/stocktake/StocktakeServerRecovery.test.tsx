@@ -79,12 +79,14 @@ describe("Stocktake signed-server recovery after browser logout", () => {
       setPhase: vi.fn(), clearRows: vi.fn(), clearReview: vi.fn(),
       notifyStocktakeChanged: vi.fn(async () => {}),
     }));
-    await act(async () => expect(await hook.result.current.prepareCancellation(session(10))).toBe(true));
+    await act(async () => expect(await hook.result.current.prepareCancellation(session(10))).toEqual({
+      sessionId: "10", locationId: 3,
+    }));
     expect(fetch).toHaveBeenCalledWith("/warehouse/unified/stocktake/10/context?anchor_location_id=3");
     expect(loadCountSheet).not.toHaveBeenCalled();
-    expect(setSessionId).toHaveBeenCalledWith("10");
-    expect(setSessionLocationId).toHaveBeenCalledWith(3);
-    expect(localStorage.getItem("stocktake:test:company1:3")).toBe("10");
+    expect(setSessionId).not.toHaveBeenCalled();
+    expect(setSessionLocationId).not.toHaveBeenCalled();
+    expect(localStorage.getItem("stocktake:test:company1:3")).toBeNull();
     hook.unmount();
   });
 
