@@ -79,7 +79,8 @@ class CustodyHandoffStrings {
     'decisionFail':
         'Could not confirm the server response. Refresh this request before trying again.',
     'loadAgain': 'Reload server status',
-    'legacy': 'Legacy private handoff (old protocol)',
+    'legacyOptions': 'Older receipt methods (only if instructed)',
+    'legacy': 'Receive using old private code',
   };
   static const _arabic = {
     'title': 'استلام عهدة السيارة',
@@ -140,6 +141,7 @@ class CustodyHandoffStrings {
     'declineRequired': 'اختر سبب الرفض أولًا.',
     'decisionFail': 'لم يتأكد رد الخادم. حدّث حالة الطلب قبل إعادة المحاولة.',
     'loadAgain': 'إعادة جلب الحالة من الخادم',
-    'legacy': 'تسليم قديم برمز خاص',
+    'legacyOptions': 'طرق استلام قديمة (عند الحاجة فقط)',
+    'legacy': 'استلام باستخدام رمز التسليم القديم',
   };
 }
