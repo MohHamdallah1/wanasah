@@ -113,4 +113,30 @@ describe("C03 owner-visible blocked car handoff",()=>{
     expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
     expect(sessionStorage.getItem(key)).toBeNull();
   });
+
+  it("preserves an UNKNOWN UUID when the initial lookup fails offline",async()=>{
+    const requestId="e6c974ed-8ed2-433b-bb2d-2ab547a49c3f";
+    const key=`wanasah:c03:accept:${props.actorScope}:${props.vehicleId}`;
+    sessionStorage.setItem(key,requestId);
+    let checks=0;
+    const fetch=vi.fn(async(path:string)=>{
+      if(path.endsWith("/accept-operations/"+requestId)){
+        checks++;
+        if(checks===1)throw new Error("Network unavailable");
+        return {state:"COMMITTED",epoch_id:83,context_revision:2};
+      }
+      throw new Error("Unexpected request "+path);
+    });
+    const accepted=vi.fn();
+    render(<VehicleCustodyRecoveryEntry {...props} fetch={fetch}
+      openOnMount onAccepted={accepted} authorized={()=>true}/>);
+    await waitFor(()=>expect(screen.getByRole("button",{
+      name:"Verify / retry original request",
+    })).toBeTruthy());
+    expect(sessionStorage.getItem(key)).toBe(requestId);
+    fireEvent.click(screen.getByRole("button",{name:"Verify / retry original request"}));
+    await waitFor(()=>expect(accepted).toHaveBeenCalledTimes(1));
+    expect(checks).toBe(2);
+    expect(sessionStorage.getItem(key)).toBeNull();
+  });
 });

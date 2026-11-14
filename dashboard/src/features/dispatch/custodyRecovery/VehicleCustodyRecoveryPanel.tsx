@@ -79,8 +79,17 @@ export function VehicleCustodyRecoveryPanel({
         setStep(value.ready.recovery_action==="CUSTODY_INVESTIGATE"?"blocked":"ready");
       }catch(err){
         if(!current())return;
+        const denied=[401,403].includes(apiErrorStatus(err)??-1);
+        const uncertain=key?pendingRead(key):null;
+        if(!denied&&uncertain&&/^[0-9a-f-]{36}$/i.test(uncertain)){
+          // The status read itself may be offline. Never let a generic
+          // stock reload silently discard the earlier acceptance UUID.
+          original.current={id:uncertain,proof:""};
+          setNotice(t.unknown);setStep("unknown");
+          return;
+        }
         setNotice(custodyReason(apiErrorCode(err)||"",i18n.language));
-        setStep([401,403].includes(apiErrorStatus(err)??-1)?"denied":"blocked");
+        setStep(denied?"denied":"blocked");
       }
     })();
     return()=>{controller.abort();epoch.current++;original.current=null;};
