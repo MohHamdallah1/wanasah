@@ -231,11 +231,13 @@ Security dependency gate (parallel, before production release):
 ============================================================
 
 ============================================================
-M06 — قبول المالك المؤجل / تعدد المسارات وعهدة السيارات
+M06 — إغلاق الأعمال البرمجية وتسجيل القبول البصري المؤجل
 ============================================================
-- [x] اختبار A→B→A الآلي المعزول: PostgreSQL 16 + صلاحيات Bearer حقيقية؛ S1، تأجيل R1، منطقة/سيارة B، العودة إلى A، بيع 12+7+5، الأرصدة A=83 وB=53، عد COUNT_IN_PLACE للسيارتين، تسوية مالية مرة واحدة، بدء S2 بعد التسوية، منع حركة مخزون وهمية. الدليل الدائم: wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py و wa_backend/tests/m06_owner_settlement_gate.py و docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md.
-- [x] Flutter اختبار سياق الفترة والحماية من أوامر FIELD القديمة: wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart.
-- [ ] قبل تجربة المالك الواقعية: إغلاق فجوة واجهة تسليم عهدة السيارة #1009، واستكمال قبول عرض التشغيلة وحالة المخزون والوحدة التجارية بالعربية؛ ممنوع الادعاء أن تجربة النوافذ اعتمدت.
-- [ ] آخر قبول بصري/تشغيلي من المالك: عند توفر حسابَي المدير والمندوب وسيارتين حقيقيتين، اختبار إرسال طلب عهدة إلى تطبيق FIELD، تأكيد الكمية والدفعات فعليًا، قبول/رفض/انتهاء صلاحية وتغيير مندوب، ثم سيناريو M06 الكامل على بيانات تجربة منفصلة. لا نمس العهدة الفعلية أو التسوية المالية للشركة لمجرد الاختبار.
-- [ ] عند اكتمال جميع البنود البرمجية ونتيجة القبول: إغلاق M06 #947 ووضع [x] فقط بدليل صريح، وبعدها إزالة docs/plans/DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md من الخطط النشطة. حتى ذلك الوقت يبقى الملف.
-مراجع: https://github.com/MohHamdallah1/wanasah/issues/947 و https://github.com/MohHamdallah1/wanasah/issues/1009
+- [x] اختبار A→B→A الآلي المعزول على PostgreSQL 16 بصلاحيات Bearer حقيقية: تأجيل R1، السيارة والمنطقة B، الرجوع إلى A، جرد COUNT_IN_PLACE للسيارتين، التسوية المالية لمرة واحدة، بدء S2، دون حركة مخزون وهمية. أدلته: wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py و docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md.
+- [x] Flutter: اختبار يوم العمل متعدد المسارات وحراسة الأوامر القديمة: wanasah_frontend/test/features/work_session/m06_full_day_execution_proof_test.dart.
+- [x] العهدة #1009 برمجيًا: Backend PR #1015، Dashboard/FIELD PR #1014، اختبار التكامل الحقيقي #1016/PR #1017 (قاعدة PG16 معزولة، Bearer للمدير والمندوب، حفظ الطلب والتغيير/الإلغاء/الرفض والاعتماد والسجل التاريخي، دون حركة مخزون/تكلفة). الدليل: docs/operations/CUSTODY_1016_ISOLATED_MERGED_ACCEPTANCE.md. هذا ليس قبولًا بصريًا بشريًا.
+- [x] تحديث قاعدة التطوير المحلية فقط في 2026-11-14: wanasah_local PostgreSQL 16.15، Alembic e4b7c9d2a601 → a0c1d2e31012، جدول vehicle_custody_handoffs موجود، RLS+FORCE مفعّلان، وصلاحيات runtime صحيحة، صفر طلبات وقت التحقق. تم دون نسخة احتياطية بقرار المالك الصريح لأن البيانات تجريبية، ودون اختبار على أي سيارة فعلية.
+- [ ] قبول المالك البصري/التشغيلي النهائي — مؤجل بإرادته: من Dashboard إرسال عهدة سيارة تجريبية لمندوب FIELD حقيقي، التأكد من ظهور الطلب بعد تبديل الصفحة وتسجيل الدخول، قبول وعد فعلي أو رفض، إلغاء وتغيير المستلم، مراجعة التاريخ والعربية والوحدات؛ ثم جولة M06 A→B→A وجرد وتسوية بدون ترحيل حمولة سيارة. لا تستخدم بيانات/أرصدة فعلية فقط لأجل الاختبار.
+- [ ] بعد القبول البصري فقط، ضع علامة [x] هنا وأغلق Issue #947. نقل هذا القبول إلى RUN.txt لا يعني أنه اجتازه المالك.
+- [x] أُزيلت خطة DISPATCH_MULTI_ROUTE_SESSION_CUSTODY_PLAN.md من الخطط النشطة بعد إكمال كل الأعمال البرمجية؛ تاريخها محفوظ في Git على MAIN b0a872f7dd6e65237f9367bdad530ca73b88712e، والقبول البصري مذكور أعلاه.
+المراجع: https://github.com/MohHamdallah1/wanasah/issues/947 ، https://github.com/MohHamdallah1/wanasah/issues/1009 ، https://github.com/MohHamdallah1/wanasah/issues/1016
