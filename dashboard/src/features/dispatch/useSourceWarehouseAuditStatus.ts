@@ -21,7 +21,8 @@ export function parseSourceWarehouseAuditStatus(input: unknown): SourceWarehouse
   const record = input as Partial<AuditStatusResponse>;
   if (record.status === "ACTIVE") {
     // Only the authoritative /warehouse/status endpoint can grant this result.
-    if (record.stocktake_session_id != null || record.stocktake_reference != null) {
+    if (record.stocktake_session_id !== null || record.stocktake_reference !== null ||
+        record.stocktake_status !== null) {
       throw new Error("WAREHOUSE_STATUS_INVALID");
     }
     return { kind: "active" };

@@ -24,6 +24,8 @@ describe("Source warehouse's signed audit lock authority", () => {
     expect(() => parseSourceWarehouseAuditStatus({ is_locked: false })).toThrow();
     expect(() => parseSourceWarehouseAuditStatus({ status: "AUDIT_LOCK" })).toThrow();
     expect(() => parseSourceWarehouseAuditStatus({ status: "DENIED" })).toThrow();
+    expect(() => parseSourceWarehouseAuditStatus({ status: "ACTIVE" })).toThrow();
+    expect(() => parseSourceWarehouseAuditStatus({ ...clear, stocktake_status: "COUNTING" })).toThrow();
   });
 
   it("reports failed or unauthorized reads as unverified rather than an active stocktake", async () => {
