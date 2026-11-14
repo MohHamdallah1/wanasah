@@ -6,7 +6,7 @@ from uuid import uuid4
 import asyncio
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from context import tenant_context
@@ -15,7 +15,7 @@ from domains.dispatch.route_execution.custody.handoffs_model import VehicleCusto
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 from domains.identity.models import CompanyPrincipal
 from domains.authorization.field_models import FieldRepresentativeRole
-from models import InventoryCostEvent, InventoryMovement, SystemAuditLog
+from models import InventoryCostEvent, InventoryMovement, SystemAuditLog, Vehicle
 from tests.test_dispatch_m03_period_postgres import gate, _headers
 from tests.test_dispatch_c01_c02_custody_postgres import (
     _setup_cars, _login_owner, _ledger_signature,
@@ -102,6 +102,7 @@ async def test_durable_custody_two_bearers_revoke_reassign_expire_and_keep_histo
     assert persisted_after_relogin.json()["state"] == "PENDING"
     assert "offer_token" not in first.text and "receiver_proof" not in first.text
     a_id = a["handoff_id"]
+    assert type(a_id) is int and a_id > 0  # canonical positive BIGSERIAL, never UUID
     old_accept = await g.client.post(
         f"/vehicles/{vehicle_id}/custody/accept", headers=manager,
         json={"request_id":str(uuid4()),"receiver_proof":old_receipt.json()["receiver_proof"]},
@@ -132,11 +133,55 @@ async def test_durable_custody_two_bearers_revoke_reassign_expire_and_keep_histo
     assert old_confirm.status_code == 409, old_confirm.text
     assert (await g.client.get(f"/driver/custody/handoffs/{a_id}",headers=field_b)).status_code == 404
     assert (await g.client.get(f"/driver/custody/handoffs/{a_id}",headers=outside_field)).status_code == 404
-    inbox_a = await g.client.get("/driver/custody/handoffs/pending", headers=field_a)
+    # Two distinct company vehicles, one authenticated FIELD recipient. The
+    # pending endpoint MUST provide both genuine plates in one bounded JOIN;
+    # its SQL query count must stay constant with 2 rows (no recipient N+1).
+    empty_car_id = empty_car[0]
+    empty_ready = (await g.client.get(
+        f"/vehicles/{empty_car_id}/custody/readiness", headers=manager,
+    )).json()
+    second_payload = {
+        "request_id": str(uuid4()), "target_driver_id": g.field.driver.id,
+        "expected_context_revision": empty_ready["context_revision"],
+        "expected_stock_snapshot": empty_ready["stock_snapshot"],
+    }
+    second_pending = await g.client.post(
+        f"/vehicles/{empty_car_id}/custody/handoffs",
+        headers=manager, json=second_payload,
+    )
+    assert second_pending.status_code == 200, second_pending.text
+    second_id = second_pending.json()["handoff_id"]
+    assert type(second_id) is int and second_id > a_id
+    async with AsyncSession(g.admin) as db:
+        plates = dict((await db.execute(select(
+            Vehicle.id, Vehicle.plate_number,
+        ).where(
+            Vehicle.company_id == g.tenant,
+            Vehicle.id.in_((vehicle_id, empty_car_id)),
+        ))).all())
+    seen_reads = []
+    def count_handoff_reads(conn, cursor, statement, parameters, context, executemany):
+        if "SELECT" in statement and "vehicle_custody_handoffs" in statement:
+            seen_reads.append(statement)
+    event.listen(restricted_engine.sync_engine, "before_cursor_execute", count_handoff_reads)
+    try:
+        inbox_a = await g.client.get("/driver/custody/handoffs/pending", headers=field_a)
+    finally:
+        event.remove(restricted_engine.sync_engine, "before_cursor_execute", count_handoff_reads)
     inbox_b = await g.client.get("/driver/custody/handoffs/pending", headers=field_b)
     assert inbox_a.status_code == inbox_b.status_code == 200
-    assert [item["handoff_id"] for item in inbox_a.json()["items"]] == [a_id]
+    assert len(seen_reads) == 1, f"FIELD inbox must not N+1 SQL: {len(seen_reads)}"
+    rows = inbox_a.json()["items"]
+    assert [item["handoff_id"] for item in rows] == [second_id, a_id]
+    assert all(type(item["handoff_id"]) is int and item["handoff_id"] > 0 for item in rows)
+    assert {item["vehicle_id"]: item["vehicle_plate"] for item in rows} == plates
+    assert all(item["recipient_label"] and item["vehicle_plate"] for item in rows)
     assert inbox_b.json()["items"] == []
+    secondary_cancel = await g.client.post(
+        f"/vehicles/{empty_car_id}/custody/handoffs/{second_id}/cancel",
+        headers=manager, json={"request_id": str(uuid4())},
+    )
+    assert secondary_cancel.status_code == 200 and secondary_cancel.json()["state"] == "CANCELLED", secondary_cancel.text
     detail = await g.client.get(f"/driver/custody/handoffs/{a_id}", headers=field_a)
     assert detail.status_code == 200 and detail.json()["stock_lines"], detail.text
     assert detail.json()["stock_snapshot"] == original["stock_snapshot"]

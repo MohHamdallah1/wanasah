@@ -7,8 +7,14 @@ from main import app
 from api import driver, field_contracts, reconciliation
 from api.vehicles import custody as vehicle_custody
 from api.vehicles import custody_review as vehicle_custody_review
+from api.vehicles import custody_handoffs as vehicle_custody_handoffs
 
 MANIFEST=[
+    # CUSTODY-P0: three authenticated own-principal FIELD routes. All three
+    # remain in the exact security manifest; no aliases or exclusions.
+    ["GET", "/driver/custody/handoffs/pending", "own_pending_handoffs"],
+    ["GET", "/driver/custody/handoffs/{handoff_id}", "own_handoff_detail"],
+    ["POST", "/driver/custody/handoffs/{handoff_id}/decision", "decide_own_handoff"],
     # C02 adds a real, independently authenticated FIELD receipt. This is
     # part of the protected route registry, never a manifest exclusion.
     ["POST", "/driver/vehicles/{vehicle_id}/custody/confirm",
@@ -126,7 +132,8 @@ def test_complete_d7_registry_without_duplicate_or_alias_bypass():
     actual={(m,r.path,r.endpoint.__name__) for r in app.routes if isinstance(r,APIRoute)
             and (r.endpoint.__module__ in modules or (
                 r.endpoint.__module__ in {
-                    vehicle_custody.__name__, vehicle_custody_review.__name__
+                    vehicle_custody.__name__, vehicle_custody_review.__name__,
+                    vehicle_custody_handoffs.__name__,
                 } and r.path.startswith("/driver/")
             )) for m in r.methods}
     assert actual==expected
@@ -150,6 +157,29 @@ def test_complete_d7_registry_without_duplicate_or_alias_bypass():
     custody_dependencies={getattr(c,"__name__","")
                           for c in dependencies(custody_routes[0].dependant)}
     assert {"get_current_field_context", "get_current_field_capability_access"} <= custody_dependencies
+    # Validate the exact approved METHOD/PATH/function combination, not only
+    # general route presence. Otherwise a backoffice alias or unguarded
+    # duplicate could bypass this registry assertion.
+    custody_handoff_routes = {
+        ("GET", "/driver/custody/handoffs/pending", "own_pending_handoffs"),
+        ("GET", "/driver/custody/handoffs/{handoff_id}", "own_handoff_detail"),
+        ("POST", "/driver/custody/handoffs/{handoff_id}/decision", "decide_own_handoff"),
+    }
+    assert custody_handoff_routes <= expected
+    for method, path, function_name in custody_handoff_routes:
+        exact = [r for r in app.routes if isinstance(r, APIRoute)
+                 and r.path == path and r.methods == {method}]
+        assert len(exact) == 1
+        assert exact[0].endpoint.__module__ == vehicle_custody_handoffs.__name__
+        assert exact[0].endpoint.__name__ == function_name
+        # A second alias of the same callable under a backoffice URL could
+        # circumvent the FIELD dependency; ban it even with a different path.
+        aliases = [r for r in app.routes if isinstance(r, APIRoute)
+                   and r.endpoint is exact[0].endpoint]
+        assert len(aliases) == 1 and aliases[0] is exact[0]
+        deps = {getattr(c, "__name__", "") for c in dependencies(exact[0].dependant)}
+        assert {"get_current_field_context", "get_current_field_capability_access"} <= deps
+
     source=inspect.getsource(driver.get_visit_details)
     field=source.split("if isinstance(current, FieldRequestContext):",1)[1].split("elif",1)[0]
     assert 'require_field_capability("visit.read")(access=access)' in field

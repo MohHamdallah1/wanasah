@@ -6,25 +6,25 @@ from sqlalchemy.orm import aliased
 
 from domains.identity.models import CompanyPrincipal
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
+from models import Vehicle
 from .handoffs_model import VehicleCustodyHandoff
 from .handoffs_service import effective_state
 from .service import _latest_handoff
 from .proofs import CustodyRejected
 
 
-async def public_handoff(db: AsyncSession, row: VehicleCustodyHandoff) -> dict:
-    recipient = (await db.execute(select(CompanyPrincipal.full_name, CompanyPrincipal.username).where(
-        CompanyPrincipal.company_id == row.company_id,
-        CompanyPrincipal.id == row.recipient_principal_id,
-    ))).one_or_none()
-    if not recipient:
-        raise CustodyRejected("CUSTODY_RECIPIENT_IDENTITY_MISSING")
+def _handoff_response(
+    row: VehicleCustodyHandoff, *, recipient_name: str, recipient_username: str,
+    vehicle_plate: str | None = None,
+) -> dict:
+    """Pure serializer; the FIELD inbox joins all necessary labels in one SQL read."""
     return {
         "handoff_id": int(row.id),
         "vehicle_id": int(row.vehicle_id),
         "vehicle_location_id": int(row.vehicle_location_id),
         "target_driver_id": int(row.target_driver_id),
-        "recipient_label": f"{recipient.full_name} ({recipient.username})",
+        "recipient_label": f"{recipient_name} ({recipient_username})",
+        "vehicle_plate": vehicle_plate,
         "state": effective_state(row),
         "context_revision": int(row.expected_context_revision),
         "stock_snapshot": row.expected_stock_snapshot,
@@ -39,6 +39,23 @@ async def public_handoff(db: AsyncSession, row: VehicleCustodyHandoff) -> dict:
     }
 
 
+async def public_handoff(db: AsyncSession, row: VehicleCustodyHandoff) -> dict:
+    # Single-record paths can resolve the canonical label once. The FIELD
+    # listing below never calls this per-row DB-backed function.
+    recipient = (await db.execute(select(
+        CompanyPrincipal.full_name, CompanyPrincipal.username,
+    ).where(
+        CompanyPrincipal.company_id == row.company_id,
+        CompanyPrincipal.id == row.recipient_principal_id,
+    ))).one_or_none()
+    if recipient is None:
+        raise CustodyRejected("CUSTODY_RECIPIENT_IDENTITY_MISSING")
+    return _handoff_response(
+        row, recipient_name=recipient.full_name,
+        recipient_username=recipient.username,
+    )
+
+
 async def manager_current(db, *, company_id: int, vehicle_id: int):
     row = await _latest_handoff(db, company_id, vehicle_id)
     return None if row is None else await public_handoff(db, row)
@@ -46,14 +63,35 @@ async def manager_current(db, *, company_id: int, vehicle_id: int):
 
 async def field_pending(db, *, company_id: int, principal_id: int, rep_id: int, limit: int = 50):
     from .handoffs_service import now
-    rows = (await db.scalars(select(VehicleCustodyHandoff).where(
+    # Bounded single read, join on BOTH company and canonical IDs: no
+    # N+1, no cross-company plate or principal label disclosure. The only
+    # candidate rows belong to the authenticated FIELD principal/profile.
+    rows = (await db.execute(select(
+        VehicleCustodyHandoff,
+        CompanyPrincipal.full_name, CompanyPrincipal.username,
+        Vehicle.plate_number,
+    ).join(
+        CompanyPrincipal,
+        (CompanyPrincipal.company_id == VehicleCustodyHandoff.company_id)
+        & (CompanyPrincipal.id == VehicleCustodyHandoff.recipient_principal_id),
+    ).join(
+        Vehicle,
+        (Vehicle.company_id == VehicleCustodyHandoff.company_id)
+        & (Vehicle.id == VehicleCustodyHandoff.vehicle_id),
+    ).where(
         VehicleCustodyHandoff.company_id == company_id,
         VehicleCustodyHandoff.recipient_principal_id == principal_id,
         VehicleCustodyHandoff.recipient_rep_id == rep_id,
         VehicleCustodyHandoff.state.in_(("PENDING", "CONFIRMED")),
         VehicleCustodyHandoff.expires_at > now(),
     ).order_by(VehicleCustodyHandoff.id.desc()).limit(limit))).all()
-    return {"items": [await public_handoff(db, row) for row in rows]}
+    return {"items": [
+        _handoff_response(
+            handoff, recipient_name=full_name,
+            recipient_username=username, vehicle_plate=plate_number,
+        )
+        for handoff, full_name, username, plate_number in rows
+    ]}
 
 
 async def field_record(db, *, company_id: int, principal_id: int, rep_id: int, handoff_id: int):
