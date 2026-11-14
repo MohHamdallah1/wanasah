@@ -5,12 +5,13 @@ import { useTranslation } from "react-i18next";
 import { WorkspaceTopBar } from "@/components/dashboard/WorkspaceTopBar";
 import { PendingRoutesTable } from "@/components/dispatch/PendingRoutesTable";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
+import { getDispatchChromeCopy } from "./dispatchChromeCopy";
 import type { TabId } from "@/types/dispatch";
 
 const ALL_TABS = [
-  { id: "routes", label: "الخطوط النشطة", icon: Truck },
-  { id: "launch", label: "إطلاق خط جديد", icon: Plus },
-  { id: "zones", label: "هيكلة المناطق", icon: LayoutGrid },
+  { id: "routes", icon: Truck },
+  { id: "launch", icon: Plus },
+  { id: "zones", icon: LayoutGrid },
 ] as const;
 
 interface Props {
@@ -33,6 +34,7 @@ export function DispatchChrome({
   onTabChange, onShortages, onBulkSchedule,
 }: Props) {
   const { i18n } = useTranslation();
+  const copy = getDispatchChromeCopy(i18n.language);
   // Never unmount public tab positions when a scoped permission response arrives.
   const visibleTabs = ALL_TABS;
   const showShortages = true;
@@ -43,7 +45,7 @@ export function DispatchChrome({
       <header className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <div className="dispatch-tab-list flex max-w-full min-w-0 overflow-x-auto rounded-xl bg-white/10 p-1"
-            role="tablist" aria-label={i18n.language.startsWith("ar") ? "أقسام إدارة التوزيع" : "Dispatch sections"}>
+            role="tablist" aria-label={copy.tablist}>
             {visibleTabs.map(tab => (
               <button key={tab.id} type="button" role="tab"
                 // The selected tab is a public workspace preference, not an
@@ -56,7 +58,7 @@ export function DispatchChrome({
                     ? "bg-white text-[#125d85] shadow-sm"
                     : "text-slate-200 hover:bg-white/10 hover:text-white"
                 }`}>
-                <tab.icon className="h-4 w-4 shrink-0" /> {tab.label}
+                <tab.icon className="h-4 w-4 shrink-0" /> {copy.tabs[tab.id]}
               </button>
             ))}
           </div>
@@ -71,7 +73,7 @@ export function DispatchChrome({
                   : "border-white/20 bg-white/10 text-white hover:bg-white/20"
               }`}>
               <ClipboardList className="h-4 w-4 shrink-0" />
-              طلبات ونواقص
+              {copy.shortages}
             </button>
           )}
           {activeTab === "zones" && showScheduling && (
@@ -79,7 +81,7 @@ export function DispatchChrome({
               onClick={() => { if (admitted && canZoneManage) onBulkSchedule?.(); }}
               className="inline-flex items-center gap-1.5 rounded-xl bg-[#1e87bb] px-3 py-2 text-xs font-bold text-white hover:bg-[#166a94] sm:text-sm">
               <Calendar className="h-4 w-4 shrink-0" />
-              الجدولة الشاملة
+              {copy.bulkSchedule}
             </button>
           )}
         </div>
@@ -122,6 +124,8 @@ export function DispatchChromeHost({ active, children }: { active: boolean; chil
 }
 
 function DispatchChromeScope({ active, children }: { active: boolean; children: ReactNode }) {
+  const { i18n } = useTranslation();
+  const copy = getDispatchChromeCopy(i18n.language);
   const [view, setView] = useState<ChromeView>(initialView);
   const handlers = useRef<ChromeActions>({});
   const [realRoutes, setRealRoutes] = useState<RealRoutes | null>(null);
@@ -170,7 +174,7 @@ function DispatchChromeScope({ active, children }: { active: boolean; children: 
                 className="flex flex-col w-full gap-4 mt-4 h-full flex-1 min-h-0">
                 <div className="dispatch-surface relative bg-white rounded-2xl border border-slate-200 flex flex-col shadow-sm pb-2 flex-1 min-h-0">
                   <div className="dispatch-panel-label absolute -top-3.5 right-6 bg-gradient-to-r from-[#1e87bb] to-[#166a94] text-white px-4 py-1.5 rounded-lg text-sm font-black flex items-center gap-2 shadow-md z-20">
-                    <Truck className="w-4 h-4" /> مناطق قيد العمل (الخطوط النشطة)
+                    <Truck className="w-4 h-4" /> {copy.workingZones}
                   </div>
                   <div className="p-3 pt-2 border-b border-slate-100 flex items-center justify-end bg-slate-50 rounded-t-2xl">
                     <button type="button"
@@ -181,7 +185,7 @@ function DispatchChromeScope({ active, children }: { active: boolean; children: 
                           ? "bg-orange-50 border border-orange-500 text-orange-700 hover:bg-orange-100"
                           : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50")}>
                       <Eye className="w-4 h-4" />
-                      {"عرض المؤجل" + (active && view.admitted && realRoutes?.postponedCount != null
+                      {copy.showPostponed + (active && view.admitted && realRoutes?.postponedCount != null
                         ? " (" + realRoutes.postponedCount + ")" : "")}
                     </button>
                   </div>
