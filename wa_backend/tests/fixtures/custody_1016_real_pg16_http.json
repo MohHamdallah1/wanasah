@@ -1,0 +1,267 @@
+{
+  "field_confirmed": {
+    "accepted_epoch_id": null,
+    "context_revision": 1,
+    "expires_at": "2026-11-14T11:36:55Z",
+    "handoff_id": 2,
+    "reason_code": null,
+    "reason_text": null,
+    "receiver_confirmed_at": "2026-11-14T11:21:55+00:00",
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "CONFIRMED",
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "field_declined": {
+    "accepted_epoch_id": null,
+    "context_revision": 3,
+    "expires_at": "2026-11-14T11:36:56Z",
+    "handoff_id": 4,
+    "reason_code": "DIFFERENCE",
+    "reason_text": "Physical count differs",
+    "receiver_confirmed_at": null,
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "DECLINED",
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "field_detail": {
+    "accepted_epoch_id": null,
+    "context_revision": 1,
+    "expires_at": "2026-11-14T11:36:55Z",
+    "handoff_id": 2,
+    "reason_code": null,
+    "reason_text": null,
+    "receiver_confirmed_at": null,
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "PENDING",
+    "stock_lines": [
+      {
+        "base_uom": "EACH",
+        "base_uom_name": "حبة",
+        "batch_number": "C2-CUST-LOT-b9d038cdbad74b",
+        "display_factor_to_base": "50",
+        "display_uom_name": "كرتونة",
+        "expiry_date": "2028-11-13",
+        "on_hand_base": "12.000000",
+        "product_name": "Synthetic tracked item",
+        "reserved_base": "0.000000",
+        "sku": "P3-SKU",
+        "stock_status": "AVAILABLE"
+      }
+    ],
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": "C0224f313bd78"
+  },
+  "field_inbox": {
+    "items": [
+      {
+        "accepted_epoch_id": null,
+        "context_revision": 1,
+        "expires_at": "2026-11-14T11:36:55Z",
+        "handoff_id": 2,
+        "reason_code": null,
+        "reason_text": null,
+        "receiver_confirmed_at": null,
+        "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+        "state": "PENDING",
+        "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+        "target_driver_id": 1307234203,
+        "vehicle_id": 3,
+        "vehicle_location_id": 5,
+        "vehicle_plate": "C0224f313bd78"
+      }
+    ]
+  },
+  "field_original_pending": {
+    "items": [
+      {
+        "accepted_epoch_id": null,
+        "context_revision": 1,
+        "expires_at": "2026-11-14T11:36:53Z",
+        "handoff_id": 1,
+        "reason_code": null,
+        "reason_text": null,
+        "receiver_confirmed_at": null,
+        "recipient_label": "Canonical fixture (principal-f505c1399a764452a820c781cd07d56c)",
+        "state": "PENDING",
+        "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+        "target_driver_id": 1389014302,
+        "vehicle_id": 3,
+        "vehicle_location_id": 5,
+        "vehicle_plate": "C0224f313bd78"
+      }
+    ]
+  },
+  "field_terminal": {
+    "accepted_epoch_id": null,
+    "context_revision": 3,
+    "expires_at": "2026-11-14T11:36:56Z",
+    "handoff_id": 4,
+    "reason_code": "DIFFERENCE",
+    "reason_text": "Physical count differs",
+    "receiver_confirmed_at": null,
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "DECLINED",
+    "stock_lines": [],
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "manager_approved": {
+    "context_revision": 2,
+    "epoch_id": 3,
+    "handoff_id": 2,
+    "replayed": false,
+    "state": "COMMITTED",
+    "stock_movements": 0,
+    "vehicle_id": 3
+  },
+  "manager_cancelled": {
+    "accepted_epoch_id": null,
+    "context_revision": 1,
+    "expires_at": "2026-11-14T11:36:53Z",
+    "handoff_id": 1,
+    "reason_code": null,
+    "reason_text": null,
+    "receiver_confirmed_at": "2026-11-14T11:21:55+00:00",
+    "recipient_label": "Canonical fixture (principal-f505c1399a764452a820c781cd07d56c)",
+    "state": "CANCELLED",
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1389014302,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "manager_history": {
+    "items": [
+      {
+        "accepted_and_counted": true,
+        "approved_by_label": "Canonical fixture (principal-6b4d3f43ebe14fee85767b0bb805cfac)",
+        "context_revision": 3,
+        "custodian_kind": "FIELD_REPRESENTATIVE",
+        "ended_at": null,
+        "epoch_id": 4,
+        "evidence_origin": "CANONICAL",
+        "handoff_evidence_hash": "cdae3f7367ab87cb05180306af65559df4042500513eff0259c52fdd562b7a90",
+        "legacy_review_logged_at": null,
+        "legacy_unconfirmed": false,
+        "reason": "REASSIGN",
+        "recipient_label": "Canonical fixture (principal-f505c1399a764452a820c781cd07d56c)",
+        "request_id": "8166a79a-9873-428a-9569-252a0f4b3d1d",
+        "started_at": "2026-11-14T11:21:56.598086Z",
+        "state": "ACCEPTED"
+      },
+      {
+        "accepted_and_counted": true,
+        "approved_by_label": "Canonical fixture (principal-6b4d3f43ebe14fee85767b0bb805cfac)",
+        "context_revision": 2,
+        "custodian_kind": "FIELD_REPRESENTATIVE",
+        "ended_at": "2026-11-14T11:21:56.598086Z",
+        "epoch_id": 3,
+        "evidence_origin": "CANONICAL",
+        "handoff_evidence_hash": "49df469a2e5f6964c3822d7a618cf2c604199d8ba2c5e07cc13a37d6a95318ee",
+        "legacy_review_logged_at": null,
+        "legacy_unconfirmed": false,
+        "reason": "FIRST_ACCEPT",
+        "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+        "request_id": "5239a940-88ca-403b-a810-1d69ff7c146d",
+        "started_at": "2026-11-14T11:21:55.998846Z",
+        "state": "ACCEPTED"
+      },
+      {
+        "accepted_and_counted": false,
+        "approved_by_label": null,
+        "context_revision": 1,
+        "custodian_kind": "UNCONFIRMED",
+        "ended_at": "2026-11-14T11:21:55.998846Z",
+        "epoch_id": 1,
+        "evidence_origin": "M01_BACKFILL",
+        "handoff_evidence_hash": null,
+        "legacy_review_logged_at": "2026-11-14T11:21:52.786902Z",
+        "legacy_unconfirmed": true,
+        "reason": "LEGACY_STOCK_CUSTODIAN_UNKNOWN",
+        "recipient_label": null,
+        "request_id": null,
+        "started_at": null,
+        "state": "NEEDS_REVIEW"
+      }
+    ],
+    "vehicle_id": 3
+  },
+  "manager_pending": {
+    "accepted_epoch_id": null,
+    "context_revision": 1,
+    "expires_at": "2026-11-14T11:36:55Z",
+    "handoff_id": 2,
+    "reason_code": null,
+    "reason_text": null,
+    "receiver_confirmed_at": null,
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "PENDING",
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "manager_readiness": {
+    "context_revision": 1,
+    "custodian_kind": "UNCONFIRMED",
+    "recovery_action": "CUSTODY_FIRST_ACCEPT",
+    "state": "NEEDS_REVIEW",
+    "stock_line_count": 1,
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "stocked": true,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5
+  },
+  "manager_reloaded": {
+    "accepted_epoch_id": null,
+    "context_revision": 1,
+    "expires_at": "2026-11-14T11:36:55Z",
+    "handoff_id": 2,
+    "reason_code": null,
+    "reason_text": null,
+    "receiver_confirmed_at": "2026-11-14T11:21:55+00:00",
+    "recipient_label": "Canonical fixture (principal-4c3e12bca25d4206a3f66bbdd5c029df)",
+    "state": "CONFIRMED",
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "target_driver_id": 1307234203,
+    "vehicle_id": 3,
+    "vehicle_location_id": 5,
+    "vehicle_plate": null
+  },
+  "manager_stock": {
+    "context_revision": 1,
+    "stock_lines": [
+      {
+        "base_uom": "EACH",
+        "base_uom_name": "حبة",
+        "batch_number": "C2-CUST-LOT-b9d038cdbad74b",
+        "display_factor_to_base": "50",
+        "display_uom_name": "كرتونة",
+        "expiry_date": "2028-11-13",
+        "on_hand_base": "12.000000",
+        "product_name": "Synthetic tracked item",
+        "reserved_base": "0.000000",
+        "sku": "P3-SKU",
+        "stock_status": "AVAILABLE"
+      }
+    ],
+    "stock_snapshot": "3b8deca0aa091e066b7e854f11c39acc88f758f406a38d1dc9c357b3f54233ef",
+    "vehicle_id": 3,
+    "vehicle_plate": "C0224f313bd78"
+  }
+}
