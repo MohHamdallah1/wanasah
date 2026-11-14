@@ -22,7 +22,7 @@ String formatCustodyHandoffQuantity(
         .padLeft(6, '0')
         .replaceFirst(RegExp(r'0+$'), '');
     final whole = numbers.format(units.toInt());
-    return rest.isEmpty ? whole : '$whole.${rest}';
+    return rest.isEmpty ? whole : '$whole.$rest';
   }
 
   final display = (line['display_uom_name'] ?? '').toString();
