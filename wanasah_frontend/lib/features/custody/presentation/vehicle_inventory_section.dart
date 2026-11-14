@@ -58,7 +58,7 @@ class VehicleInventorySection extends StatelessWidget {
           ),
         if (products.isNotEmpty &&
             (sellableDisclosure == StockDisclosure.verified ||
-             sellableDisclosure == StockDisclosure.stale))
+                sellableDisclosure == StockDisclosure.stale))
           ...products.map(
             (item) => Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
@@ -81,12 +81,11 @@ class VehicleInventorySection extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment:
-                          MainAxisAlignment.spaceBetween,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
                           '${l10n.stockReceived}: ${item.startingCartons} ${l10n.stockCarton}'
-                           "${item.startingPacks > 0 ? ' + ${item.startingPacks} ${l10n.stockPiece}' : ''}",
+                          "${item.startingPacks > 0 ? ' + ${item.startingPacks} ${l10n.stockPiece}' : ''}",
                           style: const TextStyle(fontSize: 14),
                         ),
                         Text(
@@ -130,14 +129,16 @@ class VehicleInventorySection extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: item.evidenceState == PendingCustodyEvidenceState.blocked
-                    ? Colors.red.shade50
-                    : Colors.amber.shade50,
+                color:
+                    item.evidenceState == PendingCustodyEvidenceState.blocked
+                        ? Colors.red.shade50
+                        : Colors.amber.shade50,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: item.evidenceState == PendingCustodyEvidenceState.blocked
-                      ? Colors.red.shade200
-                      : Colors.amber.shade200,
+                  color:
+                      item.evidenceState == PendingCustodyEvidenceState.blocked
+                          ? Colors.red.shade200
+                          : Colors.amber.shade200,
                 ),
               ),
               child: Row(
@@ -146,9 +147,11 @@ class VehicleInventorySection extends StatelessWidget {
                     item.evidenceState == PendingCustodyEvidenceState.blocked
                         ? Icons.report_problem_outlined
                         : Icons.schedule_outlined,
-                    color: item.evidenceState == PendingCustodyEvidenceState.blocked
-                        ? Colors.red
-                        : Colors.amber.shade800,
+                    color:
+                        item.evidenceState ==
+                                PendingCustodyEvidenceState.blocked
+                            ? Colors.red
+                            : Colors.amber.shade800,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -175,11 +178,13 @@ class VehicleInventorySection extends StatelessWidget {
             ),
           ),
         ],
-        if (nonSellableDisclosure != StockDisclosure.verified)
+        // Two independent read scopes, but identical failures are one notice.
+        if (nonSellableDisclosure != StockDisclosure.verified &&
+            nonSellableDisclosure != sellableDisclosure)
           _disclosureNotice(context, nonSellableDisclosure, l10n),
         if (nonSellableCustody.isNotEmpty &&
             (nonSellableDisclosure == StockDisclosure.verified ||
-             nonSellableDisclosure == StockDisclosure.stale)) ...[
+                nonSellableDisclosure == StockDisclosure.stale)) ...[
           const SizedBox(height: 12),
           Text(
             l10n.stockNonSellableTitle,
@@ -197,10 +202,7 @@ class VehicleInventorySection extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  const Icon(
-                    Icons.inventory_2_outlined,
-                    color: Colors.orange,
-                  ),
+                  const Icon(Icons.inventory_2_outlined, color: Colors.orange),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
@@ -208,9 +210,7 @@ class VehicleInventorySection extends StatelessWidget {
                       children: [
                         Text(
                           item.productName,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           _statusLabel(item.status, l10n),
@@ -221,9 +221,7 @@ class VehicleInventorySection extends StatelessWidget {
                   ),
                   Text(
                     '${item.quantity} ${item.uomCode}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
@@ -255,7 +253,10 @@ class VehicleInventorySection extends StatelessWidget {
     );
   }
 
-  String _pendingReasonLabel(PendingReturnReason reason, AppLocalizations l10n) {
+  String _pendingReasonLabel(
+    PendingReturnReason reason,
+    AppLocalizations l10n,
+  ) {
     return switch (reason) {
       PendingReturnReason.damaged => l10n.stockStatusDamaged,
       PendingReturnReason.expired => l10n.stockReasonExpired,
@@ -263,7 +264,10 @@ class VehicleInventorySection extends StatelessWidget {
     };
   }
 
-  String _pendingStateLabel(PendingCustodyEvidenceState state, AppLocalizations l10n) {
+  String _pendingStateLabel(
+    PendingCustodyEvidenceState state,
+    AppLocalizations l10n,
+  ) {
     return switch (state) {
       PendingCustodyEvidenceState.pending => l10n.stockPending,
       PendingCustodyEvidenceState.inFlight => l10n.stockInFlight,
@@ -277,7 +281,8 @@ class VehicleInventorySection extends StatelessWidget {
       NonSellableCustodyStatus.quarantined => l10n.stockStatusQuarantined,
       NonSellableCustodyStatus.blocked => l10n.stockStatusBlocked,
       NonSellableCustodyStatus.recalled => l10n.stockStatusRecalled,
-      NonSellableCustodyStatus.disposalPending => l10n.stockStatusDisposalPending,
+      NonSellableCustodyStatus.disposalPending =>
+        l10n.stockStatusDisposalPending,
     };
   }
 }

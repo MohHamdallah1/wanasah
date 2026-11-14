@@ -79,17 +79,22 @@ class _RecoveryDashboardScrollState extends State<RecoveryDashboardScroll> {
                   _controller,
                   widget.onAfterSync,
                 ),
-            child: ListView(
+            // Home/Custody children can change position across live refreshes.
+            // Neither page needs sliver child-index reconciliation.
+            child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: widget.padding,
-              children: [
-                RecoveryStatusBanner(
-                  snapshot: _controller.snapshot,
-                  readUnavailable: _controller.readUnavailable,
-                  onTap: _openPanel,
-                ),
-                ...widget.children,
-              ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  RecoveryStatusBanner(
+                    snapshot: _controller.snapshot,
+                    readUnavailable: _controller.readUnavailable,
+                    onTap: _openPanel,
+                  ),
+                  ...widget.children,
+                ],
+              ),
             ),
           ),
     );

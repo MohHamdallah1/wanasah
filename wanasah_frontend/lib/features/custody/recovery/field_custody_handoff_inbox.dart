@@ -118,6 +118,20 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
   @override
   Widget build(BuildContext context) {
     final t = CustodyHandoffStrings.of(context);
+    // Display a request panel only for actually signed server results.
+    // A failed read is not evidence of an empty inbox: retain a compact retry.
+    if (_items.isEmpty) {
+      if (_problem == null) return const SizedBox.shrink();
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          key: const ValueKey('field-custody-inbox-retry'),
+          onPressed: _loading ? null : _reload,
+          icon: const Icon(Icons.refresh),
+          label: Text(_problem!),
+        ),
+      );
+    }
     return Card(
       key: const ValueKey('field-custody-inbox'),
       child: Padding(
@@ -156,21 +170,25 @@ class _FieldCustodyHandoffInboxState extends State<FieldCustodyHandoffInbox> {
             if (_items.isNotEmpty)
               ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 148),
-                child: ListView.builder(
-                  shrinkWrap: true,
+                // At most 50 authenticated requests; don't nest another
+                // lazy SliverMultiBoxAdaptor inside the changing shell.
+                child: SingleChildScrollView(
                   primary: false,
-                  itemCount: _items.length,
-                  itemBuilder: (context, index) {
-                    final item = _items[index];
-                    return ListTile(
-                      key: ValueKey('field-custody-inbox-${item.handoffId}'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(item.vehiclePlate),
-                      subtitle: Text(_stateLabel(t, item.state)),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _open(item),
-                    );
-                  },
+                  child: Column(
+                    children: [
+                      for (final item in _items)
+                        ListTile(
+                          key: ValueKey(
+                            'field-custody-inbox-${item.handoffId}',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(item.vehiclePlate),
+                          subtitle: Text(_stateLabel(t, item.state)),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _open(item),
+                        ),
+                    ],
+                  ),
                 ),
               ),
           ],

@@ -11,6 +11,7 @@ const snapshot =
 class _ServerFixture extends FieldCustodyHandoffClient {
   _ServerFixture() : super(dio: Dio());
   String state = 'PENDING';
+  bool hasRequest = true;
   int inboxReads = 0, details = 0, decisions = 0;
   String? actualDecision, actualReason;
   bool? counted;
@@ -52,7 +53,9 @@ class _ServerFixture extends FieldCustodyHandoffClient {
   @override
   Future<List<FieldCustodyRequest>> pending() async {
     inboxReads++;
-    return [record()];
+    return hasRequest && (state == 'PENDING' || state == 'CONFIRMED')
+        ? [record()]
+        : [];
   }
 
   @override
@@ -181,6 +184,38 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('Copy signed receipt'), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'no permanent inbox; new signed request appears and committed request disappears',
+    (tester) async {
+      final server = _ServerFixture()..hasRequest = false;
+      Widget app(int nonce) => MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: FieldCustodyHandoffInbox(
+              key: const ValueKey('stable-inbox'),
+              client: server,
+              refreshNonce: nonce,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpWidget(app(0));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('field-custody-inbox')), findsNothing);
+      server.hasRequest = true;
+      await tester.pumpWidget(app(1));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('field-custody-inbox')), findsOneWidget);
+      expect(find.text('12-25132'), findsOneWidget);
+      server.state = 'COMMITTED';
+      await tester.pumpWidget(app(2));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('field-custody-inbox')), findsNothing);
+      expect(server.inboxReads, 3);
+      expect(tester.takeException(), isNull);
     },
   );
 
