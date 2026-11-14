@@ -1,6 +1,6 @@
 """Immutable before/after audit, tenant-scoped to original supplier source."""
 from sqlalchemy import (
-    BigInteger, Column, DateTime, ForeignKeyConstraint, Integer, JSON,
+    BigInteger, Column, DateTime, ForeignKeyConstraint, Index, Integer,
     String, Text, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -10,6 +10,7 @@ from models import Base, utc_now
 class BatchMetadataCorrectionEvent(Base):
     __tablename__ = "batch_metadata_correction_events"
     __table_args__ = (
+        Index("ix_batch_meta_event_history","company_id","batch_id","id"),
         UniqueConstraint("company_id", "id", name="uq_batch_meta_event_tenant_id"),
         UniqueConstraint("company_id", "request_id", name="uq_batch_meta_event_request"),
         UniqueConstraint("company_id", "batch_id", "revision", name="uq_batch_meta_event_revision"),
@@ -39,8 +40,8 @@ class BatchMetadataCorrectionEvent(Base):
         ),
     )
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    company_id = Column(Integer, nullable=False, index=True)
-    batch_id = Column(Integer, nullable=False, index=True)
+    company_id = Column(Integer, nullable=False)
+    batch_id = Column(Integer, nullable=False)
     location_id = Column(Integer, nullable=False)
     source_movement_id = Column(Integer, nullable=False)
     source_cost_event_id = Column(BigInteger, nullable=False)
