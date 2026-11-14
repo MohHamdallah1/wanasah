@@ -120,9 +120,13 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp dashboard/src/pages/DispatchBoard.tsx /tmp/d15p1-head-Board.tsx
+          # The historic Board has the original 7-argument draft API. Restore its
+          # matching immutable draft module; never mix it with the newer U02 API.
+          cp dashboard/src/features/dispatch/dispatchDrafts.ts /tmp/d15p1-head-Drafts.ts
           cp dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx /tmp/d15p1-head-Chrome.tsx
           cp dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx /tmp/d15p1-head-Preflight.tsx
           git show 4062d0c123abff18c8250389a0a2d8f8c92ce7af:dashboard/src/pages/DispatchBoard.tsx > dashboard/src/pages/DispatchBoard.tsx
+          git show 4062d0c123abff18c8250389a0a2d8f8c92ce7af:dashboard/src/features/dispatch/dispatchDrafts.ts > dashboard/src/features/dispatch/dispatchDrafts.ts
           git show 4062d0c123abff18c8250389a0a2d8f8c92ce7af:dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx > dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
           git show 4062d0c123abff18c8250389a0a2d8f8c92ce7af:dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx > dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx
           npm --prefix dashboard run build
@@ -193,6 +197,7 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           cp /tmp/d15p1-head-Board.tsx dashboard/src/pages/DispatchBoard.tsx
+          cp /tmp/d15p1-head-Drafts.ts dashboard/src/features/dispatch/dispatchDrafts.ts
           cp /tmp/d15p1-head-Chrome.tsx dashboard/src/features/dispatch/stableUi/DispatchChrome.tsx
           cp /tmp/d15p1-head-Preflight.tsx dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx
           npm --prefix dashboard run build
