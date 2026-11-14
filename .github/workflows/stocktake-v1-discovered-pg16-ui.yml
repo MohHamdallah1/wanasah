@@ -296,6 +296,14 @@ jobs:
               "wa_backend/api/warehouse/stocktake_discovery.py",
               "wa_backend/tests/test_stocktake_808_bigint_cursor_real_pg16.py",
           }
+          # Issue #997: canonical BACKOFFICE cancellation password correction,
+          # two exact backend files plus this owner's immutable CI gate.
+          stocktake_cancel_997 = {
+              ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
+              "wa_backend/api/warehouse/stocktake.py",
+              "wa_backend/tests/test_stocktake_canonical_auth_cutover.py",
+          }
+          assert len(stocktake_cancel_997) == 3
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -317,6 +325,7 @@ jobs:
               frozenset(history_799): "TERMINAL_HISTORY_799",
               frozenset(ci_compat_798_799): "STOCKTAKE_CI_EXACT_COMPAT_798_799",
               frozenset(cursor_808): "CURSOR_BIGINT_808_EXACT",
+              frozenset(stocktake_cancel_997): "STOCKTAKE_CANCEL_997_CANONICAL_PASSWORD",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -345,12 +354,32 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799 - cursor_808),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799 - cursor_808 - stocktake_cancel_997),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
                   assert frozenset(files | {foreign}) not in valid_scopes
               return matched
+
+          # Proof that #997 requires the entire exact author set; an isolated
+          # test change, production-only change, or security/foreign hitchhiker
+          # cannot be mistaken for the approved Stocktake credential repair.
+          assert verify_owner_scope("pull_request", stocktake_cancel_997) == (
+              "STOCKTAKE_CANCEL_997_CANONICAL_PASSWORD")
+          for missing in stocktake_cancel_997:
+              try:
+                  verify_owner_scope("pull_request", stocktake_cancel_997 - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Partial Stocktake #997 scope accepted: {missing}")
+          for foreign in foreign_paths:
+              try:
+                  verify_owner_scope("pull_request", stocktake_cancel_997 | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"Foreign Stocktake #997 scope accepted: {foreign}")
 
           # Focused cross-event regression inside the existing narrow gate:
           # empty dispatch passes, empty PR or nonempty dispatch fails.
