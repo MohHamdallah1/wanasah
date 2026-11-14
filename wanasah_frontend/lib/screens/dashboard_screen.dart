@@ -18,8 +18,6 @@ import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
-import '../features/custody/recovery/custody_handoff_screen.dart';
-import '../features/custody/recovery/custody_handoff_strings.dart';
 import '../features/custody/recovery/field_custody_handoff_inbox.dart';
 import '../l10n/generated/app_localizations.dart';
 
@@ -81,6 +79,8 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   void _afterLocalWork() {
     _recovery.reload();
+    // The user can refresh newly sent handoffs without leaving Custody.
+    if (mounted) setState(() => _custodyInboxVersion++);
     context.read<DashboardBloc>().add(const LoadDashboardData());
   }
 
@@ -362,26 +362,8 @@ class _DashboardScreenState extends State<DashboardScreen>
         _pendingTransfers(state),
         // The server-backed own-principal inbox is the primary journey.
         FieldCustodyHandoffInbox(refreshNonce: _custodyInboxVersion),
-        // Keep the historically accepted signed-token protocol accessible
-        // only on deliberate expansion, never ahead of the live inbox.
-        ExpansionTile(
-          key: const ValueKey('field-custody-legacy-options'),
-          title: Text(CustodyHandoffStrings.of(context).t('legacyOptions')),
-          initiallyExpanded: false,
-          children: [
-            OutlinedButton.icon(
-              key: const ValueKey('c03-field-custody-handoff'),
-              icon: const Icon(Icons.how_to_reg_outlined),
-              label: Text(CustodyHandoffStrings.of(context).t('legacy')),
-              onPressed:
-                  () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CustodyHandoffScreen(),
-                    ),
-                  ),
-            ),
-          ],
-        ),
+        // Historical clipboard handoffs remain server-auditable; normal
+        // FIELD custody never offers that retired entry action.
         VehicleInventorySection(
           products: state.products,
           sellableDisclosure: state.sellableStockDisclosure,
