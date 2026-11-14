@@ -20,6 +20,7 @@ import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
 import '../features/custody/recovery/custody_handoff_screen.dart';
 import '../features/custody/recovery/custody_handoff_strings.dart';
+import '../features/custody/recovery/field_custody_handoff_inbox.dart';
 import '../l10n/generated/app_localizations.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -40,6 +41,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   late final RecoveryViewController _recovery;
   // Recovery safety invariant: blocked evidence is durable؛ لا يمكن حذفها من تطبيق المندوب.
   // +++ الشاشة الآن "غبية" وتعتمد على الـ BLoC بنسبة 100% +++
+  int _custodyInboxVersion = 0;
   bool _isShowingDialog = false; // لمنع تكرار ظهور نافذة الحوالات
   bool _isActionInProgress =
       false; // +++ درع منع النقر المتكرر أثناء طلبات الـ API والموقع +++
@@ -83,6 +85,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _destinationChanged(FieldDestination destination) {
+    if (destination == FieldDestination.custody && mounted) {
+      setState(
+        () => _custodyInboxVersion++,
+      ); // own-principal GET on custody reentry
+    }
     if (destination == FieldDestination.route) {
       _recovery.reload();
     } else {
@@ -353,10 +360,12 @@ class _DashboardScreenState extends State<DashboardScreen>
         if (state.refreshIssue != null)
           _buildRefreshIssueBanner(context, state.refreshIssue!),
         _pendingTransfers(state),
+        // Keep the previously accepted C03 signed-receipt fallback reachable.
+        // New own-principal requests are the primary custody journey.
         OutlinedButton.icon(
           key: const ValueKey('c03-field-custody-handoff'),
           icon: const Icon(Icons.how_to_reg_outlined),
-          label: Text(CustodyHandoffStrings.of(context).t('start')),
+          label: Text(CustodyHandoffStrings.of(context).t('legacy')),
           onPressed:
               () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -364,6 +373,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 ),
               ),
         ),
+        FieldCustodyHandoffInbox(refreshNonce: _custodyInboxVersion),
         VehicleInventorySection(
           products: state.products,
           sellableDisclosure: state.sellableStockDisclosure,

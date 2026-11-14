@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { custodyCopy, custodyReason } from "./copy";
 import {
-  VehicleCustodyRecoveryPanel, type RecoveryDriver,
+  type RecoveryDriver,
 } from "./VehicleCustodyRecoveryPanel";
+import { VehicleCustodyHandoffPanel } from "./VehicleCustodyHandoffPanel";
 import type { AuthorizedFetch } from "./command";
 import type { Receipt } from "./contract";
 
@@ -36,7 +37,7 @@ export function VehicleCustodyRecoveryEntry({
         {t.title}
       </button>
     )}
-    {open && <VehicleCustodyRecoveryPanel
+    {open && <VehicleCustodyHandoffPanel
       open={open} onClose={() => setOpen(false)}
       vehicleId={vehicleId} vehicleLabel={vehicleLabel}
       drivers={drivers} selectedDriverId={selectedDriverId}
