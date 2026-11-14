@@ -1,0 +1,140 @@
+name: C03-X01 signed vehicle custody to UOM and route bridge PG16
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/dispatch-x01-c03-release-acceptance.yml"
+      - "wa_backend/tests/test_dispatch_x01_custody_uom_m06_bridge_postgres.py"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-main-release-scope:
+    name: C03-X01 exact unified ownership
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Authoritative MAIN ancestry, exact 56-file release and adversarial probes
+        env:
+          RELEASE_BASE: ${{ github.event.pull_request.base.sha }}
+          RELEASE_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python .github/scripts/dispatch_c03_x01_release_scope.py --selftest
+          python - <<'PY'
+          import os, re, subprocess
+          from runpy import run_path
+          base, head = os.environ["RELEASE_BASE"], os.environ["RELEASE_HEAD"]
+          assert re.fullmatch("[0-9a-f]{40}",base) and re.fullmatch("[0-9a-f]{40}",head)
+          assert subprocess.check_output(
+              ["git","merge-base",base,head], text=True
+          ).strip() == base, "Release HEAD must descend from EXACT current MAIN"
+          files = set(subprocess.check_output(
+              ["git","diff","--name-only",base,head], text=True
+          ).splitlines())
+          run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["assert_release"](files)
+          subprocess.run(["git","diff","--check",base,head],check=True)
+          print(f"C03_X01_MAIN_RELEASE_SCOPE=PASS exact={len(files)}")
+          PY
+
+  signed-pg16-bridge:
+    name: C03-X01 real FORCE-RLS dual-Bearer bridge
+    needs: exact-main-release-scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        ports: ["55439:5432"]
+        env:
+          POSTGRES_USER: x01_release_admin
+          POSTGRES_DB: wanasah_no_lot_contract_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        options: >-
+          --health-cmd "pg_isready -U x01_release_admin -d wanasah_no_lot_contract_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: C03X01PG16ReleaseIsolatedTestKey12345678901234567890
+      DATABASE_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      DATABASE_URL_MIGRATION: postgresql+asyncpg://x01_release_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_DISPATCH_P0_PG_GATE: "1"
+      WANASAH_SHOP_FINANCE_PG_GATE: "1"
+      WANASAH_DISPATCH_D07_PG_GATE: "1"
+      RUN_X01_M06_PG16: "1"
+      WANASAH_NO_LOT_PG_URL: postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test
+      WANASAH_NO_LOT_PG_ADMIN_URL: postgresql+asyncpg://x01_release_admin@127.0.0.1:55439/wanasah_no_lot_contract_test
+      PYTHONPATH: ${{ github.workspace }}/wa_backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Focused Backend runtime and real-test dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest pytest-asyncio httpx
+      - name: Compile new X01 acceptance without testing mocks
+        working-directory: wa_backend
+        run: python -m py_compile tests/test_dispatch_x01_custody_uom_m06_bridge_postgres.py
+      - name: Real restricted runtime role
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://x01_release_admin@127.0.0.1:55439/wanasah_no_lot_contract_test",autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Fresh official migrations and zero schema drift
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant restricted runtime table, sequence and function access
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://x01_release_admin@127.0.0.1:55439/wanasah_no_lot_contract_test",autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: Verify PostgreSQL16 NOBYPASSRLS and FORCE RLS on touched domains
+        run: |
+          python - <<'PY'
+          import psycopg
+          with psycopg.connect("postgresql://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test") as db:
+              role=db.execute("SELECT rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user").fetchone()
+              version=db.execute("SHOW server_version_num").fetchone()[0]
+              assert role == (False,False) and 160000 <= int(version)<170000,(role,version)
+              for table in ("inventory_movements","vehicle_custody_epochs","dispatch_route_execution_periods"):
+                  flags=db.execute("SELECT relrowsecurity,relforcerowsecurity FROM pg_class WHERE oid=to_regclass(%s)",(table,)).fetchone()
+                  assert flags == (True,True),(table,flags)
+              print("C03_X01_REAL_PG16_NOBYPASSRLS_FORCE_RLS=PASS")
+          PY
+      - name: NEW cross-feature signed C03 to UOM load/unload to same-car postpone/resume
+        working-directory: wa_backend
+        run: >-
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short
+          tests/test_dispatch_x01_custody_uom_m06_bridge_postgres.py
+          --junitxml=x01-bridge-real-pg16.xml
+      - name: Reject missing, skipped or failed exact PG16 evidence
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          artifact=Path("x01-bridge-real-pg16.xml")
+          assert artifact.is_file(), "No real PG16 JUnit produced"
+          cases=list(ET.parse(artifact).getroot().iter("testcase"))
+          invalid=[(case.get("name"), state) for case in cases for state in ("failure","error","skipped") if case.find(state) is not None]
+          assert len(cases)==1 and not invalid,(len(cases),invalid)
+          print("C03_X01_REAL_SIGNED_PG16=PASS exact=1 skipped=0")
+          PY
