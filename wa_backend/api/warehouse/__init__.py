@@ -14,6 +14,7 @@ from . import (
     whole_product_quality_preview,
     whole_product_quality,
     stocktake,
+    batch_metadata_correction,
 )
 
 
@@ -34,3 +35,4 @@ router.include_router(transfers.router)
 router.include_router(whole_product_quality_preview.router)
 router.include_router(whole_product_quality.router)
 router.include_router(stocktake.router)
+router.include_router(batch_metadata_correction.router)

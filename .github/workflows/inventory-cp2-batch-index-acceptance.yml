@@ -341,7 +341,31 @@ jobs:
               "wa_backend/scripts/warehouse_route_manifest_extensions.json",
           }
 
+          # #773 owner-approved Option B: an EXACT reviewed Batch metadata
+          # slice, not a general CP2-external-files exemption. Its original
+          # 13-file owner-authorized scope + this mandatory guard update.
+          batch_773_option_b_exact = {
+              cp2_workflow,
+              "V1_SCOPE_FREEZE.md",
+              "dashboard/src/pages/inventory/batches/BatchDispositionManager.tsx",
+              "dashboard/src/pages/inventory/batches/BatchMetadataCorrectionPanel.tsx",
+              "dashboard/src/test/batch-773-metadata-correction.test.tsx",
+              "docs/operations/BATCH_773_POSTED_METADATA_CORRECTION_ACCEPTANCE.md",
+              "wa_backend/alembic/versions/b77c4e2a1073_posted_single_receipt_metadata_correction.py",
+              "wa_backend/api/warehouse/__init__.py",
+              "wa_backend/api/warehouse/batch_metadata_correction.py",
+              "wa_backend/domains/inventory_batch_metadata/__init__.py",
+              "wa_backend/domains/inventory_batch_metadata/models.py",
+              "wa_backend/domains/inventory_batch_metadata/service.py",
+              "wa_backend/models.py",
+              "wa_backend/tests/test_batch_773_posted_metadata_pg16.py",
+          }
+
           def classify(changed, *, is_pr, cp2_schema_changed=False):
+              if is_pr and changed == batch_773_option_b_exact:
+                  if cp2_schema_changed:
+                      raise ValueError("CP2_SCOPE=FAIL #773 altered protected CP2 schema")
+                  return "batch-773-owner-option-b"
               if is_pr and changed == ledger_817_route_extension_exact:
                   return "ledger-817-route-extension"
               if is_pr and product_gate_read_required <= changed:
@@ -396,6 +420,27 @@ jobs:
                       f"extra={sorted(invalid)}"
                   )
               return "maintenance"
+
+          assert classify(
+              batch_773_option_b_exact,
+              is_pr=True, cp2_schema_changed=False,
+          ) == "batch-773-owner-option-b"
+          for extra in ("flutter_app/lib/main.dart", "wa_backend/services.py",
+                        "dashboard/src/pages/inventory/TabBatches.tsx"):
+              try:
+                  classify(batch_773_option_b_exact | {extra},
+                           is_pr=True, cp2_schema_changed=False)
+              except ValueError:
+                  pass
+              else:
+                  raise AssertionError("CP2 accepted unrelated #773 file: " + extra)
+          try:
+              classify(batch_773_option_b_exact,
+                       is_pr=True, cp2_schema_changed=True)
+          except ValueError:
+              pass
+          else:
+              raise AssertionError("CP2 allowed #773 to change shared CP2 schema")
 
           assert classify(
               ledger_817_route_extension_exact,
@@ -603,7 +648,8 @@ jobs:
           else:
               forbidden_prefixes = ("wa_backend/alembic/versions/", "dashboard/")
               if (
-                  scope not in {"live-stock-route-extension", "product-gate-read-contract"}
+                  scope not in {"live-stock-route-extension", "product-gate-read-contract",
+                                "batch-773-owner-option-b"}
                   and any(path.startswith(forbidden_prefixes) for path in changed)
               ):
                   raise SystemExit("CP2_SCOPE=FAIL forbidden runtime expansion")

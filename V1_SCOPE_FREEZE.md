@@ -88,6 +88,8 @@ V1 includes the stock workflows needed for real distribution operations:
 - Live Stock as operational stock visibility;
 - supplier inbound / goods receipt;
 - Lot/تشغيلة and expiry behavior required by configured products; supplier receipt/invoice identity remains separate from physical Lot identity;
+
+- **Owner-approved 2026-11-14 #773 posted single-source Lot/expiry correction (Option B):** first-company V1 permits an intentionally bounded, manager-password-reauthenticated correction of *current descriptive* Lot/production/expiry metadata on an **untouched, one genuine supplier receipt, one controlled warehouse** batch. Only after exact received-stock/source+cost provenance, company/location/capability, no downstream movements, no reservations/stocktake and optimistic revision gates pass; append an immutable before/after/actor/source/reason audit with idempotent UUID. Never rewrite receipt IDs, supplier invoices, inventory movements, FIFO/average cost layers, COGS or existing financial history; never invent physical return/re-receipt. Locked, sold, transferred, shared-receipt, internal no-Lot and ambiguous batches must reject with actionable quarantine/escalation. The original disposition remains unchanged, including QUARANTINED. Dashboard Batches exposes a simple Arabic/English correction form and history, not a new generic invoice/editor.
 - Batches & Expiry visibility required to understand sellability and expiry state;
 - warehouse transfers;
 - stocktake / stock corrections through authoritative inventory movements;
