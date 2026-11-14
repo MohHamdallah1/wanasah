@@ -47,17 +47,6 @@ jobs:
     needs: exact-main-release-scope
     runs-on: ubuntu-24.04
     timeout-minutes: 35
-    services:
-      postgres:
-        image: postgres:16
-        ports: ["55439:5432"]
-        env:
-          POSTGRES_USER: x01_release_admin
-          POSTGRES_DB: wanasah_no_lot_contract_test
-          POSTGRES_HOST_AUTH_METHOD: trust
-        options: >-
-          --health-cmd "pg_isready -U x01_release_admin -d wanasah_no_lot_contract_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
     env:
       ENVIRONMENT: test
       SECRET_KEY: C03X01PG16ReleaseIsolatedTestKey12345678901234567890
@@ -83,6 +72,22 @@ jobs:
       - name: Compile new X01 acceptance without testing mocks
         working-directory: wa_backend
         run: python -m py_compile tests/test_dispatch_x01_custody_uom_m06_bridge_postgres.py
+      - name: Start disposable PostgreSQL16 on fixture-required real server port
+        run: |
+          docker run --detach --name c03-x01-pg16 \
+            --env POSTGRES_USER=x01_release_admin \
+            --env POSTGRES_DB=wanasah_no_lot_contract_test \
+            --env POSTGRES_HOST_AUTH_METHOD=trust \
+            --publish 127.0.0.1:55439:55439 \
+            postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec c03-x01-pg16 pg_isready -U x01_release_admin -d wanasah_no_lot_contract_test -p 55439; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs c03-x01-pg16
+          exit 1
       - name: Real restricted runtime role
         run: |
           python - <<'PY'
