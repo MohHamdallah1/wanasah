@@ -52,10 +52,11 @@ export async function readLaunchAvailability(fetch: LaunchAuthFetch,
   return launchAvailabilitySchema.parse(raw);
 }
 export function useLaunchResourceAvailability({
-  fetch, actorScope, admitted, driverId, vehicleId, routeEvidence,
+  fetch, actorScope, admitted, driverId, vehicleId, routeEvidence, refreshKey = 0,
 }: {
   fetch: LaunchAuthFetch; actorScope: string | null;
   admitted: boolean; driverId: string; vehicleId: string; routeEvidence: unknown;
+  refreshKey?: number;
 }) {
   // A verified same-actor READ may remain visible during an ordinary SPA
   // return. A new signed availability GET is still mandatory for COMMANDS.
@@ -69,7 +70,7 @@ export function useLaunchResourceAvailability({
   }
   const [snapshot, setSnapshot] = useState<{
     actor: string; driver: string; vehicle: string; route: unknown;
-    epoch: number; data: LaunchAvailability;
+    epoch: number; refreshKey: number; data: LaunchAvailability;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -86,7 +87,7 @@ export function useLaunchResourceAvailability({
       .then(data => {
         if (!controller.signal.aborted)
           setSnapshot({ actor: actorScope, driver: driverId,
-            vehicle: vehicleId, route: routeEvidence, epoch, data });
+            vehicle: vehicleId, route: routeEvidence, epoch, refreshKey, data });
       })
       .catch(err => {
         if (!controller.signal.aborted) {
@@ -95,12 +96,13 @@ export function useLaunchResourceAvailability({
         }
       });
     return () => controller.abort();
-  }, [fetch, actorScope, admitted, driverId, vehicleId, routeEvidence]);
+  }, [fetch, actorScope, admitted, driverId, vehicleId, routeEvidence, refreshKey]);
   const sameSignedRead = Boolean(actorScope && snapshot && !error &&
     snapshot.actor === actorScope && snapshot.driver === driverId &&
     snapshot.vehicle === vehicleId && snapshot.route === routeEvidence);
   const fresh = Boolean(admitted && sameSignedRead &&
-    snapshot?.epoch === admissionEpoch.current);
+    snapshot?.epoch === admissionEpoch.current &&
+    snapshot?.refreshKey === refreshKey);
   // data is presentation-only until fresh; selectionBlocked(...), launch,
   // inventory and FIELD execution retain the original fail-closed proof.
   return { data: sameSignedRead ? snapshot?.data ?? null : null, fresh, error };

@@ -45,7 +45,8 @@ import { BulkTransferModal } from "@/components/dispatch/BulkTransferModal";
 import { ZoneModal } from "@/components/dispatch/ZoneModal";
 import { PostponedRoutesModal } from "@/components/dispatch/PostponedRoutesModal";
 import { LaunchResourceSelect } from "@/features/dispatch/launchResources/LaunchResourceSelect";
-import { selectionBlocked, useLaunchResourceAvailability } from "@/features/dispatch/launchResources/launchResourceRead";
+import { selectionBlocked, useLaunchResourceAvailability, type LaunchOption } from "@/features/dispatch/launchResources/launchResourceRead";
+import { VehicleCustodyRecoveryEntry } from "@/features/dispatch/custodyRecovery/VehicleCustodyRecoveryEntry";
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopBulkImportModal } from "@/components/dispatch/ShopBulkImportModal";
 import { AdjustInventoryModal } from "@/components/dispatch/AdjustInventoryModal";
@@ -296,6 +297,12 @@ function DispatchSession() {
   const [selectedZoneId, setSelectedZoneId] = useState("");
   const [selectedDriverId, setSelectedDriverId] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  // A disabled vehicle can NEVER enter selectedVehicleId. Keep its real
+  // backend option separately for a signed owner recovery dialogue.
+  const [custodyRecoveryVehicle, setCustodyRecoveryVehicle] = useState<{
+    actor: string; vehicle: LaunchOption;
+  } | null>(null);
+  const [custodyAvailabilityRevision, setCustodyAvailabilityRevision] = useState(0);
   const [routeLoadCurrent, setRouteLoadCurrent] = useState<Record<string, Quantity>>({});
   const [routeLoadTargets, setRouteLoadTargets] = useState<Record<string, Quantity>>({});
   const [routeLoadUnits, setRouteLoadUnits] = useState<Record<string, RouteLoadUom>>({});
@@ -319,6 +326,7 @@ function DispatchSession() {
       !inventoryAccess.isFetching && !sourceAccess.isFetching),
     driverId: selectedDriverId, vehicleId: selectedVehicleId,
     routeEvidence: pendingRoutes,
+    refreshKey: custodyAvailabilityRevision,
   });
   const launchResourcesReady = launchAvailability.fresh && !selectionBlocked(
     launchAvailability.data, {
@@ -1841,6 +1849,11 @@ function DispatchSession() {
   const commandsAdmitted = onDispatchRoute && tabReady &&
     !reentryPending && !reentryReadPending &&
     !inventoryAccess.isFetching && !sourceAccess.isFetching;
+  // UI permission is not authority: C02 independently requires vehicle.manage,
+  // exact tenant/location and current signed stock revision on every command.
+  const custodyRecoveryAuthorized = Boolean(commandsAdmitted && grants.launch &&
+    actorScope && (isCompanyOwner || discoveryAccess?.permissions.includes("vehicle.manage")) &&
+    isDashboardSessionCurrent(session!));
   // Zones are safe to paint after their own signed /init, even when the
   // separate signed /shops GET is still pending.
   const zoneListReady = onDispatchRoute && navigationVerified &&
@@ -2222,13 +2235,20 @@ function DispatchSession() {
                 <LaunchResourceSelect kind="drivers"
                   label={i18n.language.startsWith("ar") ? "المندوب" : "Representative"}
                   options={tabReady ? launchAvailability.data?.drivers ?? [] : []}
-                  value={tabReady ? selectedDriverId : ""} onChange={setSelectedDriverId}
+                  value={tabReady ? selectedDriverId : ""}
+                  onChange={next => { setCustodyRecoveryVehicle(null); setSelectedDriverId(next); }}
                   disabled={!commandsAdmitted || !launchAvailability.fresh}
                   placeholder={i18n.language.startsWith("ar") ? "اختر المندوب" : "Select representative"} />
                 <LaunchResourceSelect kind="vehicles"
                   label={i18n.language.startsWith("ar") ? "السيارة" : "Vehicle"}
                   options={tabReady ? launchAvailability.data?.vehicles ?? [] : []}
-                  value={tabReady ? selectedVehicleId : ""} onChange={setSelectedVehicleId}
+                  value={tabReady ? selectedVehicleId : ""}
+                  onChange={next => { setCustodyRecoveryVehicle(null); setSelectedVehicleId(next); }}
+                  onBlockedVehicleReview={custodyRecoveryAuthorized ? vehicle => {
+                    // Never turn disabled resources into selected launch assets.
+                    if (vehicle.available || !actorScope || !launchAvailability.fresh) return;
+                    setCustodyRecoveryVehicle({ actor: actorScope, vehicle });
+                  } : undefined}
                   disabled={!commandsAdmitted || !launchAvailability.fresh}
                   placeholder={i18n.language.startsWith("ar") ? "اختر السيارة" : "Select vehicle"} />
                 <LaunchResourceSelect kind="warehouses"
@@ -2237,6 +2257,38 @@ function DispatchSession() {
                   value={tabReady ? selectedSourceWarehouseId : ""} onChange={changeSourceWarehouse}
                   disabled={!commandsAdmitted || !launchAvailability.fresh}
                   placeholder={i18n.language.startsWith("ar") ? "اختر مستودع المصدر" : "Select source warehouse"} />
+                {/* C03: the blocked car is NEVER the selected launch car.
+                    Mount its verified review independently from the selector. */}
+                {custodyRecoveryVehicle && custodyRecoveryVehicle.actor === actorScope &&
+                  custodyRecoveryAuthorized && (
+                  <div className="col-span-full min-w-0" data-testid="c03-dispatch-recovery-host">
+                    <VehicleCustodyRecoveryEntry
+                      key={`${custodyRecoveryVehicle.actor}:${custodyRecoveryVehicle.vehicle.id}`}
+                      vehicleId={custodyRecoveryVehicle.vehicle.id}
+                      vehicleLabel={custodyRecoveryVehicle.vehicle.label}
+                      reasonCode={custodyRecoveryVehicle.vehicle.code}
+                      // Custody receiver eligibility is NOT launch availability:
+                      // an assigned FIELD rep may physically receive another
+                      // vehicle while barred from starting a new route. Use
+                      // real same-company /dispatch/init identities; C02
+                      // independently verifies exact active FIELD authority.
+                      drivers={drivers.map(driver => ({ id: driver.id, label: driver.name }))}
+                      selectedDriverId={selectedDriverId}
+                      actorScope={actorScope}
+                      fetch={authenticatedFetch}
+                      openOnMount
+                      authorized={() => custodyRecoveryAuthorized &&
+                        isDashboardSessionCurrent(session!)}
+                      onAccepted={() => {
+                        // Never assume an ACCEPTED epoch makes a car launchable.
+                        // Force a fresh signed resource read; the existing
+                        // fail-closed selectionBlocked controls every command.
+                        setCustodyRecoveryVehicle(null);
+                        setCustodyAvailabilityRevision(value => value + 1);
+                      }}
+                    />
+                  </div>
+                )}
                 <div ref={setLaunchActionsHost} data-testid="dispatch-launch-actions-slot"
                   className="col-span-full flex min-h-10 min-w-0 items-center justify-end sm:col-span-2 xl:col-span-1" />
                 {launchAvailability.error && tabReady && <p role="alert"
