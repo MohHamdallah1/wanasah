@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { VehicleCustodyRecoveryEntry } from "../features/dispatch/custodyRecovery/VehicleCustodyRecoveryEntry";
 
 vi.mock("react-i18next", async (importOriginal) => ({
@@ -7,7 +8,7 @@ vi.mock("react-i18next", async (importOriginal) => ({
   useTranslation: () => ({i18n:{language:"en",dir:()=> "ltr"}, t:(key:string)=>key}),
 }));
 vi.mock("@/components/ui/modal", () => ({
-  Modal: ({isOpen,children,title}: any) => isOpen
+  Modal: ({isOpen,children,title}: {isOpen:boolean;children:ReactNode;title:string}) => isOpen
     ? <div role="dialog" aria-label={title}>{children}</div> : null,
 }));
 const fingerprint = "b".repeat(64);
@@ -55,5 +56,61 @@ describe("C03 owner-visible blocked car handoff",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Prepare handoff"}));
     await waitFor(()=>expect(screen.getByRole("button",{name:"Copy private handoff"})).toBeTruthy());
     expect(document.body.textContent).not.toContain("PRIVATE-SIGNED-HANDOFF");
+  });
+
+  it("preserves the original request UUID after UNKNOWN on reload and retries it with the same FIELD proof",async()=>{
+    const requestId="3e41e9bc-73d0-4691-94b8-7cf99bacb5b3";
+    const key=`wanasah:c03:accept:${props.actorScope}:${props.vehicleId}`;
+    const proof="p".repeat(130),posted:unknown[]=[];
+    sessionStorage.setItem(key,requestId);
+    const fetch=vi.fn(async(path:string,init?:RequestInit)=>{
+      if(path.endsWith("/accept-operations/"+requestId))return {state:"UNKNOWN"};
+      if(path.endsWith("/accept")){
+        posted.push(JSON.parse(String(init?.body)));
+        return {state:"ACCEPTED",vehicle_id:13,epoch_id:80,
+          context_revision:2,replayed:true,stock_movements:0};
+      }
+      throw new Error("Unexpected request "+path);
+    });
+    const accepted=vi.fn();
+    render(<VehicleCustodyRecoveryEntry {...props} fetch={fetch}
+      openOnMount onAccepted={accepted} authorized={()=>true}/>);
+    await waitFor(()=>expect(screen.getByText(/No confirmed server response/)).toBeTruthy());
+    expect(sessionStorage.getItem(key)).toBe(requestId);
+    expect(fetch.mock.calls.some(([path])=>path.endsWith("/offer"))).toBe(false);
+    fireEvent.change(screen.getByRole("textbox",{
+      name:"Paste the signed receipt returned by the FIELD app",
+    }),{target:{value:proof}});
+    fireEvent.click(screen.getByRole("button",{name:"Approve verified custody"}));
+    await waitFor(()=>expect(accepted).toHaveBeenCalledTimes(1));
+    expect(posted).toEqual([{request_id:requestId,receiver_proof:proof}]);
+    expect(sessionStorage.getItem(key)).toBeNull();
+  });
+
+  it("rechecks an UNKNOWN original operation without a second POST or receiver proof",async()=>{
+    const requestId="7bd3ca72-6dca-40c4-a0aa-9d221d70be41";
+    const key=`wanasah:c03:accept:${props.actorScope}:${props.vehicleId}`;
+    sessionStorage.setItem(key,requestId);
+    let lookups=0;
+    const fetch=vi.fn(async(path:string,init?:RequestInit)=>{
+      if(path.endsWith("/accept-operations/"+requestId)){
+        lookups++;
+        return lookups===1?{state:"UNKNOWN"}:
+          {state:"COMMITTED",epoch_id:80,context_revision:2};
+      }
+      throw new Error("Unexpected request "+path+" "+String(init?.method));
+    });
+    const accepted=vi.fn();
+    render(<VehicleCustodyRecoveryEntry {...props} fetch={fetch}
+      openOnMount onAccepted={accepted} authorized={()=>true}/>);
+    await waitFor(()=>expect(screen.getByRole("button",{
+      name:"Verify / retry original request",
+    })).toBeTruthy());
+    expect(sessionStorage.getItem(key)).toBe(requestId);
+    fireEvent.click(screen.getByRole("button",{name:"Verify / retry original request"}));
+    await waitFor(()=>expect(accepted).toHaveBeenCalledTimes(1));
+    expect(lookups).toBe(2);
+    expect(fetch.mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
+    expect(sessionStorage.getItem(key)).toBeNull();
   });
 });

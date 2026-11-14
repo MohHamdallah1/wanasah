@@ -66,6 +66,11 @@ export function VehicleCustodyRecoveryPanel({
               replayed:true,stock_movements:0});
             return;
           }
+          // UNKNOWN is not proof of failure: the original POST may still commit.
+          // Keep its exact UUID across reload; never silently create a second command.
+          original.current={id:prior,proof:""};
+          setStep("unknown");setNotice(t.unknown);
+          return;
         }
         pendingClear(key);
         const value=await loadCustody(fetch,vehicleId,controller.signal);
@@ -80,7 +85,7 @@ export function VehicleCustodyRecoveryPanel({
     })();
     return()=>{controller.abort();epoch.current++;original.current=null;};
   },[open,vehicleId,actorScope,selectedDriverId,allowed,fetch,key,clear,
-    i18n.language,t.complete]);
+    i18n.language,t.complete,t.unknown]);
 
   const reload=async()=>{
     if(!allowed||inFlight.current)return;
@@ -116,13 +121,17 @@ export function VehicleCustodyRecoveryPanel({
   };
 
   const approve=async()=>{
-    if(!allowed||!offer||!key||!proof.trim()||inFlight.current)return;
+    if(!allowed||!key||!proof.trim()||inFlight.current||
+      (!offer&&!(step==="unknown"&&original.current)))return;
     if(proof.trim().length<50||proof.trim().length>2048){setNotice(t.invalid);return;}
-    // Until confirmed this is an immutable command: same UUID + exact proof.
-    if(original.current&&original.current.proof!==proof.trim()){
+    // A reloaded tab retains only the UUID, never the sensitive FIELD proof.
+    // Re-pasting the ORIGINAL receipt retries that same server operation.
+    if(original.current?.proof&&original.current.proof!==proof.trim()){
       setNotice(t.unknown);return;
     }
-    const command=original.current??{id:crypto.randomUUID(),proof:proof.trim()};
+    const command=original.current
+      ?{id:original.current.id,proof:proof.trim()}
+      :{id:crypto.randomUUID(),proof:proof.trim()};
     original.current=command;
     pendingSave(key,command.id); // Never persist receiver_proof.
     inFlight.current=true;setStep("posting");setNotice("");
@@ -152,6 +161,26 @@ export function VehicleCustodyRecoveryPanel({
       pendingClear(key);original.current=null;setProof("");setOffer(null);
       setStep(result.kind==="denied"?"denied":"blocked");
       setNotice(custodyReason(result.code||"",i18n.language));
+    }finally{inFlight.current=false;}
+  };
+
+  const verifyPending=async()=>{
+    if(!allowed||!key||!original.current||inFlight.current)return;
+    inFlight.current=true;const serial=epoch.current;
+    try{
+      const status=await statusByRequest(fetch,vehicleId,original.current.id);
+      if(serial!==epoch.current||!authRef.current())return;
+      if(status.state==="COMMITTED"){
+        pendingClear(key);original.current=null;setProof("");setOffer(null);
+        setStep("done");setNotice(t.complete);
+        onAcceptedRef.current({state:"ACCEPTED",vehicle_id:Number(vehicleId),
+          context_revision:status.context_revision,epoch_id:status.epoch_id,
+          replayed:true,stock_movements:0});
+      }else{setStep("unknown");setNotice(t.unknown);}
+    }catch{
+      if(serial===epoch.current&&authRef.current()){
+        setStep("unknown");setNotice(t.unknown);
+      }
     }finally{inFlight.current=false;}
   };
 
@@ -220,6 +249,20 @@ export function VehicleCustodyRecoveryPanel({
           className="rounded-lg bg-blue-700 p-3 font-semibold text-white disabled:opacity-40">
           {step==="unknown"?t.verify:t.approve}</button>
       </>}
+      {step==="unknown"&&!offer&&original.current&&<div className="grid gap-2">
+        <button type="button" onClick={()=>void verifyPending()}
+          className="min-h-10 rounded-lg border px-4 py-2">{t.verify}</button>
+        <label className="grid gap-1 text-sm font-semibold">{t.proof}
+          <textarea aria-label={t.proof} value={proof} onChange={e=>setProof(e.target.value)}
+            rows={3} maxLength={2048} autoComplete="off" spellCheck={false}
+            className="min-w-0 w-full rounded-lg border p-3 font-mono text-xs"/>
+        </label>
+        <button type="button" disabled={!proof.trim()||inFlight.current}
+          onClick={()=>void approve()}
+          className="min-h-10 rounded-lg bg-blue-700 p-3 font-semibold text-white disabled:opacity-40">
+          {t.approve}
+        </button>
+      </div>}
       {step==="blocked"&&<button type="button" onClick={()=>void reload()}
         className="rounded-lg border px-4 py-2">{t.refresh}</button>}
       <p className="text-xs text-slate-600">{t.safe}</p>
