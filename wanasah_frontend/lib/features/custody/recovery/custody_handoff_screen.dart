@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'custody_handoff_client.dart';
+import 'custody_handoff_quantity.dart';
 import 'custody_handoff_strings.dart';
 
 /// Real FIELD-only signed receipt, reachable from the existing Custody tab.
@@ -230,11 +231,11 @@ class _CustodyHandoffScreenState extends State<CustodyHandoffScreen> {
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         Text(
-                          '${t.t("batch")}: ${item["batch_number"] ?? ""}'
+                          '${(item["batch_number"] ?? "").toString().isEmpty ? t.t("noLot") : "${t.t("batch")}: ${item["batch_number"]}"}'
                           '${item["expiry_date"] == null ? "" : " · ${t.t("expiry")}: ${item["expiry_date"]}"}',
                         ),
                         Text(
-                          '${t.t("base")}: ${item["on_hand_base"] ?? ""} ${item["base_uom"] ?? ""}',
+                          '${t.t("quantity")}: ${formatCustodyHandoffQuantity(item, locale: Localizations.localeOf(context).languageCode)}',
                         ),
                         Text(
                           '${t.t("status")}: ${t.status((item["stock_status"] ?? "").toString())}',

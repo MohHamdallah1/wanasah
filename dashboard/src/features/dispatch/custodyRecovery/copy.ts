@@ -13,7 +13,11 @@ const words = {
     expired:"The private handoff expired. Review again.", denied:"The required permissions were denied.",
     unknown:"No confirmed server response. Check the original operation before trying again.",
     stock:"Physical stock to count", noStock:"No recorded vehicle stock",
-    batch:"Batch", exp:"Expiry", base:"Base quantity", reserved:"Reserved", status:"Status",
+    batch:"Lot", noLot:"No printed lot", exp:"Expiry", quantity:"Quantity", reserved:"Reserved", status:"Status",
+    statusLabels: {
+      AVAILABLE: "Available", DAMAGED: "Damaged", QUARANTINED: "Quarantined",
+      RECALLED: "Withdrawn from sale",
+    }, unknownStockStatus: "Requires review",
     rep:"Receiving representative", select:"Choose representative", prepare:"Prepare handoff",
     handoff:"Send the private handoff to the intended representative (valid for 15 minutes).",
     copyHandoff:"Copy private handoff", copied:"Copied. Share privately with the intended person only.",
@@ -35,7 +39,11 @@ const words = {
     expired:"انتهت صلاحية طلب الاستلام الخاص. أعد المراجعة.",
     denied:"الصلاحيات المطلوبة غير متاحة.", unknown:"لم يتأكد رد الخادم. تحقق من العملية الأصلية قبل المحاولة.",
     stock:"المخزون المطلوب جرده فعليًا", noStock:"لا يوجد مخزون مسجل",
-    batch:"الدفعة", exp:"الصلاحية", base:"الكمية بالوحدة الأساسية", reserved:"محجوز", status:"الحالة",
+    batch:"التشغيلة", noLot:"بدون تشغيلة", exp:"الصلاحية", quantity:"الكمية", reserved:"محجوز", status:"الحالة",
+    statusLabels: {
+      AVAILABLE: "متاح", DAMAGED: "تالف", QUARANTINED: "محجور",
+      RECALLED: "مسحوب من البيع",
+    }, unknownStockStatus: "تحتاج مراجعة",
     rep:"المندوب المستلم", select:"اختر المندوب", prepare:"تجهيز التسليم",
     handoff:"أرسل طلب التسليم الخاص للمندوب المعني فقط (صالح لمدة ١٥ دقيقة).",
     copyHandoff:"نسخ طلب التسليم الخاص", copied:"تم النسخ. أرسله للمندوب المعني بطريقة خاصة.",
@@ -47,6 +55,10 @@ const words = {
 } as const;
 export const custodyCopy = (language:string) =>
   language.toLowerCase().startsWith("ar")?words.ar:words.en;
+export const custodyStockStatus = (code: string, language: string): string => {
+  const t = custodyCopy(language);
+  return (t.statusLabels as Record<string, string>)[code] ?? t.unknownStockStatus;
+};
 export const custodyReason=(code:string,lang:string)=>{
   const t=custodyCopy(lang);
   if(code==="CUSTODY_STOCK_WITHOUT_EPOCH")return t.none;

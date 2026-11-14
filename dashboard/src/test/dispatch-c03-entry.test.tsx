@@ -21,7 +21,8 @@ const ready = {
 const stock = {
   vehicle_id:13,context_revision:1,stock_snapshot:fingerprint,
   stock_lines:[{product_name:"Lolo",sku:"L",batch_number:"B01",expiry_date:null,
-    base_uom:"EACH",stock_status:"AVAILABLE",on_hand_base:"15",reserved_base:"0"}],
+    base_uom:"EACH",base_uom_name:"حبة",display_uom_name:null,display_factor_to_base:null,
+    stock_status:"AVAILABLE",on_hand_base:"15",reserved_base:"0"}],
 };
 const props = {
   vehicleId:"13",vehicleLabel:"Car A",reasonCode:"CUSTODY_STOCK_WITHOUT_EPOCH",

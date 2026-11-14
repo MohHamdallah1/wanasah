@@ -15,7 +15,8 @@ const stock = {
   vehicle_id: 18, context_revision: 1, stock_snapshot: fingerprint,
   stock_lines: [{
     product_name: "Kids Chips", sku: "K-1", batch_number: "LOT-A",
-    expiry_date: null, base_uom: "EACH", stock_status: "AVAILABLE",
+    expiry_date: null, base_uom: "EACH", base_uom_name: "حبة",
+    display_uom_name: "باكيت", display_factor_to_base: "8", stock_status: "AVAILABLE",
     on_hand_base: "12", reserved_base: "0",
   }],
 };
@@ -49,7 +50,7 @@ describe("C03 bounded signed custody client", () => {
     await expect(prepareHandoff(fetch,"18","0006",ready,stock)).rejects.toThrow();
   });
   it("same UUID and signed proof produce identical retry request", async () => {
-    const input:any[] = [];
+    const input:unknown[] = [];
     const fetch:AuthorizedFetch = async (_,init) => {
       input.push(JSON.parse(String(init?.body)));
       return {vehicle_id:18,epoch_id:80,context_revision:2,
