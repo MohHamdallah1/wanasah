@@ -30,7 +30,8 @@ jobs:
           M06_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           python - <<'PY'
-          import os, re, subprocess
+          import os, re, subprocess, runpy
+          from pathlib import Path
           base, head = os.environ["M06_BASE"], os.environ["M06_HEAD"]
           assert re.fullmatch(r"[0-9a-f]{40}", base)
           assert re.fullmatch(r"[0-9a-f]{40}", head)
@@ -49,16 +50,30 @@ jobs:
               "dashboard/e2e/dispatch-m06-owner-visual.config.ts",
               "docs/operations/DISPATCH_M06_OWNER_ACCEPTANCE_MATRIX.md",
           }
+          # Historical M06-only HEADs need not contain X02's release script.
+          # In a combined MAIN PR, accept ONLY its immutable 66-file manifest.
+          scope_path = Path(".github/scripts/dispatch_c03_x01_release_scope.py")
+          scope = runpy.run_path(str(scope_path)) if scope_path.is_file() else {}
+          if "M06_FILES" in scope:
+              assert scope["M06_FILES"] == exact, "M06 and X02 exact manifests diverged"
           def allowed(paths):
-              assert paths == exact, (
-                  f"M06 exact test-only scope rejected "
-                  f"missing={sorted(exact-paths)} extra={sorted(paths-exact)}"
+              if paths == exact:
+                  return "M06_TEST_ONLY_OWNER_SCOPE"
+              if scope.get("unified_release_mode", lambda _: False)(paths):
+                  return "M06_X02_UNIFIED_RELEASE_EXACT"
+              raise AssertionError(
+                  f"M06 exact scope rejected "
+                  f"standalone_missing={sorted(exact-paths)} "
+                  f"unified_missing={sorted(scope.get('UNIFIED_RELEASE_FILES', exact)-paths)} "
+                  f"foreign={sorted(paths-(scope.get('UNIFIED_RELEASE_FILES', exact)))}"
               )
-          allowed(files)
+          mode = allowed(files)
+          def denied(paths):
+              try: allowed(paths)
+              except AssertionError: return
+              raise AssertionError(f"M06 accepted incomplete/foreign scope: {sorted(paths)}")
           for missing in exact:
-              try: allowed(exact-{missing})
-              except AssertionError: pass
-              else: raise AssertionError(f"M06 accepted missing {missing}")
+              denied(exact-{missing})
           for foreign in (
               "dashboard/src/pages/DispatchBoard.tsx",
               "wa_backend/api/driver.py",
@@ -66,10 +81,27 @@ jobs:
               "wanasah_frontend/lib/main.dart",
               "wa_backend/domains/representative_settlement_multi_vehicle/application.py",
           ):
-              try: allowed(exact|{foreign})
-              except AssertionError: pass
-              else: raise AssertionError(f"M06 accepted foreign {foreign}")
-          print("M06_TEST_ONLY_OWNER_SCOPE=PASS exact=7 missing=7 foreign=5")
+              denied(exact|{foreign})
+          unified = scope.get("UNIFIED_RELEASE_FILES")
+          if unified is not None:
+              assert len(unified) == 66
+              assert allowed(unified) == "M06_X02_UNIFIED_RELEASE_EXACT"
+              for missing in unified:
+                  denied(unified-{missing})
+              for foreign in (
+                  "wa_backend/api/driver.py",
+                  "wa_backend/api/dispatch.py",
+                  "wanasah_frontend/lib/main.dart",
+              ):
+                  denied(unified|{foreign})
+              denied(scope["RELEASE_FILES"])  # M06 must be included in this CI
+              denied(scope["RELEASE_FILES"] | scope["D22_FILES"])
+              denied(scope["RELEASE_FILES"] | exact)
+          print(f"M06_OWNER_SCOPE=PASS mode={mode} standalone=7 "
+                f"unified={len(unified) if unified is not None else 'absent'} "
+                f"negative_missing=7+{66 if unified is not None else 0} "
+                f"foreign=5+{3 if unified is not None else 0} "
+                f"partial={3 if unified is not None else 0}")
           PY
           git diff --check "$M06_BASE" "$M06_HEAD"
 

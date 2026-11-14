@@ -115,7 +115,7 @@ for (const language of ["ar", "en"] as const) {
       await page.screenshot({ path: info.outputPath("owner-after-reentry.png"), fullPage: true });
 
       // Launch is the first place the D15 contract permits a real Shops GET.
-      const launch = page.getByRole("tab", { name: "إطلاق خط جديد" });
+      const launch = page.getByRole("tab", { name: language === "ar" ? "إطلاق خط جديد" : "Launch new route" });
       await expect(launch).toBeEnabled({ timeout: 25000 });
       await launch.click();
       await expect(launch).toHaveAttribute("aria-selected", "true");
