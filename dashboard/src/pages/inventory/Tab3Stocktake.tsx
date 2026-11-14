@@ -1,8 +1,10 @@
 import { useInventoryAccess } from "@/hooks/useInventoryAccess";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 import { RefreshCcw } from "lucide-react";
 import type { StocktakeAuthFetch } from "./stocktake/types";
-import { useStocktakeSessions } from "./stocktake/hooks/useStocktakeSessions";
+import { soleVerifiedActiveStocktake, useStocktakeSessions } from "./stocktake/hooks/useStocktakeSessions";
+import { getErrorMessage } from "./stocktake/parsers";
 import { useStocktakeState } from "./stocktake/hooks/useStocktakeState";
 import { useStocktakeCounting } from "./stocktake/hooks/useStocktakeCounting";
 import { useStocktakeReview } from "./stocktake/hooks/useStocktakeReview";
@@ -55,7 +57,7 @@ export function Tab3Stocktake({
   authenticatedFetch,
   onStocktakeChanged,
 }: Props) {
-  const { copy, dir } = useStocktakeCopy();
+  const { dir } = useStocktakeCopy();
   const { copy: uiCopy } = useStocktakeUiCopy();
   const [showLockModal, setShowLockModal] = useState(false);
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -63,6 +65,8 @@ export function Tab3Stocktake({
   const [showApproveModal, setShowApproveModal] = useState(false);
   const [showRecountModal, setShowRecountModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelPreparedFromIdle, setCancelPreparedFromIdle] = useState(false);
+  const autoRecoveryAttemptRef = useRef<string | null>(null);
   const [showCycleModal, setShowCycleModal] = useState(false);
   const [showDiscoveredModal, setShowDiscoveredModal] = useState(false);
   const [showSessions, setShowSessions] = useState(false);
@@ -77,12 +81,12 @@ export function Tab3Stocktake({
   useEffect(() => {
     if (!active || !canReadStocktake) setShowSessions(false);
   }, [active, canReadStocktake, locationId]);
-  const durableIdentity = warehouseAccess.data
+  const durableIdentity = useMemo(() => warehouseAccess.data
     ? {
         companyId: warehouseAccess.data.company_id,
         backofficeUserId: warehouseAccess.data.backoffice_user_id,
       }
-    : null;
+    : null, [warehouseAccess.data]);
 
   const { setRows, setReview } = stocktakeState;
   const {
@@ -92,6 +96,7 @@ export function Tab3Stocktake({
     loading: sessionsLoading,
     loadingMore: sessionsLoadingMore,
     loadFailed: sessionsLoadFailed,
+    verifiedLocationId,
     refreshSessions,
     loadMore: loadMoreSessions,
   } = useStocktakeSessions({
@@ -195,6 +200,52 @@ export function Tab3Stocktake({
     notifyStocktakeChanged,
   });
 
+  const openServerSession = lifecycle.openServerSession;
+  // Logout clears localStorage, not the signed server stocktake. Once a single
+  // server session is verified for this warehouse, restore its real context.
+  // The attempt key prevents loops on transient/denied count-sheet reads.
+  const soleServerSession = soleVerifiedActiveStocktake(
+    activeSessions, activeSessionsTotal, verifiedLocationId, locationId,
+  );
+  useEffect(() => {
+    if (!active || !canReadStocktake || !durableIdentity ||
+        stocktakeState.sessionId !== null || !soleServerSession ||
+        sessionsLoading || sessionsLoadFailed ||
+        localStorage.getItem(stocktakeState.sessionKey)) return;
+    const attemptKey = `${companyId}:${locationId}:${soleServerSession.id}`;
+    if (autoRecoveryAttemptRef.current === attemptKey) return;
+    autoRecoveryAttemptRef.current = attemptKey;
+    void openServerSession(soleServerSession);
+  }, [active, canReadStocktake, companyId, durableIdentity, locationId,
+      soleServerSession, sessionsLoading, sessionsLoadFailed,
+      stocktakeState.sessionId, stocktakeState.sessionKey,
+      openServerSession]);
+
+  const openVerifiedCancellation = async () => {
+    if (!soleServerSession || !warehouseAccess.can("stocktake.cancel")) return;
+    try {
+      if (!await lifecycle.prepareCancellation(soleServerSession)) return;
+      setCancelPreparedFromIdle(true);
+      setShowCancelModal(true);
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, uiCopy.sessions.recovery.cancelFailed));
+    }
+  };
+
+  const closeCancelModal = () => {
+    setShowCancelModal(false);
+    if (!cancelPreparedFromIdle) return;
+    setCancelPreparedFromIdle(false);
+    // Closing a cancellation confirmation does NOT cancel the server session
+    // or erase the saved count draft. Return to the recoverable state.
+    localStorage.removeItem(stocktakeState.sessionKey);
+    stocktakeState.setSessionId(null);
+    stocktakeState.setSessionLocationId(null);
+    stocktakeState.setPhase("COUNTING");
+    stocktakeState.setRows([]);
+    stocktakeState.setReview(null);
+  };
+
   const submitCount = async () => {
     if (await countingWorkflow.handleSubmit()) setShowSubmitModal(false);
   };
@@ -205,7 +256,10 @@ export function Tab3Stocktake({
     if (await actionWorkflow.handleRecount()) setShowRecountModal(false);
   };
   const cancel = async () => {
-    if (await actionWorkflow.handleCancel()) setShowCancelModal(false);
+    if (await actionWorkflow.handleCancel()) {
+      setShowCancelModal(false);
+      setCancelPreparedFromIdle(false);
+    }
   };
   const start = async () => {
     if (await lifecycle.startStocktake()) setShowLockModal(false);
@@ -220,11 +274,15 @@ export function Tab3Stocktake({
   };
   const selectedSession = activeSessions.find((session) =>
     session.id === Number(stocktakeState.sessionId) &&
-    session.location_id === stocktakeState.sessionLocationId,
+    session.location_id === locationId,
   );
   const cycleStartDisabled =
     isAuditLocked || sessionsLoading || !warehouseAccess.can("stocktake.start");
   const isIdle = stocktakeState.sessionId === null;
+  const serverSessionsVerified = verifiedLocationId === locationId;
+  const activeServerCount = serverSessionsVerified ? activeSessionsTotal : null;
+  const recoveryText = uiCopy.sessions.recovery;
+  const warehouseLabel = locationName || (dir === "rtl" ? "المستودع المحدد" : "selected warehouse");
   const workspacePhase = isIdle ? "idle" : stocktakeState.phase.toLowerCase();
 
   return (
@@ -278,11 +336,80 @@ export function Tab3Stocktake({
       <div data-stocktake-workspace={workspacePhase}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isIdle ? (
-          !isAuditLocked && warehouseAccess.can("stocktake.start") && (
-            <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
-          )
+          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3" data-stocktake-server-recovery="true">
+            {!canReadStocktake && (
+              <p role="alert" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                {recoveryText.permission}
+              </p>
+            )}
+            {canReadStocktake && !serverSessionsVerified && !sessionsLoadFailed && (
+              <p role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
+                {recoveryText.checking}
+              </p>
+            )}
+            {canReadStocktake && sessionsLoadFailed && (
+              <div role="alert" className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
+                <p>{recoveryText.unavailable}</p>
+                <button type="button" onClick={refreshSessions}
+                  className="mt-3 rounded-lg border border-slate-300 px-3 py-2 font-bold hover:bg-slate-50">
+                  {recoveryText.retry}
+                </button>
+              </div>
+            )}
+            {canReadStocktake && serverSessionsVerified && soleServerSession && (
+              <section role="status" data-stocktake-recoverable-session="true"
+                className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-slate-800">
+                <p className="font-bold">{recoveryText.found(
+                  warehouseLabel, soleServerSession.reference_number,
+                  uiCopy.sessions.statuses[soleServerSession.status],
+                )}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => void lifecycle.openServerSession(soleServerSession)}
+                    className="rounded-lg bg-slate-800 px-4 py-2 font-bold text-white hover:bg-slate-700">
+                    {recoveryText.resume}
+                  </button>
+                  {warehouseAccess.can("stocktake.cancel") && (
+                    <button type="button" onClick={() => void openVerifiedCancellation()}
+                      className="rounded-lg border border-red-300 bg-white px-4 py-2 font-bold text-red-800 hover:bg-red-50">
+                      {recoveryText.cancel}
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
+            {canReadStocktake && serverSessionsVerified && activeServerCount !== null &&
+              activeServerCount > 1 && (
+              <section role="status" className="rounded-xl border border-amber-200 bg-white p-4 text-sm text-slate-700">
+                <p>{recoveryText.multiple(warehouseLabel, activeServerCount)}</p>
+                <button type="button" onClick={() => setShowSessions(true)}
+                  className="mt-3 rounded-lg border border-slate-300 px-4 py-2 font-bold hover:bg-slate-50">
+                  {recoveryText.choose}
+                </button>
+              </section>
+            )}
+            {canReadStocktake && serverSessionsVerified && activeServerCount === 0 && isAuditLocked && (
+              <section role="alert" className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
+                <p>{recoveryText.mismatch(warehouseLabel)}</p>
+                <button type="button" onClick={refreshSessions}
+                  className="mt-3 rounded-lg border border-slate-300 px-4 py-2 font-bold hover:bg-slate-50">
+                  {recoveryText.retry}
+                </button>
+              </section>
+            )}
+            {canReadStocktake && serverSessionsVerified && activeServerCount === 0 &&
+              !isAuditLocked && warehouseAccess.can("stocktake.start") && (
+              <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
+            )}
+          </div>
         ) : (
           <>
+            {selectedSession && (
+              <div role="status" data-stocktake-open-session="true"
+                className="mb-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                {warehouseLabel} · {selectedSession.reference_number}
+                {" · "}{uiCopy.sessions.statuses[selectedSession.status]}
+              </div>
+            )}
             {stocktakeState.phase === "WAITING_INDEPENDENT" && (
               <StocktakeIndependentWait
                 canCancel={sessionAccess.can("stocktake.cancel")}
@@ -330,9 +457,15 @@ export function Tab3Stocktake({
               (stocktakeState.phase === "REVIEW" && !sessionAccess.can("stocktake.review")) ||
               (stocktakeState.phase === "COUNTING" && !sessionAccess.can("stocktake.count"))
             ) && (
-              <p role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-                {copy.generic.authorizationRequired}
-              </p>
+              <div role="status" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
+                <p>{recoveryText.permission}</p>
+                {sessionAccess.can("stocktake.cancel") && (
+                  <button type="button" onClick={() => setShowCancelModal(true)}
+                    className="mt-3 rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-bold text-red-800 hover:bg-red-50">
+                    {recoveryText.cancel}
+                  </button>
+                )}
+              </div>
             )}
           </>
         )}
@@ -395,7 +528,7 @@ export function Tab3Stocktake({
         password={actionWorkflow.cancelPassword}
         onReasonChange={actionWorkflow.setCancelReason}
         onPasswordChange={actionWorkflow.setCancelPassword}
-        onClose={() => setShowCancelModal(false)}
+        onClose={closeCancelModal}
         onCancel={cancel}
       />
       <StocktakeVarianceModal

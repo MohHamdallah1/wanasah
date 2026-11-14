@@ -92,6 +92,7 @@ jobs:
               ".github/workflows/stocktake-v1-review-779.yml",
               ".github/workflows/stocktake-v1-session-read-fence.yml",
           }
+          recovery_1005 = __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["STOCKTAKE_RECOVERY_1005_FILES"]
           if changed == allowed:
               mode = "REENTRY"
           elif changed == discovered_allowed:
@@ -100,6 +101,8 @@ jobs:
               mode = "FAST_COUNT_795"
           elif changed == ci_796:
               mode = "FAST_CI_796"
+          elif changed == recovery_1005:
+              mode = "SERVER_STOCKTAKE_RECOVERY_1005"
           else:
               raise AssertionError({
                   "unexpected": sorted(changed - (allowed | discovered_allowed | fast_795 | ci_796)),
@@ -112,8 +115,9 @@ jobs:
           exact_scopes = {frozenset(parts): name for name, parts in (
               ("REENTRY", allowed), ("DISCOVERED", discovered_allowed),
               ("FAST_COUNT_795", fast_795), ("FAST_CI_796", ci_796),
+              ("SERVER_STOCKTAKE_RECOVERY_1005", recovery_1005),
           )}
-          assert len(exact_scopes) == 4
+          assert len(exact_scopes) == 5
           assert exact_scopes[frozenset(changed)] == mode
           for name, parts in (
               ("FAST_COUNT_795", fast_795), ("FAST_CI_796", ci_796),

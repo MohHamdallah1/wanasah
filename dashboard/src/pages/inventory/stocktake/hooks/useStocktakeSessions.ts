@@ -4,6 +4,20 @@ import { useStocktakeCopy } from "../copy";
 import { getErrorMessage, parseStocktakeSessionPage } from "../parsers";
 import type { StocktakeAuthFetch, StocktakeSessionSummary } from "../types";
 
+export function soleVerifiedActiveStocktake(
+  items: StocktakeSessionSummary[],
+  total: number | null,
+  verifiedLocationId: number | null,
+  selectedLocationId: number,
+): StocktakeSessionSummary | null {
+  if (verifiedLocationId !== selectedLocationId || total !== 1 || items.length !== 1) return null;
+  const only = items[0];
+  return only.location_id === selectedLocationId &&
+    (only.status === "COUNTING" || only.status === "PENDING_REVIEW" ||
+      only.status === "RECOUNT_REQUIRED")
+    ? only : null;
+}
+
 interface UseStocktakeSessionsArgs {
   enabled: boolean;
   locationId: number;
@@ -18,6 +32,8 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+  // The active list is an authority only after a successful read for this warehouse.
+  const [verifiedLocationId, setVerifiedLocationId] = useState<number | null>(null);
   const requestSeq = useRef(0);
 
   const fetchSessions = useCallback(async (cursor: string | null = null, append = false) => {
@@ -25,7 +41,7 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
 
     const seq = ++requestSeq.current;
     if (append) setLoadingMore(true);
-    else { setLoading(true); setLoadFailed(false); setNextCursor(null); }
+    else { setLoading(true); setLoadFailed(false); setNextCursor(null); setVerifiedLocationId(null); }
 
     try {
       const params = new URLSearchParams({ location_id: String(locationId), limit: "50" });
@@ -42,9 +58,10 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
       });
       setNextCursor(page.next_cursor);
       if (page.total !== null) setTotal(page.total);
+      if (!append) setVerifiedLocationId(locationId);
     } catch (error: unknown) {
       if (seq !== requestSeq.current) return;
-      if (!append) { setSessions([]); setTotal(null); setNextCursor(null); setLoadFailed(true); }
+      if (!append) { setSessions([]); setTotal(null); setNextCursor(null); setVerifiedLocationId(null); setLoadFailed(true); }
       toast.error(getErrorMessage(error, copy.generic.sessionsFailed));
     } finally {
       if (seq === requestSeq.current) {
@@ -63,6 +80,7 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
     else {
       setLoading(false);
       setLoadingMore(false);
+      setVerifiedLocationId(null);
     }
     return () => { requestSeq.current += 1; };
   }, [enabled, fetchSessions, locationId]);
@@ -76,5 +94,5 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
     void fetchSessions(nextCursor, true);
   }, [enabled, fetchSessions, loadingMore, nextCursor]);
 
-  return { sessions, total, nextCursor, loading, loadingMore, loadFailed, refreshSessions, loadMore };
+  return { sessions, total, nextCursor, loading, loadingMore, loadFailed, verifiedLocationId, refreshSessions, loadMore };
 }

@@ -155,6 +155,23 @@ const ar = {
     opened: "مفتوحة",
     loadingMore: "جاري تحميل المزيد...",
     loadMore: "تحميل المزيد",
+    recovery: {
+      checking: "جاري التحقق من الجرد النشط لهذا المستودع...",
+      found: (name: string, reference: string, status: string) =>
+        `يوجد جرد نشط في ${name} — ${reference} (${status}).`,
+      resume: "استئناف الجرد",
+      cancel: "إلغاء الجرد",
+      restoring: "جاري استعادة الجلسة...",
+      multiple: (name: string, count: number) =>
+        `يوجد ${count} جلسات جرد نشطة في ${name}. اختر الجلسة المطلوبة، ولا تبدأ جردًا جديدًا.`,
+      choose: "اختيار جلسة",
+      unavailable: "تعذر التحقق من جلسات هذا المستودع. لم يُلغَ الجرد ولا يمكن بدء جرد آخر قبل نجاح التحقق.",
+      mismatch: (name: string) =>
+        `مستودع ${name} لا يزال مقفلًا، لكن قائمة الجلسات لا تعرض جردًا نشطًا. أعد التحقق ولا تحاول بدء جرد جديد؛ إذا استمرت المشكلة راجع مسؤول المستودع.`,
+      retry: "إعادة التحقق",
+      permission: "الجرد محفوظ، لكن هذا الحساب غير مخوّل بتنفيذ المرحلة الحالية. استخدم حسابًا يملك صلاحية الجرد أو الإلغاء.",
+      cancelFailed: "تعذر فتح إلغاء هذه الجلسة. حدّث الجلسات، ثم حاول مجددًا.",
+    },
   },
   cycle: {
     title: "جرد صنف",
@@ -375,6 +392,23 @@ const en: typeof ar = {
     opened: "Open",
     loadingMore: "Loading more...",
     loadMore: "Load more",
+    recovery: {
+      checking: "Checking this warehouse for active stocktakes...",
+      found: (name: string, reference: string, status: string) =>
+        `An active stocktake exists at ${name} — ${reference} (${status}).`,
+      resume: "Resume stocktake",
+      cancel: "Cancel stocktake",
+      restoring: "Restoring the session...",
+      multiple: (name: string, count: number) =>
+        `${count} active stocktakes exist at ${name}. Choose the correct session instead of starting another.`,
+      choose: "Choose session",
+      unavailable: "Could not verify this warehouse's sessions. No stocktake has been cancelled, and a new one cannot start until verification succeeds.",
+      mismatch: (name: string) =>
+        `Warehouse ${name} is still locked, but no active stocktake appears in the list. Retry verification; contact the warehouse supervisor if this persists.`,
+      retry: "Retry verification",
+      permission: "The stocktake is saved, but this account cannot perform the current stage. Sign in with an authorized counter or supervisor.",
+      cancelFailed: "Could not open cancellation for this session. Refresh the sessions and retry.",
+    },
   },
   cycle: {
     title: "Product count",

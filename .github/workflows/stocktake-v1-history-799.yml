@@ -150,8 +150,11 @@ jobs:
               "wa_backend/tests/test_stocktake_808_bigint_cursor_real_pg16.py",
           }
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
+          recovery_1005_mode = __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["stocktake_recovery_1005_mode"]
 
           def exact_owner_mode(paths):
+              if recovery_1005_mode(paths):
+                  return "SERVER_STOCKTAKE_RECOVERY_1005"
               if m04_mode(paths):
                   return "M04_942_EXACT"
               if paths == approved:
@@ -170,6 +173,7 @@ jobs:
           # every missing owner file, foreign file and mixed set stays invalid.
           assert exact_owner_mode(approved) == "HISTORY_799_EXACT"
           assert exact_owner_mode(cursor_808) == "CURSOR_BIGINT_808_EXACT"
+          assert exact_owner_mode(__import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["STOCKTAKE_RECOVERY_1005_FILES"]) == "SERVER_STOCKTAKE_RECOVERY_1005"
           for valid_set in (approved, cursor_808):
               for missing in valid_set:
                   sample = valid_set - {missing}
