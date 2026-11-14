@@ -11,6 +11,7 @@ from domains.auth_sessions.context import FieldRequestContext
 from domains.field_operations.contracts import InvoicePreviewRequest, ReturnResolutionRequest
 from domains.field_operations.context import assigned_visit, shop_commercial_state
 from domains.field_operations.custody import read_custody
+from domains.field_operations.vehicle_stock import read_current_vehicle_stock
 from domains.field_operations.invoice import preview_invoice, read_invoice
 from domains.field_operations.returns import resolve_return
 from models import Driver
@@ -66,6 +67,22 @@ async def get_visit_invoice(
 ):
     return await run_field_query(
         read_invoice, db, context=field_context, driver_id=legacy_actor.id, visit_id=visit_id,
+    )
+
+
+@router.get("/driver/vehicle-stock", dependencies=[Depends(require_field_capabilities(("inventory.read",)))])
+async def get_field_vehicle_stock(
+    limit: int = Query(default=100, ge=1, le=200),
+    cursor: str | None = Query(default=None, max_length=8192),
+    db: AsyncSession = Depends(get_db),
+    field_context: FieldRequestContext = Depends(get_current_field_context),
+    legacy_actor: Driver = Depends(get_current_field_legacy_driver),
+):
+    # This is the current signed VehicleCustodyEpoch's real InventoryBalance,
+    # independent of any route/session; the legacy session view stays intact.
+    return await run_field_query(
+        read_current_vehicle_stock, db, context=field_context,
+        driver_id=legacy_actor.id, limit=limit, cursor=cursor,
     )
 
 
