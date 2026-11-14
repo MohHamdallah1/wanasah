@@ -1,0 +1,19 @@
+# Issue 773 — posted Lot/expiry correction, approved Option B
+
+## Authority and boundaries
+The owner approved a simple Inventory > Batches edit interface for currently untouched, single-original-supplier-receipt batches only. Same ProductBatch ID. Can correct currently visible printed Lot, production and expiry dates **without** creating a supplier return, fictional invoice, replacement receipt, physical movement or altering historical cost evidence.
+
+Fail closed for shared or missing original invoices, any downstream movement (sale, transfer, adjustment, reservation), multiple stock locations/statuses, unknown source/cost, partial receipt balance, active stocktake/locks, internal no-Lot and blocked/recalled batches. Report a compact actionable reason and quarantine/escalation, not an unsafe edit.
+
+Requires company manager batch.disposition plus original warehouse inbound.create location scope AND current active canonical BACKOFFICE principal password; not the legacy Driver password. Includes UUID+identical-request safe replay, expected metadata revision concurrency guard and original supplier source verification under exclusive canonical warehouse inventory lock. Invalid credential attempts are audited without secret.
+
+Every successful edit appends permanent, RLS/FORCE-protected and trigger-locked correction evidence with before/after, original invoice + source movement + cost event FKs, manager username/principal + auth revision, UTC time, reason, UUID. Original supplier invoices, InventoryMovement, balances, InventoryCostEvent, InventoryCostLayer and allocation rows remain unchanged. Derived current Live Stock sellability/date projections refreshed in the same transaction. QUARANTINED remains QUARANTINED.
+
+## Focused evidence, 2026-11-14
+- Fresh disposable PG16.15 at loopback 127.0.0.1:56673 / database m03_941_b773_v1. Separate migration admin and restricted batch773_app NOSUPERUSER/NOBYPASSRLS/NOINHERIT. Clean Alembic upgrade from zero to new b77c4e2a1073 PASS. RLS/FORCE verified at runtime. No owner local database was opened or migrated.
+- One real signed FastAPI/PG16 scenario: wa_backend/tests/test_batch_773_posted_metadata_pg16.py::test_posted_single_source_batch_reauth_inventory_cost_and_history — **1 PASS, 0 skipped/failed** (20.20s last run). Real supplier posted inbound/CURRENT physical Lot with genuine FIFO PURCHASE_IN: wrong manager password 403, foreign/FIELD denied, valid manager reauth 200, UUID replay same event, stale revision and altered payload rejected, full manager/source/before/after history persisted. Proves exact unchanged InventoryMovement ledger, InventoryBalance, InventoryCostEvent, FIFO layer original + remaining quantity/value, and allocation evidence. Secondary invoice, actual reserve, real physical transfer and active DRAFT cycle stocktake scenarios each denied.
+- Dashboard AR/EN RTL/LTR focused Vitest: dashboard/src/test/batch-773-metadata-correction.test.tsx — **4 PASS / 0 skipped**. Checks eligibility button, original invoice, correct labels, required manager password, reason/consent, actual typed POST command/UUID, exact response batch/revision/lot/date/disposition/invoice check and permanent history.
+- Backend Python compilation PASS. Git staged diff check PASS. Optional global dashboard tsc ran and found PRE-EXISTING unrelated errors in old Quality/Products/Archive tests and modules; no new changed #773 file appeared in its diagnostics. DO NOT claim global tsc green.
+
+## Deployment and owner acceptance
+Only LEAD may apply official new additive Alembic after a tested, restored local database backup. Older batches receive metadata_revision=1 without re-writing original Lot/cost/receipt. Append-only correction table starts empty. Owner physical/visual acceptance is separate and remains pending. Owner MAIN and real DB untouched. No Flutter, Codex, worker2 files, fake financial history, or merge.
