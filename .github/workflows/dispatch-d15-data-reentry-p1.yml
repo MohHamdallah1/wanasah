@@ -131,7 +131,9 @@ jobs:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
           mkdir -p /tmp/d15-925-head
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+          # Build a coherent immutable BEFORE baseline, including the draft API
+          # whose signature is coupled to the historical DispatchBoard.
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/dispatchDrafts.ts src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "$file" "/tmp/d15-925-head/$(basename "$file")"
             git show 92b17015f5783de0c671eef619570b6a979006c3:"dashboard/$file" > "$file"
           done
@@ -166,7 +168,9 @@ jobs:
         env:
           VITE_API_URL: http://127.0.0.1:4174
         run: |
-          for file in src/pages/DispatchBoard.tsx src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
+          # Build a coherent immutable BEFORE baseline, including the draft API
+          # whose signature is coupled to the historical DispatchBoard.
+          for file in src/pages/DispatchBoard.tsx src/features/dispatch/dispatchDrafts.ts src/features/dispatch/loadDispatchRead.ts src/features/dispatch/stableUi/DispatchChrome.tsx src/features/dispatch/useDispatchAccessGate.ts src/components/dispatch/ShopTable.tsx src/components/dispatch/RouteLoadProductTable.tsx src/components/dispatch/ProductSearchControls.tsx; do
             cp "/tmp/d15-925-head/$(basename "$file")" "$file"
           done
           npm run build

@@ -23,9 +23,23 @@ async function login(page: Page, role: "owner" | "limited" | "foreign" = "owner"
 }
 
 async function nav(page: Page, id: "dispatch" | "products" | "inventory", mobile: boolean) {
+  // Use the real navigation's localized accessible name, not the index in a
+  // permission-filtered list. This is still a genuine SPA sidebar transition.
+  const labels = {
+    dispatch: /^(التوزيع والمناطق|Dispatch & Regions)$/,
+    products: /^(المنتجات|Products)$/,
+    inventory: /^(المخزون والمستودع|Inventory & Warehouse)$/,
+  };
+  const target = page.locator(".operations-nav").getByRole("button", { name: labels[id] });
+  // CSS transforms can park the closed mobile sidebar outside the viewport
+  // while Playwright isVisible() still reports its buttons as visible.
   if (mobile) await page.locator(".dashboard-mobile-menu").click();
-  await page.locator(".operations-nav button").nth(id === "dispatch" ? 1 : id === "products" ? 4 : 2).click();
+  await expect(target, "Signed navigation must expose the authorized destination").toBeVisible({ timeout: 15000 });
+  await target.click();
   await expect(page).toHaveURL(new RegExp("/" + id + "$"));
+  // Fail at the real render fault instead of timing out on an absent sidebar.
+  await expect(page.getByRole("heading", { name: /حدث خطأ غير متوقع|An unexpected error/i }),
+    "The SPA must not fall into the React error boundary after navigation").toHaveCount(0);
 }
 
 async function select(page: Page, tab: Tab) {
