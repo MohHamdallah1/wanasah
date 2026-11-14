@@ -212,6 +212,13 @@ export function apiErrorMessage(
     code !== "INTERNAL_SERVER_ERROR" &&
     hasTranslatedCode;
 
+  // A known projection-readiness 503 requires operator action, not repeated
+  // retries. Keep requestId in the structured error for support, but do not
+  // show an unexplained UUID as the user-facing explanation.
+  if (status === 503 && code === "LIVE_STOCK_PROJECTION_NOT_READY") {
+    return i18n.t("errors.codes.LIVE_STOCK_PROJECTION_NOT_READY");
+  }
+
   // Unknown/internal 5xx errors stay redacted. A known, explicitly translated
   // service/business code is safe to show because the client owns the text.
   if (
