@@ -140,6 +140,11 @@ for (const locale of ["ar", "en"] as const) {
         name: locale === "ar" ? "إغلاق المستودع وبدء الجرد الشامل" : "Lock warehouse and start full stocktake",
       });
       await expect(door).toBeVisible();
+      // Parallel stocktakes need one explicit session chooser, not a blank page.
+      // Preserve the original full-count door while the warehouse is unlocked.
+      await expect(stocktake.getByRole("button", {
+        name: locale === "ar" ? "اختيار جلسة" : "Choose session",
+      })).toBeVisible();
       await expect(door.locator(".animate-spin")).toHaveCount(2); // Original intact door.
       await sessionsTrigger.click();
       const drawer = page.getByRole("dialog", {

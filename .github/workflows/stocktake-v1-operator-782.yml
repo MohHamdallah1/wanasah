@@ -163,13 +163,16 @@ jobs:
               ("TERMINAL_HISTORY_799", history_799),
               ("STOCKTAKE_CI_EXACT_COMPAT_798_799", ci_compat_798_799),
           )}
-          assert len(allowed) == 12
+          recovery_1005 = __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["STOCKTAKE_RECOVERY_1005_FILES"]
+          allowed[frozenset(recovery_1005)] = "SERVER_STOCKTAKE_RECOVERY_1005"
+          assert len(allowed) == 13
           assert dialog_792 == shell_789
           assert allowed[frozenset(dialog_792)] == "SINGLE_TOOLBAR_789"
           def verify(paths):
               label = allowed.get(frozenset(paths))
               assert label is not None, {"error": "STOCKTAKE_782_SCOPE_FAIL", "changed": sorted(paths)}
               return label
+          assert verify(recovery_1005) == "SERVER_STOCKTAKE_RECOVERY_1005"
           for label, paths in (
               ("OPERATOR_UX_784", expected),
               ("SINGLE_TOOLBAR_789", shell_789),

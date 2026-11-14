@@ -107,6 +107,24 @@ export function useStocktakeLifecycle({
     await openResolvedSession(sid, context, isCurrent);
   }, [fetchSessionContext, openResolvedSession]);
 
+  // Cancel never requires loading count-sheet rows, but always verifies the
+  // signed server session's warehouse, status and ID before opening the modal.
+  const prepareCancellation = useCallback(async (summary: StocktakeSessionSummary): Promise<{ sessionId: string; locationId: number } | null> => {
+    const generation = ++sessionReadGeneration.current;
+    const sid = String(summary.id);
+    const context = await fetchSessionContext(sid);
+    if (generation !== sessionReadGeneration.current) return null;
+    if (context.session_id !== summary.id ||
+        context.source_location_id !== locationId ||
+        context.location_id !== summary.location_id ||
+        !["COUNTING", "PENDING_REVIEW", "RECOUNT_REQUIRED"].includes(context.status)) {
+      throw new Error(copy.generic.sessionOpenFailed);
+    }
+    // Return an immutable server-verified target to the cancellation command.
+    // Do not load a count sheet or mutate the selected session/draft to cancel.
+    return { sessionId: sid, locationId: context.location_id };
+  }, [copy.generic.sessionOpenFailed, fetchSessionContext, locationId]);
+
   const openServerSession = useCallback(async (session: StocktakeSessionSummary) => {
     try {
       await openSessionById(String(session.id));
@@ -247,6 +265,7 @@ export function useStocktakeLifecycle({
     locking,
     openServerSession,
     openSessionById,
+    prepareCancellation,
     startStocktake,
     selectedSessionId: sessionId ? Number(sessionId) : null,
     selectedSessionLocationId: sessionLocationId,

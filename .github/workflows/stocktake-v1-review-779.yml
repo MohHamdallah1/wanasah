@@ -134,6 +134,7 @@ jobs:
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewPanel.tsx",
               "dashboard/src/pages/inventory/stocktake/StocktakeReviewV1Parity.test.tsx",
           }
+          recovery_1005 = __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["STOCKTAKE_RECOVERY_1005_FILES"]
           valid_scopes = {
               frozenset(expected): "REVIEW_EVIDENCE_779",
               frozenset(operator_784): "OPERATOR_UX_784",
@@ -146,6 +147,7 @@ jobs:
               frozenset(fast_795): "FAST_COUNT_795",
               frozenset(ci_796): "FAST_CI_796",
               frozenset(review_bidi_797): "REVIEW_BIDI_797",
+              frozenset(recovery_1005): "SERVER_STOCKTAKE_RECOVERY_1005",
           }
           foreign = "wa_backend/api/warehouse/stocktake.py"
 
@@ -153,7 +155,7 @@ jobs:
               matched = valid_scopes.get(frozenset(changed))
               assert matched is not None, {
                   "error": "STOCKTAKE_REVIEW_OWNER_SCOPE_FAIL",
-                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - fast_795 - ci_796 - review_bidi_797),
+                  "unexpected": sorted(changed - expected - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - fast_795 - ci_796 - review_bidi_797 - recovery_1005),
                   "changed": sorted(changed),
               }
               return matched
@@ -172,6 +174,7 @@ jobs:
           assert verify_scope(fast_795) == "FAST_COUNT_795"
           assert verify_scope(ci_796) == "FAST_CI_796"
           assert verify_scope(review_bidi_797) == "REVIEW_BIDI_797"
+          assert verify_scope(recovery_1005) == "SERVER_STOCKTAKE_RECOVERY_1005"
           for invalid in (
               set(),
               operator_784 - {"dashboard/src/pages/inventory/MainInventory.tsx"},
