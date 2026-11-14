@@ -6,7 +6,8 @@ import {
   acceptOnce, loadCustody, prepareHandoff, pendingClear, pendingKey,
   pendingRead, pendingSave, statusByRequest, validVehicleId, type AuthorizedFetch,
 } from "./command";
-import { custodyCopy, custodyReason } from "./copy";
+import { custodyCopy, custodyReason, custodyStockStatus } from "./copy";
+import { formatCustodyStockQuantity } from "./stockPresentation";
 import type { Offer, Readiness, Receipt, StockReview } from "./contract";
 
 type Step="checking"|"ready"|"offered"|"posting"|"unknown"|"done"|"blocked"|"denied";
@@ -217,12 +218,15 @@ export function VehicleCustodyRecoveryPanel({
           {stock.stock_lines.map((line,index)=><li key={index}
             className="min-w-0 rounded-lg border p-2 text-sm">
             <p className="break-words font-semibold">{line.product_name}</p>
-            <p className="break-words text-slate-600">{t.batch}: {line.batch_number}
+            <p className="break-words text-slate-600">
+              {line.batch_number ? `${t.batch}: ${line.batch_number}` : t.noLot}
               {line.expiry_date&&<> · {t.exp}: {line.expiry_date}</>}
             </p>
-            <p className="break-words">{t.base}: <bdi>{line.on_hand_base}</bdi> {line.base_uom}
-              {" · "}{t.status}: {line.stock_status}
-              {Number(line.reserved_base)>0&&<> · {t.reserved}: {line.reserved_base}</>}
+            <p className="break-words">{t.quantity}:{" "}
+              <bdi>{formatCustodyStockQuantity(line)}</bdi>
+              {" · "}{t.status}: {custodyStockStatus(line.stock_status,i18n.language)}
+              {Number(line.reserved_base)>0&&<> · {t.reserved}:{" "}
+                <bdi>{formatCustodyStockQuantity({...line,on_hand_base:line.reserved_base})}</bdi></>}
             </p>
           </li>)}
         </ul>

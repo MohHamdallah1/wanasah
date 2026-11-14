@@ -3,6 +3,8 @@ import { z } from "zod";
 export const line = z.object({
   product_name: z.string(), sku: z.string(), batch_number: z.string(),
   expiry_date: z.string().nullable(), base_uom: z.string(),
+  base_uom_name: z.string().min(1), display_uom_name: z.string().nullable(),
+  display_factor_to_base: z.string().regex(/^[1-9]\d*$/).nullable(),
   stock_status: z.string(), on_hand_base: z.string(), reserved_base: z.string(),
 }).strict();
 const stock = z.array(line).max(1000);

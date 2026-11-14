@@ -23,6 +23,8 @@ from domains.authorization.backoffice_access import (
 from domains.dispatch.route_execution.custody.access import require_custody_vehicle_scope
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected, verify
 from domains.dispatch.route_execution.custody.snapshot import read_vehicle_state
+from domains.dispatch_route_load import route_load_uom_metadata
+from domains.uom_authority import UomAuthorityError
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 from models import ProductBatch, ProductVariant, UOM, Vehicle
 
@@ -73,6 +75,15 @@ async def _stock_display(db: AsyncSession, company_id: int, vehicle_id: int):
             ProductBatch.company_id == company_id,
             ProductBatch.id.in_({line["batch_id"] for line in state.lines}),
         ))).all()}
+    # The exact, unique commercial UOM is display-only; it never changes the
+    # signed base-quantity snapshot. Broken/ambiguous conversions fall back to
+    # the real base UOM rather than inventing a carton size.
+    try:
+        display_units = await route_load_uom_metadata(
+            db, company_id=company_id, variant_ids=list(variants),
+        )
+    except UomAuthorityError:
+        display_units = {}
     display = []
     for line in state.lines:
         variant = variants.get(line["variant_id"])
@@ -81,7 +92,20 @@ async def _stock_display(db: AsyncSession, company_id: int, vehicle_id: int):
             raise CustodyRejected("CUSTODY_STOCK_DISPLAY_UNVERIFIED")
         display.append({
             "product_name": variant[0], "sku": variant[1],
-            "base_uom": variant[2], "batch_number": batch[0],
+            "base_uom": variant[2],
+            "base_uom_name": display_units.get(line["variant_id"], {}).get(
+                "base_uom_name", variant[2],
+            ),
+            "display_uom_name": display_units.get(line["variant_id"], {}).get(
+                "display_uom_name",
+            ),
+            "display_factor_to_base": display_units.get(line["variant_id"], {}).get(
+                "display_factor_to_base",
+            ),
+            # __WANASAH_NOLOT__ is an internal accounting identity, not a real
+            # printed production lot. Never expose this technical key to users.
+            "batch_number": "" if str(batch[0]).startswith("__WANASAH_NOLOT__:")
+            else batch[0],
             "expiry_date": batch[1],
             "stock_status": line["status"],
             "on_hand_base": line["on_hand"],
