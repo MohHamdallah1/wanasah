@@ -83,10 +83,11 @@ async def offer_vehicle_custody_recovery(
 async def confirm_field_vehicle_custody(
     vehicle_id: int, command: CustodyConfirmCommand,
     field: FieldRequestContext = Depends(get_current_field_context),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
-        return confirm_receiver(
-            offer_token=command.offer_token, company_id=field.company_id,
+        return await confirm_receiver(
+            db, offer_token=command.offer_token, company_id=field.company_id,
             vehicle_id=vehicle_id, field_principal_id=field.principal_id,
             field_representative_id=field.representative_id,
             confirms_physical_count=command.receiver_confirms_physical_count,

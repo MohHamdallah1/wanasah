@@ -53,6 +53,7 @@ from domains import inventory_supplier_evidence  # noqa: F401
 from domains.inventory_costing.purchase_reference import models as purchase_reference_models  # noqa: F401
 # M04 signed per-vehicle custody: include canonical ORM mappings in drift checks.
 from domains.representative_settlement_multi_vehicle import models as m04_checkpoint_models  # noqa: F401
+from domains.dispatch.route_execution.custody import handoffs_model as custody_handoff_models  # noqa: F401
 
 target_metadata = Base.metadata
 

@@ -11,12 +11,47 @@ from domains.auth_sessions.context import FieldRequestContext
 from domains.authorization.field_access import FieldCapabilityAccess, FieldCapabilityAccessRejected
 from domains.dispatch_representatives import has_canonical_field_identity
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
+from .handoffs_model import VehicleCustodyHandoff
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from domains.identity.models import CompanyPrincipal
 from models import Driver, SystemAuditLog
 
 from .proofs import CustodyRejected, digest, signed, verify
 from .snapshot import read_vehicle_state, require_quiescent_vehicle
+
+
+async def _latest_handoff(db: AsyncSession, company_id: int, vehicle_id: int):
+    return await db.scalar(select(VehicleCustodyHandoff).where(
+        VehicleCustodyHandoff.company_id == company_id,
+        VehicleCustodyHandoff.vehicle_id == vehicle_id,
+    ).order_by(VehicleCustodyHandoff.id.desc()).limit(1))
+
+
+async def assert_offer_not_revoked(
+    db: AsyncSession, *, offer: dict, company_id: int, vehicle_id: int,
+    allowed_handoff_id: int | None = None,
+) -> None:
+    """Fence ALL legacy/new signed offers whenever a durable handoff was started.
+
+    Each persisted request's monotonically increasing row ID is the fence.
+    Cancel/decline/expiry cannot reauthorize an earlier HMAC; a new request
+    invalidates every earlier generation, even an unexpired legacy proof.
+    """
+    latest = await _latest_handoff(db, company_id, vehicle_id)
+    fence = int(latest.id) if latest is not None else 0
+    if (offer.get("company") != company_id or offer.get("vehicle") != vehicle_id
+            or offer.get("fence", 0) != fence):
+        raise CustodyRejected("CUSTODY_OFFER_REVOKED")
+    request_handoff = offer.get("handoff_id")
+    if allowed_handoff_id is not None:
+        if (latest is None or latest.id != allowed_handoff_id
+                or request_handoff != allowed_handoff_id
+                or latest.state != "CONFIRMED"):
+            raise CustodyRejected("CUSTODY_OFFER_REVOKED")
+    elif request_handoff is not None or (
+        latest is not None and latest.state in {"PENDING", "CONFIRMED"}
+    ):
+        raise CustodyRejected("CUSTODY_OFFER_REVOKED")
 
 
 def _now() -> datetime:
@@ -119,6 +154,9 @@ async def issue_offer(
     if state.stock_snapshot != expected_snapshot:
         raise CustodyRejected("CUSTODY_STOCK_SNAPSHOT_STALE")
     mode = _revision_mode(state.epoch, state.stocked, recipient_id)
+    latest = await _latest_handoff(db, company_id, vehicle_id)
+    if latest is not None and latest.state in {"PENDING", "CONFIRMED"}:
+        raise CustodyRejected("CUSTODY_HANDOFF_PENDING")
     data = {
         "company": company_id, "vehicle": vehicle_id,
         "location": state.location_id, "revision": state.revision,
@@ -126,6 +164,7 @@ async def issue_offer(
         "snapshot": state.stock_snapshot, "mode": mode,
         "manager": manager_principal_id, "receiver": recipient_id,
         "representative": rep_id,
+        "fence": int(latest.id) if latest is not None else 0,
     }
     return {
         "offer_token": signed("OFFER", data),
@@ -140,13 +179,14 @@ async def issue_offer(
     }
 
 
-def confirm_receiver(
-    *, offer_token: str, company_id: int, vehicle_id: int,
+async def confirm_receiver(
+    db: AsyncSession, *, offer_token: str, company_id: int, vehicle_id: int,
     field_principal_id: int, field_representative_id: int,
     confirms_physical_count: bool, confirmed_stock_snapshot: str,
     receiver_auth_revision: int,
 ) -> dict:
     data = verify("OFFER", offer_token)
+    await assert_offer_not_revoked(db, offer=data, company_id=company_id, vehicle_id=vehicle_id)
     if (not confirms_physical_count
             or confirmed_stock_snapshot != data.get("snapshot") or
             data["company"] != company_id or data["vehicle"] != vehicle_id
@@ -167,6 +207,7 @@ async def accept_custody(
     db: AsyncSession, *, company_id: int, vehicle_id: int,
     manager_principal_id: int, legacy_actor_id: int,
     request_id: str, receiver_proof: str,
+    allowed_handoff_id: int | None = None, commit: bool = True,
 ) -> dict:
     try:
         operation = str(UUID(request_id))
@@ -193,7 +234,8 @@ async def accept_custody(
                 or prior.accepted_by_principal_id != manager_principal_id
                 or prior.state != "ACCEPTED"):
             raise CustodyRejected("CUSTODY_REQUEST_ID_REUSED_WITH_DIFFERENT_BODY")
-        await db.commit()  # Release the UUID advisory lock on exact replay.
+        if commit:
+            await db.commit()  # Release the UUID advisory lock on exact replay.
         return {
             "vehicle_id": vehicle_id, "epoch_id": int(prior.id),
             "context_revision": int(prior.context_revision),
@@ -204,6 +246,10 @@ async def accept_custody(
     if receipt.get("physical_count_confirmed") is not True:
         raise CustodyRejected("CUSTODY_RECEIVER_CONFIRMATION_REQUIRED")
     offer = verify("OFFER", receipt["offer"])
+    await assert_offer_not_revoked(
+        db, offer=offer, company_id=company_id, vehicle_id=vehicle_id,
+        allowed_handoff_id=allowed_handoff_id,
+    )
     if (offer.get("company") != company_id or
             offer.get("vehicle") != vehicle_id or
             offer.get("location") != state.location_id or
@@ -290,7 +336,8 @@ async def accept_custody(
             "stock_movements": 0,
         }, sort_keys=True),
     ))
-    await db.commit()
+    if commit:
+        await db.commit()
     return {
         "vehicle_id": vehicle_id, "epoch_id": int(accepted.id),
         "context_revision": int(accepted.context_revision),

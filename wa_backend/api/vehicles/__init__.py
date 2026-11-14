@@ -6,6 +6,7 @@ from .management import router as management_router
 from .read import router as read_router
 from .custody import router as custody_router
 from .custody_review import router as custody_review_router
+from .custody_handoffs import router as custody_handoffs_router
 
 router = APIRouter(tags=["Vehicles"])
 router.include_router(read_router, prefix="/vehicles")
@@ -14,5 +15,6 @@ router.include_router(lifecycle_router, prefix="/vehicles")
 router.include_router(load_router, prefix="/vehicles")
 router.include_router(custody_router)
 router.include_router(custody_review_router)
+router.include_router(custody_handoffs_router)
 
 __all__ = ["router"]

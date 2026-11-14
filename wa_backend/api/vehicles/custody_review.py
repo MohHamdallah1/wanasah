@@ -22,6 +22,7 @@ from domains.authorization.backoffice_access import (
 )
 from domains.dispatch.route_execution.custody.access import require_custody_vehicle_scope
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected, verify
+from domains.dispatch.route_execution.custody.service import assert_offer_not_revoked
 from domains.dispatch.route_execution.custody.snapshot import read_vehicle_state
 from domains.dispatch_route_load import route_load_uom_metadata
 from domains.uom_authority import UomAuthorityError
@@ -144,6 +145,9 @@ async def field_custody_offer_preview(
 ):
     try:
         offer = verify("OFFER", command.offer_token)
+        await assert_offer_not_revoked(
+            db, offer=offer, company_id=field.company_id, vehicle_id=vehicle_id,
+        )
         if (offer.get("company") != field.company_id
                 or offer.get("vehicle") != vehicle_id
                 or offer.get("receiver") != field.principal_id
