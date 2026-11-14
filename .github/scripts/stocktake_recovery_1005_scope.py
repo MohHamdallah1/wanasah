@@ -12,6 +12,8 @@ STOCKTAKE_RECOVERY_1005_FILES = frozenset({
     ".github/workflows/stocktake-v1-review-779.yml",
     ".github/workflows/stocktake-v1-session-read-fence.yml",
     ".github/workflows/stocktake-v1-history-799.yml",
+    "dashboard/e2e/stocktake-v1-ux-776.spec.ts",
+    "dashboard/e2e/stocktake-shell-782/stocktake-v1-ux-776.spec.ts",
     "dashboard/src/pages/inventory/Tab3Stocktake.tsx",
     "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeLifecycle.ts",
     "dashboard/src/pages/inventory/stocktake/hooks/useStocktakeSessions.ts",
@@ -26,7 +28,7 @@ def stocktake_recovery_1005_mode(paths: set[str] | frozenset[str]) -> bool:
 
 
 def selftest() -> None:
-    assert len(STOCKTAKE_RECOVERY_1005_FILES) == 11
+    assert len(STOCKTAKE_RECOVERY_1005_FILES) == 13
     assert stocktake_recovery_1005_mode(STOCKTAKE_RECOVERY_1005_FILES)
     for item in STOCKTAKE_RECOVERY_1005_FILES:
         assert not stocktake_recovery_1005_mode(STOCKTAKE_RECOVERY_1005_FILES - {item}), item
@@ -40,7 +42,7 @@ def selftest() -> None:
             STOCKTAKE_RECOVERY_1005_FILES | {foreign}
         ), foreign
     assert not stocktake_recovery_1005_mode(set())
-    print("STOCKTAKE_RECOVERY_1005_SCOPE=PASS exact=11 missing=11 foreign=4")
+    print("STOCKTAKE_RECOVERY_1005_SCOPE=PASS exact=13 missing=13 foreign=4")
 
 
 if __name__ == "__main__":

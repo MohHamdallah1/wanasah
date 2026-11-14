@@ -390,8 +390,8 @@ export function Tab3Stocktake({
                 </button>
               </section>
             )}
-            {canReadStocktake && serverSessionsVerified && activeServerCount === 0 &&
-              !isAuditLocked && warehouseAccess.can("stocktake.start") && (
+            {canReadStocktake && serverSessionsVerified && activeServerCount !== null &&
+              activeServerCount !== 1 && !isAuditLocked && warehouseAccess.can("stocktake.start") && (
               <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
             )}
           </div>

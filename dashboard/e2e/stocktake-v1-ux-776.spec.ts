@@ -226,9 +226,17 @@ for (const locale of ["ar", "en"] as const) {
             name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
           });
           await expect(sessionsDialog).toBeVisible();
-          await sessionsDialog.getByRole("button", {
+          const openSession = sessionsDialog.getByRole("button", {
             name: locale === "ar" ? "فتح" : "Open", exact: true,
-          }).click();
+          });
+          await expect(openSession).toBeVisible();
+          if (await openSession.isEnabled()) {
+            await openSession.click();
+          } else {
+            // The signed server may have already restored this exact session.
+            await expect(openSession).toHaveAttribute("aria-current", "true");
+            await page.keyboard.press("Escape");
+          }
           await expect(sessionsDialog).not.toBeVisible();
         } else {
           await stocktake.getByRole("button", {
@@ -438,9 +446,17 @@ for (const locale of ["ar", "en"] as const) {
         name: locale === "ar" ? "جلسات الجرد النشطة" : "Active stocktake sessions",
       });
       await expect(sessions).toContainText("STK-000077");
-      await sessions.getByRole("button", {
+      const openSession = sessions.getByRole("button", {
         name: locale === "ar" ? "فتح" : "Open", exact: true,
-      }).click();
+      });
+      await expect(openSession).toBeVisible();
+      if (await openSession.isEnabled()) {
+        await openSession.click();
+      } else {
+        await expect(openSession).toHaveAttribute("aria-current", "true");
+        await page.keyboard.press("Escape");
+      }
+      await expect(sessions).not.toBeVisible();
       await expect(stocktake.locator('[data-stocktake-workspace="counting"]')).toBeVisible();
       await expect(stocktake.locator("[data-stocktake-scope]")).toHaveCount(0); // No duplicate session header.
       const inputs = stocktake.locator("input[data-stocktake-count-input='true']:visible");
