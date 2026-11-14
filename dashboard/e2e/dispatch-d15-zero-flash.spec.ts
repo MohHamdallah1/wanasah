@@ -3,6 +3,11 @@ import { expect, test, type Page } from "playwright/test";
 
 const fixture = JSON.parse(readFileSync(process.env.WANASAH_DISPATCH_D14_BROWSER_STATE!, "utf8"));
 const paths = new Set(["/inventory/access/me", "/dispatch/init", "/dispatch/shops", "/dispatch/shortages", "/dispatch/active_routes"]);
+const dispatchTabLabels = {
+  ar: { routes: "الخطوط النشطة", launch: "إطلاق خط جديد", zones: "هيكلة المناطق" },
+  en: { routes: "Active routes", launch: "Launch new route", zones: "Zone structure" },
+} as const;
+
 type Frame = { ms: number; shell: boolean; tabs: number; visibleTabs: number; neutral: boolean; structural: boolean; pending: boolean; pageReady: boolean; animations: number; bodyPresent: boolean; mainStage: boolean; priorRouteVisible: boolean; visibleMainBlank: boolean; preReactDocument: boolean; realPanel: boolean; fakePanel: boolean; wrongPanel: boolean; workspaceNode: number | null };
 async function signIn(page: Page, language: "ar" | "en") {
   await page.goto("http://127.0.0.1:4173/");
@@ -173,9 +178,12 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
     await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible({ timeout: 35000 });
     await capture(page, network, 0, "cold:" + language + ":" + width, enforce);
     await page.screenshot({ path: `${imageDir}/${language}-${width}-cold-ready.png` });
-    const routes = page.getByRole("tab", { name: "الخطوط النشطة" });
-    const launch = page.getByRole("tab", { name: "إطلاق خط جديد" });
-    const zones = page.getByRole("tab", { name: "هيكلة المناطق" });
+    // The BEFORE build predates D22 and still uses Arabic chrome in EN mode.
+    // Keep exact AR/EN labels for the AFTER build without relaxing frame assertions.
+    const labels = dispatchTabLabels[enforce ? language : "ar"];
+    const routes = page.getByRole("tab", { name: labels.routes, exact: true });
+    const launch = page.getByRole("tab", { name: labels.launch, exact: true });
+    const zones = page.getByRole("tab", { name: labels.zones, exact: true });
     await expect(routes).toBeVisible();
     const permanentToolbar = await page.getByTestId("dispatch-shared-topbar").elementHandle();
     expect(permanentToolbar).not.toBeNull();
@@ -209,7 +217,7 @@ for (const language of ["ar", "en"] as const) for (const width of [1440, 390] as
             node === document.querySelector(`[data-testid="dispatch-${tabName}-workspace"]`),
             { node: originalPanel, tabName: name })).toBe(true);
         }
-        await expect(page.getByRole("tab", { name: tab === routes ? "الخطوط النشطة" : tab === launch ? "إطلاق خط جديد" : "هيكلة المناطق" })).toBeVisible();
+        await expect(page.getByRole("tab", { name: labels[name], exact: true })).toBeVisible();
       }
     }
     // Browser history is a distinct navigation owner; verify actual Back and
@@ -311,10 +319,10 @@ if (process.env.D15_ZERO_FLASH_ENFORCE === "1") {
       await page.goto("http://127.0.0.1:4173/dispatch");
       await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
       await expect(page.getByTestId("dispatch-routes-workspace")).toBeVisible();
-      await expect(page.getByRole("tab", { name: "الخطوط النشطة" })).toHaveAttribute("aria-selected", "true", { timeout: 30000 });
+      await expect(page.getByRole("tab", { name: dispatchTabLabels[language].routes, exact: true })).toHaveAttribute("aria-selected", "true", { timeout: 30000 });
       // Selection stays gold during auth; wait for the independent signed
       // enabled state before completing the cold-JS pending→admitted witness.
-      await expect(page.getByRole("tab", { name: "الخطوط النشطة" })).toBeEnabled({ timeout: 30000 });
+      await expect(page.getByRole("tab", { name: dispatchTabLabels[language].routes, exact: true })).toBeEnabled({ timeout: 30000 });
       await page.waitForTimeout(250);
       await page.screenshot({ path: imageDir + "/" + language + "-" + width + "-js-restored-same-panel.png" });
       const frames = await page.evaluate(() => (window as any).__d15ColdImportFrames as Array<{

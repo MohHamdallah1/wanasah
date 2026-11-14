@@ -5,11 +5,12 @@ import type { LaunchOption } from "./launchResourceRead";
 import { resourceReason } from "./launchResourceReasons";
 
 export function LaunchResourceSelect({
-  label, options, value, onChange, disabled, placeholder, kind,
+  label, options, value, onChange, disabled, placeholder, kind, onBlockedVehicleReview,
 }: {
   label: string; options: readonly LaunchOption[]; value: string;
   onChange: (next: string) => void; disabled: boolean; placeholder: string;
   kind: "zones" | "drivers" | "vehicles" | "warehouses";
+  onBlockedVehicleReview?: (vehicle: LaunchOption) => void;
 }) {
   const { i18n } = useTranslation();
   const ar = (i18n.resolvedLanguage || i18n.language).startsWith("ar");
@@ -89,6 +90,19 @@ export function LaunchResourceSelect({
               <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-amber-600" />
             </button>
             <span id={`${hintId}-option-${x.id}`} className="sr-only">{resourceReason(x.code, ar)}</span>
+            {kind === "vehicles" && onBlockedVehicleReview &&
+              (x.code.startsWith("CUSTODY_") || x.code === "VEHICLE_CUSTODY_UNACCEPTED") && (
+              <button type="button" data-testid={`c03-review-blocked-car-${x.id}`}
+                aria-label={ar ? `معالجة عهدة ${x.label}` : `Review custody for ${x.label}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setOpen(false); setHintedId(null);
+                  onBlockedVehicleReview(x);
+                }}
+                className="mb-1 ms-3 min-h-9 max-w-[calc(100%-1.5rem)] rounded-lg border border-amber-500 bg-amber-50 px-3 py-1.5 text-start text-xs font-semibold text-amber-900 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-600">
+                {ar ? "معالجة عهدة السيارة" : "Review vehicle custody"}
+              </button>
+            )}
           </div>)}
           {hintedId && unavailable.some(x => x.id === hintedId) && <span role="tooltip"
             className="pointer-events-none absolute inset-x-0 bottom-full z-[80] mb-1 rounded-lg border border-amber-200 bg-white px-3 py-2 text-start text-xs font-medium text-amber-900 shadow-lg">

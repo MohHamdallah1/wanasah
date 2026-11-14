@@ -1,0 +1,87 @@
+import 'package:flutter/widgets.dart';
+
+/// Bilingual C03 business copy; independent of API evidence/status codes.
+class CustodyHandoffStrings {
+  CustodyHandoffStrings(String locale) : _ar = locale == 'ar';
+  factory CustodyHandoffStrings.of(BuildContext context) =>
+      CustodyHandoffStrings(Localizations.localeOf(context).languageCode);
+  final bool _ar;
+  String t(String key) => (_ar ? _arabic : _english)[key] ?? key;
+  String status(String code) => switch (code) {
+    'AVAILABLE' => t('available'),
+    'DAMAGED' => t('damaged'),
+    'QUARANTINED' => t('quarantined'),
+    'RECALLED' => t('recalled'),
+    _ => code,
+  };
+  static const _english = {
+    'title': 'Receive vehicle custody',
+    'start': 'Confirm vehicle handoff',
+    'paste': 'Paste your private handoff',
+    'pasteButton': 'Paste',
+    'inspect': 'Review real vehicle stock',
+    'count': 'I physically counted these batches and quantities',
+    'submit': 'Sign my receipt',
+    'copyProof': 'Copy signed receipt for the manager',
+    'copied': 'Signed receipt copied. Return it to the manager privately.',
+    'instruction':
+        'Only confirm goods you personally counted. This does not move stock.',
+    'receipt': 'Receipt signed. Send it to the manager for final approval.',
+    'noOffer': 'Paste the signed handoff your manager sent to you.',
+    'unavailable':
+        'Could not verify your handoff. Check the connection and ask the manager to reissue it.',
+    'stale': 'Vehicle stock or custody changed. Request a fresh handoff.',
+    'denied':
+        'This handoff is not addressed to your FIELD identity or permission was revoked.',
+    'expired': 'This handoff expired. Ask the manager for a new one.',
+    'vehicle': 'Vehicle',
+    'batch': 'Batch',
+    'expiry': 'Expiry',
+    'base': 'Quantity in base units',
+    'reserved': 'Reserved',
+    'status': 'Status',
+    'available': 'Available',
+    'damaged': 'Damaged',
+    'quarantined': 'Quarantined',
+    'recalled': 'Recalled',
+    'empty': 'No recorded stock',
+    'cancel': 'Close',
+    'offline':
+        'Online verification is required. No offline acceptance will be queued.',
+    'secure':
+        'Keep the private handoff and receipt within the two participants.',
+  };
+  static const _arabic = {
+    'title': 'استلام عهدة السيارة',
+    'start': 'تأكيد استلام عهدة السيارة',
+    'paste': 'ألصق طلب التسليم الخاص من المدير',
+    'pasteButton': 'لصق',
+    'inspect': 'عرض الجرد الحقيقي للسيارة',
+    'count': 'جردت هذه الدفعات والكميات فعليًا وأؤكد استلامها',
+    'submit': 'توقيع استلامي',
+    'copyProof': 'نسخ إثبات الاستلام الموقّع للمدير',
+    'copied': 'تم نسخ إثبات الاستلام. أرسله إلى المدير بطريقة خاصة.',
+    'instruction': 'لا تؤكد إلا البضاعة التي جردتها بنفسك. لن تتحرك أي بضاعة.',
+    'receipt': 'تم توقيع الاستلام. أرسل الإثبات للمدير لإكمال الاعتماد.',
+    'noOffer': 'ألصق طلب التسليم الموقّع الذي أرسله لك المدير.',
+    'unavailable':
+        'تعذر التحقق من طلب التسليم. تحقق من الاتصال واطلب إصداره مجددًا.',
+    'stale': 'تغير المخزون أو عهدة السيارة. اطلب تسليمًا جديدًا.',
+    'denied': 'طلب التسليم لا يخص حسابك FIELD أو تم سحب صلاحيتك.',
+    'expired': 'انتهت صلاحية الطلب. اطلب طلبًا جديدًا من المدير.',
+    'vehicle': 'السيارة',
+    'batch': 'الدفعة',
+    'expiry': 'الصلاحية',
+    'base': 'الكمية بالوحدة الأساسية',
+    'reserved': 'محجوز',
+    'status': 'الحالة',
+    'available': 'متاح',
+    'damaged': 'تالف',
+    'quarantined': 'محجور',
+    'recalled': 'مسترجع',
+    'empty': 'لا يوجد مخزون مسجل',
+    'cancel': 'إغلاق',
+    'offline': 'يلزم الاتصال والتحقق من الخادم. لن تُحفظ موافقة مؤجلة.',
+    'secure': 'أبقِ طلب التسليم والإثبات بين المدير والمندوب فقط.',
+  };
+}

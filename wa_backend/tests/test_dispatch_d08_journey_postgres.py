@@ -19,6 +19,7 @@ from models import Company, Shop, Zone
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_route_launch_d07_postgres import _prepared_route, _state
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _owner, _real_http
+from tests.c02_signed_custody_real_http import accept_prepared_vehicle_by_real_http
 
 STATE = Path(os.getenv("WANASAH_DISPATCH_D08_STATE", "/tmp/dispatch-d08-journey.json"))
 
@@ -44,6 +45,11 @@ async def test_first_company_zone_shop_import_reorder_archive_restore_and_route_
     async with _real_http() as http:
         owner = await _owner(http, pg, tenant)
         foreign_owner = await _owner(http, pg, foreign)
+        # The real PG16/Chromium route must START with actual custody:
+        # genuine signed FIELD receipt + manager accept, with stock unchanged.
+        await accept_prepared_vehicle_by_real_http(
+            pg, tenant, http, owner, launch_body, vehicle_location,
+        )
 
         zone = success(await http.post("/dispatch/zones", headers=owner, json={
             "name": "D08 Field Zone " + uuid4().hex[:7],

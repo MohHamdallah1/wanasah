@@ -571,6 +571,8 @@ jobs:
           }
           assert len(u02_u03_969_exact) == 15
           def ownership_mode(candidate):
+              if __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"](candidate):
+                  return "C03_X01_983_RELEASE_EXACT"
               if candidate == u02_u03_969_exact:
                   return "U02_U03_969_EXACT"
               if candidate == d21_launch_exact:

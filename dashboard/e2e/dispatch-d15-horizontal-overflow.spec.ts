@@ -16,6 +16,10 @@ import { expect, test, type Page } from "playwright/test";
 
 type Language = "ar" | "en";
 type DispatchTab = "routes" | "launch" | "zones";
+const dispatchTabLabels = {
+  ar: { routes: "الخطوط النشطة", launch: "إطلاق خط جديد", zones: "هيكلة المناطق" },
+  en: { routes: "Active routes", launch: "Launch new route", zones: "Zone structure" },
+} as const;
 type Edge = { left: number; right: number; width: number };
 type Offender = {
   element: string; left: number; right: number; excessLeft: number; excessRight: number;
@@ -68,11 +72,8 @@ async function signIn(page: Page, language: Language) {
     .toBeVisible({ timeout: 45_000 });
 }
 
-async function selectTab(page: Page, tab: DispatchTab) {
-  const label = tab === "routes" ? /الخطوط النشطة|Active routes/
-    : tab === "launch" ? /إطلاق خط جديد|Launch route/
-    : /هيكلة المناطق|Zones & shops/;
-  const button = page.getByRole("tab", { name: label });
+async function selectTab(page: Page, tab: DispatchTab, language: Language) {
+  const button = page.getByRole("tab", { name: dispatchTabLabels[language][tab], exact: true });
   await button.click();
   await expect(button).toHaveAttribute("aria-selected", "true");
   if (tab === "launch") {
@@ -218,7 +219,7 @@ for (const language of ["ar", "en"] as const) {
         const results: Array<{ tab: DispatchTab; phase: "normal" | "refocus"; geometry: Geometry }> = [];
         const failures: string[] = [];
         for (const tab of ["routes", "launch", "zones"] as const) {
-          await selectTab(page, tab);
+          await selectTab(page, tab, language);
           for (const phase of ["normal", "refocus"] as const) {
             if (phase === "refocus") {
               const elsewhere = await page.context().newPage();

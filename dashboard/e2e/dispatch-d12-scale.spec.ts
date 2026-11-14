@@ -44,8 +44,9 @@ for (const width of [1440, 390]) {
     }));
     const loadMs = Date.now() - started;
     const launchStart = Date.now();
-    await page.getByRole("tab", { name: /إطلاق خط جديد/ }).click();
-    await expect(page.getByRole("tab", { name: /إطلاق خط جديد/ })).toHaveAttribute("aria-selected", "true");
+    const launchTab = page.getByRole("tab", { name: "Launch new route", exact: true });
+    await launchTab.click();
+    await expect(launchTab).toHaveAttribute("aria-selected", "true");
     await expect.poll(() => seen.size, { timeout: 60000 }).toBe(4);
     const launchSelectMs = Date.now() - launchStart;
     const result = {

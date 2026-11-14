@@ -13,13 +13,14 @@ from dispatch_access import route_filter, vehicle_filter
 from domains.dispatch_shop_read_scope import company_shop_directory, visible_zone_filter
 from domains.dispatch.route_execution.models import DispatchRouteExecutionPeriod
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
+from domains.dispatch.route_execution.readiness.custody_codes import custody_blocker
 from domains.dispatch_representatives import has_canonical_field_identity
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from domains.vehicles.eligibility import vehicle_operational_predicate
 from domains.vehicles.repository import vehicle_custody_ready_predicate
 from models import (
-    DispatchRoute, Driver, InventoryLocation, InventoryLock, Vehicle,
-    WorkSession, Zone,
+    DispatchRoute, Driver, InventoryBalance, InventoryLocation, InventoryLock,
+    Vehicle, WorkSession, Zone,
 )
 
 MAX_LAUNCH_CHOICES = 1024
@@ -194,6 +195,23 @@ async def read_launch_resource_availability(
                 raise LaunchAvailabilityRejected("M05_LAUNCH_CUSTODY_AMBIGUOUS")
             current_epochs[int(epoch.vehicle_id)] = epoch
 
+    # Missing M01 epoch is safe only for a genuinely empty new car. A legacy
+    # stocked vehicle without an epoch must never be advertised as assignable.
+    stocked_vehicle_ids = set()
+    if vehicle_ids:
+        stocked_vehicle_ids = set((await db.scalars(select(
+            InventoryLocation.vehicle_id
+        ).join(
+            InventoryBalance,
+            and_(InventoryBalance.company_id == InventoryLocation.company_id,
+                 InventoryBalance.location_id == InventoryLocation.id),
+        ).where(
+            InventoryLocation.company_id == cid,
+            InventoryLocation.vehicle_id.in_(vehicle_ids),
+            InventoryLocation.location_type == "VEHICLE",
+            InventoryBalance.on_hand_quantity > 0,
+        ).distinct())).all())
+
     warehouse_ids = [int(row[0].id) for row in warehouses]
     locked_warehouses = set()
     if warehouse_ids:
@@ -220,11 +238,11 @@ async def read_launch_resource_availability(
             epoch = current_epochs.get(int(selected_vehicle_id))
             if epoch is not None:
                 rep, principal = principal_by_driver.get(int(driver.id), (None, None))
-                if (epoch.state != "ACCEPTED" or epoch.custodian_kind != "FIELD_REPRESENTATIVE"
-                        or epoch.field_representative_id != rep
-                        or epoch.custodian_principal_id != principal
-                        or epoch.accepted_by_principal_id is None):
-                    reason = "CUSTODY_REQUIRES_REASSIGNMENT"
+                reason = custody_blocker(
+                    epoch, representative_id=rep, principal_id=principal,
+                ) or reason
+            elif int(selected_vehicle_id) in stocked_vehicle_ids:
+                reason = "CUSTODY_STOCK_WITHOUT_EPOCH"
         result_drivers.append(dict(
             id=str(driver.id), label=driver.full_name,
             available=reason == "AVAILABLE", code=reason,
@@ -239,16 +257,18 @@ async def read_launch_resource_availability(
             "NO_EXECUTE_PERMISSION" if not execute else "AVAILABLE"
         )
         epoch = current_epochs.get(int(vehicle.id))
-        if reason == "AVAILABLE" and epoch is not None:
-            if (epoch.state != "ACCEPTED" or epoch.custodian_kind != "FIELD_REPRESENTATIVE"
-                    or epoch.accepted_by_principal_id is None
-                    or not epoch.request_id or not epoch.payload_hash):
-                reason = "VEHICLE_CUSTODY_UNACCEPTED"
-            elif selected_driver_id is not None:
-                rep, principal = principal_by_driver.get(int(selected_driver_id), (None, None))
-                if (epoch.field_representative_id != rep
-                        or epoch.custodian_principal_id != principal):
-                    reason = "CUSTODY_REQUIRES_REASSIGNMENT"
+        if reason == "AVAILABLE":
+            rep, principal = principal_by_driver.get(
+                int(selected_driver_id), (None, None),
+            ) if selected_driver_id is not None else (None, None)
+            reason = (
+                custody_blocker(
+                    epoch, representative_id=rep, principal_id=principal,
+                ) or "AVAILABLE"
+            ) if epoch is not None else (
+                "CUSTODY_STOCK_WITHOUT_EPOCH"
+                if int(vehicle.id) in stocked_vehicle_ids else "AVAILABLE"
+            )
         result_vehicles.append(dict(
             id=str(vehicle.id),
             label=(vehicle.vehicle_type or "Vehicle") + " - " + vehicle.plate_number,
