@@ -67,6 +67,22 @@ async function selectAuthorizedChoices(page: Page) {
   return selected;
 }
 
+async function navigateSidebar(page: Page, id: "dispatch" | "products" | "inventory", mobile: boolean) {
+  // Permission-dependent sidebar indices are not route identities.
+  const labels = {
+    dispatch: /^(التوزيع والمناطق|Dispatch & Regions)$/,
+    products: /^(المنتجات|Products)$/,
+    inventory: /^(المخزون والمستودع|Inventory & Warehouse)$/,
+  };
+  const target = page.locator(".operations-nav").getByRole("button", { name: labels[id] });
+  if (mobile) await page.locator(".dashboard-mobile-menu").click();
+  await expect(target, "Authorized sidebar destination must be visible").toBeVisible({ timeout: 15000 });
+  await target.click();
+  await expect(page).toHaveURL(new RegExp("/" + id + "$"));
+  await expect(page.getByRole("heading", { name: /حدث خطأ غير متوقع|An unexpected error/i }),
+    "React render must survive this real cross-page navigation").toHaveCount(0);
+}
+
 async function prepareLaunch(page: Page) {
   await page.goto(origin + "/dispatch");
   await expect(page.getByTestId("dispatch-shared-topbar")).toBeVisible();
@@ -77,6 +93,9 @@ async function prepareLaunch(page: Page) {
   await expect(page.getByTestId("dispatch-launch-workspace")).not.toHaveAttribute("inert", "", { timeout: 30000 });
   const chosen = await selectAuthorizedChoices(page);
   await page.waitForTimeout(300);
+  // A missing config may be a crashed React root, not an empty/late data panel.
+  await expect(page.getByRole("heading", { name: /حدث خطأ غير متوقع|An unexpected error/i }),
+    "No React error boundary during signed resource selection (check draft/UOM bundle compatibility)").toHaveCount(0);
   await expect(page.locator(".dispatch-launch-config")).toBeVisible();
   return chosen;
 }
@@ -209,16 +228,12 @@ for (const language of ["ar", "en"] as const) for (const width of [1440,390] as 
       if (hold) { held.init++; await page.waitForTimeout(450); }
       await route.continue();
     });
-    for (const [dest,index] of [["products",4],["inventory",2]] as const) {
-      if (width === 390) await page.locator(".dashboard-mobile-menu").click();
-      await page.locator(".operations-nav button").nth(index).click();
-      await expect(page).toHaveURL(new RegExp("/" + dest + "$"));
+    for (const dest of ["products","inventory"] as const) {
+      await navigateSidebar(page, dest, width === 390);
       hold = true;
       const label = language + ":" + width + ":" + dest;
       await armFrames(page, label);
-      if (width === 390) await page.locator(".dashboard-mobile-menu").click();
-      await page.locator(".operations-nav button").nth(1).click();
-      await expect(page).toHaveURL(/\/dispatch$/);
+      await navigateSidebar(page, "dispatch", width === 390);
       await page.waitForTimeout(190);
       await page.screenshot({ path: imageDir + "/" + label.replaceAll(":","-") + "-pending.png" });
       await inspect(page, label, { ...held }, selections);
