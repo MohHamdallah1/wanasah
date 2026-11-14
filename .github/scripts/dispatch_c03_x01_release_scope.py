@@ -101,13 +101,31 @@ UNIFIED_RELEASE_FILES = (RELEASE_FILES | D22_FILES | M06_FILES |
                          D15_GEOMETRY_PARITY_FILES)
 
 
+# Issue #999 is an independent, narrowly scoped operational correctness
+# hotfix. The historical D07/P0/Live Stock owner gates call release_mode()
+# to recognize separately approved exact post-release author sets as well.
+# This new mode never grants a subset, foreign file, or general Board edit.
+WAREHOUSE_AUDIT_999_EXACT = frozenset({
+    ".github/scripts/dispatch_c03_x01_release_scope.py",
+    "dashboard/src/features/dispatch/useSourceWarehouseAuditStatus.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/source-warehouse-audit-status.test.tsx",
+    "dashboard/src/test/dispatch-route-launch-d07.test.tsx",
+})
+
+
+def warehouse_audit_999_mode(paths):
+    return set(paths) == WAREHOUSE_AUDIT_999_EXACT
+
+
 def unified_release_mode(paths):
     return set(paths) == UNIFIED_RELEASE_FILES
 
 
 def release_mode(paths):
     actual = set(paths)
-    return actual == RELEASE_FILES or unified_release_mode(actual)
+    return (actual == RELEASE_FILES or unified_release_mode(actual)
+            or warehouse_audit_999_mode(actual))
 
 
 def assert_release(paths):
@@ -135,6 +153,11 @@ def selftest():
     assert not ((RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES) & D22_E2E_PARITY_FILES)
     assert not ((RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES | D22_E2E_PARITY_FILES) & D15_GEOMETRY_PARITY_FILES)
     assert len(UNIFIED_RELEASE_FILES) == 74
+    assert len(WAREHOUSE_AUDIT_999_EXACT) == 5
+    assert WAREHOUSE_AUDIT_999_EXACT & UNIFIED_RELEASE_FILES == {
+        ".github/scripts/dispatch_c03_x01_release_scope.py",
+        "dashboard/src/pages/DispatchBoard.tsx",
+    }
 
     def deny(paths):
         assert not release_mode(paths), sorted(paths)
@@ -167,8 +190,24 @@ def selftest():
         RELEASE_FILES | D22_FILES | M06_FILES | D10_LOCALE_TEST_FILES | D22_E2E_PARITY_FILES,
     ):
         deny(partial)
+    assert warehouse_audit_999_mode(WAREHOUSE_AUDIT_999_EXACT)
+    assert release_mode(WAREHOUSE_AUDIT_999_EXACT)
+    for missing in WAREHOUSE_AUDIT_999_EXACT:
+        assert not release_mode(WAREHOUSE_AUDIT_999_EXACT - {missing}), missing
+    for foreign in ("wa_backend/api/dispatch.py",
+                    "dashboard/src/hooks/useAuthFetch.ts",
+                    "dashboard/src/App.tsx"):
+        assert not release_mode(WAREHOUSE_AUDIT_999_EXACT | {foreign}), foreign
+    # The hotfix is NOT itself a release: the formal release assertion rejects it.
+    try:
+        assert_release(WAREHOUSE_AUDIT_999_EXACT)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("Warehouse issue #999 misclassified as release")
     print("C03_X01_X02_RELEASE_SCOPE_SELFTEST=PASS "
           "original=56 unified=74 missing=130 foreign=8 partial=9")
+    print("WAREHOUSE_AUDIT_999_SCOPE_SELFTEST=PASS exact=5 missing=5 foreign=3")
 
 if __name__ == "__main__":
     assert len(sys.argv) == 2 and sys.argv[1] == "--selftest"

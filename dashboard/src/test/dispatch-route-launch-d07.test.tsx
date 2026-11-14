@@ -353,7 +353,10 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
       if (path.startsWith("/dispatch/inventory/")) return custody;
       if (path.startsWith("/dispatch/products?")) return page;
       if (path.startsWith("/dispatch/route-load/uom?")) return { "44": unit };
-      if (path.startsWith("/warehouse/status")) return { is_locked: false };
+      if (path.startsWith("/warehouse/status")) return {
+        status: "ACTIVE", stocktake_session_id: null,
+        stocktake_reference: null, stocktake_status: null,
+      };
       if (path.startsWith("/dispatch/route/commercial-preflight?")) return {
         ready: true, advisory: true, currency_code: "QAR",
         checks: Object.fromEntries(PREFLIGHT_AREAS.map(area =>

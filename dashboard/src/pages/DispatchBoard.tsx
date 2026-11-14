@@ -57,6 +57,7 @@ import { DispatchAccessNotice } from "@/features/dispatch/DispatchAccessNotice";
 import { DispatchChromeHost, useDispatchChromeBridge } from "@/features/dispatch/stableUi/DispatchChrome";
 import { loadDispatchRead } from "@/features/dispatch/loadDispatchRead";
 import { useDispatchAccessGate, type DispatchGateStatus } from "@/features/dispatch/useDispatchAccessGate";
+import { useSourceWarehouseAuditStatus } from "@/features/dispatch/useSourceWarehouseAuditStatus";
 import {
   clearLegacyDispatchPreferences, createDispatchAsyncEpoch,
   dispatchActorScope, readDispatchPreferences, reconcileDispatchPreferences,
@@ -476,9 +477,18 @@ function DispatchSession() {
   const [zoneToKill, setZoneToKill] = useState<Zone | null>(null);
   const [confirmName, setConfirmName] = useState("");
 
-  // CS-WH-03: Warehouse audit lock status for dispatch warning banner
-  const [isWarehouseLocked, setIsWarehouseLocked] = useState(false);
-  const [isWarehouseStatusLoading, setIsWarehouseStatusLoading] = useState(false);
+  // Bind every source-warehouse lock decision to fresh, signed actor+warehouse
+  // evidence. A transport failure must NOT masquerade as an active stocktake.
+  const sourceWarehouseAudit = useSourceWarehouseAuditStatus({
+    warehouseId: selectedSourceWarehouseId,
+    actorKey: actorScope,
+    enabled: onDispatchRoute && accessState === "ready" && dispatchReadState === "ready",
+    fetchStatus: authenticatedFetch,
+  });
+  const isWarehouseLocked = sourceWarehouseAudit.state.kind === "locked";
+  const isWarehouseOpen = sourceWarehouseAudit.state.kind === "active";
+  const isWarehouseStatusLoading = sourceWarehouseAudit.state.kind === "checking" ||
+    sourceWarehouseAudit.state.kind === "idle";
   const [vehicleInventoryLoadedForContext, setVehicleInventoryLoadedForContext] = useState<string | null>(null);
   const [vehicleInventoryLoadedForSelection, setVehicleInventoryLoadedForSelection] = useState<string | null>(null);
   const completedVehicleLoadRef = useRef<string | null>(null);
@@ -502,8 +512,7 @@ function DispatchSession() {
   [actorScope, selectedSourceWarehouseId, selectedVehicleId]);
   const routeLaunch = useRouteLaunchRecovery({
     actor: routeLaunchActor, session: session!,
-    authorized: Boolean(canLaunch && dispatchReadState === "ready" &&
-      !isWarehouseLocked && !isWarehouseStatusLoading),
+    authorized: Boolean(canLaunch && dispatchReadState === "ready" && isWarehouseOpen),
     language: i18n.language, fetch: authenticatedFetch,
   });
   const routeLaunchPendingOwner = (() => {
@@ -794,41 +803,8 @@ function DispatchSession() {
   // Dispatch read. The old blur/focus listener raced this check and launched a
   // duplicate four-endpoint read; do not reintroduce it.
 
-  // Warehouse lock is scoped to the explicitly selected source warehouse.
-  useEffect(() => {
-    if (!selectedSourceWarehouseId) {
-      setIsWarehouseLocked(false);
-      setIsWarehouseStatusLoading(false);
-      return;
-    }
-
-    const controller = new AbortController();
-    const admitted = captureUiRead();
-    setIsWarehouseStatusLoading(true);
-    authenticatedFetch(
-      `/warehouse/status?location_id=${encodeURIComponent(selectedSourceWarehouseId)}`,
-      { signal: controller.signal }
-    )
-      .then((data) => {
-        if (controller.signal.aborted || !admitted()) return;
-        const status =
-          typeof data === "object" && data !== null && "status" in data
-            ? String((data as { status: unknown }).status)
-            : "";
-        setIsWarehouseLocked(status === "AUDIT_LOCK");
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted || !admitted()) return;
-        if (!(err instanceof Error && err.name === "AbortError")) console.error(err);
-        // A failed audit-status read is never evidence that the Warehouse is unlocked.
-        setIsWarehouseLocked(true);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted && admitted()) setIsWarehouseStatusLoading(false);
-      });
-
-    return () => controller.abort();
-  }, [selectedSourceWarehouseId, authenticatedFetch, actorScope, accessState, dispatchReadState, activeRoute?.id]);
+  // The dedicated scoped hook refetches on actual Dispatch reentry, warehouse
+  // selection, actor change, and explicit retry; it never bypasses PG16 guards.
 
   // Realtime dispatch updates: authenticate each reconnect with the latest token
   // and coalesce event bursts into one dashboard refresh.
@@ -1222,11 +1198,17 @@ function DispatchSession() {
     ) {
       return toast.error("⚠️ يرجى تحديد المنطقة والمندوب والسيارة ومستودع المصدر");
     }
+    if (sourceWarehouseAudit.state.kind === "unverified") {
+      return toast.error("تعذر التحقق من حالة مستودع المصدر. راجع الاتصال والصلاحيات ثم أعد التحقق.");
+    }
     if (isWarehouseStatusLoading) {
       return toast.info("جاري التحقق من حالة مستودع المصدر...");
     }
     if (isWarehouseLocked) {
       return toast.error("🔒 مستودع المصدر تحت الجرد حالياً ولا يمكن إطلاق حمولة منه.");
+    }
+    if (!isWarehouseOpen) {
+      return toast.error("لم يتم التحقق من حالة مستودع المصدر؛ لا يمكن إطلاق خط السير.");
     }
     if (!vehicleCustodyReady) {
       return toast.info("جاري تحميل مخزون السيارة. حاول بعد اكتمال القراءة.");
@@ -2013,15 +1995,44 @@ function DispatchSession() {
         {t("archiveOwners.routeFocus", { id: new Intl.NumberFormat(resolveI18nLocale(i18n)).format(Number(archiveRouteFocus)) })}
         <button type="button" onClick={() => setArchiveRouteFocus(null)} className="ms-3 rounded-lg border px-3 py-2 focus-visible:ring-2">{t("archiveOwners.showAll")}</button>
       </div>}
-      {tabReady && isWarehouseLocked && (
-        <div className="mx-0 mb-4 bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg shadow-sm" dir="rtl">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">🔒</span>
-            <div>
-              <p className="text-amber-800 font-bold text-sm">المستودع مقفل حالياً — جرد مخزني قيد التنفيذ</p>
-              <p className="text-amber-600 text-xs mt-1">عمليات إطلاق خطوط السير وتعديل الحمولات معلقة حتى انتهاء الجرد. يرجى مراجعة مشرف المستودع.</p>
-            </div>
-          </div>
+      {tabReady && sourceWarehouseAudit.state.kind === "locked" && (
+        <div role="status" className="mx-0 mb-4 rounded-lg border-s-4 border-amber-500 bg-amber-50 p-4 shadow-sm"
+          dir={i18n.dir()} data-testid="dispatch-real-warehouse-audit-lock">
+          <p className="font-bold text-sm text-amber-900">
+            {i18n.language.startsWith("ar")
+              ? "المستودع مقفل حالياً — جرد مخزني قيد التنفيذ"
+              : "Source warehouse locked — stocktake in progress"}
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            {i18n.language.startsWith("ar") ? "المستودع" : "Warehouse"}:{" "}
+            <strong>{warehouses.find(w => w.id === selectedSourceWarehouseId)?.label ?? selectedSourceWarehouseId}</strong>
+            {" · "}{i18n.language.startsWith("ar") ? "مرجع الجرد" : "Stocktake reference"}:{" "}
+            <strong>{sourceWarehouseAudit.state.reference}</strong>
+            {" · "}{i18n.language.startsWith("ar") ? "رقم الجلسة" : "Session"}:{" "}
+            {sourceWarehouseAudit.state.sessionId}
+            {" · "}{sourceWarehouseAudit.state.stocktakeStatus}
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            {i18n.language.startsWith("ar")
+              ? "عمليات إطلاق الخطوط وتعديل الحمولات معلقة لهذا المستودع. افتح نفس جلسة الجرد وأكملها أو ألغها رسميًا؛ إلغاء جرد مستودع آخر لا يحرر هذا القفل."
+              : "Route launch and load adjustments remain blocked for this warehouse. Complete or officially cancel this exact stocktake; cancelling a different warehouse's stocktake does not release this lock."}
+          </p>
+          <button type="button" onClick={() => routeNavigate("/inventory")}
+            className="mt-2 rounded-lg border border-amber-500 px-3 py-1.5 text-xs font-bold text-amber-950 focus-visible:ring-2">
+            {i18n.language.startsWith("ar") ? "فتح المستودع والجرد" : "Open warehouse stocktake"}
+          </button>
+        </div>
+      )}
+      {tabReady && selectedSourceWarehouseId && sourceWarehouseAudit.state.kind === "unverified" && (
+        <div role="alert" className="mb-4 rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm text-slate-800"
+          data-testid="dispatch-warehouse-status-unverified" dir={i18n.dir()}>
+          {i18n.language.startsWith("ar")
+            ? "تعذر التحقق من حالة مستودع المصدر. هذا لا يثبت وجود جرد نشط، ولا يسمح بإطلاق الخط قبل تحقق جديد."
+            : "Source warehouse status could not be verified. This does not prove an active stocktake and route launch stays blocked."}
+          <button type="button" onClick={sourceWarehouseAudit.retry}
+            className="ms-3 rounded-lg border px-3 py-1.5 text-xs font-bold focus-visible:ring-2">
+            {i18n.language.startsWith("ar") ? "إعادة التحقق" : "Retry verification"}
+          </button>
         </div>
       )}
 
