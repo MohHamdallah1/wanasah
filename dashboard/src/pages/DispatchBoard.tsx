@@ -74,7 +74,8 @@ import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardS
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { type Quantity } from "@/lib/quantity";
 import {
-  buildRouteLoadBaseTargets, parseRouteLoadVehicleInventory, type RouteLoadUom,
+  buildRouteLoadBaseTargets, INVALID_ROUTE_LOAD_TARGET, parseRouteLoadVehicleInventory,
+  parseRouteLoadUomWindow, routeLoadUomIdentity, type RouteLoadUom,
 } from "@/features/dispatch/routeLoadUom";
 
 interface WarehouseOption {
@@ -606,10 +607,10 @@ function DispatchSession() {
         !vehicleCustodyReady || isRouteModalOpen || !selectedSourceWarehouseId ||
         !selectedVehicleId || !selectedZoneId || !selectedDriverId) return;
     saveRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
-      selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets);
+      selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets, routeLoadUnits);
   }, [actorScope, accessState, dispatchReadState, grants.launch, vehicleCustodyReady,
     isRouteModalOpen, selectedSourceWarehouseId, selectedVehicleId,
-    selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets]);
+    selectedZoneId, selectedDriverId, routeLoadCurrent, routeLoadTargets, routeLoadUnits]);
 
   const changeSourceWarehouse = (warehouseId: string) => {
     if (warehouseId === selectedSourceWarehouseId) return;
@@ -1051,7 +1052,7 @@ function DispatchSession() {
         setRouteLoadCurrent(precise.current);
         const saved = !isRouteModalOpen && actorScope && grants.launch
           ? restoreRouteLoadDraft(actorScope, selectedSourceWarehouseId, selectedVehicleId,
-              selectedZoneId, selectedDriverId, precise.current, Object.keys(precise.units))
+              selectedZoneId, selectedDriverId, precise.current, precise.units)
           : null;
         setRouteLoadTargets(saved ?? { ...precise.current });
         setRouteLoadUnits(precise.units);
@@ -1227,7 +1228,8 @@ function DispatchSession() {
     if (targetShops.length === 0) {
       return toast.error("⚠️ المنطقة المختارة لا تحتوي على محلات نشطة.");
     }
-    if (Object.values(routeLoadTargets).every((q) => q === "0")) return toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر");
+    if (Object.values(routeLoadTargets).every((q) => q === "0") &&
+        Object.values(routeLoadCurrent).every((q) => q === "0")) return toast.error("⚠️ لا يمكن إطلاق خط السير بحمولة صفر");
 
     let inventoryBase: Record<string, Quantity>;
     try {
@@ -1255,6 +1257,50 @@ function DispatchSession() {
       return;
     }
 
+    // Confirm the authoritative conversion again immediately before creating
+    // an immutable D07 launch intent. Signed BASE stays canonical; UOM only
+    // governs what the operator MEANT by the two display inputs.
+    const launchSelection = [
+      selectedSourceWarehouseId, selectedVehicleId, selectedZoneId, selectedDriverId,
+    ].join(":");
+    const stillSelected = () => launchSelection === [
+      choicesRef.current.sourceWarehouse, choicesRef.current.vehicle,
+      choicesRef.current.launchZone, choicesRef.current.driver,
+    ].join(":");
+    if (!stillSelected()) return;
+    try {
+      const relevantIds = [...new Set([
+        ...Object.keys(routeLoadCurrent), ...Object.keys(routeLoadTargets),
+      ])];
+      for (let offset = 0; offset < relevantIds.length; offset += 100) {
+        const chunk = relevantIds.slice(offset, offset + 100);
+        const params = new URLSearchParams({ vehicle_id: selectedVehicleId });
+        for (const id of chunk) params.append("product_ids", id);
+        const latest = parseRouteLoadUomWindow(await authenticatedFetch(
+          `/dispatch/route-load/uom?${params.toString()}`, { cache: "no-store" },
+        ));
+        if (!admitted() || !stillSelected()) return;
+        const changed = chunk.filter(id =>
+          !latest[id] || !routeLoadUnits[id] ||
+          routeLoadUomIdentity(latest[id]) !== routeLoadUomIdentity(routeLoadUnits[id]));
+        if (changed.length) {
+          clearRouteLoadDraft(actorScope, selectedSourceWarehouseId,
+            selectedVehicleId, selectedZoneId, selectedDriverId);
+          setRouteLoadTargets(previous => Object.fromEntries(Object.entries(previous).map(
+            ([id, value]) => [id, changed.includes(id) ? INVALID_ROUTE_LOAD_TARGET : value],
+          )));
+          setRouteLoadUnits(previous => ({ ...previous, ...latest }));
+          toast.error(t("dispatchRouteLoad.conversionChanged"));
+          return;
+        }
+      }
+    } catch (error) {
+      if (admitted() && stillSelected()) {
+        toast.error(apiErrorMessage(error, t("dispatchRouteLoad.invalid")));
+      }
+      return;
+    }
+    if (!admitted() || !stillSelected()) return;
     try {
       const intent = routeLaunchIntent({
         zone_id: selectedZoneId,
@@ -2222,12 +2268,17 @@ function DispatchSession() {
                 units={presentationProductScope && vehicleCustodyReady ? routeLoadUnits : {}}
                 names={presentationProductScope && vehicleCustodyReady ? routeLoadNames : {}}
                 custodyReady={vehicleCustodyReady} commandReady={commandsAdmitted && vehicleCustodyReady}
-                actionsHost={launchActionsHost}
+                actionsHost={launchActionsHost} intentScope={`${selectedZoneId}:${selectedDriverId}`}
                 onClear={() => setRouteLoadTargets({})}
                 onRestoreClear={(previous) => {
                   if (commandsAdmitted && vehicleCustodyReady) setRouteLoadTargets(previous);
                 }}
                 onTargetChange={(id, name, unit, value) => {
+                  if (value === INVALID_ROUTE_LOAD_TARGET && actorScope) {
+                    // An invalid typed draft must not resurrect an older valid stored command.
+                    clearRouteLoadDraft(actorScope, selectedSourceWarehouseId,
+                      selectedVehicleId, selectedZoneId, selectedDriverId);
+                  }
                   setRouteLoadTargets((previous) => ({ ...previous, [id]: value }));
                   setRouteLoadUnits((previous) => ({ ...previous, [id]: unit }));
                   setRouteLoadNames((previous) => ({ ...previous, [id]: name }));
@@ -2239,7 +2290,8 @@ function DispatchSession() {
                 <div className="flex items-center justify-end">
                   <button
                     disabled={!commandsAdmitted || !launchResourcesReady || !readParts.shops || !canLaunch || !commercialPreflight.canLaunch || routeLaunch.busy ||
-                      routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner)}
+                      routeLaunch.hasUnresolved || Boolean(routeLaunchPendingOwner) ||
+                      Object.values(routeLoadTargets).some(value => value === INVALID_ROUTE_LOAD_TARGET)}
                     onClick={() => { void handleDispatchRoute(); }}
                     className="pointer-events-auto inline-flex min-h-11 w-auto max-w-full items-center justify-center gap-2 rounded-lg bg-[#1e87bb] px-5 py-2 text-sm font-extrabold text-white shadow-lg hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb] focus-visible:ring-offset-2"
                   >

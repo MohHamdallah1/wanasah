@@ -95,8 +95,8 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   await pick("warehouses", "Warehouse one");
   await screen.findByText("Eligible source B");
   await screen.findByText("Current A, zero source stock");
-  await waitFor(() => expect(screen.getByRole("textbox", { name: /Target.*Eligible source B/ })).not.toBeDisabled());
-  fireEvent.change(screen.getByRole("textbox", { name: /Target.*Eligible source B/ }), { target: { value: "5" } });
+  await waitFor(() => expect(screen.getByRole("textbox", { name: /Target.*Eligible source B.*EACH/ })).not.toBeDisabled());
+  fireEvent.change(screen.getByRole("textbox", { name: /Target.*Eligible source B.*EACH/ }), { target: { value: "5" } });
   fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "filter" } });
   await waitFor(() => expect(fake.fetch.mock.calls.some(([url]) => url.includes("search=filter"))).toBe(true));
 
@@ -119,11 +119,11 @@ it("reloads custody and the blank stock page on Warehouse/Vehicle changes, clear
   await screen.findByText("New Warehouse stock");
   await screen.findByText("Current vehicle two");
   // A newly selected, authorized Vehicle is editable with an empty zero-equivalent draft.
-  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).not.toBeDisabled();
+  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock.*EACH/ })).not.toBeDisabled();
   await act(async () => finishOld([custody("521", "Stale old custody")]));
   expect(screen.queryByText("Stale old custody")).not.toBeInTheDocument();
   expect(screen.queryByText("Eligible source B")).not.toBeInTheDocument();
-  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock/ })).toHaveValue("");
+  expect(screen.getByRole("textbox", { name: /Target.*New Warehouse stock.*EACH/ })).toHaveValue("");
   const requests = fake.fetch.mock.calls.filter(([url]) => url.startsWith("/dispatch/products?")).map(([url]) => url);
   expect(requests.some((url) => url.includes("vehicle_id=18&warehouse_id=22&search=&limit=80"))).toBe(true);
   expect(requests.filter((url) => url.includes("warehouse_id=22")).every((url) => !url.includes("cursor="))).toBe(true);

@@ -352,6 +352,7 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
       if (path === "/dispatch/active_routes" || path === "/dispatch/shortages") return [];
       if (path.startsWith("/dispatch/inventory/")) return custody;
       if (path.startsWith("/dispatch/products?")) return page;
+      if (path.startsWith("/dispatch/route-load/uom?")) return { "44": unit };
       if (path.startsWith("/warehouse/status")) return { is_locked: false };
       if (path.startsWith("/dispatch/route/commercial-preflight?")) return {
         ready: true, advisory: true, currency_code: "QAR",
@@ -382,8 +383,11 @@ describe("D07 live DispatchBoard launch at 390px (D05/D09/D10 kept)", () => {
 
     render(<MemoryRouter initialEntries={["/dispatch"]}><DispatchBoard /></MemoryRouter>);
     await screen.findByText("Chips");
-    const target = await screen.findByRole("textbox", { name: /Chips/ });
+    const display = await screen.findByRole("textbox", { name: /Chips.*PACK/ });
+    const target = await screen.findByRole("textbox", { name: /Chips.*EACH/ });
     await waitFor(() => expect(target).not.toBeDisabled());
+    // Canonical target = 0 PACK + 5 BASE, never 3 existing PACK + 5 BASE.
+    fireEvent.change(display, { target: { value: "" } });
     fireEvent.change(target, { target: { value: "5" } });
     const launch = screen.getByRole("button", { name: language === "ar" ? "اعتماد وإطلاق خط السير" : "Confirm and launch route" });
     await waitFor(() => expect(launch).not.toBeDisabled());
