@@ -204,6 +204,7 @@ async def test_new_field_routes_reject_dashboard_channel_before_business_reads()
             ("GET", "/visits/11/invoice", None),
             ("GET", "/visits/11/commercial-state", None),
             ("GET", "/driver/custody", None),
+            ("GET", "/driver/vehicle-stock", None),
         ]:
             response = await client.request(method, path, json=body)
             assert response.status_code == 401, response.text

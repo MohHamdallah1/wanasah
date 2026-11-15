@@ -139,10 +139,14 @@ CASES = [
     {
         "method": "GET",
         "path": "/driver/custody",
-        "codes": [
-            "inventory.read"
-        ],
+        "codes": ["inventory.read"],
         "name": "get_field_custody"
+    },
+    {
+        "method": "GET",
+        "path": "/driver/vehicle-stock",
+        "codes": ["inventory.read"],
+        "name": "get_field_vehicle_stock"
     },
     {
         "method": "POST",

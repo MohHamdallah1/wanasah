@@ -112,6 +112,7 @@ MANIFEST=[
         "/driver/custody",
         "get_field_custody"
     ],
+    ["GET", "/driver/vehicle-stock", "get_field_vehicle_stock"],
     [
         "POST",
         "/driver/session/{session_id}/reconcile",
