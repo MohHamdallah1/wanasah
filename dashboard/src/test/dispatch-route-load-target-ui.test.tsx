@@ -177,7 +177,7 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     expect(changed).not.toHaveBeenCalled();
   });
 
-  it("arrow navigation stays in the SAME input kind; Clear+Undo restore exact BASE", async () => {
+  it("vertical arrows visit EVERY product: large UOM falls back to base-only and Clear+Undo stay exact", async () => {
     render(<Fixture rows={[
       item("PACK","8","25","25","1000"),
       item(null,null,"5","5","1001"),
@@ -186,11 +186,16 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     await ready();
     expect(input("display","1001")).toBeNull();
     fireEvent.keyDown(input("display","1000")!,{key:"ArrowDown"});
-    expect(input("display","1002")).toHaveFocus();
-    fireEvent.keyDown(input("display","1002")!,{key:"ArrowUp"});
-    expect(input("display","1000")).toHaveFocus();
-    fireEvent.keyDown(input("base","1000")!,{key:"ArrowDown"});
+    expect(input("base","1001")).toHaveFocus(); // don't skip base-only SKU
+    fireEvent.keyDown(input("base","1001")!,{key:"ArrowDown"});
+    expect(input("base","1002")).toHaveFocus();
+    fireEvent.keyDown(input("base","1002")!,{key:"ArrowUp"});
     expect(input("base","1001")).toHaveFocus();
+    input("display","1002")!.focus();
+    fireEvent.keyDown(input("display","1002")!,{key:"ArrowUp"});
+    expect(input("base","1001")).toHaveFocus();
+    fireEvent.keyDown(input("base","1001")!,{key:"ArrowUp"});
+    expect(input("base","1000")).toHaveFocus();
     expect(input("display")).toHaveAttribute("autocomplete","off");
     expect(screen.getByRole("table").querySelectorAll("colgroup col")).toHaveLength(6);
     fireEvent.click(screen.getByRole("button",{name:"Clear all"}));
@@ -253,7 +258,9 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     expect(input("base", "1001")).toHaveFocus();
     large.focus();
     fireEvent.keyDown(large, { key: "ArrowDown" });
-    expect(input("display", "1002")).toHaveFocus();
+    expect(input("base", "1001")).toHaveFocus(); // RTL too: never skip base-only row
+    fireEvent.keyDown(input("base", "1001")!, { key: "ArrowDown" });
+    expect(input("base", "1002")).toHaveFocus();
   });
 
   it("keeps fields and Clear-all visually stable during signed command revalidation", async () => {

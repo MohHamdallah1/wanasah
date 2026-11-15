@@ -191,11 +191,27 @@ describe("Dispatch cursor pickers", () => {
     fireEvent.change(firstDisplay, { target: { value: "3" } });
     expect(changed).toHaveBeenLastCalledWith("2000", "25");
 
+    // A deep edited row must stay in its signed warehouse position and keep
+    // the EXACT input DOM node/focus (no jump to a draft-only pinned top).
+    const deepInput = container.querySelector<HTMLInputElement>("#route-base-2069")!;
+    const deepRow = deepInput.closest("tr")!;
+    const rowBefore = [...container.querySelectorAll("tr[data-product-id]")].indexOf(deepRow);
+    expect(rowBefore).toBe(69);
+    expect(deepRow.firstElementChild).toHaveTextContent("70");
+    deepInput.focus();
+    fireEvent.change(deepInput, { target: { value: "7" } });
+    expect(changed).toHaveBeenLastCalledWith("2069", "7");
+    expect(container.querySelector("#route-base-2069")).toBe(deepInput);
+    expect(deepInput).toHaveFocus();
+    expect([...container.querySelectorAll("tr[data-product-id]")].indexOf(deepRow)).toBe(rowBefore);
+    expect(deepRow.firstElementChild).toHaveTextContent("70");
+
     for (const expected of [160, 240, 320, 400, 480, 500]) {
       await intersectWindowBoundary("bottom");
       await screen.findByText(`Window ${expected}`);
     }
-    expect(screen.getByText("Window 1")).toBeVisible(); // selected target is pinned
+    expect(screen.getByText("Window 1")).toBeVisible(); // selected target pinned AFTER eviction
+    expect(screen.getByText("Window 70")).toBeVisible(); // deep edited target survives eviction
     expect(screen.queryByText("Window 2")).not.toBeInTheDocument(); // old unselected page was evicted
     expect(screen.getByText("Window 500")).toBeVisible();
     expect(screen.getByText("Window 500").closest("tr")?.firstElementChild).toHaveTextContent("500");

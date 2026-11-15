@@ -53,21 +53,29 @@ export function RouteLoadProductTable({
     ? `/dispatch/products?purpose=LOAD&vehicle_id=${encodeURIComponent(vehicleId)}&warehouse_id=${encodeURIComponent(warehouseId)}`
     : null;
   const page = useDispatchProductWindow(endpoint, search, scope);
-  // Real vehicle/draft products appear first when unfiltered, but must not
-  // bypass a typed search. Search eligibility and SKU access remain backend-owned.
-  const pinned: DispatchDiscoveryProduct[] = [...new Set([...Object.keys(current), ...Object.keys(targets)])]
+  // Vehicle custody stays pinned for operator visibility. A target entered
+  // into an already VISIBLE discovery row does NOT promote that row to the top:
+  // moving its DOM element on each keystroke steals focus and scroll position.
+  // When its bounded window is later evicted, the target becomes a pin again
+  // so no edited draft is lost. Neither rule changes signed product eligibility.
+  const referencedIds = [...new Set([...Object.keys(current), ...Object.keys(targets)])];
+  const referencedSet = new Set(referencedIds);
+  const visibleDiscoveryIds = new Set(page.items.map((product) => product.id));
+  const pinned: DispatchDiscoveryProduct[] = referencedIds
+    .filter((id) => Object.prototype.hasOwnProperty.call(current, id) || !visibleDiscoveryIds.has(id))
     .map((id) => ({ id, name: names[id] || t("dispatchProductSearch.unavailable"), load: null }))
     .filter((product) => matchesLoadPinnedProduct(product.name, search));
   const pinnedIds = useMemo(() => new Set(pinned.map((product) => product.id)), [pinned]);
-  // Retain ONLY the page index of products pinned while scrolling. This lets
-  // numbers stay contiguous after a page is evicted without keeping 50k SKUs.
+  // Remember the bounded page of ANY referenced row, including edits that
+  // remain in place while visible. This is required for accurate 50k numbering
+  // after a later window eviction promotes that draft to a retained pin.
   const numberedPinsRef = useRef({ key: "", byId: new Map<string, number>() });
   if (numberedPinsRef.current.key !== page.queryKey) {
     numberedPinsRef.current = { key: page.queryKey, byId: new Map<string, number>() };
   }
   for (const windowPage of page.pages) {
     for (const product of windowPage.items) {
-      if (pinnedIds.has(product.id)) numberedPinsRef.current.byId.set(product.id, windowPage.index);
+      if (referencedSet.has(product.id)) numberedPinsRef.current.byId.set(product.id, windowPage.index);
     }
   }
   const numberedPages = page.pages.map((windowPage) => {
@@ -144,11 +152,21 @@ export function RouteLoadProductTable({
 
     let next: HTMLInputElement | null | undefined;
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      const candidates = Array.from(origin.closest("table")?.querySelectorAll<HTMLInputElement>(
-        'input[data-route-target-input="' + kind + '"]:not(:disabled)',
+      // Travel one PRODUCT row at a time, not one matching-input column at a
+      // time. A base-only SKU must not be skipped from a large-UOM input.
+      const rows = Array.from(origin.closest("table")?.querySelectorAll<HTMLTableRowElement>(
+        "tr[data-product-id]",
       ) ?? []);
-      const position = candidates.indexOf(origin);
-      next = candidates[position + (event.key === "ArrowDown" ? 1 : -1)];
+      const position = rows.indexOf(origin.closest("tr") as HTMLTableRowElement);
+      const step = event.key === "ArrowDown" ? 1 : -1;
+      for (let index = position + step; index >= 0 && index < rows.length; index += step) {
+        next = rows[index].querySelector<HTMLInputElement>(
+          'input[data-route-target-input="' + kind + '"]:not(:disabled)',
+        ) ?? (kind === "display" ? rows[index].querySelector<HTMLInputElement>(
+          'input[data-route-target-input="base"]:not(:disabled)',
+        ) : null);
+        if (next) break;
+      }
     } else {
       // Pair uses RTL flex order in Arabic and LTR otherwise; numbers remain LTR.
       // Arrow direction means the VISUALLY adjacent column.
