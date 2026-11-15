@@ -8,6 +8,7 @@ import '../../features/custody/domain/pending_transfer.dart';
 import '../../features/custody/domain/non_sellable_custody.dart';
 import '../../features/custody/domain/stock_disclosure.dart';
 import '../../features/custody/domain/pending_return_custody.dart';
+import '../../features/custody/domain/vehicle_route_authority.dart';
 import '../../features/work_session/application/work_session_action_issue.dart';
 
 abstract class DashboardState extends Equatable {
@@ -72,6 +73,7 @@ class DashboardLoaded extends DashboardState {
   final List<NonSellableCustodyItem> nonSellableCustody;
   final StockDisclosure sellableStockDisclosure;
   final StockDisclosure nonSellableStockDisclosure;
+  final VehicleRouteAuthority vehicleRoute;
   final List<PendingReturnCustodyItem> pendingReturnCustody;
   // +++  لـ Bug 1: دمج رسالة النجاح كمتغير لحظي لمنع انهيار الشاشة +++
   final String? actionSuccessMessage;
@@ -101,6 +103,7 @@ class DashboardLoaded extends DashboardState {
     this.nonSellableCustody = const <NonSellableCustodyItem>[],
     this.sellableStockDisclosure = StockDisclosure.unavailable,
     this.nonSellableStockDisclosure = StockDisclosure.unavailable,
+    this.vehicleRoute = const VehicleRouteAuthority.unverified(),
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
     this.actionSuccessMessage,
     this.workSessionIssue,
@@ -131,6 +134,7 @@ class DashboardLoaded extends DashboardState {
     nonSellableCustody,
     sellableStockDisclosure,
     nonSellableStockDisclosure,
+    vehicleRoute,
     pendingReturnCustody,
     actionSuccessMessage,
     workSessionIssue,
@@ -161,6 +165,7 @@ class DashboardLoaded extends DashboardState {
     List<NonSellableCustodyItem>? nonSellableCustody,
     StockDisclosure? sellableStockDisclosure,
     StockDisclosure? nonSellableStockDisclosure,
+    VehicleRouteAuthority? vehicleRoute,
     List<PendingReturnCustodyItem>? pendingReturnCustody,
     String? actionSuccessMessage,
     WorkSessionActionIssue? workSessionIssue,
@@ -177,7 +182,8 @@ class DashboardLoaded extends DashboardState {
       completedVisits: completedVisits ?? this.completedVisits,
       pendingVisits: pendingVisits ?? this.pendingVisits,
       offlineVisits: offlineVisits ?? this.offlineVisits,
-      quarantinedVisits: quarantinedVisits ?? this.quarantinedVisits, // +++ التعيين +++
+      quarantinedVisits:
+          quarantinedVisits ?? this.quarantinedVisits, // +++ التعيين +++
       salesInCompleted: salesInCompleted ?? this.salesInCompleted,
       driverName: driverName ?? this.driverName,
       assignedRegion: assignedRegion ?? this.assignedRegion,
@@ -197,14 +203,13 @@ class DashboardLoaded extends DashboardState {
           clearPendingTransfer
               ? null
               : (pendingTransfer ?? this.pendingTransfer),
-      nonSellableCustody:
-          nonSellableCustody ?? this.nonSellableCustody,
+      nonSellableCustody: nonSellableCustody ?? this.nonSellableCustody,
       sellableStockDisclosure:
           sellableStockDisclosure ?? this.sellableStockDisclosure,
       nonSellableStockDisclosure:
           nonSellableStockDisclosure ?? this.nonSellableStockDisclosure,
-      pendingReturnCustody:
-          pendingReturnCustody ?? this.pendingReturnCustody,
+      vehicleRoute: vehicleRoute ?? this.vehicleRoute,
+      pendingReturnCustody: pendingReturnCustody ?? this.pendingReturnCustody,
       actionSuccessMessage:
           clearActionMessage
               ? null

@@ -15,6 +15,7 @@ import 'package:wanasah_frontend/features/custody/domain/non_sellable_custody.da
 import 'package:wanasah_frontend/features/custody/domain/pending_return_custody.dart';
 import 'package:wanasah_frontend/features/custody/domain/stock_disclosure.dart';
 import 'package:wanasah_frontend/features/custody/presentation/vehicle_inventory_section.dart';
+import 'package:wanasah_frontend/features/custody/presentation/current_vehicle_stock_section.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_reader.dart';
 import 'package:wanasah_frontend/features/recovery/application/recovery_sync_coordinator.dart';
 import 'package:wanasah_frontend/features/recovery/data/recovery_data_source.dart';
@@ -105,9 +106,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('shell-tab-custody')));
       await tester.pumpAndSettle();
       expect(find.byType(VehicleInventorySection), findsOneWidget);
+      expect(find.byType(CurrentVehicleStockSection), findsOneWidget);
       expect(find.text('مرتجعات محلية بانتظار الحسم:'), findsOneWidget);
-      expect(find.text('عهدة غير قابلة للبيع:'), findsOneWidget);
-      expect(find.text('مياه شرب'), findsOneWidget);
+      expect(find.text('عهدة غير قابلة للبيع:'), findsNothing);
+      expect(find.text('مياه شرب'), findsNothing);
       expect(executor.calls, 0);
       await _capture(tester, boundary, 'custody-rtl');
 

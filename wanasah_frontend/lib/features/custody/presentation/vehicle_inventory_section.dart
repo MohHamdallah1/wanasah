@@ -13,6 +13,7 @@ class VehicleInventorySection extends StatelessWidget {
     this.pendingReturnCustody = const <PendingReturnCustodyItem>[],
     this.sellableDisclosure = StockDisclosure.unavailable,
     this.nonSellableDisclosure = StockDisclosure.unavailable,
+    this.showStock = true,
     super.key,
   });
 
@@ -21,6 +22,9 @@ class VehicleInventorySection extends StatelessWidget {
   final List<PendingReturnCustodyItem> pendingReturnCustody;
   final StockDisclosure sellableDisclosure;
   final StockDisclosure nonSellableDisclosure;
+  // Retain the durable pending-return evidence without rendering the old
+  // session-projection stock as if it were physical current on-hand.
+  final bool showStock;
 
   @override
   Widget build(BuildContext context) {
@@ -28,88 +32,91 @@ class VehicleInventorySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          l10n.stockVehicleTitle,
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 12),
-        if (sellableDisclosure != StockDisclosure.verified)
-          _disclosureNotice(context, sellableDisclosure, l10n),
-        if (products.isEmpty && sellableDisclosure == StockDisclosure.verified)
-          Container(
-            padding: const EdgeInsets.all(16.0),
-            decoration: BoxDecoration(
-              color: Colors.red[50],
-              borderRadius: BorderRadius.circular(8.0),
-              border: Border.all(color: Colors.red.shade200),
-            ),
-            child: Center(
-              child: Text(
-                l10n.stockEmptyVerified,
-                style: const TextStyle(
-                  fontSize: 16,
-                  color: Colors.red,
-                  fontWeight: FontWeight.bold,
+        if (showStock) ...[
+          Text(
+            l10n.stockVehicleTitle,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          if (sellableDisclosure != StockDisclosure.verified)
+            _disclosureNotice(context, sellableDisclosure, l10n),
+          if (products.isEmpty &&
+              sellableDisclosure == StockDisclosure.verified)
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(8.0),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Center(
+                child: Text(
+                  l10n.stockEmptyVerified,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ),
-          ),
-        if (products.isNotEmpty &&
-            (sellableDisclosure == StockDisclosure.verified ||
-                sellableDisclosure == StockDisclosure.stale))
-          ...products.map(
-            (item) => Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
-              child: Container(
-                padding: const EdgeInsets.all(12.0),
-                decoration: BoxDecoration(
-                  color: Colors.grey[100],
-                  borderRadius: BorderRadius.circular(8.0),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.name,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${l10n.stockReceived}: ${item.startingCartons} ${l10n.stockCarton}'
-                          "${item.startingPacks > 0 ? ' + ${item.startingPacks} ${l10n.stockPiece}' : ''}",
-                          style: const TextStyle(fontSize: 14),
+          if (products.isNotEmpty &&
+              (sellableDisclosure == StockDisclosure.verified ||
+                  sellableDisclosure == StockDisclosure.stale))
+            ...products.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Container(
+                  padding: const EdgeInsets.all(12.0),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(8.0),
+                    border: Border.all(color: Colors.grey.shade300),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
-                        Text(
-                          '${l10n.stockSold}: ${item.soldCartons} ${l10n.stockCarton}, ${item.soldPacks} ${l10n.stockPiece}',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.green[700],
-                            fontWeight: FontWeight.bold,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${l10n.stockReceived}: ${item.startingCartons} ${l10n.stockCarton}'
+                            "${item.startingPacks > 0 ? ' + ${item.startingPacks} ${l10n.stockPiece}' : ''}",
+                            style: const TextStyle(fontSize: 14),
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${l10n.stockRemaining}: ${item.currentCartons} ${l10n.stockCarton}, ${item.currentPacks} ${l10n.stockPack}',
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.blueAccent,
+                          Text(
+                            '${l10n.stockSold}: ${item.soldCartons} ${l10n.stockCarton}, ${item.soldPacks} ${l10n.stockPiece}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.green[700],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        '${l10n.stockRemaining}: ${item.currentCartons} ${l10n.stockCarton}, ${item.currentPacks} ${l10n.stockPack}',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
+        ],
         if (pendingReturnCustody.isNotEmpty) ...[
           const SizedBox(height: 12),
           Text(
@@ -176,55 +183,60 @@ class VehicleInventorySection extends StatelessWidget {
             ),
           ),
         ],
-        // Two independent read scopes, but identical failures are one notice.
-        if (nonSellableDisclosure != StockDisclosure.verified &&
-            nonSellableDisclosure != sellableDisclosure)
-          _disclosureNotice(context, nonSellableDisclosure, l10n),
-        if (nonSellableCustody.isNotEmpty &&
-            (nonSellableDisclosure == StockDisclosure.verified ||
-                nonSellableDisclosure == StockDisclosure.stale)) ...[
-          const SizedBox(height: 12),
-          Text(
-            l10n.stockNonSellableTitle,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          ...nonSellableCustody.map(
-            (item) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.orange.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.orange.shade200),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.inventory_2_outlined, color: Colors.orange),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.productName,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          _statusLabel(item.status, l10n),
-                          style: const TextStyle(fontSize: 12),
-                        ),
-                      ],
+        if (showStock) ...[
+          // Two independent read scopes, but identical failures are one notice.
+          if (nonSellableDisclosure != StockDisclosure.verified &&
+              nonSellableDisclosure != sellableDisclosure)
+            _disclosureNotice(context, nonSellableDisclosure, l10n),
+          if (nonSellableCustody.isNotEmpty &&
+              (nonSellableDisclosure == StockDisclosure.verified ||
+                  nonSellableDisclosure == StockDisclosure.stale)) ...[
+            const SizedBox(height: 12),
+            Text(
+              l10n.stockNonSellableTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 8),
+            ...nonSellableCustody.map(
+              (item) => Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.inventory_2_outlined,
+                      color: Colors.orange,
                     ),
-                  ),
-                  Text(
-                    '${item.quantity} ${item.uomCode}',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.productName,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            _statusLabel(item.status, l10n),
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${item.quantity} ${item.uomCode}',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
+          ],
         ],
         const SizedBox(height: 20),
       ],
