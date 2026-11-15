@@ -682,6 +682,15 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          # #1035: exact owner-approved route-load input navigation and
+          # unchanging disabled presentation during signed revalidation.
+          # No DispatchBoard/command/stock authority edits are permitted.
+          launch_target_1035_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/test/dispatch-route-load-target-ui.test.tsx",
+          }
+          assert len(launch_target_1035_exact) == 3
           # #1020: one audited FIELD current-vehicle-stock integration scope.
           # This adds exactly the signed route evidence + Flutter consumer and
           # focused two-principal PG16 assertion, WITHOUT widening any prior
@@ -715,6 +724,8 @@ jobs:
               "dashboard/src/pages/inventory/batches/BatchMetadataCorrectionPanel.tsx",
           }
           def ownership_mode(candidate):
+              if candidate == launch_target_1035_exact:
+                  return "LAUNCH_TARGET_1035_EXACT"
               if candidate & batch_773_unique:
                   assert candidate == batch_773_final_exact, (
                       f"BATCH773_FINAL_1034_EXACT=FAIL "
@@ -880,6 +891,29 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          # #1035: visible keyboard grid + stable styles only. Deny every
+          # incomplete file set and any unrelated/backoffice/stock code.
+          assert ownership_mode(launch_target_1035_exact) == "LAUNCH_TARGET_1035_EXACT"
+          for missing in launch_target_1035_exact:
+              try:
+                  result = ownership_mode(launch_target_1035_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_TARGET_1035_EXACT", missing
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/routeLoadUom.ts",
+              "wa_backend/api/dispatch.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  result = ownership_mode(launch_target_1035_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_TARGET_1035_EXACT", foreign
+          print("LAUNCH_TARGET_1035_EXACT_SCOPE=PASS")
           assert ownership_mode(batch_773_final_exact) == "BATCH773_FINAL_1034_EXACT"
           batch_773_final_module["selftest"]()
           for missing in batch_773_final_exact:

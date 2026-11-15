@@ -199,4 +199,94 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     expect(base()).toBe("25");
     expect(input("display","1002")).toHaveValue("25");
   });
+
+  it("uses horizontal visual arrows within a row, without hijacking numeric caret editing", async () => {
+    render(<Fixture rows={[
+      item("CARTON", "50", "1253", "1253", "1000"),
+      item(null, null, "5", "5", "1001"),
+    ]} />);
+    await ready();
+    const large = input("display", "1000")!;
+    const each = input("base", "1000")!;
+    large.focus();
+    large.setSelectionRange(1, 1);
+    fireEvent.keyDown(large, { key: "ArrowRight" });
+    expect(large).toHaveFocus(); // still editing inside "25" instead of navigating
+
+    large.setSelectionRange(large.value.length, large.value.length);
+    fireEvent.keyDown(large, { key: "ArrowRight" });
+    expect(each).toHaveFocus();
+    each.setSelectionRange(0, 0);
+    fireEvent.keyDown(each, { key: "ArrowLeft" });
+    expect(large).toHaveFocus();
+
+    large.setSelectionRange(large.value.length, large.value.length);
+    fireEvent.keyDown(large, { key: "ArrowRight", ctrlKey: true });
+    expect(large).toHaveFocus(); // browser word navigation remains native
+
+    const onlyEach = input("base", "1001")!;
+    onlyEach.focus();
+    onlyEach.select();
+    fireEvent.keyDown(onlyEach, { key: "ArrowLeft" });
+    expect(onlyEach).toHaveFocus(); // no nonexistent large-unit input
+  });
+
+  it("treats horizontal keys as VISUAL right/left in RTL, not DOM or numeric direction", async () => {
+    await setAppLanguage("ar");
+    render(<Fixture rows={[
+      item("CARTON", "50", "1253", "1253", "1000"),
+      item(null, null, "5", "5", "1001"),
+      item("PACK", "8", "25", "25", "1002"),
+    ]} />);
+    await ready();
+    const large = input("display", "1000")!;
+    const each = input("base", "1000")!;
+    expect(large.closest('[dir="rtl"]')).not.toBeNull();
+    each.focus();
+    each.select();
+    fireEvent.keyDown(each, { key: "ArrowRight" }); // visual right = large
+    expect(large).toHaveFocus();
+    large.select();
+    fireEvent.keyDown(large, { key: "ArrowLeft" }); // visual left = each
+    expect(each).toHaveFocus();
+    fireEvent.keyDown(each, { key: "ArrowDown" });
+    expect(input("base", "1001")).toHaveFocus();
+    large.focus();
+    fireEvent.keyDown(large, { key: "ArrowDown" });
+    expect(input("display", "1002")).toHaveFocus();
+  });
+
+  it("keeps fields and Clear-all visually stable during signed command revalidation", async () => {
+    const onClear = vi.fn();
+    const props = {
+      scope: "1:3:4", vehicleId: "17", warehouseId: "21",
+      intentScope: "zone1:driver1",
+      current: { "1000": "1253" }, targets: { "1000": "1253" },
+      units: { "1000": unit("CARTON", "50") },
+      names: { "1000": "SKU 1000" },
+      onClear, onRestoreClear: vi.fn(), onTargetChange: vi.fn(),
+    };
+    const view = render(<RouteLoadProductTable {...props} commandReady={false} />);
+    await ready();
+    const each = input("base")!;
+    const large = input("display")!;
+    const clear = screen.getByRole("button", { name: "Clear all" });
+    const classes = [each.className, large.className, clear.className];
+    expect(each).toBeDisabled();
+    expect(large).toBeDisabled();
+    expect(clear).toBeDisabled();
+    expect(each.className).not.toContain("disabled:bg-slate-100");
+    expect(large.className).not.toContain("disabled:bg-slate-100");
+    expect(clear.className).not.toContain("disabled:opacity-40");
+    fireEvent.click(clear);
+    expect(onClear).not.toHaveBeenCalled(); // no unauthorized local edit
+
+    view.rerender(<RouteLoadProductTable {...props} commandReady />);
+    expect(each).toBeEnabled();
+    expect(large).toBeEnabled();
+    expect(clear).toBeEnabled();
+    expect([each.className, large.className, clear.className]).toEqual(classes);
+    fireEvent.click(clear);
+    expect(onClear).toHaveBeenCalledTimes(1);
+  });
 });
