@@ -473,7 +473,7 @@ export function OperationsSidebar({
                       ? t(item.labelKey)
                       : undefined
                   }
-                  className={`operations-nav-item flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-none ${
+                  className={`operations-nav-item flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
                     collapsed
                       ? "lg:justify-center lg:gap-0 lg:px-0"
                       : ""

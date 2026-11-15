@@ -305,6 +305,8 @@ jobs:
           }
           assert len(stocktake_cancel_997) == 3
           recovery_1005 = __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["STOCKTAKE_RECOVERY_1005_FILES"]
+          zero_1026_module = __import__("runpy").run_path(".github/scripts/stocktake_zero_flash_1026_scope.py")
+          zero_1026 = zero_1026_module["STOCKTAKE_ZERO_FLASH_1026_FILES"]
           valid_scopes = {
               frozenset(discovered_764): "DISCOVERED_764",
               frozenset(keyboard_776): "VISIBLE_COUNT_KEYBOARD_776",
@@ -328,6 +330,7 @@ jobs:
               frozenset(cursor_808): "CURSOR_BIGINT_808_EXACT",
               frozenset(stocktake_cancel_997): "STOCKTAKE_CANCEL_997_CANONICAL_PASSWORD",
               frozenset(recovery_1005): "SERVER_STOCKTAKE_RECOVERY_1005",
+              frozenset(zero_1026): "ZERO_FLASH_STOCKTAKE_1026",
           }
           foreign_paths = (
               "dashboard/src/pages/inventory/Tab4Ledger.tsx",
@@ -356,7 +359,7 @@ jobs:
               matched = valid_scopes.get(frozenset(files))
               assert matched is not None, {
                   "error": "STOCKTAKE_OWNER_SCOPE_V1_FAIL",
-                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799 - cursor_808 - stocktake_cancel_997 - recovery_1005),
+                  "unexpected": sorted(files - discovered_764 - keyboard_776 - review_779 - http_778 - ci_782 - operator_784 - ci_compat_784 - shell_789 - workspace_788 - final_ci_782 - compact_791 - dialog_792 - bridge_793 - uom_794 - fast_795 - ci_796 - review_bidi_797 - recount_798 - history_799 - ci_compat_798_799 - cursor_808 - stocktake_cancel_997 - recovery_1005 - zero_1026),
                   "changed": sorted(files),
               }
               for foreign in foreign_paths:
@@ -364,6 +367,8 @@ jobs:
               return matched
 
           assert verify_owner_scope("pull_request", recovery_1005) == "SERVER_STOCKTAKE_RECOVERY_1005"
+          assert verify_owner_scope("pull_request", zero_1026) == "ZERO_FLASH_STOCKTAKE_1026"
+          zero_1026_module["selftest"]()
           # All negative subset/foreign probes are owned by the one shared
           # immutable #1005 manifest, not duplicated by each workflow.
           __import__("runpy").run_path(".github/scripts/stocktake_recovery_1005_scope.py")["selftest"]()

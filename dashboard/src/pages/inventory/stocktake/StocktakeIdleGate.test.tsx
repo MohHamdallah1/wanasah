@@ -19,12 +19,19 @@ vi.mock("./uiCopy", () => ({
 describe("Stocktake immediate shell and signed start fence", () => {
   it("keeps the start surface mounted and rejects clicks until the current warehouse read is verified", () => {
     const onStart = vi.fn();
-    const view = render(<StocktakeIdlePanel onStart={onStart} disabled />);
+    let verified = false;
+    const openVerified = () => { if (verified) onStart(); };
+    const view = render(
+      <fieldset disabled><StocktakeIdlePanel onStart={openVerified} /></fieldset>,
+    );
     const button = screen.getByRole("button", { name: "Start a full stocktake" });
     expect(button).toBeDisabled();
     fireEvent.click(button);
     expect(onStart).not.toHaveBeenCalled();
-    view.rerender(<StocktakeIdlePanel onStart={onStart} disabled={false} />);
+    verified = true;
+    view.rerender(
+      <fieldset disabled={false}><StocktakeIdlePanel onStart={openVerified} /></fieldset>,
+    );
     expect(screen.getByRole("button", { name: "Start a full stocktake" })).toBe(button);
     expect(button).toBeEnabled();
     fireEvent.click(button);

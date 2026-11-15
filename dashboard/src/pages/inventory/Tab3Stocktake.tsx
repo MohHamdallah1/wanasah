@@ -390,12 +390,22 @@ export function Tab3Stocktake({
               </section>
             )}
             {canReadStocktake && !sessionsLoadFailed &&
-              (activeServerCount === null || activeServerCount === 0) &&
+              activeServerCount !== 1 &&
               !isAuditLocked && warehouseAccess.can("stocktake.start") && (
-              <StocktakeIdlePanel
-                disabled={!serverSessionsVerified || sessionsLoading}
-                onStart={() => setShowLockModal(true)}
-              />
+              <fieldset
+                disabled={!serverSessionsVerified || sessionsLoading || activeServerCount !== 0}
+                className="flex min-h-0 flex-1 flex-col border-0 p-0"
+              >
+                <StocktakeIdlePanel
+                  onStart={() => {
+                    // DOM-disabled also rejects real pointer/keyboard input,
+                    // while this logical guard protects programmatic dispatch.
+                    if (!serverSessionsVerified || sessionsLoading ||
+                        sessionsLoadFailed || activeServerCount !== 0) return;
+                    setShowLockModal(true);
+                  }}
+                />
+              </fieldset>
             )}
           </div>
         ) : (
