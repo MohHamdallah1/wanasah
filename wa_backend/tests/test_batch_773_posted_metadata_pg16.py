@@ -1,6 +1,8 @@
 """#773 one real signed PG16/Bearer posted-batch correction; no old suite reruns."""
 from __future__ import annotations
 import os
+import asyncio
+from context import tenant_context
 from datetime import date
 from uuid import uuid4
 from decimal import Decimal
@@ -11,14 +13,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import engine as runtime_engine
 from models import (
-    InventoryBalance, InventoryCostEvent, InventoryCostLayer, InventoryCostAllocation,
-    InventoryMovement, ProductBatch,
-    SystemAuditLog, StocktakeSession, InventoryLock,
+    Company, UOM, Product, ProductVariant, InventoryLocation, InventoryLiveStockProjection,
+    InventoryBalance, InventoryCostEvent, InventoryCostState, InventoryCostLayer,
+    InventoryCostAllocation, InventoryMovement, ProductBatch,
+    StocktakeSession,
 )
 from domains.inventory_batch_metadata.models import BatchMetadataCorrectionEvent
 from tests.test_dispatch_m03_period_postgres import gate, _headers
 from tests.test_dispatch_c01_c02_custody_postgres import _login_owner, _ledger_signature
 from tests.field_authorization_phase3_fixture import PASSWORD
+from tests.canonical_actor_fixtures import seed_company_owner_fixture, seed_ordinary_backoffice_fixture
+from tests.supplier_fixtures import seed_receipt_supplier
 
 pytestmark=[
     pytest.mark.skipif(
@@ -265,4 +270,337 @@ async def test_posted_single_source_batch_reauth_inventory_cost_and_history(gate
     assert count_view.status_code==200,count_view.text
     assert count_view.json()["block_code"]=="BATCH_ACTIVE_STOCKTAKE"
 
+    # #773 LEAD: ACTUAL derived sellability from expired date -> correct FEFO
+    # on the same genuine original batch, and quarantine must remain unsellable.
+    async def projected_sellable():
+        async with AsyncSession(g.admin) as db:
+            row=await db.scalar(select(InventoryLiveStockProjection).where(
+                InventoryLiveStockProjection.company_id==company,
+                InventoryLiveStockProjection.warehouse_location_id==location,
+                InventoryLiveStockProjection.product_variant_id==g.variant["id"]))
+            assert row is not None
+            return Decimal(row.warehouse_sellable_on_hand)
+
+    sellable_before=await projected_sellable()
+    ledger_before_projection=await _ledger_signature(g)
+    expired={
+        "request_id":str(uuid4()),"expected_revision":2,"location_id":location,
+        "batch_number":request["batch_number"],
+        "production_date":"2024-01-01","expiry_date":"2025-06-30",
+        "reason":"Original printed expiry verified expired, quarantine pending",
+        "password":PASSWORD,
+    }
+    expired_reply=await g.client.post(path,headers=manager,json=expired)
+    assert expired_reply.status_code==200,expired_reply.text
+    assert expired_reply.json()["metadata_revision"]==3
+    assert await projected_sellable()==sellable_before-Decimal("8")
+    rescue={
+        **expired,
+        "request_id":str(uuid4()),"expected_revision":3,
+        "production_date":"2026-01-03","expiry_date":"2027-09-03",
+        "reason":"Verified correct manufacturer expiry on unopened stock",
+    }
+    rescue_reply=await g.client.post(path,headers=manager,json=rescue)
+    assert rescue_reply.status_code==200,rescue_reply.text
+    assert rescue_reply.json()["metadata_revision"]==4
+    assert await projected_sellable()==sellable_before
+    quarantined=await g.client.post(
+        f"/warehouse/batches/{batch}/disposition",headers=manager,
+        json={"request_id":str(uuid4()),"expected_revision":1,
+              "disposition":"QUARANTINED",
+              "reason":"Lot proof held pending quality manager clearance"},
+    )
+    assert quarantined.status_code==200,quarantined.text
+    held_projection=await projected_sellable()
+    assert held_projection==sellable_before-Decimal("8")
+    held_correction=await g.client.post(path,headers=manager,json={
+        **rescue,"request_id":str(uuid4()),"expected_revision":4,
+        "expiry_date":"2028-09-03",
+        "reason":"Correct date while original physical Lot stays quarantined",
+    })
+    assert held_correction.status_code==200,held_correction.text
+    assert held_correction.json()["disposition"]=="QUARANTINED"
+    assert await projected_sellable()==held_projection
+    assert await _ledger_signature(g)==ledger_before_projection
+
     print("B773_REAL_PG16_MANAGER_CANONICAL_REAUTH_ORIGINAL_COST_FIFO_NO_MOVEMENT_PASS",flush=True)
+
+
+async def test_batch_773_moving_average_parallel_reauth_revoke_and_append_only(gate):
+    """Separate true company choosing moving average BEFORE its first posted receipt.
+
+    Both requests use real signed manager Bearer and different UUIDs, no mocked
+    service/DB or test-only cost layer. Financial rows compared byte-for-byte.
+    """
+    g=gate
+    from sqlalchemy.exc import DBAPIError
+    name="B773-MA-"+uuid4().hex[:14]
+    async with AsyncSession(g.admin,expire_on_commit=False) as db:
+        company=Company(name="B773 moving average standalone",company_code=name,timezone="UTC")
+        db.add(company)
+        await db.flush()
+        tenant_token=tenant_context.set(company.id)
+        try:
+            await db.execute(text("SELECT set_config('app.current_tenant',:id,true)"),{"id":str(company.id)})
+            owner=await seed_company_owner_fixture(db,company.id,password=PASSWORD)
+            supplier=await seed_receipt_supplier(db,owner.operational_driver)
+            each=await db.scalar(select(UOM.id).where(UOM.code=="EACH"))
+            assert each is not None
+            product=Product(company_id=company.id,code="B773-MA",name="MA physical product")
+            warehouse=InventoryLocation(company_id=company.id,code="B773-MA-WH",
+                name="MA warehouse",location_type="WAREHOUSE",
+                is_active=True,is_system_managed=False)
+            db.add_all([product,warehouse])
+            await db.flush()
+            variant=ProductVariant(company_id=company.id,product_id=product.id,
+                sku="MA-"+uuid4().hex[:8],name="MA product by printed batch",
+                base_uom_id=each,packs_per_carton=50,
+                lot_control_mode="REQUIRED",expiry_control_mode="REQUIRED",
+                lifecycle_status="ACTIVE",
+                published_at=__import__("models").utc_now())
+            db.add(variant)
+            await db.flush()
+            c_id=int(company.id)
+            warehouse_id=int(warehouse.id)
+            variant_id=int(variant.id)
+            supplier_id=int(supplier)
+            owner_name=await db.scalar(select(__import__("domains.identity.models",
+                fromlist=["CompanyPrincipal"]).CompanyPrincipal.username).where(
+                __import__("domains.identity.models",
+                    fromlist=["CompanyPrincipal"]).CompanyPrincipal.id ==
+                owner.context.principal_id,
+            ))
+            owner_principal_id=int(owner.context.principal_id)
+            await db.commit()
+        finally:
+            tenant_context.reset(tenant_token)
+
+    login=await g.client.post("/login",json={
+        "company_code":name,"username":owner_name,"password":PASSWORD,
+    })
+    assert login.status_code==200,login.text
+    manager={"Authorization":"Bearer "+login.json()["token"]}
+    policy=await g.client.put("/warehouse/costing-policy",headers=manager,json={
+        "request_id":str(uuid4()),"method":"MOVING_AVERAGE","expected_version":0,
+    })
+    assert policy.status_code==200,policy.text
+    assert policy.json()["method"]=="MOVING_AVERAGE"
+    original_lot="MA-WRONG-"+uuid4().hex[:10]
+    invoice="B773-MA-INV-"+uuid4().hex[:12]
+    post=await g.client.post("/warehouse/inbound",headers=manager,json={
+        "request_id":str(uuid4()),"supplier_id":supplier_id,
+        "location_id":warehouse_id,"reference_id":invoice,
+        "items":[{
+            "product_variant_id":variant_id,"quantity":"11","uom_id":each,
+            "unit_cost":"4.625","batch_number":original_lot,
+            "production_date":"2026-01-01","expiry_date":"2027-08-31",
+        }],
+    })
+    assert post.status_code==201,post.text
+    async with AsyncSession(g.admin) as db:
+        batch_id=await db.scalar(select(ProductBatch.id).where(
+            ProductBatch.company_id==c_id,
+            ProductBatch.product_variant_id==variant_id,
+            ProductBatch.batch_number==original_lot,
+        ))
+        assert batch_id is not None
+        actual_cost=await db.scalar(select(InventoryCostEvent).where(
+            InventoryCostEvent.company_id==c_id,
+            InventoryCostEvent.batch_id==batch_id,
+        ))
+        assert actual_cost.method=="MOVING_AVERAGE"
+        assert actual_cost.event_type=="PURCHASE_IN"
+        assert actual_cost.cost_basis=="PURCHASE_ACTUAL"
+    current_path=f"/warehouse/batches/{batch_id}/metadata-correction"
+    preview=await g.client.get(current_path,headers=manager,
+                               params={"location_id":warehouse_id})
+    assert preview.status_code==200,preview.text
+    assert preview.json()["eligible"] is True
+    assert preview.json()["source_invoice"]==invoice
+
+    tables=(
+        "inventory_movements","inventory_balances","inventory_cost_events",
+        "inventory_cost_states","inventory_cost_layers","inventory_cost_allocations",
+        "inventory_cost_policies",
+    )
+    async def financial_signature():
+        async with AsyncSession(g.admin) as db:
+            return {
+                table:tuple((await db.scalars(text(
+                    "SELECT to_jsonb(t)::text FROM "+table+
+                    " t WHERE company_id=:c ORDER BY to_jsonb(t)::text"
+                ),{"c":c_id})).all())
+                for table in tables
+            }
+
+    before=await financial_signature()
+    assert len(before["inventory_cost_states"])==1
+    # One distinct printed identifier per command; both carry the *same*
+    # snapshot revision, demonstrating the real advisory/row lock race.
+    race=lambda lot:{
+        "request_id":str(uuid4()),"expected_revision":1,
+        "location_id":warehouse_id,
+        "batch_number":lot,
+        "production_date":"2026-01-01","expiry_date":"2027-10-31",
+        "reason":"Genuine manufacturer printed label verified at receiving",
+        "password":PASSWORD,
+    }
+    first=race("MA-CORRECT-A-"+uuid4().hex[:7])
+    second=race("MA-CORRECT-B-"+uuid4().hex[:7])
+    go=asyncio.Event()
+    async def send(data):
+        await go.wait()
+        return await g.client.post(current_path,headers=manager,json=data)
+    a,b=asyncio.create_task(send(first)),asyncio.create_task(send(second))
+    go.set()
+    replies=await asyncio.gather(a,b)
+    assert sorted(p.status_code for p in replies)==[200,409],[
+        (p.status_code,p.text) for p in replies
+    ]
+    winner=first if replies[0].status_code==200 else second
+    persisted=await g.client.get(current_path,headers=manager,
+                                 params={"location_id":warehouse_id})
+    assert persisted.status_code==200
+    assert persisted.json()["metadata_revision"]==2
+    assert persisted.json()["current"]["batch_number"]==winner["batch_number"]
+    assert await financial_signature()==before
+
+    # Canonical retry of the winning UUID (same payload) cannot double record.
+    replay=await g.client.post(current_path,headers=manager,json=winner)
+    assert replay.status_code==200 and replay.json()["metadata_revision"]==2
+    history=await g.client.get(
+        f"/warehouse/batches/{batch_id}/metadata-corrections/history",
+        headers=manager,params={"location_id":warehouse_id},
+    )
+    assert history.status_code==200,history.text
+    assert len(history.json()["items"])==1
+    assert history.json()["items"][0]["after"]["batch_number"]==winner["batch_number"]
+    assert await financial_signature()==before
+
+    # A request for the same company's other warehouse or a FOREIGN warehouse
+    # must NEVER get back this batch's source or events.
+    mismatched=await g.client.post(current_path,headers=manager,json={
+        **race("MA-FOREIGN-LOC-"+uuid4().hex[:7]),
+        "expected_revision":2,"location_id":g.warehouse_id,
+    })
+    assert mismatched.status_code in (403,404,409),mismatched.text
+    assert await financial_signature()==before
+
+    # Runtime role is not allowed to UPDATE or DELETE audit events.
+    tenant_token=tenant_context.set(c_id)
+    try:
+        async with AsyncSession(runtime_engine) as db:
+            await db.execute(text("SELECT set_config('app.current_tenant',:id,true)"),
+                             {"id":str(c_id)})
+            event_id=await db.scalar(select(BatchMetadataCorrectionEvent.id).where(
+                BatchMetadataCorrectionEvent.company_id==c_id,
+                BatchMetadataCorrectionEvent.batch_id==batch_id,
+            ))
+            assert event_id
+            for sql in (
+                "UPDATE batch_metadata_correction_events SET reason='TAMPER' WHERE id=:id",
+                "DELETE FROM batch_metadata_correction_events WHERE id=:id",
+            ):
+                with pytest.raises(DBAPIError):
+                    async with db.begin_nested():
+                        await db.execute(text(sql),{"id":event_id})
+            await db.rollback()
+        # Migration/admin role has UPDATE privilege but still cannot bypass
+        # the DB trigger: a stronger append-only invariant than RLS alone.
+        async with AsyncSession(g.admin) as db:
+            await db.execute(text("SELECT set_config('app.current_tenant',:id,true)"),
+                             {"id":str(c_id)})
+            for sql in (
+                "UPDATE batch_metadata_correction_events SET reason='TAMPER' WHERE id=:id",
+                "DELETE FROM batch_metadata_correction_events WHERE id=:id",
+            ):
+                with pytest.raises(DBAPIError,match="append-only"):
+                    async with db.begin_nested():
+                        await db.execute(text(sql),{"id":event_id})
+            await db.rollback()
+    finally:
+        tenant_context.reset(tenant_token)
+
+    # Signed non-owner BACKOFFICE credentials with company batch.disposition
+    # but a warehouse-specific inbound.create grant for a DIFFERENT warehouse
+    # must be forbidden for the true source location. Exercises real RLS/role
+    # joins and the complete HTTP capability chain, not a fake access object.
+    from models import Role, Permission, UserRole, UserLocationAccess, role_permissions
+    from domains.identity.models import CompanyPrincipal
+    token=tenant_context.set(c_id)
+    try:
+        async with AsyncSession(g.admin,expire_on_commit=False) as db:
+            await db.execute(text("SELECT set_config('app.current_tenant',:id,true)"),{"id":str(c_id)})
+            limited=await seed_ordinary_backoffice_fixture(db,c_id,password=PASSWORD)
+            limited_name=await db.scalar(select(CompanyPrincipal.username).where(
+                CompanyPrincipal.company_id==c_id,
+                CompanyPrincipal.id==limited.context.principal_id,
+            ))
+            other_warehouse=InventoryLocation(company_id=c_id,
+                code="MA-SECOND-"+uuid4().hex[:8],
+                name="Other warehouse cannot edit supplier receipt",
+                location_type="WAREHOUSE",is_active=True,is_system_managed=False)
+            company_role=Role(company_id=c_id,name="B773 batch only "+uuid4().hex[:7],
+                              is_system_role=False)
+            location_role=Role(company_id=c_id,name="B773 other inbound "+uuid4().hex[:7],
+                               is_system_role=False)
+            db.add_all([other_warehouse,company_role,location_role])
+            await db.flush()
+            rights=(await db.execute(select(Permission.id,Permission.code).where(
+                Permission.code.in_(("batch.disposition","inbound.create"))
+            ))).all()
+            rights_by_code={code:pid for pid,code in rights}
+            assert set(rights_by_code)=={"batch.disposition","inbound.create"}
+            await db.execute(role_permissions.insert(),[
+                {"company_id":c_id,"role_id":company_role.id,
+                 "permission_id":rights_by_code["batch.disposition"]},
+                {"company_id":c_id,"role_id":location_role.id,
+                 "permission_id":rights_by_code["inbound.create"]},
+            ])
+            db.add(UserRole(company_id=c_id,driver_id=limited.driver_id,role_id=company_role.id))
+            db.add(UserLocationAccess(company_id=c_id,driver_id=limited.driver_id,
+                location_id=other_warehouse.id,role_id=location_role.id))
+            await db.commit()
+            other_wh_id=int(other_warehouse.id)
+    finally:
+        tenant_context.reset(token)
+    scoped_login=await g.client.post("/login",json={
+        "company_code":name,"username":limited_name,"password":PASSWORD,
+    })
+    assert scoped_login.status_code==200,scoped_login.text
+    limited_auth={"Authorization":"Bearer "+scoped_login.json()["token"]}
+    denied_original=await g.client.post(current_path,headers=limited_auth,json={
+        **race("MA-SCOPED-"+uuid4().hex[:7]),"expected_revision":2,
+    })
+    assert denied_original.status_code==403,denied_original.text
+    allowed_other_denied_source=await g.client.get(
+        current_path,headers=limited_auth,params={"location_id":other_wh_id},
+    )
+    assert allowed_other_denied_source.status_code==404,allowed_other_denied_source.text
+    assert await financial_signature()==before
+
+    # Test disabling a real canonical manager after login; old token and
+    # even correct password must not authenticate a new correction.
+    from domains.identity.models import CompanyPrincipal
+    async with AsyncSession(g.admin,expire_on_commit=False) as db:
+        principal=await db.scalar(select(CompanyPrincipal).where(
+            CompanyPrincipal.company_id==c_id,
+            CompanyPrincipal.id==owner_principal_id,
+        ).with_for_update())
+        assert principal is not None
+        principal.is_active=False
+        principal.auth_revision+=1
+        await db.commit()
+    revoked=await g.client.post(current_path,headers=manager,json={
+        **race("MA-REVOKED-"+uuid4().hex[:7]),
+        "expected_revision":2,
+    })
+    assert revoked.status_code in (401,403),revoked.text
+    async with AsyncSession(g.admin) as db:
+        count=await db.scalar(select(func.count(BatchMetadataCorrectionEvent.id)).where(
+            BatchMetadataCorrectionEvent.company_id==c_id,
+            BatchMetadataCorrectionEvent.batch_id==batch_id,
+        ))
+        assert count==1
+    assert await financial_signature()==before
+    print("B773_MOVING_AVERAGE_REAL_RECEIPT_RACE_REAUTH_REVOKED_APPEND_ONLY_PASS",flush=True)

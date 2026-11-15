@@ -205,7 +205,9 @@ export function BatchDispositionManager({
             batchId={batch.batch_id}
             locationId={selectedWarehouseId}
             onChanged={async () => {
-              await (onRefreshBatch?.() ?? onChanged());
+              // Refresh detail when available, and the index exactly once.
+              // Without an optional detail callback, never call onChanged twice.
+              if (onRefreshBatch) await onRefreshBatch();
               await onChanged();
             }}
           />
