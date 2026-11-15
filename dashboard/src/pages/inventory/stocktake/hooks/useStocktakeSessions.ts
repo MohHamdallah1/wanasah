@@ -41,7 +41,14 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
 
     const seq = ++requestSeq.current;
     if (append) setLoadingMore(true);
-    else { setLoading(true); setLoadFailed(false); setNextCursor(null); setVerifiedLocationId(null); }
+    else {
+      setLoading(true);
+      setLoadFailed(false);
+      setNextCursor(null);
+      // Retain already verified evidence for this mounted warehouse while
+      // revalidating; every new start is blocked until this read completes.
+      // Failed or wrong-location reads invalidate the old evidence.
+    }
 
     try {
       const params = new URLSearchParams({ location_id: String(locationId), limit: "50" });
@@ -80,7 +87,7 @@ export function useStocktakeSessions({ enabled, locationId, authenticatedFetch }
     else {
       setLoading(false);
       setLoadingMore(false);
-      setVerifiedLocationId(null);
+      // Reentry checks in the background without clearing existing chrome.
     }
     return () => { requestSeq.current += 1; };
   }, [enabled, fetchSessions, locationId]);

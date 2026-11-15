@@ -3,10 +3,12 @@ import { useStocktakeUiCopy } from "./uiCopy";
 
 interface StocktakeIdlePanelProps {
   onStart: () => void;
+  disabled?: boolean;
 }
 
 export function StocktakeIdlePanel({
   onStart,
+  disabled = false,
 }: StocktakeIdlePanelProps) {
   const { copy } = useStocktakeUiCopy();
 
@@ -25,9 +27,10 @@ export function StocktakeIdlePanel({
 
       <button
         type="button"
-        className="relative w-80 h-48 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.2)] group cursor-pointer p-[3px] bg-slate-800"
+        className="relative w-80 h-48 rounded-xl overflow-hidden shadow-[0_0_30px_rgba(245,158,11,0.2)] group cursor-pointer disabled:cursor-not-allowed p-[3px] bg-slate-800"
         dir="ltr"
         onClick={onStart}
+        disabled={disabled}
         aria-label={copy.idle.startLabel}
       >
         <div

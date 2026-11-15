@@ -161,6 +161,10 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
     expect(tab.match(/<StocktakeCountingPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeReviewPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeIdlePanel/g)).toHaveLength(1);
+    expect(tab).not.toContain("{recoveryText.checking}");
+    expect(tab).toContain("disabled={!serverSessionsVerified || sessionsLoading}");
+    expect(tab).toContain("!sessionsLoadFailed");
+    expect(tab).toContain("!serverSessionsVerified || sessionsLoading ||");
     expect(tab).toContain('warehouseAccess.can("stocktake.start")');
     expect(tab).toContain('sessionAccess.can("stocktake.count")');
     expect(tab).toContain('sessionAccess.can("stocktake.review")');
