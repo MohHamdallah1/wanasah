@@ -324,10 +324,9 @@ export function RouteLoadProductTable({
     <section data-testid="dispatch-launch-products" aria-busy={joinedPending}
       data-first-window-ready={firstRevealReady ? "true" : "false"}
       className="flex min-h-[300px] w-full min-w-0 flex-1 flex-col">
-      {/* The launch workspace is the ONLY scroll container: its vertical scroll
-           must also own the sticky header, while its width bounds horizontal
-           overflow to the table instead of clipping the action column. */}
-       <div className="min-w-0 flex-1">
+      {/* One bounded table scroller owns BOTH axes. The sticky header follows
+           its vertical scroll, and 820px content cannot widen Launch itself. */}
+       <div className="min-w-0 flex-1 max-h-[70vh] overflow-auto">
       <table className="w-full min-w-[820px] table-fixed text-sm">
         <colgroup>
           <col style={{ width: "5%" }} />

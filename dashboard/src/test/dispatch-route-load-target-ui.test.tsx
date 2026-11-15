@@ -203,6 +203,7 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     const table = screen.getByRole("table");
     expect(table.querySelectorAll("colgroup col")).toHaveLength(6);
     expect(table.querySelector("thead")).toHaveClass("sticky", "top-0");
+    expect(table.parentElement).toHaveClass("overflow-auto", "max-h-[70vh]");
     expect(table.parentElement).not.toHaveClass("overflow-x-auto");
     expect(tr("1000")).toHaveClass("focus-within:bg-sky-50/40");
     expect(Array.from(table.querySelectorAll<HTMLTableColElement>("colgroup col")).map(
