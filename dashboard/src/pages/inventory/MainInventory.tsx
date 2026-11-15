@@ -1794,6 +1794,19 @@ export default function MainInventory() {
     );
   }
 
+  // Side-menu entry remounts MainInventory. Paint only invariant public
+  // Stocktake chrome from a same-principal warm selector. All counts, session
+  // reads and commands require FRESH signed company+location authorization.
+  const stocktakeFirstPaint =
+    activeTab === "stocktake" && selectedLocationId !== null &&
+    warmScopeKey !== null && !identityChanged && !locationError &&
+    !accessDenied && !access.isError && !locationAccess.isError &&
+    initialWarmShell?.locations.some((warehouse) => warehouse.id === selectedLocationId) === true;
+  const stocktakePresentationScope =
+    stocktakeFirstPaint && selectedLocationId !== null
+      ? `${warmScopeKey}:${selectedLocationId}` : locationTabScope;
+  const stocktakeReadsAdmitted =
+    locationTabScope !== null && tabAllowed("stocktake");
   // One authorized selector from MainInventory owns every tab's location.
   // On Stocktake only, the existing picker and its concise label share one line.
   const stocktakeShellAdmitted =
@@ -2016,7 +2029,7 @@ export default function MainInventory() {
           (selectedLocationId !== null && activeTab === "live" && !liveVisible && !accessDenied && !locationAccess.isError) ||
           (selectedLocationId !== null && activeTab !== "live" &&
             activeTab !== "transfers" && activeTab !== "warehouses" &&
-            activeTab !== "permissions" && locationAccess.isPending) ||
+            activeTab !== "permissions" && !stocktakeFirstPaint && locationAccess.isPending) ||
           (selectedLocationId !== null && activeTab === "batches" &&
             !liveAuthorityVerified && !accessDenied)) && (
           <InventoryPendingSurface label={t("common.loading")} live={activeTab === "live"} />
@@ -2190,8 +2203,9 @@ export default function MainInventory() {
             />
           </div>
         )}
-        {retainTab("stocktake", locationTabScope) && (
-          <div key={`stocktake:${locationTabScope}`} hidden={activeTab !== "stocktake"}
+        {(retainTab("stocktake", locationTabScope) || stocktakeFirstPaint) &&
+          stocktakePresentationScope !== null && (
+          <div key={`stocktake:${stocktakePresentationScope}`} hidden={activeTab !== "stocktake"}
             className={activeTab === "stocktake" ? "flex min-h-0 flex-1 flex-col" : undefined}
             data-it03-retained-tab="stocktake">
             <Tab3Stocktake
@@ -2199,7 +2213,8 @@ export default function MainInventory() {
               locationId={selectedLocationId!}
               locationName={locations.find((location) => location.id === selectedLocationId)?.name ?? null}
               warehouseSelector={stocktakeShellAdmitted ? stocktakeWarehouseSelector : null}
-              companyId={`${locationAccess.data!.company_id}:${locationAccess.data!.backoffice_user_id}`}
+              companyId={`${companyId}:${backofficeUserId}`}
+              authorizedForReads={stocktakeReadsAdmitted}
               isAuditLocked={effectiveAuditLocked}
               authenticatedFetch={authFetch}
               onStocktakeChanged={async () => {
