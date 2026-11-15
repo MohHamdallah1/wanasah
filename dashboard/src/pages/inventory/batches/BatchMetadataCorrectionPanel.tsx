@@ -5,7 +5,7 @@ import {useAuthFetch} from "@/hooks/useAuthFetch";
 type Values={batch_number:string;production_date:string|null;expiry_date:string|null};
 type Preview={
   batch_id:number;location_id:number;metadata_revision:number;
-  current:Values;source_invoice:string|null;eligible:boolean;block_code:string|null;
+  current:Values;source_invoice:string|null;disposition:string;eligible:boolean;block_code:string|null;
 };
 type History={
   revision:number;verified_at:string;actor_username:string;source_invoice:string;
