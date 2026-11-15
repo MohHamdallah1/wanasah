@@ -156,17 +156,17 @@ describe("D15 compact preflight presentation — independent panel states", () =
 
   it("preserves the real compact readiness footprint without a fake choice message", () => {
     const view = renderPanel("choose", "ar", server());
-    expect(view.container.querySelector("section")).toHaveClass("min-h-6");
+    expect(view.container.querySelector("section")).toHaveAttribute("hidden");
     expect(view.container.querySelector("section")).toHaveAttribute("aria-busy", "false");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("keeps a silent aria-busy slot during true revalidation without shifting the layout", () => {
+  it("keeps the same invisible DOM section during signed revalidation", () => {
     const view = renderPanel("loading");
     const section = view.container.querySelector("section");
     expect(section).toHaveAttribute("aria-busy", "true");
-    expect(section).toHaveClass("min-h-6");
+    expect(section).toHaveAttribute("hidden");
     expect(view.container).not.toHaveTextContent("جاري التحقق");
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -174,8 +174,8 @@ describe("D15 compact preflight presentation — independent panel states", () =
     view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
       status="ready" evidence={evidence} onRefresh={vi.fn()} /></MemoryRouter>);
     expect(view.container.querySelector("section")).toBe(section);
-    expect(section).toHaveClass("min-h-6");
-    expect(screen.getByRole("status")).toHaveTextContent("تم التحقق");
+    expect(section).toHaveAttribute("hidden");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     view.rerender(<MemoryRouter><CommercialPreflightPanel language="ar"
       status="loading" evidence={null} onRefresh={vi.fn()} /></MemoryRouter>);
     expect(view.container.querySelector("section")).toBe(section);
@@ -183,12 +183,12 @@ describe("D15 compact preflight presentation — independent panel states", () =
     expect(screen.queryByText("تم التحقق")).not.toBeInTheDocument();
   });
 
-  it("shows only the compact ready check for authoritative published 0%-tax READY", () => {
+  it("keeps authoritative published 0%-tax READY invisible with no layout change", () => {
     const verified = server();
     verified.checks.tax = { ready: true, code: "READY", context: { published_rate: "0" } };
     const view = renderPanel("ready", "ar", verified);
-    expect(screen.getByRole("status")).toHaveAttribute("aria-label", expect.stringContaining("التحقق ناجح"));
-    expect(screen.getByRole("status")).toHaveTextContent("تم التحقق");
+    expect(view.container.querySelector("section")).toHaveAttribute("hidden");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(view.container.querySelector(".shadow-sm, .rounded-2xl")).not.toBeInTheDocument();
   });
