@@ -307,9 +307,15 @@ export function Tab2Inbound({
 }: Props) {
   const { t, i18n } = useTranslation();
   const tenantIdentity = useTenantIdentity();
-  const companyTimeZone = tenantIdentity.data?.company_id === companyId
-    ? tenantIdentity.data.timezone
-    : undefined;
+  // Both endpoints return the SAME Company.currency_code (canonical tenant
+  // currency). The tenant identity is already query-cached by the shell, so
+  // the cost input suffix has its correct label on the first render while
+  // the independent costing-policy fetch revalidates in the background.
+  // This is display-only: posting still requires the verified cost policy.
+  const currentCompanyIdentity = tenantIdentity.data?.company_id === companyId
+    ? tenantIdentity.data : null;
+  const companyTimeZone = currentCompanyIdentity?.timezone;
+  const companyCurrency = currentCompanyIdentity?.currency_code;
   const keys = useMemo(
     () => inboundStorageKeys(companyId, actorId, locationId),
     [companyId, actorId, locationId]
@@ -1549,7 +1555,7 @@ export function Tab2Inbound({
                             className={fieldHasError(row.row_id, "unit_cost") ? "is-error" : ""}
                           />
                           <span className="inventory-inbound-cost-meta">
-                            {costPolicy?.currency_code ?? ""}
+                            {companyCurrency ?? costPolicy?.currency_code ?? ""}
                             {selectedOption
                               ? ` / ${uomLabel(selectedOption.code, selectedOption.name)}`
                               : ""}

@@ -143,7 +143,10 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
     expect(main).toContain('activeTab !== "stocktake" && (');
     expect(main.match(/<select/g)?.length).toBeGreaterThanOrEqual(1);
     expect(main).toContain('data-it03-retained-tab="stocktake"');
-    expect(main).toContain('key={`stocktake:${locationTabScope}`}');
+    expect(main).toContain('key={`stocktake:${stocktakePresentationScope}`}');
+    expect(main).toContain('stocktakeFirstPaint');
+    expect(main).toContain('stocktakePresentationScope !== null');
+    expect(main).toContain('authorizedForReads={stocktakeReadsAdmitted}');
   });
 
   it("places sessions/refresh/product count in one toolbar and never duplicates the counting table or door", () => {
@@ -162,7 +165,11 @@ describe("Stocktake #782 density shell: sessions dialog and shared workspace", (
     expect(tab.match(/<StocktakeReviewPanel/g)).toHaveLength(1);
     expect(tab.match(/<StocktakeIdlePanel/g)).toHaveLength(1);
     expect(tab).not.toContain("{recoveryText.checking}");
-    expect(tab).toContain("disabled={!serverSessionsVerified || sessionsLoading || activeServerCount !== 0}");
+    expect(tab).toContain("disabled={!authorizedForReads || isAuditLocked ||");
+    expect(tab).toContain("!serverSessionsVerified || sessionsLoading || activeServerCount !== 0}");
+    expect(tab).toContain('active: active && canReadStocktake');
+    expect(tab).toContain('authorizedForReads && warehouseAccess.can("stocktake.read")');
+    expect(tab).toContain('if (!authorizedForReads || !canReadStocktake ||');
     expect(tab).toContain("!sessionsLoadFailed");
     expect(tab).toContain("!serverSessionsVerified || sessionsLoading ||");
     expect(tab).toContain('warehouseAccess.can("stocktake.start")');
