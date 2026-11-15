@@ -1,6 +1,7 @@
 """Exact Stocktake #1031 public-shell-only signed reentry authorization scope."""
 STOCKTAKE_FIRST_PAINT_1031_FILES = frozenset({
     ".github/scripts/stocktake_first_paint_1031_scope.py",
+    ".github/scripts/live_stock_ci_ownership.py",
     ".github/workflows/stocktake-v1-operator-782.yml",
     ".github/workflows/stocktake-v1-history-799.yml",
     ".github/workflows/stocktake-v1-discovered-pg16-ui.yml",
@@ -15,7 +16,7 @@ def stocktake_first_paint_1031_mode(paths):
 
 def selftest():
     scope=STOCKTAKE_FIRST_PAINT_1031_FILES
-    assert len(scope) == 8
+    assert len(scope) == 9
     assert stocktake_first_paint_1031_mode(scope)
     for missing in scope:
         assert not stocktake_first_paint_1031_mode(scope - {missing}), missing
@@ -27,7 +28,7 @@ def selftest():
     ):
         assert not stocktake_first_paint_1031_mode(scope | {foreign}), foreign
     assert not stocktake_first_paint_1031_mode(set())
-    print("STOCKTAKE_FIRST_PAINT_1031_SCOPE=PASS exact=8 missing=8 foreign=4")
+    print("STOCKTAKE_FIRST_PAINT_1031_SCOPE=PASS exact=9 missing=9 foreign=4")
 
 if __name__=="__main__":
     selftest()

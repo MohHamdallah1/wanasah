@@ -737,6 +737,17 @@ LEDGER_762_REQUIRED = {
 LEDGER_762_ALLOWED = LEDGER_762_REQUIRED | {HELPER}
 
 
+# #1031: Stocktake public-chrome-only immediate sidebar reentry, with NO
+# session reads/operations until freshly signed current-warehouse access.
+# Both Live Stock UX and operational browser owners must admit this exact
+# nine-file Stocktake integration (including this ownership policy file).
+# Never admit a prefix/subset or allow this proof to cover Live Stock payloads.
+STOCKTAKE_1031_SCOPE_MODULE = __import__("runpy").run_path(
+    ".github/scripts/stocktake_first_paint_1031_scope.py"
+)
+STOCKTAKE_1031_EXACT = STOCKTAKE_1031_SCOPE_MODULE["STOCKTAKE_FIRST_PAINT_1031_FILES"]
+assert len(STOCKTAKE_1031_EXACT) == 9
+
 # Owner-approved Stocktake operator UX PR #784. MainInventory is a shared
 # entrypoint that triggers both Live Stock browser gates. Admit only the FULL,
 # independently tested ten-file PR #784 diff, never a generic Stocktake
@@ -1153,6 +1164,18 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
             return "shop-form-850-exact", []
         return "not-applicable", []
 
+    # #1031 is the ONLY new full-path cross-owner exception. Its own
+    # manifest is the unique marker; missing/foreign files are never admitted.
+    if changed == STOCKTAKE_1031_EXACT:
+        return ("stocktake-1031-public-shell-exact", []) if mode in {
+            "ux", "operational"
+        } else ("not-applicable", [])
+    if ".github/scripts/stocktake_first_paint_1031_scope.py" in changed:
+        return "fail", [
+            f"STOCKTAKE_1031_EXACT_SCOPE=FAIL "
+            f"missing={sorted(STOCKTAKE_1031_EXACT - changed)} "
+            f"foreign={sorted(changed - STOCKTAKE_1031_EXACT)}"
+        ]
     # Exact membership only; all previous classifying/negative protections
     # remain unchanged for every other PR, including cross-domain combinations.
     if changed == STOCKTAKE_FINAL_CI_782_EXACT:
@@ -1707,6 +1730,29 @@ def selftest() -> None:
         "not-applicable", []
     )
 
+    # #1031 positive + adversarial cross-owner contract for BOTH browser modes.
+    STOCKTAKE_1031_SCOPE_MODULE["selftest"]()
+    first_paint_sem = {
+        SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False,
+    }
+    for live_mode in ("ux", "operational"):
+        assert classify(live_mode, set(STOCKTAKE_1031_EXACT), first_paint_sem) == (
+            "stocktake-1031-public-shell-exact", []
+        )
+        for missing in STOCKTAKE_1031_EXACT:
+            mode_result = classify(live_mode, set(STOCKTAKE_1031_EXACT) - {missing}, first_paint_sem)
+            assert mode_result[0] != "stocktake-1031-public-shell-exact", missing
+            if ".github/scripts/stocktake_first_paint_1031_scope.py" in (set(STOCKTAKE_1031_EXACT)-{missing}):
+                assert mode_result[0] == "fail", missing
+        for foreign in (
+            "wa_backend/api/warehouse/live_stock.py",
+            "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
+            "dashboard/src/pages/inventory/Tab2Inbound.tsx",
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "wanasah_frontend/lib/main.dart",
+        ):
+            mode_result = classify(live_mode, set(STOCKTAKE_1031_EXACT) | {foreign}, first_paint_sem)
+            assert mode_result[0] == "fail", foreign
     # The two Live Stock gates must accept the complete approved #784 diff,
     # yet reject partial Stocktake scope, foreign files, and combinations with
     # other otherwise approved Live Stock or backend scopes.
