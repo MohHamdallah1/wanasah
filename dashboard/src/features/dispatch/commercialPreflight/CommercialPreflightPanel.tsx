@@ -49,10 +49,10 @@ export function CommercialPreflightPanel({
       </button>;
     }
     const label = isArabic
-      ? path === "/inventory" ? "فتح المستودع" : path === "/products" ? "فتح المنتجات"
+      ? path === "/" ? "عرض جلسات المندوب" : path === "/inventory" ? "فتح المستودع" : path === "/products" ? "فتح المنتجات"
         : path === "/representatives-vehicles" ? "فتح جهات التشغيل"
           : path === "/commercial-rules" ? "فتح القواعد التجارية" : "فتح الإعداد"
-      : path === "/inventory" ? "Open inventory" : path === "/products" ? "Open products"
+      : path === "/" ? "View representative sessions" : path === "/inventory" ? "Open inventory" : path === "/products" ? "Open products"
         : path === "/representatives-vehicles" ? "Open operations"
           : path === "/commercial-rules" ? "Open commercial rules" : "Open settings";
     return <Link to={path}
