@@ -108,8 +108,14 @@ jobs:
             "dashboard/src/test/inventory-cp10-ledger-operations.test.tsx",
           }
           workflow_maintenance_exact={".github/workflows/inventory-ledger-817-acceptance.yml"}
-          accepted=(backend_817_exact,ledger_818_stage_b_exact,workflow_maintenance_exact)
+          batch_773_final_module=__import__("runpy").run_path(".github/scripts/batch773_final_1034_scope.py")
+          batch_773_final_exact=batch_773_final_module["BATCH773_FINAL_1034_FILES"]
+          accepted=(backend_817_exact,ledger_818_stage_b_exact,workflow_maintenance_exact,batch_773_final_exact)
           assert len(backend_817_exact)==8 and len(ledger_818_stage_b_exact)==10
+          batch_773_final_module["selftest"]()
+          assert batch_773_final_exact in accepted
+          for missing in batch_773_final_exact:
+              assert batch_773_final_exact-{missing} not in accepted
           for scope in accepted:
               for foreign in ("wa_backend/services.py",
                               "dashboard/src/pages/inventory/Tab1LiveStock.tsx",
@@ -119,6 +125,6 @@ jobs:
           print("LEDGER_817_SCOPED_GUARD=PASS",
                 "backend-817" if changed==backend_817_exact else
                 "frontend-818-stage-b" if changed==ledger_818_stage_b_exact else
-                "workflow-maintenance",len(changed))
+                "batch773-final-1034" if changed==batch_773_final_exact else "workflow-maintenance",len(changed))
           PY
           python -m py_compile wa_backend/api/warehouse/ledger.py wa_backend/domains/ledger/read.py wa_backend/domains/ledger/operation_read.py wa_backend/tests/test_ledger_817_postgres.py

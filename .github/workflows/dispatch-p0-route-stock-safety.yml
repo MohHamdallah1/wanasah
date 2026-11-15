@@ -707,7 +707,20 @@ jobs:
               "wanasah_frontend/lib/features/custody/presentation/current_vehicle_stock_section.dart",
               "wanasah_frontend/test/features/custody/current_vehicle_stock_contract_test.dart",
           }
+          batch_773_final_module=__import__("runpy").run_path(".github/scripts/batch773_final_1034_scope.py")
+          batch_773_final_exact=batch_773_final_module["BATCH773_FINAL_1034_FILES"]
+          batch_773_unique={
+              "wa_backend/api/warehouse/batch_metadata_correction.py",
+              "wa_backend/domains/inventory_batch_metadata/service.py",
+              "dashboard/src/pages/inventory/batches/BatchMetadataCorrectionPanel.tsx",
+          }
           def ownership_mode(candidate):
+              if candidate & batch_773_unique:
+                  assert candidate == batch_773_final_exact, (
+                      f"BATCH773_FINAL_1034_EXACT=FAIL "
+                      f"missing={sorted(batch_773_final_exact-candidate)} "
+                      f"foreign={sorted(candidate-batch_773_final_exact)}")
+                  return "BATCH773_FINAL_1034_EXACT"
               if candidate & field_stock_1020_distinct:
                   assert candidate == field_stock_1020_exact, (
                       f"FIELD_STOCK_1020_EXACT=FAIL "
@@ -867,6 +880,22 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          assert ownership_mode(batch_773_final_exact) == "BATCH773_FINAL_1034_EXACT"
+          batch_773_final_module["selftest"]()
+          for missing in batch_773_final_exact:
+              try:
+                  ownership_mode(batch_773_final_exact-{missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"BATCH773_1034_PARTIAL_ADMITTED={missing}")
+          for foreign in ("wa_backend/services.py", "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(batch_773_final_exact|{foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"BATCH773_1034_FOREIGN_ADMITTED={foreign}")
           # #1020 fail-closed owner admission: no subset or foreign worker file.
           assert ownership_mode(field_stock_1020_exact) == "FIELD_STOCK_1020_EXACT"
           for missing in sorted(field_stock_1020_exact):
