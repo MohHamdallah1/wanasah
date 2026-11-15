@@ -54,6 +54,32 @@ describe("Stocktake signed-server recovery after browser logout", () => {
     hook.unmount();
   });
 
+  it("retains a verified same-warehouse view on tab return while safely revalidating in the background", async () => {
+    let secondReply!: (value: unknown) => void;
+    const pendingRefresh = new Promise<unknown>((resolve) => { secondReply = resolve; });
+    const fetch: StocktakeAuthFetch = vi.fn()
+      .mockResolvedValueOnce(page(session(10)))
+      .mockImplementationOnce(() => pendingRefresh);
+    const hook = renderHook(
+      ({ enabled }) => useStocktakeSessions({ enabled, locationId: 3, authenticatedFetch: fetch }),
+      { initialProps: { enabled: true } },
+    );
+    await waitFor(() => expect(hook.result.current.verifiedLocationId).toBe(3));
+    expect(hook.result.current.sessions[0]?.id).toBe(10);
+    hook.rerender({ enabled: false });
+    expect(hook.result.current.verifiedLocationId).toBe(3);
+    hook.rerender({ enabled: true });
+    await waitFor(() => expect(hook.result.current.loading).toBe(true));
+    expect(hook.result.current.verifiedLocationId).toBe(3);
+    expect(hook.result.current.sessions[0]?.id).toBe(10);
+    await act(async () => { secondReply(page(null)); await pendingRefresh; });
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.sessions).toEqual([]);
+    expect(hook.result.current.total).toBe(0);
+    expect(hook.result.current.verifiedLocationId).toBe(3);
+    hook.unmount();
+  });
+
   it("does not certify a failed or cross-warehouse active list", async () => {
     const fetch: StocktakeAuthFetch = vi.fn(async () => page(session(10, 1)));
     const hook = renderHook(() => useStocktakeSessions({ enabled: true, locationId: 3, authenticatedFetch: fetch }));

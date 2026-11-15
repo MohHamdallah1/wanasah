@@ -270,11 +270,13 @@ export function Tab3Stocktake({
     session.id === Number(stocktakeState.sessionId) &&
     session.location_id === locationId,
   );
-  const cycleStartDisabled =
-    isAuditLocked || sessionsLoading || !warehouseAccess.can("stocktake.start");
   const isIdle = stocktakeState.sessionId === null;
   const serverSessionsVerified = verifiedLocationId === locationId;
   const activeServerCount = serverSessionsVerified ? activeSessionsTotal : null;
+  // Visible instantly, but no action on unverified or revalidating sessions.
+  const cycleStartDisabled =
+    isAuditLocked || !serverSessionsVerified || sessionsLoading ||
+    sessionsLoadFailed || !warehouseAccess.can("stocktake.start");
   const recoveryText = uiCopy.sessions.recovery;
   const warehouseLabel = locationName || (dir === "rtl" ? "المستودع المحدد" : "selected warehouse");
   const workspacePhase = isIdle ? "idle" : stocktakeState.phase.toLowerCase();
@@ -336,11 +338,8 @@ export function Tab3Stocktake({
                 {recoveryText.permission}
               </p>
             )}
-            {canReadStocktake && !serverSessionsVerified && !sessionsLoadFailed && (
-              <p role="status" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
-                {recoveryText.checking}
-              </p>
-            )}
+            {/* Keep the workspace stable while the signed session read runs.
+                Never present the unverified set as an authoritative zero. */}
             {canReadStocktake && sessionsLoadFailed && (
               <div role="alert" className="rounded-xl border border-slate-300 bg-white p-4 text-sm text-slate-700">
                 <p>{recoveryText.unavailable}</p>
@@ -390,9 +389,23 @@ export function Tab3Stocktake({
                 </button>
               </section>
             )}
-            {canReadStocktake && serverSessionsVerified && activeServerCount !== null &&
-              activeServerCount !== 1 && !isAuditLocked && warehouseAccess.can("stocktake.start") && (
-              <StocktakeIdlePanel onStart={() => setShowLockModal(true)} />
+            {canReadStocktake && !sessionsLoadFailed &&
+              activeServerCount !== 1 &&
+              !isAuditLocked && warehouseAccess.can("stocktake.start") && (
+              <fieldset
+                disabled={!serverSessionsVerified || sessionsLoading || activeServerCount !== 0}
+                className="flex min-h-0 flex-1 flex-col border-0 p-0"
+              >
+                <StocktakeIdlePanel
+                  onStart={() => {
+                    // DOM-disabled also rejects real pointer/keyboard input,
+                    // while this logical guard protects programmatic dispatch.
+                    if (!serverSessionsVerified || sessionsLoading ||
+                        sessionsLoadFailed || activeServerCount !== 0) return;
+                    setShowLockModal(true);
+                  }}
+                />
+              </fieldset>
             )}
           </div>
         ) : (
