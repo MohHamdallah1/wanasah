@@ -128,15 +128,44 @@ export function RouteLoadProductTable({
     setClearSnapshot(null);
   };
 
+  // Grid-like navigation of the two physical target UOMs:
+  // up/down = same UOM through visible rows (skip SKUs without large UOM),
+  // left/right = visually adjacent UOM in this row, respecting RTL.
+  // Horizontal arrows preserve numeric caret movement until the text edge;
+  // a fully selected value may cross directly.
   const onQuantityArrow = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
-    const kind = event.currentTarget.dataset.routeTargetInput;
-    if (!kind) return;
-    const candidates = Array.from(event.currentTarget.closest("table")?.querySelectorAll<HTMLInputElement>(
-      `input[data-route-target-input="${kind}"]:not(:disabled)`,
-    ) ?? []);
-    const position = candidates.indexOf(event.currentTarget);
-    const next = candidates[position + (event.key === "ArrowDown" ? 1 : -1)];
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) ||
+        event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
+        event.nativeEvent.isComposing) return;
+    const origin = event.currentTarget;
+    if (origin.disabled) return;
+    const kind = origin.dataset.routeTargetInput;
+    if (kind !== "display" && kind !== "base") return;
+
+    let next: HTMLInputElement | null | undefined;
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const candidates = Array.from(origin.closest("table")?.querySelectorAll<HTMLInputElement>(
+        'input[data-route-target-input="' + kind + '"]:not(:disabled)',
+      ) ?? []);
+      const position = candidates.indexOf(origin);
+      next = candidates[position + (event.key === "ArrowDown" ? 1 : -1)];
+    } else {
+      // Pair uses RTL flex order in Arabic and LTR otherwise; numbers remain LTR.
+      // Arrow direction means the VISUALLY adjacent column.
+      const adjacent = event.key === "ArrowRight"
+        ? (isArabic ? "display" : "base")
+        : (isArabic ? "base" : "display");
+      if (kind === adjacent) return;
+      const start = origin.selectionStart;
+      const end = origin.selectionEnd;
+      const selectedAll = start === 0 && end === origin.value.length;
+      const atEdge = start === end && (event.key === "ArrowRight"
+        ? end === origin.value.length : start === 0);
+      if (!selectedAll && !atEdge) return;
+      next = origin.closest("tr")?.querySelector<HTMLInputElement>(
+        'input[data-route-target-input="' + adjacent + '"]:not(:disabled)',
+      );
+    }
     if (!next) return;
     event.preventDefault();
     next.focus();
@@ -209,7 +238,7 @@ export function RouteLoadProductTable({
               onFocus={(event) => event.currentTarget.select()}
               title={unit?.display_uom_name}
               onChange={(event) => editPart("display", event.target.value)}
-              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100"
+              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15"
               dir="ltr" />
           </label>}
           <label className="flex min-w-0 flex-1 flex-col gap-0.5" title={unit?.base_uom_name}>
@@ -223,7 +252,7 @@ export function RouteLoadProductTable({
               onFocus={(event) => event.currentTarget.select()}
               title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
               onChange={(event) => editPart("base", event.target.value)}
-              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100"
+              className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15"
               dir="ltr" />
           </label>
         </div>
@@ -242,7 +271,7 @@ export function RouteLoadProductTable({
     <button type="button" onClick={clearAll}
       disabled={!canEdit || Object.keys(targets).length === 0}
       title={isArabic ? "تصفير الحمولة المستهدفة مع إمكانية التراجع" : "Clear target quantities; undo is available"}
-      className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
+      className="inline-flex h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-700 hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
       <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
       {isArabic ? "تصفير الكل" : "Clear all"}
     </button>
@@ -286,7 +315,7 @@ export function RouteLoadProductTable({
               <input type="text" aria-label={t("dispatchProductSearch.search")}
                 placeholder={t("dispatchProductSearch.search")} maxLength={100}
                 value={search} disabled={!endpoint} onChange={event => setSearch(event.target.value)}
-                className={`h-9 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 disabled:bg-slate-100 ${search ? "pe-[4.5rem]" : "pe-9"}`} />
+                className={`h-9 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15 ${search ? "pe-[4.5rem]" : "pe-9"}`} />
             </div>
           </th>
           <th className="px-3 py-3 text-center">{t("dispatchRouteLoad.current")}</th>
