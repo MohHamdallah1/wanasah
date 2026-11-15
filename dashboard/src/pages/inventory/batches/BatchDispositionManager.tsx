@@ -26,6 +26,7 @@ import type { ReservationOwner } from "./batchStockSourcesContract";
 import { batchActionText } from "./batchActionsI18n";
 import { StockStatusActionsPanel } from "./StockStatusActionsPanel";
 import { useBatchDispositionCommand } from "./useBatchDispositionCommand";
+import { BatchMetadataCorrectionPanel } from "./BatchMetadataCorrectionPanel";
 
 type Props = {
   batch: BatchActionSnapshot | null;
@@ -199,6 +200,18 @@ export function BatchDispositionManager({
           </section>
         ) : null}
 
+        {canChange && access.can("inbound.create") && selectedWarehouseId !== null && (
+          <BatchMetadataCorrectionPanel
+            batchId={batch.batch_id}
+            locationId={selectedWarehouseId}
+            onChanged={async () => {
+              // Refresh detail when available, and the index exactly once.
+              // Without an optional detail callback, never call onChanged twice.
+              if (onRefreshBatch) await onRefreshBatch();
+              await onChanged();
+            }}
+          />
+        )}
         <section className="rounded-xl border border-violet-200 bg-violet-50/30 p-3" aria-labelledby="cp3-disposition-title">
           <h3 id="cp3-disposition-title" className="text-xs font-black text-slate-950">
             {actionText("dispositionTitle")}
