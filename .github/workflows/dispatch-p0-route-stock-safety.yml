@@ -682,7 +682,39 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          # #1020: one audited FIELD current-vehicle-stock integration scope.
+          # This adds exactly the signed route evidence + Flutter consumer and
+          # focused two-principal PG16 assertion, WITHOUT widening any prior
+          # owner policy or bypassing real P0 stock mutation tests.
+          field_stock_1020_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "wa_backend/api/driver.py",
+              "wa_backend/tests/test_field_1021_vehicle_stock_pg16.py",
+              "wanasah_frontend/lib/blocs/dashboard/dashboard_bloc.dart",
+              "wanasah_frontend/lib/blocs/dashboard/dashboard_state.dart",
+              "wanasah_frontend/lib/features/custody/data/current_vehicle_stock_reader.dart",
+              "wanasah_frontend/lib/features/custody/domain/vehicle_route_authority.dart",
+              "wanasah_frontend/lib/features/custody/presentation/current_vehicle_stock_section.dart",
+              "wanasah_frontend/lib/features/custody/presentation/vehicle_inventory_section.dart",
+              "wanasah_frontend/lib/screens/dashboard_screen.dart",
+              "wanasah_frontend/test/app/field_shell_composition_test.dart",
+              "wanasah_frontend/test/features/custody/current_vehicle_stock_contract_test.dart",
+          }
+          assert len(field_stock_1020_exact) == 12
+          field_stock_1020_distinct = {
+              "wanasah_frontend/lib/features/custody/data/current_vehicle_stock_reader.dart",
+              "wanasah_frontend/lib/features/custody/domain/vehicle_route_authority.dart",
+              "wanasah_frontend/lib/features/custody/presentation/current_vehicle_stock_section.dart",
+              "wanasah_frontend/test/features/custody/current_vehicle_stock_contract_test.dart",
+          }
           def ownership_mode(candidate):
+              if candidate & field_stock_1020_distinct:
+                  assert candidate == field_stock_1020_exact, (
+                      f"FIELD_STOCK_1020_EXACT=FAIL "
+                      f"missing={sorted(field_stock_1020_exact - candidate)} "
+                      f"foreign={sorted(candidate - field_stock_1020_exact)}"
+                  )
+                  return "FIELD_STOCK_1020_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"](candidate):
                   return "C03_X01_983_RELEASE_EXACT"
               if candidate == u02_u03_969_exact:
@@ -835,6 +867,27 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          # #1020 fail-closed owner admission: no subset or foreign worker file.
+          assert ownership_mode(field_stock_1020_exact) == "FIELD_STOCK_1020_EXACT"
+          for missing in sorted(field_stock_1020_exact):
+              try:
+                  ownership_mode(field_stock_1020_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"FIELD_STOCK_1020_PARTIAL_ADMITTED={missing}")
+          for foreign in (
+              "wa_backend/alembic/versions/unrelated.py",
+              "wanasah_frontend/lib/main.dart",
+              "dashboard/src/pages/DispatchBoard.tsx",
+          ):
+              try:
+                  ownership_mode(field_stock_1020_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"FIELD_STOCK_1020_FOREIGN_ADMITTED={foreign}")
+          print("FIELD_STOCK_1020_EXACT_SCOPE=PASS")
           # M04 exact policy: all 57 files together, no partial or foreign set.
           assert ownership_mode(m04_942_exact) == 'M04_942_EXACT'
           for missing in sorted(m04_942_exact):
