@@ -169,7 +169,11 @@ jobs:
               ".github/scripts/stocktake_zero_flash_1026_scope.py"
           )["STOCKTAKE_ZERO_FLASH_1026_FILES"]
           allowed[frozenset(zero_flash_1026)] = "ZERO_FLASH_STOCKTAKE_1026"
-          assert len(allowed) == 14
+          first_paint_1031 = __import__("runpy").run_path(
+              ".github/scripts/stocktake_first_paint_1031_scope.py"
+          )["STOCKTAKE_FIRST_PAINT_1031_FILES"]
+          allowed[frozenset(first_paint_1031)] = "STOCKTAKE_FIRST_PAINT_1031"
+          assert len(allowed) == 15
           assert dialog_792 == shell_789
           assert allowed[frozenset(dialog_792)] == "SINGLE_TOOLBAR_789"
           def verify(paths):
@@ -178,6 +182,8 @@ jobs:
               return label
           assert verify(recovery_1005) == "SERVER_STOCKTAKE_RECOVERY_1005"
           assert verify(zero_flash_1026) == "ZERO_FLASH_STOCKTAKE_1026"
+          assert verify(first_paint_1031) == "STOCKTAKE_FIRST_PAINT_1031"
+          __import__("runpy").run_path(".github/scripts/stocktake_first_paint_1031_scope.py")["selftest"]()
           __import__("runpy").run_path(".github/scripts/stocktake_zero_flash_1026_scope.py")["selftest"]()
           for label, paths in (
               ("OPERATOR_UX_784", expected),

@@ -34,6 +34,7 @@ import {
 
 interface Props {
   active?: boolean;
+  authorizedForReads?: boolean;
   focusSessionId?: number;
   onFocusUnavailable?: (error: unknown) => void;
   locationId: number;
@@ -47,6 +48,7 @@ interface Props {
 
 export function Tab3Stocktake({
   active = true,
+  authorizedForReads = false,
   focusSessionId,
   onFocusUnavailable,
   locationId,
@@ -74,19 +76,21 @@ export function Tab3Stocktake({
   const stocktakeState = useStocktakeState({ companyId, locationId });
   const warehouseAccess = useInventoryAccess(locationId);
   const sessionAccess = useInventoryAccess(stocktakeState.sessionLocationId ?? locationId);
-  const canReadStocktake = warehouseAccess.can("stocktake.read");
+  // A cached capability is NOT an authorized read on side-menu reentry.
+  const canReadStocktake =
+    authorizedForReads && warehouseAccess.can("stocktake.read");
 
   // A retained tab must not leave a portal open after access or location changes.
   // Its count/review drafts remain owned by the location-keyed existing state hook.
   useEffect(() => {
     if (!active || !canReadStocktake) setShowSessions(false);
   }, [active, canReadStocktake, locationId]);
-  const durableIdentity = useMemo(() => warehouseAccess.data
+  const durableIdentity = useMemo(() => authorizedForReads && warehouseAccess.data
     ? {
         companyId: warehouseAccess.data.company_id,
         backofficeUserId: warehouseAccess.data.backoffice_user_id,
       }
-    : null, [warehouseAccess.data]);
+    : null, [authorizedForReads, warehouseAccess.data]);
 
   const { setRows, setReview } = stocktakeState;
   const {
@@ -176,7 +180,7 @@ export function Tab3Stocktake({
   });
 
   const lifecycle = useStocktakeLifecycle({
-    active,
+    active: active && canReadStocktake,
     durableIdentity,
     focusSessionId,
     onFocusUnavailable,
@@ -333,7 +337,7 @@ export function Tab3Stocktake({
         className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isIdle ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-3" data-stocktake-server-recovery="true">
-            {!canReadStocktake && (
+            {authorizedForReads && !canReadStocktake && (
               <p role="alert" className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                 {recoveryText.permission}
               </p>
@@ -389,18 +393,22 @@ export function Tab3Stocktake({
                 </button>
               </section>
             )}
-            {canReadStocktake && !sessionsLoadFailed &&
+            {!sessionsLoadFailed &&
               activeServerCount !== 1 &&
-              !isAuditLocked && warehouseAccess.can("stocktake.start") && (
+              (!authorizedForReads ||
+                (canReadStocktake && warehouseAccess.can("stocktake.start"))) && (
               <fieldset
-                disabled={!serverSessionsVerified || sessionsLoading || activeServerCount !== 0}
+                disabled={!authorizedForReads || isAuditLocked ||
+                  !serverSessionsVerified || sessionsLoading || activeServerCount !== 0}
                 className="flex min-h-0 flex-1 flex-col border-0 p-0"
               >
                 <StocktakeIdlePanel
                   onStart={() => {
                     // DOM-disabled also rejects real pointer/keyboard input,
                     // while this logical guard protects programmatic dispatch.
-                    if (!serverSessionsVerified || sessionsLoading ||
+                    if (!authorizedForReads || !canReadStocktake ||
+                        isAuditLocked || !warehouseAccess.can("stocktake.start") ||
+                        !serverSessionsVerified || sessionsLoading ||
                         sessionsLoadFailed || activeServerCount !== 0) return;
                     setShowLockModal(true);
                   }}

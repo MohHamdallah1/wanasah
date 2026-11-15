@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   canAt: vi.fn<(code: string) => boolean>(),
   can: vi.fn<(code: string) => boolean>(),
   t: (key: string) => key,
+  accessPending: false,
 }));
 
 vi.mock("@/hooks/useAuthFetch", () => ({
@@ -17,10 +18,10 @@ vi.mock("@/hooks/useAuthFetch", () => ({
 vi.mock("@/hooks/useInventoryAccess", () => ({
   parseInventoryLocationCapabilities: vi.fn(),
   useInventoryAccess: (locationId: number | null = null) => ({
-    isSuccess: true,
-    isPending: false,
-    isFetching: false,
-    isFetchedAfterMount: true,
+    isSuccess: !mocks.accessPending,
+    isPending: mocks.accessPending,
+    isFetching: mocks.accessPending,
+    isFetchedAfterMount: !mocks.accessPending,
     isError: false,
     can: locationId === null ? mocks.can : mocks.canAt,
     canAny: mocks.canAny,
@@ -63,7 +64,12 @@ vi.mock("@/pages/inventory/Tab1LiveStock", () => ({
 }));
 vi.mock("@/pages/inventory/TabBatches", () => ({ TabBatches: () => null }));
 vi.mock("@/pages/inventory/Tab2Inbound", () => ({ Tab2Inbound: () => null }));
-vi.mock("@/pages/inventory/Tab3Stocktake", () => ({ Tab3Stocktake: () => null }));
+vi.mock("@/pages/inventory/Tab3Stocktake", () => ({
+  Tab3Stocktake: ({ authorizedForReads }: { authorizedForReads: boolean }) =>
+    <div data-testid="stocktake-first-paint" data-signed={String(authorizedForReads)}>
+      Real stocktake panel shell
+    </div>,
+}));
 vi.mock("@/pages/inventory/Tab4Ledger", () => ({ Tab4Ledger: () => null }));
 vi.mock("@/pages/inventory/TabWarehouseLocations", () => ({
   TabWarehouseLocations: () => <div data-testid="warehouse-management" />,
@@ -75,7 +81,7 @@ vi.mock("@/pages/inventory/archive/ArchiveOwnerWorkspace", () => ({
 }));
 
 import MainInventory from "@/pages/inventory/MainInventory";
-import { clearInventoryWarmScope } from "@/pages/inventory/inventorySessionCache";
+import { clearInventoryWarmScope, writeInventoryShellWarmSnapshot } from "@/pages/inventory/inventorySessionCache";
 
 const option = (id: number) => ({ id, name: `Warehouse ${id}`, code: `WH-${id}` });
 const page = (
@@ -107,6 +113,7 @@ beforeEach(() => {
   localStorage.setItem("backoffice_user_id", "75");
   localStorage.setItem("principal_id", "75");
   mocks.authFetch.mockReset();
+  mocks.accessPending = false;
   mocks.canAny.mockReset();
   mocks.canAt.mockReset();
   mocks.can.mockReset();
@@ -122,6 +129,29 @@ afterEach(() => {
 });
 
 describe("inventory scoped warehouse discovery integration", () => {
+  it("renders the SAME stocktake content immediately on side-menu entry while access still verifies", () => {
+    localStorage.setItem("inventory_active_tab:1", "stocktake");
+    localStorage.setItem("inventory_selected_location:1", "5");
+    writeInventoryShellWarmSnapshot("1:75:75", {
+      locations: [option(5)],
+      selectedLocationId: 5,
+      locationsTruncated: false,
+      setup: setup(1),
+    });
+    mocks.accessPending = true;
+    mocks.canAt.mockImplementation((code) => code === "stocktake.read" || code === "stocktake.start");
+    const view = renderInventory();
+    const body = screen.getByTestId("stocktake-first-paint");
+    expect(body).toBeVisible();
+    expect(body).toHaveAttribute("data-signed", "false");
+    expect(view.container.querySelector("[data-inventory-pending-surface]")).toBeNull();
+    // There must be no pre-authority HTTP stocktake reads, nor misleading
+    // "permission denied" or "no sessions" proof during a pending auth check.
+    expect(mocks.authFetch.mock.calls.some(([url]) =>
+      String(url).includes("/stocktake"))).toBe(false);
+  });
+
+
   it("allows inventory-only users to select warehouse 201 without requesting location management", async () => {
     mocks.authFetch.mockImplementation((url: string) => {
       const parsed = new URL(url, "http://test.local");

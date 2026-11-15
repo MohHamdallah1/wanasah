@@ -155,7 +155,12 @@ jobs:
           zero_1026_mode = zero_1026_module["stocktake_zero_flash_1026_mode"]
           zero_1026_files = zero_1026_module["STOCKTAKE_ZERO_FLASH_1026_FILES"]
 
+          first_1031_module = __import__("runpy").run_path(".github/scripts/stocktake_first_paint_1031_scope.py")
+          first_1031_mode = first_1031_module["stocktake_first_paint_1031_mode"]
+          first_1031_files = first_1031_module["STOCKTAKE_FIRST_PAINT_1031_FILES"]
           def exact_owner_mode(paths):
+              if first_1031_mode(paths):
+                  return "STOCKTAKE_FIRST_PAINT_1031"
               if zero_1026_mode(paths):
                   return "ZERO_FLASH_STOCKTAKE_1026"
               if recovery_1005_mode(paths):
@@ -176,6 +181,8 @@ jobs:
 
           # Prove both historical exact #799 and independent #808 are valid;
           # every missing owner file, foreign file and mixed set stays invalid.
+          assert exact_owner_mode(first_1031_files) == "STOCKTAKE_FIRST_PAINT_1031"
+          first_1031_module["selftest"]()
           assert exact_owner_mode(zero_1026_files) == "ZERO_FLASH_STOCKTAKE_1026"
           zero_1026_module["selftest"]()
           assert exact_owner_mode(approved) == "HISTORY_799_EXACT"
