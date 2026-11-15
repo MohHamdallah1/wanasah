@@ -43,7 +43,7 @@ vi.mock("./useInboundPosting", () => ({
 // Inbound receives the already-authorized company timezone from the tenant
 // identity hook; this component test supplies that dependency explicitly.
 vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
-  useTenantIdentity: () => ({ data: { company_id: 1, timezone: "Asia/Amman" } }),
+  useTenantIdentity: () => ({ data: { company_id: 1, timezone: "Asia/Amman", currency_code: "JOD" } }),
 }));
 
 vi.mock("@/features/suppliers/SupplierSelector", () => ({
@@ -237,6 +237,23 @@ describe("Checkpoint 1 inbound UI", () => {
         disconnect() {}
       },
     });
+  });
+
+  it("uses signed company currency immediately, before the second costing-policy read", async () => {
+    const product = makeVariant(507, "Immediate currency label", "NONE", "NONE");
+    const baseFetch = makeFetch([product]);
+    let finish: ((value: CostPolicy) => void) | null = null;
+    const heldPolicy = new Promise<CostPolicy>((resolve) => { finish = resolve; });
+    const fetch = vi.fn((url: string, options?: RequestInit) =>
+      url === "/warehouse/costing-policy" ? heldPolicy : baseFetch(url, options));
+    const view = render(<Tab2Inbound companyId={1} actorId={2} locationId={3}
+      isAuditLocked={false} authenticatedFetch={fetch} onSuccess={vi.fn()} />);
+    await screen.findByText("Immediate currency label");
+    const currency = view.container.querySelector(".inventory-inbound-cost-meta");
+    expect(currency).toHaveTextContent("JOD");
+    await act(async () => { finish?.(costPolicy); });
+    expect(currency).toHaveTextContent("JOD");
+    expect(fetch).toHaveBeenCalledWith("/warehouse/costing-policy");
   });
 
   it.each(["ar", "en"] as const)("shows RECALL without entry fields but still receives SALES_HOLD in %s", async (language) => {
