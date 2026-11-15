@@ -18,6 +18,7 @@ import '../features/recovery/presentation/recovery_dashboard_scroll.dart';
 import '../features/custody/presentation/pending_transfer_dialog.dart';
 import '../features/custody/domain/pending_transfer.dart';
 import '../features/custody/presentation/vehicle_inventory_section.dart';
+import '../features/custody/presentation/current_vehicle_stock_section.dart';
 import '../features/custody/recovery/field_custody_handoff_inbox.dart';
 import '../l10n/generated/app_localizations.dart';
 
@@ -364,13 +365,17 @@ class _DashboardScreenState extends State<DashboardScreen>
         FieldCustodyHandoffInbox(refreshNonce: _custodyInboxVersion),
         // Historical clipboard handoffs remain server-auditable; normal
         // FIELD custody never offers that retired entry action.
-        VehicleInventorySection(
-          products: state.products,
-          sellableDisclosure: state.sellableStockDisclosure,
-          nonSellableDisclosure: state.nonSellableStockDisclosure,
-          nonSellableCustody: state.nonSellableCustody,
-          pendingReturnCustody: state.pendingReturnCustody,
+        CurrentVehicleStockSection(
+          route: state.vehicleRoute,
+          refreshNonce: _custodyInboxVersion,
         ),
+        if (state.pendingReturnCustody.isNotEmpty)
+          VehicleInventorySection(
+            products: const [],
+            nonSellableCustody: const [],
+            showStock: false,
+            pendingReturnCustody: state.pendingReturnCustody,
+          ),
       ],
     );
   }

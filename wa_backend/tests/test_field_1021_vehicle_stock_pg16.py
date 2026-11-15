@@ -71,6 +71,8 @@ async def test_route_independent_verified_vehicle_stock_dual_bearer_and_denials(
         tenant_context.reset(token)
     dashboard = await g.client.get("/driver/dashboard", headers=other)
     assert dashboard.status_code == 200 and dashboard.json()["active_session"] is None, dashboard.text
+    assert "active_route_vehicle" in dashboard.json()
+    assert dashboard.json()["active_route_vehicle"] is None
     old_custody = await g.client.get("/driver/custody", headers=other)
     assert old_custody.status_code in (403, 409), old_custody.text
     assert old_custody.json()["error"]["code"] == "FIELD_SESSION_REQUIRED"
@@ -104,6 +106,9 @@ async def test_route_independent_verified_vehicle_stock_dual_bearer_and_denials(
     before_dashboard = await g.client.get("/driver/dashboard", headers=field)
     assert before_dashboard.status_code == 200, before_dashboard.text
     assert before_dashboard.json()["active_session"]["session_id"] == g.session
+    route_evidence = before_dashboard.json()["active_route_vehicle"]
+    assert isinstance(route_evidence, dict) and route_evidence["route_id"] > 0
+    assert isinstance(route_evidence["vehicle_id"], int) and route_evidence["vehicle_id"] > 0
     original_route_inventory = before_dashboard.json()["active_session"]["inventory"]
 
     readiness = await g.client.get(
@@ -160,6 +165,7 @@ async def test_route_independent_verified_vehicle_stock_dual_bearer_and_denials(
     assert after_dashboard.status_code == 200
     assert after_dashboard.json()["active_session"]["inventory"] == original_route_inventory
     assert after_dashboard.json()["active_session"]["session_id"] == g.session
+    assert after_dashboard.json()["active_route_vehicle"] == route_evidence
 
     invalid_cursor = await g.client.get(path, headers=field, params={"cursor":"not-signed"})
     assert invalid_cursor.status_code == 422

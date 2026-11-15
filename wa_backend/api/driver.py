@@ -3039,6 +3039,21 @@ async def get_driver_dashboard(
 
     response_data = {
         "execution_context": execution_envelope(execution),
+        # A signed FIELD dashboard read must explicitly distinguish no ACTIVE
+        # route from a route whose physical vehicle inventory cannot be read.
+        # This is presentation evidence only: it does NOT authorize custody,
+        # invent stock, or create a vehicle assignment/movement.
+        "active_route_vehicle": (
+            {
+                "route_id": int(active_route.id),
+                "vehicle_id": (
+                    int(active_route.vehicle_id)
+                    if active_route.vehicle_id is not None else None
+                ),
+            }
+            if active_route is not None
+            else None
+        ),
         "driver_name": legacy_actor.full_name,
         "assigned_region": assigned_region,
         "active_session": {
