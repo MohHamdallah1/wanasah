@@ -81,6 +81,22 @@ describe("D11 canonical commercial route-launch evidence", () => {
     expect(screen.queryByRole("button", { name: "عرض الخطوط النشطة" })).not.toBeInTheDocument();
   });
 
+  it("an open WorkSession with all routes closed links to actual Home sessions, never empty active routes", () => {
+    const navigate = vi.fn();
+    const evidence = server(["session", "DRIVER_SESSION_ACTIVE"]);
+    const view = render(<MemoryRouter><CommercialPreflightPanel language="en"
+      status="blocked" evidence={evidence} onRefresh={vi.fn()}
+      onNavigateToTab={navigate} /></MemoryRouter>);
+    expect(screen.getByRole("status")).toHaveTextContent("even when every route is closed");
+    expect(screen.getByRole("link", { name: "View representative sessions" })).toHaveAttribute("href", "/");
+    expect(screen.queryByRole("button", { name: "View active routes" })).not.toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    view.rerender(<MemoryRouter><CommercialPreflightPanel language="en"
+      status="blocked" evidence={server(["session", "DRIVER_SETTLEMENT_REQUIRED"])}
+      onRefresh={vi.fn()} /></MemoryRouter>);
+    expect(screen.getByRole("link", { name: "View representative sessions" })).toHaveAttribute("href", "/");
+  });
+
   it("fails closed on authentic 401/403, read error, and does not fabricate ready", async () => {
     const denied = Object.assign(new Error("private"), { status: 403 });
     const fetch = vi.fn().mockRejectedValue(denied);

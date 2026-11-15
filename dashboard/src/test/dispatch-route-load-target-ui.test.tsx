@@ -185,19 +185,29 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     ]} />);
     await ready();
     expect(input("display","1001")).toBeNull();
+    input("display","1000")!.focus();
     fireEvent.keyDown(input("display","1000")!,{key:"ArrowDown"});
-    expect(input("base","1001")).toHaveFocus(); // don't skip base-only SKU
+    expect(input("base","1001")).toHaveFocus(); // base-only SKU is not skipped
     fireEvent.keyDown(input("base","1001")!,{key:"ArrowDown"});
-    expect(input("base","1002")).toHaveFocus();
-    fireEvent.keyDown(input("base","1002")!,{key:"ArrowUp"});
-    expect(input("base","1001")).toHaveFocus();
-    input("display","1002")!.focus();
+    expect(input("display","1002")).toHaveFocus(); // original LARGE column restored
     fireEvent.keyDown(input("display","1002")!,{key:"ArrowUp"});
     expect(input("base","1001")).toHaveFocus();
     fireEvent.keyDown(input("base","1001")!,{key:"ArrowUp"});
-    expect(input("base","1000")).toHaveFocus();
+    expect(input("display","1000")).toHaveFocus();
+    input("base","1000")!.focus(); // explicitly select the small UOM instead
+    fireEvent.keyDown(input("base","1000")!,{key:"ArrowDown"});
+    expect(input("base","1001")).toHaveFocus();
+    fireEvent.keyDown(input("base","1001")!,{key:"ArrowDown"});
+    expect(input("base","1002")).toHaveFocus();
     expect(input("display")).toHaveAttribute("autocomplete","off");
-    expect(screen.getByRole("table").querySelectorAll("colgroup col")).toHaveLength(6);
+    const table = screen.getByRole("table");
+    expect(table.querySelectorAll("colgroup col")).toHaveLength(6);
+    expect(table.querySelector("thead")).toHaveClass("sticky", "top-0");
+    expect(table.parentElement).toHaveClass("overflow-auto", "max-h-[70vh]");
+    expect(table.parentElement).not.toHaveClass("overflow-x-auto");
+    expect(tr("1000")).toHaveClass("focus-within:bg-sky-50/40");
+    expect(Array.from(table.querySelectorAll<HTMLTableColElement>("colgroup col")).map(
+      col => col.style.width)).toEqual(["5%", "26%", "18%", "19%", "14%", "18%"]);
     fireEvent.click(screen.getByRole("button",{name:"Clear all"}));
     expect(base()).toBeUndefined();
     fireEvent.click(screen.getByRole("button",{name:"Undo clear"}));
@@ -260,7 +270,7 @@ describe("U02 dual largest-UOM target only; BASE warehouse/vehicle authority unc
     fireEvent.keyDown(large, { key: "ArrowDown" });
     expect(input("base", "1001")).toHaveFocus(); // RTL too: never skip base-only row
     fireEvent.keyDown(input("base", "1001")!, { key: "ArrowDown" });
-    expect(input("base", "1002")).toHaveFocus();
+    expect(input("display", "1002")).toHaveFocus(); // RTL preserves large-UOM intent
   });
 
   it("keeps fields and Clear-all visually stable during signed command revalidation", async () => {

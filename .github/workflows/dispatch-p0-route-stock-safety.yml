@@ -682,6 +682,18 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          # #1037: exact six-file owner-requested Launch UX and truthful
+          # WorkSession advisory navigation. No stock, field, auth or route
+          # command changes; all protected cross-owner scopes stay frozen.
+          launch_focus_1037_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/CommercialPreflightPanel.tsx",
+              "dashboard/src/features/dispatch/commercialPreflight/contract.ts",
+              "dashboard/src/test/dispatch-route-load-target-ui.test.tsx",
+              "dashboard/src/test/dispatch-d11-commercial-preflight.test.tsx",
+          }
+          assert len(launch_focus_1037_exact) == 6
           # #1036: exact four-file owner-approved stable launch row follow-up.
           # Preserve original 1035 admission; add only bounded 500-row test
           # plus the same table and new exact owner CI guard. No stock/route
@@ -735,6 +747,8 @@ jobs:
               "dashboard/src/pages/inventory/batches/BatchMetadataCorrectionPanel.tsx",
           }
           def ownership_mode(candidate):
+              if candidate == launch_focus_1037_exact:
+                  return "LAUNCH_FOCUS_1037_EXACT"
               if candidate == launch_stable_row_1036_exact:
                   return "LAUNCH_STABLE_ROW_1036_EXACT"
               if candidate == launch_target_1035_exact:
@@ -904,6 +918,28 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          assert ownership_mode(launch_focus_1037_exact) == "LAUNCH_FOCUS_1037_EXACT"
+          for missing in launch_focus_1037_exact:
+              try:
+                  result = ownership_mode(launch_focus_1037_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_FOCUS_1037_EXACT", missing
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/routeLoadUom.ts",
+              "wa_backend/api/dispatch_commercial_preflight.py",
+              "wa_backend/api/driver.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  result = ownership_mode(launch_focus_1037_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_FOCUS_1037_EXACT", foreign
+          print("LAUNCH_FOCUS_1037_EXACT_SCOPE=PASS")
           # #1036: both bugs must be fixed TOGETHER, and no mixed or partial
           # source may borrow an older P0/Dispatch/Flutter owner gate.
           assert ownership_mode(launch_stable_row_1036_exact) == "LAUNCH_STABLE_ROW_1036_EXACT"

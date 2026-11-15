@@ -128,12 +128,12 @@ const messages: Record<string, [string, string, string | null]> = {
     "Select an active, non-archived zone.", "/dispatch",
   ],
   DRIVER_SESSION_ACTIVE: [
-    "المندوب في جلسة عمل حالية؛ أنهِ الجلسة أو عدّل خطه القائم بدلاً من إطلاق خط جديد.",
-    "The representative has an active work session. End it or adjust the existing route instead.", "/dispatch",
+    "جلسة المندوب ما زالت مفتوحة رغم إغلاق جميع خطوطه. أنهِ العمل من تطبيق المندوب، ثم أكمل التسوية من الصفحة الرئيسية قبل إطلاق يوم عمل جديد.",
+    "The representative has an open work session even when every route is closed. End work in the field app, then finish settlement from the home dashboard before starting another day.", "/",
   ],
   DRIVER_SETTLEMENT_REQUIRED: [
-    "سوِّ جلسة المندوب السابقة مالياً قبل إطلاق يوم جديد.",
-    "Settle the representative's previous session before starting a new route.", "/dispatch",
+    "أكمل تسوية جلسة المندوب السابقة من الصفحة الرئيسية قبل إطلاق يوم جديد.",
+    "Finish the representative's previous session settlement on the home dashboard before launching a new day.", "/",
   ],
   ROUTE_ALREADY_ASSIGNED: [
     "المنطقة أو المندوب أو المركبة مرتبطة بخط فعال أو معلق؛ أغلق التعارض أولاً.",

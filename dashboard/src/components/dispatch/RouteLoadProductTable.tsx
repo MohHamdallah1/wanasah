@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type FocusEvent } from "react";
 import { createPortal } from "react-dom";
 import { RotateCcw, Trash2, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -141,6 +141,15 @@ export function RouteLoadProductTable({
   // left/right = visually adjacent UOM in this row, respecting RTL.
   // Horizontal arrows preserve numeric caret movement until the text edge;
   // a fully selected value may cross directly.
+  // The operator's explicitly selected UOM column is sticky while traversing
+  // base-only SKUs: a vertical fallback must not silently change the column.
+  const verticalKindRef = useRef<"display" | "base">("base");
+  const verticalFocusRef = useRef(false);
+  const onQuantityFocus = (event: FocusEvent<HTMLInputElement>, kind: "display" | "base") => {
+    if (!verticalFocusRef.current) verticalKindRef.current = kind;
+    event.currentTarget.select();
+  };
+
   const onQuantityArrow = (event: KeyboardEvent<HTMLInputElement>) => {
     if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key) ||
         event.altKey || event.ctrlKey || event.metaKey || event.shiftKey ||
@@ -159,12 +168,13 @@ export function RouteLoadProductTable({
       ) ?? []);
       const position = rows.indexOf(origin.closest("tr") as HTMLTableRowElement);
       const step = event.key === "ArrowDown" ? 1 : -1;
+      const preferred = verticalKindRef.current;
       for (let index = position + step; index >= 0 && index < rows.length; index += step) {
         next = rows[index].querySelector<HTMLInputElement>(
-          'input[data-route-target-input="' + kind + '"]:not(:disabled)',
-        ) ?? (kind === "display" ? rows[index].querySelector<HTMLInputElement>(
-          'input[data-route-target-input="base"]:not(:disabled)',
-        ) : null);
+          'input[data-route-target-input="' + preferred + '"]:not(:disabled)',
+        ) ?? rows[index].querySelector<HTMLInputElement>(
+          'input[data-route-target-input="' + (preferred === "display" ? "base" : "display") + '"]:not(:disabled)',
+        );
         if (next) break;
       }
     } else {
@@ -186,8 +196,14 @@ export function RouteLoadProductTable({
     }
     if (!next) return;
     event.preventDefault();
-    next.focus();
-    next.select();
+    const vertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if (vertical) verticalFocusRef.current = true;
+    try {
+      next.focus();
+      next.select();
+    } finally {
+      if (vertical) verticalFocusRef.current = false;
+    }
   };
 
   const renderRow = (product: DispatchDiscoveryProduct, rowNumber: number) => {
@@ -239,7 +255,7 @@ export function RouteLoadProductTable({
     let review: ReturnType<typeof routeLoadReview> | null = null;
     try { if (unit && !inputError) review = routeLoadReview(physical, target, unit); }
     catch { /* Keep an invalid local edit visible and block any actual movement. */ }
-    return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40">
+    return <tr key={product.id} data-product-id={product.id} className="border-b border-slate-100 last:border-0 hover:bg-sky-50/40 focus-within:bg-sky-50/40">
       <td className="px-1 py-1.5 text-center text-xs text-slate-500 tabular-nums">{rowNumber}</td>
       <td title={product.name} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2.5 py-1.5 font-semibold text-slate-700">{product.name}</td>
       <td title={unit ? formatRouteLoadQuantity(physical, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit ? formatRouteLoadQuantity(physical, unit) : t("dispatchRouteLoad.loading")}</td>
@@ -253,7 +269,7 @@ export function RouteLoadProductTable({
               disabled={!unit || !canEdit} value={outerValue}
               aria-label={`${t("dispatchRouteLoad.target")} — ${product.name} — ${unit?.display_uom_name}`}
               aria-invalid={!!inputError} aria-describedby={inputError ? `route-error-${product.id}` : undefined}
-              onFocus={(event) => event.currentTarget.select()}
+              onFocus={(event) => onQuantityFocus(event, "display")}
               title={unit?.display_uom_name}
               onChange={(event) => editPart("display", event.target.value)}
               className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15"
@@ -267,7 +283,7 @@ export function RouteLoadProductTable({
               disabled={!unit || !canEdit} value={remainderValue}
               aria-label={`${t("dispatchRouteLoad.target")} — ${product.name} — ${unit?.base_uom_name ?? t("dispatchRouteLoad.loading")}`}
               aria-invalid={!!inputError} aria-describedby={inputError ? `route-error-${product.id}` : undefined}
-              onFocus={(event) => event.currentTarget.select()}
+              onFocus={(event) => onQuantityFocus(event, "base")}
               title={unit ? `${t("dispatchRouteLoad.baseInput")}: ${unit.base_uom_name}` : t("dispatchRouteLoad.loading")}
               onChange={(event) => editPart("base", event.target.value)}
               className="h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-[#1e87bb] focus:ring-2 focus:ring-[#1e87bb]/15"
@@ -278,7 +294,7 @@ export function RouteLoadProductTable({
           className="block truncate text-[10px] font-semibold text-rose-700">{errorLabel}</span>}
       </td>
       <td title={unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : undefined} className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center tabular-nums">{unit && review ? formatRouteLoadQuantity(review.absoluteDelta, unit) : t("dispatchRouteLoad.invalid")}</td>
-      <td className="max-w-0 overflow-hidden text-ellipsis whitespace-nowrap px-2 py-1.5 text-center text-slate-600">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"
+      <td className="px-2 py-1.5 text-center text-xs leading-4 text-slate-600 whitespace-normal break-words">{t(!review ? "dispatchRouteLoad.blocked" : review.direction === "ADD" ? "dispatchRouteLoad.add"
         : review.direction === "UNLOAD" ? "dispatchRouteLoad.unload" : "dispatchRouteLoad.unchanged")}</td>
     </tr>;
   };
@@ -308,17 +324,19 @@ export function RouteLoadProductTable({
     <section data-testid="dispatch-launch-products" aria-busy={joinedPending}
       data-first-window-ready={firstRevealReady ? "true" : "false"}
       className="flex min-h-[300px] w-full min-w-0 flex-1 flex-col">
-      <div className="min-w-0 flex-1 overflow-x-auto">
+      {/* One bounded table scroller owns BOTH axes. The sticky header follows
+           its vertical scroll, and 820px content cannot widen Launch itself. */}
+       <div className="min-w-0 flex-1 max-h-[70vh] overflow-auto">
       <table className="w-full min-w-[820px] table-fixed text-sm">
         <colgroup>
           <col style={{ width: "5%" }} />
-          <col style={{ width: "34%" }} />
-          <col style={{ width: "19%" }} />
+          <col style={{ width: "26%" }} />
           <col style={{ width: "18%" }} />
+          <col style={{ width: "19%" }} />
           <col style={{ width: "14%" }} />
-          <col style={{ width: "10%" }} />
+          <col style={{ width: "18%" }} />
         </colgroup>
-        <thead><tr className="border-b border-slate-200 bg-slate-100/80 text-slate-600">
+        <thead className="sticky top-0 z-30 bg-slate-100 shadow-sm"><tr className="border-b border-slate-200 bg-slate-100 text-slate-600">
           <th scope="col" aria-label={t("dispatchProductSearch.rowNumber")} className="px-1 py-2 text-center text-xs tabular-nums">#</th>
           <th className="px-2.5 py-2 text-start">
             <div className="relative block w-full max-w-[370px]">
