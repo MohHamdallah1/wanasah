@@ -2689,6 +2689,8 @@ class ProductBatch(Base):
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
     product_variant_id = Column(Integer, nullable=False, index=True)
     batch_number       = Column(String(100), nullable=False, index=True)
+    # #773: independent optimistic revision for audited current metadata corrections.
+    metadata_revision = Column(Integer, nullable=False, default=1, server_default='1')
     production_date       = Column(Date, nullable=True)
     expiry_date           = Column(Date, nullable=True, index=True)
     disposition           = Column(
@@ -3862,3 +3864,6 @@ class InventoryLock(Base):
 # M01: domain-owned additive tables registered after legacy model declarations.
 from domains.dispatch.route_execution import models as route_execution_models  # noqa: F401,E402
 from domains.dispatch.route_execution import vehicle_custody_models  # noqa: F401,E402
+
+# #773: append-only current batch metadata correction evidence.
+from domains.inventory_batch_metadata import models as batch_metadata_models  # noqa: F401,E402
