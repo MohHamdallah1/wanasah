@@ -51,7 +51,7 @@ export function LaunchResourceSelect({
         aria-haspopup="listbox" aria-expanded={open}
         aria-describedby={selectedReason ? `${hintId}-selected-note` : undefined}
         onClick={() => { setHintedId(null); setOpen(v => !v); }}
-        className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500">
+        className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 disabled:cursor-not-allowed">
         <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
         {selectedReason && <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-700" />}
         <ChevronDown aria-hidden="true" className="h-4 w-4 shrink-0"/>

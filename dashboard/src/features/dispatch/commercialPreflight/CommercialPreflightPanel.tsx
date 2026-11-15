@@ -1,6 +1,6 @@
-import { AlertTriangle, CheckCircle2, ChevronDown, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, RotateCcw } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
   PREFLIGHT_AREAS, preflightCopy, preflightLabel, preflightReason,
   type CommercialPreflight, type PreflightArea,
@@ -18,24 +18,18 @@ export function CommercialPreflightPanel({
   onNavigateToTab?: (tab: DispatchDestination) => void;
   canNavigateToTab?: (tab: DispatchDestination) => boolean;
 }) {
-  const frameRef = useRef<HTMLElement | null>(null);
-  const lastVisibleHeightRef = useRef(0);
   const [expanded, setExpanded] = useState(false);
   const pending = status === "loading" || status === "choose";
   const isArabic = language.toLowerCase().startsWith("ar");
   const text = (key: Parameters<typeof preflightCopy>[1]) => preflightCopy(language, key);
 
-  // Preserve the actual slot height through signed reauthorization without
-  // retaining confidential evidence or drawing a temporary fake alert.
-  useLayoutEffect(() => {
-    if (!pending && frameRef.current) {
-      lastVisibleHeightRef.current = Math.max(24, frameRef.current.getBoundingClientRect().height);
-    }
-  }, [pending, status, evidence, language, expanded]);
-
   const failures = status === "blocked" && evidence
     ? PREFLIGHT_AREAS.filter(area => !evidence.checks[area].ready) : [];
   const confirmedReady = status === "ready" && evidence?.ready === true;
+  // Advisory verification is silent: only actionable blockers are visible.
+  // The hook still prevents launch until signed verification completes and
+  // always revalidates immediately before the actual mutation.
+  const quiet = pending || confirmedReady;
   const retryable = status === "error" || (status === "ready" && !confirmedReady);
   const warning = status === "blocked" ? text("blocked")
     : status === "denied" ? text("denied") : text("unavailable");
@@ -67,17 +61,10 @@ export function CommercialPreflightPanel({
     </Link>;
   };
 
-  return <section ref={frameRef} data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
+  return <section data-testid="d11-commercial-preflight" dir={isArabic ? "rtl" : "ltr"}
     aria-label={text("title")} aria-busy={status === "loading"}
-    className="w-full min-w-0 min-h-6"
-    style={pending ? { minHeight: lastVisibleHeightRef.current } : undefined}>
-    {pending ? null : confirmedReady ? (
-      <div role="status" aria-live="polite" aria-label={text("ready")}
-        className="inline-flex max-w-full min-w-0 items-center gap-1.5 py-1 text-xs font-semibold text-emerald-700">
-        <CheckCircle2 aria-hidden="true" className="h-4 w-4 shrink-0" />
-        <span>{text("review")}</span>
-      </div>
-    ) : status === "blocked" && evidence && first ? (
+    hidden={quiet} className="w-full min-w-0">
+    {quiet ? null : status === "blocked" && evidence && first ? (
       <div role="status" aria-label={warning} className="min-w-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-950">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-amber-600" />
