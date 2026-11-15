@@ -682,6 +682,17 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          # #1036: exact four-file owner-approved stable launch row follow-up.
+          # Preserve original 1035 admission; add only bounded 500-row test
+          # plus the same table and new exact owner CI guard. No stock/route
+          # authority, work-session or cross-tenant code may enter this scope.
+          launch_stable_row_1036_exact = {
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "dashboard/src/components/dispatch/RouteLoadProductTable.tsx",
+              "dashboard/src/test/dispatch-route-load-target-ui.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+          }
+          assert len(launch_stable_row_1036_exact) == 4
           # #1035: exact owner-approved route-load input navigation and
           # unchanging disabled presentation during signed revalidation.
           # No DispatchBoard/command/stock authority edits are permitted.
@@ -724,6 +735,8 @@ jobs:
               "dashboard/src/pages/inventory/batches/BatchMetadataCorrectionPanel.tsx",
           }
           def ownership_mode(candidate):
+              if candidate == launch_stable_row_1036_exact:
+                  return "LAUNCH_STABLE_ROW_1036_EXACT"
               if candidate == launch_target_1035_exact:
                   return "LAUNCH_TARGET_1035_EXACT"
               if candidate & batch_773_unique:
@@ -891,6 +904,30 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          # #1036: both bugs must be fixed TOGETHER, and no mixed or partial
+          # source may borrow an older P0/Dispatch/Flutter owner gate.
+          assert ownership_mode(launch_stable_row_1036_exact) == "LAUNCH_STABLE_ROW_1036_EXACT"
+          for missing in launch_stable_row_1036_exact:
+              try:
+                  result = ownership_mode(launch_stable_row_1036_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_STABLE_ROW_1036_EXACT", missing
+          for foreign in (
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/features/dispatch/routeLoadUom.ts",
+              "dashboard/src/features/dispatch/useDispatchProductWindow.ts",
+              "wa_backend/api/dispatch.py",
+              "wanasah_frontend/lib/main.dart",
+          ):
+              try:
+                  result = ownership_mode(launch_stable_row_1036_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  assert result != "LAUNCH_STABLE_ROW_1036_EXACT", foreign
+          print("LAUNCH_STABLE_ROW_1036_EXACT_SCOPE=PASS")
           # #1035: visible keyboard grid + stable styles only. Deny every
           # incomplete file set and any unrelated/backoffice/stock code.
           assert ownership_mode(launch_target_1035_exact) == "LAUNCH_TARGET_1035_EXACT"
