@@ -7,6 +7,7 @@ import { shopOrderText } from "@/features/dispatch/shopOrder/messages";
 import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { useTenantIdentity } from "@/features/tenantIdentity/useTenantIdentity";
 import { formatLocaleMoney } from "@/lib/localeNumbers";
+import { zoneText } from "@/features/dispatch/zones/zoneUi";
 
 interface ShopTableProps {
   pending?: boolean;
@@ -54,6 +55,13 @@ export function ShopTable({
     zones.forEach(z => map.set(z.id, z.name));
     return map;
   }, [zones]);
+  const selectableRows = useMemo(
+    () => shops.filter(shop => !shop.archived && shop.zoneId === selectedZoneIdForZones),
+    [shops, selectedZoneIdForZones],
+  );
+  const selectedIds = useMemo(() => new Set(selectedShopIds), [selectedShopIds]);
+  const allVisibleSelected = selectableRows.length > 0 &&
+    selectableRows.every(shop => selectedIds.has(shop.id));
   
   return (
     <div className="dispatch-shop-table flex-1 overflow-x-auto overflow-y-auto" dir={language.startsWith("ar") ? "rtl" : "ltr"}>
@@ -64,9 +72,9 @@ export function ShopTable({
               <th scope="col" className="w-12 p-3 px-4">
                 <input
                   type="checkbox"
-                  checked={shops.length > 0 && selectedShopIds.length === shops.length}
+                  checked={allVisibleSelected}
                   onChange={onToggleSelectAll}
-                  aria-label={label("shopSelectAll")}
+                  aria-label={zoneText(language, "selectVisible")}
                   className="w-4 h-4 rounded border-slate-300 text-[#1e87bb] focus:ring-[#1e87bb]/20 cursor-pointer"
                 />
               </th>
@@ -103,8 +111,10 @@ export function ShopTable({
                   <td className="p-3 px-4 text-center flex items-center gap-2">
                     <input
                       type="checkbox"
-                      checked={selectedShopIds.includes(shop.id)}
-                      onChange={() => onToggleSelectShop(shop.id)}
+                      checked={selectedIds.has(shop.id)}
+                      onChange={() => { if (!isSaving && shop.zoneId === selectedZoneIdForZones) onToggleSelectShop(shop.id); }}
+                      disabled={shop.zoneId !== selectedZoneIdForZones || isSaving}
+                      title={shop.zoneId !== selectedZoneIdForZones ? zoneText(language, "selectVisible") : undefined}
                       aria-label={label("shopSelect", { shop: shop.name })}
                       className="w-4 h-4 rounded border-slate-300 text-[#1e87bb] focus:ring-[#1e87bb]/20 cursor-pointer"
                     />

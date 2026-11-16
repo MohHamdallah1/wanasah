@@ -748,6 +748,31 @@ jobs:
           }
           # #1039 owner-approved ZV1-B only. No global backend grant:
           # exactly the four CI guards, Dispatch Zone fix and its PG16 evidence.
+          zones_1038_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ScheduleModal.tsx",
+              "dashboard/src/components/dispatch/BulkTransferModal.tsx",
+              "dashboard/src/components/dispatch/ShopTable.tsx",
+              "dashboard/src/components/dispatch/ZoneModal.tsx",
+              "dashboard/src/components/dispatch/ZoneRecycleBinModal.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneBulkSelectionBar.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+              "dashboard/src/features/dispatch/zones/zoneCommands.ts",
+              "dashboard/src/features/dispatch/zones/zoneShopSelection.ts",
+              "dashboard/src/features/dispatch/zones/zoneUi.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-zv1-f-zones-1038.test.tsx",
+          }
+          assert len(zones_1038_exact) == 17
+          zones_1038_distinct = {
+              "dashboard/src/features/dispatch/zones/zoneUi.ts",
+              "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+          }
           zones_1039_exact = {
               ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
@@ -759,6 +784,9 @@ jobs:
           }
           assert len(zones_1039_exact) == 7
           def ownership_mode(candidate):
+              if candidate == zones_1038_exact: return "ZONES_1038_EXACT"
+              if candidate & zones_1038_distinct:
+                  raise AssertionError("P0 ZONES_1038 partial/foreign: " + repr(sorted(candidate)))
               if candidate == zones_1039_exact:
                   return "ZONES_1039_EXACT"
               if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in candidate:
@@ -934,6 +962,16 @@ jobs:
               assert auth_session_roots <= candidate, "Auth-session scope requires canonical session roots"
               return "AUTH_SESSION"
 
+          assert ownership_mode(zones_1038_exact) == "ZONES_1038_EXACT"
+          for missing in zones_1038_exact:
+              try: mode=ownership_mode(zones_1038_exact-{missing})
+              except AssertionError: pass
+              else: assert mode!="ZONES_1038_EXACT", "P0 ZONES_1038 incomplete accepted"
+          for foreign in ("wa_backend/models.py","wa_backend/api/driver.py","wanasah_frontend/lib/main.dart"):
+              try: ownership_mode(zones_1038_exact|{foreign})
+              except AssertionError: pass
+              else: raise AssertionError("P0 ZONES_1038 foreign accepted")
+          print("ZONES_1038_P0_SCOPE_SELFTEST=PASS exact=17 missing=17 foreign=3")
           assert ownership_mode(launch_focus_1037_exact) == "LAUNCH_FOCUS_1037_EXACT"
           for missing in launch_focus_1037_exact:
               try:

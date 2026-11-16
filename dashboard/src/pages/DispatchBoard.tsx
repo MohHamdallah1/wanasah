@@ -6,7 +6,7 @@ import { buildRouteStatusOnlyPayload } from "@/features/dispatch/routeStatusPayl
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
+import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 // Components
@@ -73,7 +73,13 @@ import { TabId, Zone, PendingRoute, Shortage, Shop } from "@/types/dispatch";
 import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession } from "@/lib/authStorage";
-import { apiErrorMessage } from "@/lib/apiErrors";
+import { apiErrorMessage, isAmbiguousRequestError } from "@/lib/apiErrors";
+import { zoneText, frequencyFromDays, daysFromFrequency } from "@/features/dispatch/zones/zoneUi";
+import { ZoneShopHeaderActions, ZoneShopImportAction } from "@/features/dispatch/zones/ZoneShopWorkspaceActions";
+import { ZoneListItem } from "@/features/dispatch/zones/ZoneListItem";
+import { ZoneBulkSelectionBar } from "@/features/dispatch/zones/ZoneBulkSelectionBar";
+import { zoneShopSelection } from "@/features/dispatch/zones/zoneShopSelection";
+import { verifiedZoneSave, verifiedSchedule, scheduleCommand, zoneSaveFailureKind, type ZoneSaveEvidence } from "@/features/dispatch/zones/zoneCommands";
 import { type Quantity } from "@/lib/quantity";
 import {
   buildRouteLoadBaseTargets, INVALID_ROUTE_LOAD_TARGET, parseRouteLoadVehicleInventory,
@@ -135,26 +141,6 @@ const normalizeShops = (data: unknown): Shop[] => {
       maxDebtLimit: authorised ? validMoney(shop.maxDebtLimit) : null,
     };
   });
-};
-
-const frequencyFromIntervalDays = (days: number | null): string => {
-  if (days === 7) return "كل 7 أيام";
-  if (days === 14) return "كل 14 يوم";
-  if (days === 30) return "كل 30 يوم";
-  return "مخصص";
-};
-
-const intervalDaysFromFrequency = (
-  frequency: string,
-  customDays: number
-): number | null => {
-  if (frequency === "كل 7 أيام") return 7;
-  if (frequency === "كل 14 يوم") return 14;
-  if (frequency === "كل 30 يوم") return 30;
-  if (frequency === "مخصص" && Number.isInteger(customDays) && customDays > 0) {
-    return customDays;
-  }
-  return null;
 };
 
 // Utils
@@ -410,9 +396,19 @@ function DispatchSession() {
   const [selectedBulkZoneIds, setSelectedBulkZoneIds] = useState<string[]>([]);
   const [bulkZoneSearch, setBulkZoneSearch] = useState("");
   const [customDays, setCustomDays] = useState(14);
-  const [schedulingForm, setSchedulingForm] = useState({ frequency: "كل 7 أيام", startDate: "" });
+  const [schedulingForm, setSchedulingForm] = useState({ frequency: "7", startDate: "" });
 
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false);
+  const [zoneSaveBusy, setZoneSaveBusy] = useState(false);
+  const [zoneSaveUncertain, setZoneSaveUncertain] = useState(false);
+  const zoneSaveFlightRef = useRef(false);
+  const zoneSaveEvidenceRef = useRef<ZoneSaveEvidence | null>(null);
+  const [scheduleBusy, setScheduleBusy] = useState(false);
+  const scheduleFlightRef = useRef(false);
+  const [scheduleFeedback, setScheduleFeedback] = useState<string | null>(null);
+  const [zoneArchiveBusy, setZoneArchiveBusy] = useState(false);
+  const [zoneArchiveUncertain, setZoneArchiveUncertain] = useState(false);
+  const zoneArchiveFlightRef = useRef(false);
   const [zoneFormName, setZoneFormName] = useState("");
   const [editingZoneId, setEditingZoneId] = useState<string | null>(null);
 
@@ -658,6 +654,10 @@ function DispatchSession() {
     setShortageZoneId(""); setShortageShopId(""); setShortageDriverId("");
     setShopForm(emptyShopForm("")); setEditingShopId(null);
     setZoneFormName(""); setEditingZoneId(null);
+    setZoneSaveBusy(false);setZoneSaveUncertain(false);
+    zoneSaveEvidenceRef.current=null;zoneSaveFlightRef.current=false;
+    setScheduleBusy(false);setScheduleFeedback(null);scheduleFlightRef.current=false;
+    setZoneArchiveBusy(false);setZoneArchiveUncertain(false);zoneArchiveFlightRef.current=false;
     setSelectedBulkZoneIds([]); setTargetTransferZoneId("");
     setZoneToKill(null); setConfirmName("");
     setInventoryRoute(null); setRadarRoute(null); setRadarFocusTransferId(null);
@@ -1383,149 +1383,169 @@ function DispatchSession() {
     }
   };
 
-  const handleUpdateScheduling = async () => {
+  const zoneCopy = (key: Parameters<typeof zoneText>[1], values?: Record<string, string | number>) =>
+    zoneText(i18n.language, key, values);
+
+  // Save outcome may be lost after the server committed. Read-only verification
+  // uses both the original Zone identity and the pre-command zone-ID snapshot.
+  const verifyZoneSave = async () => {
+    const evidence = zoneSaveEvidenceRef.current;
+    if (!evidence || zoneSaveFlightRef.current) return;
     const admitted = captureUiRead();
-    const targetIds =
-      schedulingType === "bulk"
-        ? selectedBulkZoneIds
-        : [selectedZoneIdForZones].filter(Boolean);
-
-    if (targetIds.length === 0) {
-      toast.error("⚠️ اختر منطقة واحدة على الأقل للجدولة.");
-      return;
-    }
-    if (!schedulingForm.startDate) {
-      toast.error("⚠️ تاريخ البدء مطلوب.");
-      return;
-    }
-
-    const intervalDays = intervalDaysFromFrequency(
-      schedulingForm.frequency,
-      customDays
-    );
-    if (intervalDays === null) {
-      toast.error("⚠️ عدد أيام التكرار يجب أن يكون عدداً صحيحاً أكبر من صفر.");
-      return;
-    }
-
-    setIsSchedulingModalOpen(false);
-
-    const results = await Promise.allSettled(
-      targetIds.map((id) =>
-        authenticatedFetch(`/dispatch/zones/${id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            intervalDays,
-            startDate: schedulingForm.startDate,
-          }),
-        })
-      )
-    );
-
-    if (!admitted()) return;
-    const successIds = targetIds.filter(
-      (_, index) => results[index].status === "fulfilled"
-    );
-    const failedCount = targetIds.length - successIds.length;
-
-    if (successIds.length > 0) {
-      const initRaw = await authenticatedFetch("/dispatch/init");
+    zoneSaveFlightRef.current = true;
+    setZoneSaveBusy(true);
+    try {
+      const fresh = await authenticatedFetch("/dispatch/init") as DispatchInitPayload;
       if (!admitted()) return;
-      const initData = initRaw as DispatchInitPayload;
-      setZones(sortZones(Array.isArray(initData.zones) ? initData.zones : []));
-      toast.success(
-        `تم تحديث إعدادات الجدولة بنجاح لـ ${successIds.length} منطقة`
-      );
-    }
-    if (failedCount > 0) {
-      toast.error(`فشل تحديث ${failedCount} منطقة.`);
+      const rows = Array.isArray(fresh.zones) ? fresh.zones : [];
+      const exact = verifiedZoneSave(rows,evidence);
+      if (!exact) {
+        setZoneSaveUncertain(true);
+        toast.error(zoneCopy("zoneStillUnknown"));
+        return;
+      }
+      setZones(sortZones(rows));
+      setZoneSaveUncertain(false);
+      setIsZoneModalOpen(false);
+      setEditingZoneId(null);
+      setZoneFormName("");
+      zoneSaveEvidenceRef.current = null;
+      toast.success(zoneCopy("zoneSaved", {name: evidence.name}));
+      if (!evidence.editingId) {
+        setSelectedZoneIdForZones(exact.id);
+        setSchedulingType("local");
+        setSchedulingForm({frequency: "7",startDate: ""});
+        setCustomDays(14);
+        setIsSchedulingModalOpen(true);
+        setScheduleFeedback(null);
+      }
+    } catch {
+      if (admitted()) {
+        setZoneSaveUncertain(true);
+        toast.error(zoneCopy("zoneStillUnknown"));
+      }
+    } finally {
+      zoneSaveFlightRef.current = false;
+      if (admitted()) setZoneSaveBusy(false);
     }
   };
 
   const handleSaveZone = async () => {
-  const admitted = captureUiRead();
-  const cleanZoneName = zoneFormName.trim();
-
-  if (cleanZoneName.length < 2) {
-    toast.error("⚠️ اسم المنطقة يجب أن يحتوي حرفين على الأقل");
-    return;
-  }
-
-  if (cleanZoneName.length > 100) {
-    toast.error("⚠️ اسم المنطقة لا يجوز أن يتجاوز 100 حرف");
-    return;
-  }
-
-  try {
-    if (editingZoneId) {
-      await authenticatedFetch(`/dispatch/zones/${editingZoneId}`, {
-        method: "PUT",
-        body: JSON.stringify({ name: cleanZoneName }),
-      });
-
-      if (!admitted()) return;
-      const initRaw = await authenticatedFetch("/dispatch/init");
-      if (!admitted()) return;
-      const initData = initRaw as DispatchInitPayload;
-
-      setZones(
-        sortZones(Array.isArray(initData.zones) ? initData.zones : [])
-      );
-
-      setIsZoneModalOpen(false);
-      setZoneFormName("");
-      setEditingZoneId(null);
-
-      toast.success("تم الحفظ بنجاح");
-    } else {
-      const raw = await authenticatedFetch("/dispatch/zones", {
-        method: "POST",
-        body: JSON.stringify({ name: cleanZoneName }),
-      });
-
-      if (!admitted()) return;
-      const response =
-        typeof raw === "object" && raw !== null
-          ? (raw as { zone_id?: unknown })
-          : {};
-
-      if (
-        typeof response.zone_id !== "string" &&
-        typeof response.zone_id !== "number"
-      ) {
-        throw new Error("استجابة إنشاء المنطقة غير مكتملة.");
-      }
-
-      const newZoneId = String(response.zone_id);
-
-      if (!admitted()) return;
-      const initRaw = await authenticatedFetch("/dispatch/init");
-      if (!admitted()) return;
-      const initData = initRaw as DispatchInitPayload;
-
-      setZones(
-        sortZones(Array.isArray(initData.zones) ? initData.zones : [])
-      );
-
-      setIsZoneModalOpen(false);
-      setZoneFormName("");
-      setEditingZoneId(null);
-
-      toast.success("تم إضافة المنطقة ✅. يرجى تحديد جدولتها الآن.");
-
-      setSelectedZoneIdForZones(newZoneId);
-      setSchedulingType("local");
-      setSchedulingForm({
-        frequency: "كل 7 أيام",
-        startDate: "",
-      });
-      setCustomDays(14);
-      setIsSchedulingModalOpen(true);
+    if (!grants.zoneManage || zoneSaveFlightRef.current || zoneSaveUncertain) return;
+    const name = zoneFormName.trim();
+    if (name.length < 2 || name.length > 100) {
+      toast.error(zoneCopy("zoneInvalidName"));
+      return;
     }
-  } catch (err: unknown) {
-    if (admitted()) toast.error("خطأ في حفظ المنطقة: " + getErrorMessage(err));
-  }
-};
+    const admitted = captureUiRead();
+    const original = {
+      name, editingId: editingZoneId, initialIds: zones.map(z => z.id),
+      responseId: null as string | null,
+    };
+    zoneSaveEvidenceRef.current = original;
+    zoneSaveFlightRef.current = true;
+    setZoneSaveBusy(true);
+    let shouldVerify = false;
+    try {
+      if (editingZoneId) {
+        await authenticatedFetch("/dispatch/zones/" + editingZoneId, {
+          method: "PUT", body: JSON.stringify({name}),
+        });
+      } else {
+        const raw = await authenticatedFetch("/dispatch/zones", {
+          method: "POST",body: JSON.stringify({name}),
+        });
+        const value = (raw !== null && typeof raw === "object" ? raw : {}) as {zone_id?:unknown};
+        if ((typeof value.zone_id !== "string" && typeof value.zone_id !== "number") ||
+            !String(value.zone_id)) {
+          throw new Error("Unverified zone creation response");
+        }
+        original.responseId = String(value.zone_id);
+      }
+      shouldVerify = true;
+    } catch (error: unknown) {
+      if (admitted()) {
+        const failure = zoneSaveFailureKind(error);
+        if (failure === "duplicate") {
+          zoneSaveEvidenceRef.current = null;
+          toast.error(zoneCopy("zoneDuplicate"));
+        } else if (failure === "uncertain") {
+          setZoneSaveUncertain(true);
+          toast.error(zoneCopy("zoneSaveUnknown"));
+        } else {
+          zoneSaveEvidenceRef.current = null;
+          toast.error(zoneCopy("zoneSaveRejected", {reason: apiErrorMessage(error,zoneCopy("permissionDenied"))}));
+        }
+      }
+    } finally {
+      zoneSaveFlightRef.current = false;
+      if (admitted()) setZoneSaveBusy(false);
+    }
+    if (shouldVerify && admitted()) await verifyZoneSave();
+  };
+
+  const handleUpdateScheduling = async (action: "update" | "clear" = "update") => {
+    if (!grants.zoneManage || scheduleFlightRef.current) return;
+    const targetIds = schedulingType === "bulk" ? selectedBulkZoneIds.slice() :
+      [selectedZoneIdForZones].filter(Boolean);
+    if (!targetIds.length) return toast.error(zoneCopy("scheduleNeedZones"));
+    if (action === "update" && !schedulingForm.startDate)
+      return toast.error(zoneCopy("scheduleNeedDate"));
+    const days = daysFromFrequency(schedulingForm.frequency,customDays);
+    if (action === "update" && days === null)
+      return toast.error(zoneCopy("scheduleNeedDays"));
+    const admitted = captureUiRead();
+    scheduleFlightRef.current = true;
+    setScheduleBusy(true);
+    setScheduleFeedback(null);
+    try {
+      const desired = scheduleCommand(action,days,schedulingForm.startDate);
+      const results = await Promise.allSettled(targetIds.map(id=>
+        authenticatedFetch("/dispatch/zones/" + id,{
+          method:"PUT",body:JSON.stringify(desired),
+        })
+      ));
+      if (!admitted()) return;
+      let freshRows: Zone[] | null = null;
+      try {
+        const fresh=await authenticatedFetch("/dispatch/init") as DispatchInitPayload;
+        if (!admitted()) return;
+        freshRows=Array.isArray(fresh.zones)?fresh.zones:[];
+        setZones(sortZones(freshRows));
+      } catch { /* retain original zone rows; do not invent verification */ }
+      const verifiedIds=targetIds.filter((id,index)=>{
+        if (results[index].status!=="fulfilled") return false;
+        if (!freshRows) return false;
+        const actual=freshRows.find(z=>z.id===id);
+        return verifiedSchedule(actual,action,days,schedulingForm.startDate);
+      });
+      const failedIds=targetIds.filter(id=>!verifiedIds.includes(id));
+      const names=(ids:string[])=>ids.map(id=>zones.find(z=>z.id===id)?.name||id).join("، ");
+      const successNames=names(verifiedIds),failedNames=names(failedIds);
+      if (verifiedIds.length) toast.success(zoneCopy(action==="clear"?"scheduleCleared":"scheduleSaved",{zones:successNames}));
+      if (failedIds.length) {
+        const message=zoneCopy(verifiedIds.length?"schedulePartial":"scheduleFailed",{
+          success:successNames,failed:failedNames,zones:failedNames,
+        });
+        setScheduleFeedback(message);
+        toast.error(message);
+        if (schedulingType==="bulk") setSelectedBulkZoneIds(failedIds);
+        return;
+      }
+      setIsSchedulingModalOpen(false);
+      setBulkZoneSearch("");
+      setSelectedBulkZoneIds([]);
+    } catch (error:unknown) {
+      if (admitted()){
+        const message=zoneCopy("scheduleError",{reason:apiErrorMessage(error,zoneCopy("scheduleFailed",{zones:targetIds.join(", ")}))});
+        setScheduleFeedback(message);
+        toast.error(message);
+      }
+    } finally {
+      scheduleFlightRef.current=false;
+      if (admitted()) setScheduleBusy(false);
+    }
+  };
 
   const {
     save: handleSaveShop, verify: verifyShopSave,
@@ -1571,6 +1591,10 @@ function DispatchSession() {
     else list = list.filter(s => s.zoneId === selectedZoneIdForZones);
     return list.sort(compareShopSequence);
   }, [activeShops, shopSearchQuery, selectedZoneIdForZones, zones]);
+
+  const zoneSelection = useMemo(() => zoneShopSelection(
+    shopsInSelectedZone,selectedShopIds,selectedZoneIdForZones,
+  ),[shopsInSelectedZone,selectedShopIds,selectedZoneIdForZones]);
 
   const filteredRecycleBin = useMemo(() => {
     const q = recycleSearchQuery.toLowerCase(); return archivedShops.filter(s => s.name.toLowerCase().includes(q) || s.owner.toLowerCase().includes(q) || s.phone.includes(q) || (zones.find(z => z.id === s.zoneId)?.name || "").toLowerCase().includes(q));
@@ -2367,87 +2391,114 @@ function DispatchSession() {
             </div>
           ) : (
             <div key="zones" data-testid="dispatch-zones-workspace" ref={realWorkspaceRef} className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
-              <div className="w-full xl:w-[29%] flex flex-col gap-4 min-h-0">
-                <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm">
-                  <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <h2 className="font-bold text-slate-800">المناطق ({zoneListReady ? zones.length : "—"})</h2>
-                      <div className="flex items-center gap-2">
-                        {canReadZoneArchive && <button onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }} className="text-[10px] font-bold text-slate-500 border border-slate-200 px-2 py-1 rounded-lg hover:bg-slate-50 ">🗑️ الأرشيف</button>}
-                        {grants.zoneManage && <button onClick={() => { setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true); }} className="text-[10px] font-bold text-[#1e87bb] border border-[#1e87bb]/20 px-2 py-1 rounded-lg hover:bg-blue-50 ">[+ منطقة جديدة]</button>}
+              <div className="w-full xl:w-[29%] flex min-h-0 flex-col gap-4">
+                <div className="dispatch-surface flex h-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
+                  <div className="flex flex-col gap-3 border-b border-slate-100 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="font-bold text-slate-800">
+                        {zoneCopy("zonesTitle", {count:zoneListReady?zones.length:"-"})}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {canReadZoneArchive && <button type="button"
+                          onClick={() => { fetchArchivedZones(); setIsZoneRecycleBinOpen(true); }}
+                          className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-bold text-slate-600 focus-visible:ring-2">
+                          {zoneCopy("zonesArchived")}
+                        </button>}
+                        {grants.zoneManage && <button type="button" onClick={() => {
+                          if (zoneSaveUncertain) { setIsZoneModalOpen(true); return; }
+                          setEditingZoneId(null); setZoneFormName(""); setIsZoneModalOpen(true);
+                        }} className="rounded-lg border border-[#1e87bb]/20 px-2 py-1.5 text-xs font-bold text-[#1e87bb] focus-visible:ring-2">
+                          <Plus aria-hidden="true" className="me-1 inline-block h-3.5 w-3.5"/>
+                          {zoneCopy("zoneAdd")}
+                        </button>}
                       </div>
                     </div>
-                    {tabReady && shopScope === "authorized_routes" && (
-                      <p role="status" className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                        {dispatchUiText(i18n.language, "shopRestrictedScope")}
+                    {tabReady && shopScope==="authorized_routes" && (
+                      <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-800">
+                        {dispatchUiText(i18n.language,"shopRestrictedScope")}
                       </p>
                     )}
-                    <div className="relative">
-                      <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                      <input type="search" value={zoneSearchQueryMain} onChange={e => setZoneSearchQueryMain(e.target.value)} placeholder="بحث عن منطقة..." className="w-full rounded-xl border border-slate-200 bg-slate-50 pr-9 pl-4 py-2 text-xs focus:ring-2 focus:ring-[#1e87bb]/20 outline-none" />
-                    </div>
+                    <label className="relative block">
+                      <Search aria-hidden="true" className="absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"/>
+                      <span className="sr-only">{zoneCopy("zoneSearch")}</span>
+                      <input type="search" value={zoneSearchQueryMain}
+                        onChange={event=>setZoneSearchQueryMain(event.target.value)}
+                        placeholder={zoneCopy("zoneSearch")}
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 ps-9 pe-3 text-xs focus-visible:ring-2 focus-visible:ring-[#1e87bb]"/>
+                    </label>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                    {!zoneListReady && <p role="status" data-testid="dispatch-zones-read-status" className="p-4 text-sm text-slate-500">{i18n.language.startsWith("ar") ? "جارٍ التحقق من البيانات..." : "Verifying data..."}</p>}
-                    {(zoneListReady ? zones : []).filter(z => z.name.toLowerCase().includes(zoneSearchQueryMain.toLowerCase())).map(zone => (
-                      <div key={zone.id} onClick={() => {
-                        if (isSaving || zone.id === selectedZoneIdForZones) return;
-                        if (isEditMode && (hasUnsavedChanges || needsReconciliation)) { toast.error(shopOrderText(i18n.language, "changeZoneFirst")); return; }
-                        setSelectedZoneIdForZones(zone.id);
-                        setIsEditMode(false);
-                        setSelectedShopIds([]);
-                      }} className={`p-3 rounded-xl cursor-pointer flex items-center justify-between  group ${selectedZoneIdForZones === zone.id ? "bg-emerald-50 text-[#1e87bb] font-bold shadow-sm" : "text-slate-600 hover:bg-slate-50"}`}><div className="flex flex-col min-w-0">
-                        <span className="flex items-center gap-2">
-                          {zone.name}
-                          {(!zone.startDate || !zone.intervalDays) && (
-                            <span title="تنبيه: لم يتم ضبط إعدادات الجدولة لهذه المنطقة" className="text-amber-500 bg-amber-50 rounded-full p-0.5  cursor-help"><AlertCircle className="w-3.5 h-3.5" /></span>
-                          )}
-                        </span>
-                        <p className="text-[10px] mt-1 flex items-center gap-1">
-                          <span className={zone.dateColor || "text-slate-400"}>
-                            {zone.intervalDays ? `كل ${zone.intervalDays} يوم` : "غير مجدول"}
-                            {zone.startDate ? ` (${zone.startDate})` : ""}
-                          </span>
-                          <span className="text-slate-300">•</span>
-                          <span className="text-[#1e87bb] font-bold">{zone.shopsCount || 0} محلات</span>
-                        </p>
-                      </div>{grants.zoneManage && <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100  shrink-0"><button onClick={e => { e.stopPropagation(); setZoneFormName(zone.name); setEditingZoneId(zone.id); setIsZoneModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Pencil className="w-3.5 h-3.5" /></button><button onClick={e => { e.stopPropagation(); setSelectedZoneIdForZones(zone.id); setSchedulingType("local"); setSchedulingForm({ frequency: frequencyFromIntervalDays(zone.intervalDays), startDate: zone.startDate }); setCustomDays(zone.intervalDays && ![7, 14, 30].includes(zone.intervalDays) ? zone.intervalDays : 14); setIsSchedulingModalOpen(true); }} className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-[#1e87bb]"><Calendar className="w-3.5 h-3.5" /></button><button
-                        onClick={e => {
-                          e.stopPropagation();
-                          setZoneToKill(zone);
-                          setConfirmName("");
-                          setIsSuicideModalOpen(true);
-                        }}
-                        className="p-1 hover:bg-white rounded-md text-slate-400 hover:text-red-500"
-                        title="أرشفة المنطقة بمسح شامل (سوبر أدمن)"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button></div>}</div>))}</div>
+                  <ul className="flex-1 space-y-1 overflow-y-auto p-2">
+                    {!zoneListReady && <li role="status" data-testid="dispatch-zones-read-status"
+                      className="p-4 text-sm text-slate-500">{zoneCopy("zoneLoading")}</li>}
+                    {(zoneListReady?zones:[]).filter(zone=>zone.name.toLocaleLowerCase(i18n.language).includes(zoneSearchQueryMain.toLocaleLowerCase(i18n.language)))
+                      .map(zone=><li key={zone.id}>
+                        <ZoneListItem zone={zone} language={i18n.language}
+                          selected={selectedZoneIdForZones===zone.id}
+                          disabled={isSaving || zoneSaveBusy || zoneArchiveBusy}
+                          canManage={grants.zoneManage}
+                          onSelect={id=>{
+                            if (id===selectedZoneIdForZones) return;
+                            if (isEditMode && (hasUnsavedChanges || needsReconciliation)) {
+                              toast.error(shopOrderText(i18n.language,"changeZoneFirst")); return;
+                            }
+                            setSelectedZoneIdForZones(id); setIsEditMode(false); setSelectedShopIds([]);
+                          }}
+                          onEdit={target=>{
+                            setZoneFormName(target.name); setEditingZoneId(target.id);
+                            setZoneSaveUncertain(false); zoneSaveEvidenceRef.current=null;
+                            setIsZoneModalOpen(true);
+                          }}
+                          onSchedule={target=>{
+                            if (isEditMode && (hasUnsavedChanges || needsReconciliation) && target.id!==selectedZoneIdForZones) {
+                              toast.error(shopOrderText(i18n.language,"changeZoneFirst")); return;
+                            }
+                            setSelectedZoneIdForZones(target.id);setSchedulingType("local");
+                            setSchedulingForm({frequency:frequencyFromDays(target.intervalDays),startDate:target.startDate||""});
+                            setCustomDays(target.intervalDays && ![7,14,30].includes(target.intervalDays)?target.intervalDays:14);
+                            setScheduleFeedback(null);setIsSchedulingModalOpen(true);
+                          }}
+                          onArchive={target=>{
+                            if (isEditMode && (hasUnsavedChanges || needsReconciliation)) {
+                              toast.error(shopOrderText(i18n.language,"changeZoneFirst")); return;
+                            }
+                            setZoneToKill(target);setConfirmName("");setZoneArchiveUncertain(false);setIsSuicideModalOpen(true);
+                          }}
+                        />
+                      </li>)}
+                  </ul>
                 </div>
               </div>
 
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-full min-w-0 xl:flex-1 flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">المحلات</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder="بحث..." className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 " /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 " /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <button
-                    onClick={() => setShowRecycleBin(true)}
-                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm  hover:text-blue-600"
-                    title="فتح أرشيف المحلات المؤرشفة"
-                  >
-                    <Archive className="w-5 h-5" />
-                  </button>}{grants.zoneManage && <button onClick={() => {
-                    if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
-                      toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
-                      return;
-                    }
-                    setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
-                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm "><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
+                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">{zoneCopy("shopsTitle")}</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder={zoneCopy("shopsSearch")} className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 " /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 " /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <ZoneShopHeaderActions language={i18n.language}
+                    onOpenArchive={() => setShowRecycleBin(true)}
+                    onAddShop={() => {
+                      if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                        toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                        return;
+                      }
+                      setEditingShopId(null);
+                      setShopForm(emptyShopForm(selectedZoneIdForZones));
+                      setIsShopModalOpen(true);
+                    }}
+                  />}</div></div>
+                  {tabReady && shopSearchQuery.trim() && <p role="status" className="border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-900">
+                    {zoneCopy("searchScope")}
+                  </p>}
                   <ShopOrderScopeNotice language={i18n.language}
                     selectedZoneName={tabReady ? (zones.find(z => z.id === selectedZoneIdForZones)?.name || "") : ""}
                     hasOutsideZoneMatches={tabReady && shopsInSelectedZone.some(s => s.zoneId !== selectedZoneIdForZones)}
                     isEditMode={tabReady && isEditMode} />
                   <ShopTable pending={!tabReady} shops={tabReady ? shopsInSelectedZone : []} zones={tabReady ? zones : []} isEditMode={tabReady && grants.zoneManage && isEditMode && !recoveryBlocked}
-                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={tabReady && shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(selectedShopIds.length === shopsInSelectedZone.length ? [] : shopsInSelectedZone.map(s => s.id))} onToggleSelectShop={id => setSelectedShopIds(prev => prev.includes(id) ? prev.filter(sid => sid !== id) : [...prev, id])} onSequenceChange={changeShopSequence} onEditShop={s => {
+                    language={i18n.language} isSaving={isSaving || recoveryBlocked} selectedShopIds={selectedShopIds} allFilteredShops={tabReady && shopSearchQuery.trim() ? shopsInSelectedZone : null} selectedZoneIdForZones={selectedZoneIdForZones} onToggleSelectAll={() => setSelectedShopIds(prev => zoneSelection.eligibleVisible.length > 0 &&
+                      zoneSelection.eligibleVisible.every(shop=>prev.includes(shop.id)) ? [] :
+                      zoneSelection.eligibleVisible.map(shop=>shop.id))}
+                    onToggleSelectShop={id => {
+                      if (!zoneSelection.eligibleVisible.some(shop=>shop.id===id)) return;
+                      setSelectedShopIds(prev=>prev.includes(id)?prev.filter(other=>other!==id):[...prev,id]);
+                    }} onSequenceChange={changeShopSequence} onEditShop={s => {
                        if (!grants.zoneManage) return;
                        if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
                          toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
@@ -2460,22 +2511,22 @@ function DispatchSession() {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
                         isOpen: true,
-                        title: "تأكيد الإخفاء",
-                        message: "هل أنت متأكد من رغبتك في إخفاء هذا المحل مؤقتاً؟",
+                        title: zoneCopy("shopArchiveDraftTitle"),
+                        message: zoneCopy("shopArchiveDraftWarning"),
                         onConfirm: () => {
                           setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
                           setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
                           setHasUnsavedChanges(true);
                           setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
+                          toast.info(zoneCopy("shopArchiveDraftNotice"));
                         }
                       });
                     } else {
                       // الأرشفة الفورية العادية إذا لم يكن في وضع التعديل
                       setConfirmDialog({
                         isOpen: true,
-                        title: "تأكيد الأرشفة",
-                        message: "هل تريد أرشفة هذا المحل؟",
+                        title: zoneCopy("shopArchiveNowTitle"),
+                        message: zoneCopy("shopArchiveNowWarning"),
                         onConfirm: async () => {
                           const admitted = captureUiRead();
                           try {
@@ -2483,22 +2534,70 @@ function DispatchSession() {
                             if (!admitted()) return;
                             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
                             fetchInitialData();
-                            toast.success("تم أرشفة المحل بنجاح");
-                          } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); }
+                            toast.success(zoneCopy("shopArchiveNowSuccess"));
+                          } catch (err: unknown) { if (admitted()) toast.error(zoneCopy("shopArchiveNowFailed", {reason: apiErrorMessage(err, zoneCopy("permissionDenied"))})); }
                           finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); }
                         }
                       });
                     }
                   }} onDragStart={(e, id) => e.dataTransfer.setData("shopId", id)} onDrop={(e, targetId) => { if (grants.zoneManage) dropShopInZone(e.dataTransfer.getData("shopId"), targetId); }} />
-                  {tabReady && grants.zoneManage && isEditMode && selectedShopIds.length > 0 && (<div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20"><div className="bg-slate-900/90 backdrop-blur border border-slate-700 px-6 py-3 rounded-full shadow-2xl flex items-center gap-6 whitespace-nowrap text-white"><p className="text-sm font-bold">تحديد <span className="text-amber-400">{selectedShopIds.length}</span> محلات</p><div className="w-px h-6 bg-slate-700" /><div className="flex items-center gap-2"><button onClick={() => setIsBulkTransferModalOpen(true)} className="bg-[#1e87bb] text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-[#166a94] flex items-center gap-2 "><RotateCcw className="w-3.5 h-3.5" /> نقل 🔄</button><button onClick={() => setConfirmDialog({ isOpen: true, title: "أرشفة المحلات", message: `أرشفة ${selectedShopIds.length} محلات؟`, onConfirm: async () => { const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, archived: true })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, archived: true } : s)); setSelectedShopIds([]); fetchInitialData(); toast.success("تم أرشفة المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); } finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); } } })} className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 "><Trash2 className="w-3.5 h-3.5" /> أرشفة 🗑️</button></div><button onClick={() => setSelectedShopIds([])} className="text-slate-400 hover:text-slate-200"><X className="w-4 h-4" /></button></div></div>)}
+                  {tabReady && grants.zoneManage && isEditMode && selectedShopIds.length>0 &&
+                    <ZoneBulkSelectionBar language={i18n.language}
+                      visibleSelected={zoneSelection.visibleSelectedIds.length}
+                      totalSelected={selectedShopIds.length}
+                      visibleRows={shopsInSelectedZone.length}
+                      eligibleVisibleRows={zoneSelection.eligibleVisible.length}
+                      hiddenSelected={zoneSelection.hiddenSelectedCount}
+                      draftBlocked={isSaving || hasUnsavedChanges || needsReconciliation}
+                      draftReason={shopOrderText(i18n.language,"changeZoneFirst")}
+                      onKeepVisible={()=>setSelectedShopIds(zoneSelection.visibleSelectedIds)}
+                      onClear={()=>setSelectedShopIds([])}
+                      onMove={()=>{
+                        if (zoneSelection.blocked || zoneSelection.visibleSelectedIds.length===0)
+                          return toast.error(zoneCopy("bulkSelectionBlocked"));
+                        if (isSaving || hasUnsavedChanges || needsReconciliation)
+                          return toast.error(shopOrderText(i18n.language,"changeZoneFirst"));
+                        setIsBulkTransferModalOpen(true);
+                      }}
+                      onArchive={()=>{
+                        if (zoneSelection.blocked || !zoneSelection.visibleSelectedIds.length)
+                          return toast.error(zoneCopy("bulkSelectionBlocked"));
+                        if (isSaving || hasUnsavedChanges || needsReconciliation)
+                          return toast.error(shopOrderText(i18n.language,"changeZoneFirst"));
+                        const snapshot=zoneSelection.visibleSelectedIds.slice();
+                        setConfirmDialog({
+                          isOpen:true,
+                          title:zoneCopy("bulkArchiveTitle"),
+                          message:zoneCopy("bulkArchiveWarning",{count:snapshot.length}),
+                          onConfirm:async ()=>{
+                            if (isSaving || hasUnsavedChanges || needsReconciliation)
+                              return toast.error(shopOrderText(i18n.language,"changeZoneFirst"));
+                            const current=zoneShopSelection(shopsInSelectedZone,selectedShopIds,selectedZoneIdForZones);
+                            if (current.blocked || snapshot.length!==current.visibleSelectedIds.length ||
+                                snapshot.some(id=>!current.visibleSelectedIds.includes(id)))
+                              return toast.error(zoneCopy("bulkSelectionBlocked"));
+                            const admitted=captureUiRead();
+                            try {
+                              await authenticatedFetch("/dispatch/shops/bulk_update",{
+                                method:"PUT",body:JSON.stringify(snapshot.map(id=>({id,archived:true}))),
+                              });
+                              if (!admitted()) return;
+                              setShops(prev=>prev.map(shop=>snapshot.includes(shop.id)?{...shop,archived:true}:shop));
+                              setSelectedShopIds([]);
+                              setConfirmDialog(prev=>({...prev,isOpen:false}));
+                              void fetchInitialData();
+                              toast.success(zoneCopy("bulkArchiveSuccess"));
+                            } catch(error:unknown) {
+                              if (admitted()) toast.error(zoneCopy("bulkArchiveFailed",{
+                                reason:apiErrorMessage(error,zoneCopy("bulkSelectionBlocked")),
+                              }));
+                            }
+                          },
+                        });
+                      }}
+                    />}
 {grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
-                    <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50  group shadow-sm">
-                      <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
-                      <div className="text-start">
-                        <p className="text-base font-bold text-slate-700 group-hover:text-[#1e87bb]">استيراد المحلات الذكي (Excel / Paste)</p>
-                        <p className="text-xs text-slate-500">اضغط هنا لفتح نافذة الاستيراد واختيار المنطقة</p>
-                      </div>
-                    </button>
+                    <ZoneShopImportAction language={i18n.language} onOpenImport={() => setIsBulkImportModalOpen(true)} />
                   </div>}
                 </div>
               </div>
@@ -2559,7 +2658,9 @@ function DispatchSession() {
         }}
       />
       )}
-      <ScheduleModal isOpen={dispatchAdmitted && isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={handleUpdateScheduling} />
+      <ScheduleModal isOpen={dispatchAdmitted && isSchedulingModalOpen} onClose={() => { setIsSchedulingModalOpen(false); setBulkZoneSearch(""); }} schedulingType={schedulingType} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} bulkZoneSearch={bulkZoneSearch} onBulkZoneSearchChange={setBulkZoneSearch} selectedBulkZoneIds={selectedBulkZoneIds} onToggleBulkZoneSelection={id => setSelectedBulkZoneIds(prev => prev.includes(id) ? prev.filter(bid => bid !== id) : [...prev, id])} onToggleAllBulkZones={() => { const filtered = zones.filter(z => z.name.toLowerCase().includes(bulkZoneSearch.toLowerCase())).map(z => z.id); setSelectedBulkZoneIds(prev => filtered.every(id => prev.includes(id)) ? prev.filter(id => !filtered.includes(id)) : Array.from(new Set([...prev, ...filtered]))); }} schedulingForm={schedulingForm} onSchedulingFormChange={setSchedulingForm} customDays={customDays} onCustomDaysChange={setCustomDays} onUpdateScheduling={() => { void handleUpdateScheduling("update"); }}
+        onClearScheduling={() => { void handleUpdateScheduling("clear"); }}
+        busy={scheduleBusy} feedback={scheduleFeedback} />
       <RouteLifecyclePanel
         isOpen={dispatchAdmitted && isLifecycleModalOpen}
         onClose={() => setIsLifecycleModalOpen(false)}
@@ -2650,7 +2751,39 @@ function DispatchSession() {
           } catch (err: unknown) { if (admitted()) toast.error(getErrorMessage(err)); }
         }}
       />
-      <BulkTransferModal isOpen={dispatchAdmitted && grants.zoneManage && isBulkTransferModalOpen} onClose={() => setIsBulkTransferModalOpen(false)} selectedShopIds={selectedShopIds} zones={zones} selectedZoneIdForZones={selectedZoneIdForZones} targetTransferZoneId={targetTransferZoneId} onTargetTransferZoneChange={setTargetTransferZoneId} onConfirm={async () => { if (!targetTransferZoneId) return toast.error("⚠️ اختر المنطقة"); const admitted = captureUiRead(); try { const payload = selectedShopIds.map(id => ({ id, zoneId: targetTransferZoneId, sequence: 999, archived: false })); await authenticatedFetch("/dispatch/shops/bulk_update", { method: "PUT", body: JSON.stringify(payload) }); if (!admitted()) return; setShops(prev => prev.map(s => selectedShopIds.includes(s.id) ? { ...s, zoneId: targetTransferZoneId, sequence: 999 } : s)); setSelectedShopIds([]); setIsBulkTransferModalOpen(false); setTargetTransferZoneId(""); fetchInitialData(); toast.success("تم نقل المحلات بنجاح"); } catch (err: unknown) { if (admitted()) toast.error("خطأ في النقل: " + getErrorMessage(err)); } }} />
+      <BulkTransferModal isOpen={dispatchAdmitted && grants.zoneManage && isBulkTransferModalOpen}
+        onClose={()=>setIsBulkTransferModalOpen(false)}
+        selectedShopIds={zoneSelection.visibleSelectedIds}
+        zones={zones} selectedZoneIdForZones={selectedZoneIdForZones}
+        targetTransferZoneId={targetTransferZoneId}
+        onTargetTransferZoneChange={setTargetTransferZoneId}
+        onConfirm={async ()=>{
+          if (!targetTransferZoneId) return toast.error(zoneCopy("bulkTargetRequired"));
+          if (zoneSelection.blocked || !zoneSelection.visibleSelectedIds.length)
+            return toast.error(zoneCopy("bulkSelectionBlocked"));
+          if (isSaving || hasUnsavedChanges || needsReconciliation)
+            return toast.error(shopOrderText(i18n.language,"changeZoneFirst"));
+          const affected=zoneSelection.visibleSelectedIds.slice();
+          const admitted=captureUiRead();
+          try {
+            await authenticatedFetch("/dispatch/shops/bulk_update",{
+              method:"PUT",body:JSON.stringify(
+                affected.map(id=>({id,zoneId:targetTransferZoneId,sequence:999,archived:false})),
+              ),
+            });
+            if (!admitted()) return;
+            setShops(prev=>prev.map(shop=>affected.includes(shop.id)
+              ? {...shop,zoneId:targetTransferZoneId,sequence:999}:shop));
+            setSelectedShopIds([]);
+            setIsBulkTransferModalOpen(false);setTargetTransferZoneId("");
+            void fetchInitialData();
+            toast.success(zoneCopy("bulkMoveSuccess"));
+          } catch (error:unknown) {
+            if (admitted()) toast.error(zoneCopy("bulkMoveFailed",{
+              reason:apiErrorMessage(error,zoneCopy("bulkSelectionBlocked")),
+            }));
+          }
+        }} />
       {/* +++ نافذة تعديل الحمولة +++ */}
       <AdjustInventoryModal
         companyId={sourceAccess.data?.company_id}
@@ -2674,7 +2807,15 @@ function DispatchSession() {
         openCancelForFocus={radarOpenCancel}
       />
 
-      <ZoneModal isOpen={dispatchAdmitted && grants.zoneManage && isZoneModalOpen} onClose={() => { setIsZoneModalOpen(false); setZoneFormName(""); setEditingZoneId(null); }} editingZoneId={editingZoneId} zoneFormName={zoneFormName} onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone} />
+      <ZoneModal isOpen={dispatchAdmitted && grants.zoneManage && isZoneModalOpen}
+        onClose={() => {
+          if (zoneSaveBusy || zoneSaveUncertain) return;
+          setIsZoneModalOpen(false);setZoneFormName("");setEditingZoneId(null);
+          zoneSaveEvidenceRef.current=null;
+        }}
+        editingZoneId={editingZoneId} zoneFormName={zoneFormName}
+        onZoneFormNameChange={setZoneFormName} onSave={handleSaveZone}
+        onVerify={verifyZoneSave} busy={zoneSaveBusy} uncertain={zoneSaveUncertain} />
       <PostponedRoutesModal
         isOpen={dispatchAdmitted && isShowPostponedModalOpen}
         onClose={() => setIsShowPostponedModalOpen(false)}
@@ -2727,8 +2868,8 @@ function DispatchSession() {
           title={confirmDialog.title}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">إلغاء</button>
-              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94]  shadow-lg">تأكيد</button>
+              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">{zoneCopy("cancel")}</button>
+              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94]  shadow-lg">{zoneCopy("confirm")}</button>
             </div>
           }
         >
@@ -2877,41 +3018,79 @@ function DispatchSession() {
 
       {/* +++ مودال أرشفة المنطقة بمسح شامل (سوبر أدمن) +++ */}
       <Modal
-        isOpen={dispatchAdmitted && isSuicideModalOpen}
-        onClose={() => setIsSuicideModalOpen(false)}
-        title={`⚠️ أرشفة منطقة: ${zoneToKill?.name}`}
-        footer={
-          <div className="flex gap-2 w-full">
-            <button onClick={() => setIsSuicideModalOpen(false)} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl">تراجع</button>
-            <button
-              disabled={confirmName !== zoneToKill?.name}
-              onClick={async () => {
-                try {
-                  await authenticatedFetch(`/dispatch/zones/${zoneToKill?.id}`, { method: "DELETE" });
-                  setZones(prev => prev.filter(z => z.id !== zoneToKill?.id));
-                  fetchInitialData();
-                  setIsSuicideModalOpen(false);
-                  toast.success(`تم أرشفة المنطقة (${zoneToKill?.name}) وكل محلاتها بنجاح ✅`);
-                } catch (err: unknown) { toast.error(getErrorMessage(err)); }
-              }}
-              className="flex-1 bg-red-600 text-white py-2 rounded-xl font-bold hover:bg-red-700 disabled:opacity-30  shadow-lg"
-            >
-              تأكيد المسح الشامل 🧨
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <div className="bg-red-50 border-r-4 border-red-500 p-4">
-            <p className="text-sm text-red-800 font-bold">هذا الإجراء سيؤدي لأرشفة المنطقة وجميع المحلات التابعة لها ({zoneToKill?.shopsCount || 0} محل) فوراً.</p>
-          </div>
-          <p className="text-xs text-slate-600">لتأكيد هذه العملية الخطيرة، يرجى كتابة اسم المنطقة <span className="font-black text-red-600">({zoneToKill?.name})</span> في الأسفل:</p>
-          <input
-            value={confirmName}
-            onChange={(e) => setConfirmName(e.target.value)}
-            className="w-full rounded-xl border-2 border-red-100 p-3 text-center font-black text-slate-800 focus:border-red-500 outline-none "
-            placeholder="اكتب اسم المنطقة هنا..."
-          />
+        isOpen={dispatchAdmitted && grants.zoneManage && isSuicideModalOpen}
+        onClose={()=>{
+          if (zoneArchiveBusy || zoneArchiveUncertain) return;
+          setIsSuicideModalOpen(false);setConfirmName("");setZoneToKill(null);
+        }}
+        title={zoneCopy("zoneArchiveTitle",{name:zoneToKill?.name||""})}
+        footer={<div className="flex w-full flex-wrap gap-2" dir={i18n.dir()}>
+          <button type="button" disabled={zoneArchiveBusy || zoneArchiveUncertain}
+            onClick={()=>{setIsSuicideModalOpen(false);setConfirmName("");setZoneToKill(null);}}
+            className="min-h-11 rounded-xl border px-4 py-2 font-bold text-slate-600 focus-visible:ring-2 disabled:opacity-40">
+            {zoneCopy("cancel")}
+          </button>
+          <button type="button" disabled={zoneArchiveBusy || confirmName!==zoneToKill?.name}
+            onClick={async ()=>{
+              if (!zoneToKill || zoneArchiveFlightRef.current || !grants.zoneManage) return;
+              const target=zoneToKill;
+              const admitted=captureUiRead();
+              zoneArchiveFlightRef.current=true;
+              setZoneArchiveBusy(true);
+              try {
+                if (!zoneArchiveUncertain) {
+                  await authenticatedFetch("/dispatch/zones/"+target.id,{method:"DELETE"});
+                }
+                const archived=await authenticatedFetch("/dispatch/zones/archived") as ArchivedZonePayload[];
+                if (!admitted()) return;
+                if (!Array.isArray(archived) || !archived.some(z=>String(z.id)===target.id)) {
+                  setZoneArchiveUncertain(true);
+                  toast.error(zoneCopy("zoneArchiveUnknown"));
+                  return;
+                }
+                setZones(prev=>prev.filter(z=>z.id!==target.id));
+                setArchivedZones(prev=>sortZones([...prev.filter(row=>row.id!==target.id),target]));
+                setZoneArchiveUncertain(false);
+                setIsSuicideModalOpen(false);setConfirmName("");setZoneToKill(null);
+                void fetchInitialData();
+                toast.success(zoneCopy("zoneArchiveDone",{name:target.name}));
+              } catch(error:unknown) {
+                if (admitted()) {
+                  if (isAmbiguousRequestError(error) || zoneArchiveUncertain) {
+                    setZoneArchiveUncertain(true);
+                    toast.error(zoneCopy("zoneArchiveUnknown"));
+                  } else {
+                    toast.error(zoneCopy("zoneArchiveFailed",{
+                      reason:apiErrorMessage(error,zoneCopy("permissionDenied")),
+                    }));
+                  }
+                }
+              } finally {
+                zoneArchiveFlightRef.current=false;
+                if (admitted()) setZoneArchiveBusy(false);
+              }
+            }}
+            className="min-h-11 flex-1 rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-700 focus-visible:ring-2 disabled:opacity-40">
+            {zoneArchiveUncertain?zoneCopy("zoneArchiveVerify"):zoneArchiveBusy?zoneCopy("zoneVerifying"):zoneCopy("zoneArchiveDo")}
+          </button>
+        </div>}>
+        <div className="space-y-4" dir={i18n.dir()}>
+          <p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-900" role="alert">
+            {zoneCopy("zoneArchiveWarning")}
+          </p>
+          <label className="block space-y-2">
+            <span className="block text-xs text-slate-700">
+              {zoneCopy("zoneArchiveConfirm",{name:zoneToKill?.name||""})}
+            </span>
+            <input value={confirmName} onChange={event=>setConfirmName(event.target.value)}
+              disabled={zoneArchiveBusy || zoneArchiveUncertain}
+              placeholder={zoneCopy("zoneArchivePlaceholder")}
+              aria-label={zoneCopy("zoneArchiveConfirm",{name:zoneToKill?.name||""})}
+              className="w-full rounded-xl border-2 border-red-100 p-3 text-center font-bold text-slate-800 focus-visible:border-red-600 focus-visible:outline-none disabled:opacity-40"/>
+          </label>
+          {zoneArchiveUncertain && <p className="text-sm text-amber-900" role="status">
+            {zoneCopy("zoneArchiveUnknown")}
+          </p>}
         </div>
       </Modal>
     </div>
