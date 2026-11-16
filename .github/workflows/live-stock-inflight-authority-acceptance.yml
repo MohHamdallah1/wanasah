@@ -762,7 +762,7 @@ jobs:
                   ownership_mode(urgent_1050_exact | {foreign})
               except AssertionError: pass
               else: raise AssertionError('URGENT_1050 foreign path allowed')
-          for mixed in (arv1_f_1044_exact, arv1_b_1045_exact, zones_1039_exact):
+          for mixed in (arv1_f_1044_exact, {"wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py"}, {"wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py"}):
               try:
                   ownership_mode(urgent_1050_exact | mixed)
               except AssertionError: pass
