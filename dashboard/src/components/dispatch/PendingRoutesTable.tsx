@@ -1,244 +1,26 @@
-import { currentLocale } from "@/i18n";
-import { Truck, UserMinus, Clock, AlertTriangle, CircleStop, Package, Radar, Lock } from "lucide-react";
-import { PendingRoute } from "@/types/dispatch";
+import { useTranslation } from "react-i18next";
+import type { PendingRoute } from "@/types/dispatch";
+import { ActiveRouteCard, type ActiveRouteActions } from "@/features/dispatch/routeLifecycle/ActiveRouteCard";
+import { activeRouteText } from "@/features/dispatch/routeLifecycle/activeRouteCopy";
 
-// DASHBOARD_DISPATCH_ROUTE_CONTRACT_V3
-interface PendingRoutesTableProps {
+// Stable D14/D15 real route list container. The Backend determines command
+// authority; this view never treats a pending read as a genuine empty list.
+interface PendingRoutesTableProps extends ActiveRouteActions {
   routes: PendingRoute[];
-  onOpenRouteModal: (route: PendingRoute, type: "follow_up" | "transfer") => void;
-  onPostponeRoute: (id: string) => void;
-  onCloseZone: (route: PendingRoute) => void;
-  onForceWithdraw: (route: PendingRoute) => void;
-  onContinuePaused?: (route: PendingRoute) => void;
-  driverShortagesMap: Record<string, number>;
   pending?: boolean;
-  onAdjustInventory: (route: PendingRoute) => void;
-  onOpenRadar: (route: PendingRoute) => void;
+  actionsPending?: boolean;
 }
-
-const formatCommercialLockTime = (value: string): string => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "وقت قفل غير صالح";
-  return new Intl.DateTimeFormat(currentLocale(), {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-};
-
-export function PendingRoutesTable({
-  routes,
-  onOpenRouteModal,
-  onPostponeRoute,
-  onCloseZone,
-  onForceWithdraw,
-  onContinuePaused,
-  driverShortagesMap,
-  pending = false,
-  onAdjustInventory,
-  onOpenRadar,
-}: PendingRoutesTableProps) {
-  // Keep the actual flex-card list container mounted through reauthorization.
-  // Never assert an empty route list before fresh signed reads complete.
-  if (routes.length === 0) {
-    return (
-      <div className="dispatch-route-list bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
-        <p data-testid="dispatch-routes-read-status" role={pending ? "status" : undefined}
-          className="text-sm text-slate-500 p-6 text-center">
-          {pending
-            ? (currentLocale().startsWith("ar") ? "جارٍ التحقق من بيانات الخطوط..." : "Verifying routes...")
-            : "لا توجد خطوط سير تشغيلية حالياً."}
-        </p>
-      </div>
-    );
-  }
-
-  const renderActionButtons = (route: PendingRoute) => {
-    const radarButton = (
-      <button
-        key="radar-btn"
-        onClick={() => onOpenRadar(route)}
-        className="px-4 py-2 rounded-xl border border-blue-200 bg-blue-50 text-blue-600 text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
-        title="رادار المصافحات"
-      >
-        <Radar className="w-4 h-4" />
-      </button>
-    );
-
-    if (route.can_execute !== true) return radarButton;
-
-    // A genuinely paused signed route must offer CONTINUE before its final
-    // CLOSE, even when every scheduled shop was already visited. Zero
-    // remaining shops is not permission to discard its WAITING lifecycle.
-    if (route.shopsRemaining === 0 && route.status !== "waiting") {
-      return (
-        <>
-          {radarButton}
-          <button
-            onClick={() => onCloseZone(route)}
-            className="w-full bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-emerald-600 transition-colors flex items-center justify-center gap-2 shadow-lg"
-          >
-            إغلاق خط السير ✅
-          </button>
-        </>
-      );
-    }
-
-    if (route.sessionEnded) {
-      return (
-        <>
-          {radarButton}
-          <span
-            className="px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-slate-500 text-[10px] font-bold flex items-center gap-1.5"
-            title="هوية العهدة لا تتغير بعد ربط WorkSession"
-          >
-            <Lock className="w-3.5 h-3.5" />
-            WorkSession منتهية
-          </span>
-          <button
-            onClick={() => onPostponeRoute(route.id)}
-            className="px-4 py-2 rounded-xl border border-amber-200 text-amber-600 text-xs font-bold hover:bg-amber-50 transition-colors flex items-center gap-2 shadow-sm"
-          >
-            <Clock className="w-3.5 h-3.5" /> تأجيل المنطقة ⏸️
-          </button>
-          <button
-            onClick={() => onCloseZone(route)}
-            className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2 shadow-sm"
-          >
-            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق خط السير
-          </button>
-        </>
-      );
-    }
-
-    if (route.status === "waiting") {
-      return (
-        <>
-          {radarButton}
-          <button
-            disabled={route.assignmentContextRevision !== 1 && route.currentPeriodId != null && !onContinuePaused}
-            onClick={() => route.assignmentContextRevision !== 1 && route.currentPeriodId != null
-              ? (onContinuePaused ? onContinuePaused(route) : onOpenRouteModal(route, "follow_up"))
-              : onOpenRouteModal(route, "follow_up")}
-            className="px-4 py-2 rounded-xl bg-[#1e87bb] text-white text-xs font-bold hover:bg-[#0f766e] transition-colors shadow-sm"
-          >
-            {route.assignmentContextRevision !== 1 && route.currentPeriodId != null
-              ? (currentLocale().startsWith("ar") ? "متابعة الخط" : "Continue route")
-              : route.sessionBound ? "استئناف نفس الخط" : "متابعة الحمولة"}
-          </button>
-          {!route.sessionBound && route.assignmentContextRevision === 1 && (
-            <button
-              onClick={() => onOpenRouteModal(route, "transfer")}
-              className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
-            >
-              <UserMinus className="w-3.5 h-3.5" /> تحويل لمندوب آخر
-            </button>
-          )}
-          <button
-            onClick={() => onPostponeRoute(route.id)}
-            className="px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-bold hover:bg-slate-50 transition-colors flex items-center gap-2"
-          >
-            <Clock className="w-3.5 h-3.5" /> تأجيل المنطقة ⏸️
-          </button>
-          <button
-            onClick={() => onCloseZone(route)}
-            className="px-4 py-2 rounded-xl border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
-          >
-            <AlertTriangle className="w-3.5 h-3.5" /> إغلاق خط السير
-          </button>
-        </>
-      );
-    }
-
-    return (
-      <>
-        {radarButton}
-        <button
-          onClick={() => onAdjustInventory(route)}
-          className="px-4 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-600 text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
-        >
-          <Package className="w-4 h-4" /> تعديل الحمولة
-        </button>
-        <button
-          onClick={() => onForceWithdraw(route)}
-          className="px-6 py-2 rounded-xl border border-red-200 bg-red-50 text-red-600 text-xs font-bold hover:bg-red-600 hover:text-white transition-all flex items-center gap-2 shadow-sm"
-        >
-          <CircleStop className="w-4 h-4" /> إيقاف مؤقت
-        </button>
-      </>
-    );
-  };
-
-  return (
-    <div className="dispatch-route-list bg-white rounded-2xl border border-slate-200 overflow-y-auto max-h-[45vh] divide-y divide-slate-100 shadow-sm custom-scrollbar">
-      {routes.length === 0 && (
-        <div className="dispatch-empty-state">
-          <Truck className="w-7 h-7" />
-          <strong>لا توجد خطوط نشطة حالياً</strong>
-          <span>ستظهر خطوط السير هنا فور إطلاقها.</span>
-        </div>
-      )}
-      {routes.map((route) => {
-        const currentDriver = route.currentDriverId ?? (route.assignmentContextRevision === 1 ? Number(route.driverId) : null);
-        const driverShortageCount = currentDriver ? (driverShortagesMap[String(currentDriver)] || 0) : 0;
-
-        return (
-          <div
-            key={route.id}
-            className="dispatch-route-row flex flex-col xl:flex-row xl:justify-between xl:items-center gap-3 p-4 hover:bg-slate-50 transition-all group"
-          >
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-                <Truck className="w-5 h-5 text-[#1e87bb]" />
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-bold text-slate-800 text-base">{route.zoneName}</h3>
-                <span className="text-slate-300">|</span>
-                <p className="text-sm text-slate-500 font-medium">المندوب: {route.currentDriverName || (route.assignmentContextRevision === 1 ? route.driverName : "غير مخصص")}</p>
-
-                {driverShortageCount > 0 && (
-                  <span className="text-[10px] bg-amber-500 text-white px-2 py-0.5 rounded-full font-bold animate-pulse">
-                    +{driverShortageCount} طلبات عاجلة
-                  </span>
-                )}
-
-                <span className="text-slate-300">|</span>
-                <p className="text-sm text-amber-600 font-bold">متبقي {route.shopsRemaining} محلات</p>
-
-                {route.status === "active" && !route.sessionEnded && (
-                  <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-[#1e87bb] text-[10px] font-bold border border-emerald-200">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    🟢 قيد العمل
-                  </span>
-                )}
-
-                {route.commercial_context ? (
-                  <span
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold border border-slate-200"
-                    title={`عملة المعاملة: ${route.commercial_context.transaction_currency_code} | العملة الوظيفية: ${route.commercial_context.functional_currency_code}`}
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    قفل تجاري {formatCommercialLockTime(route.commercial_context.pricing_locked_at)}
-                    {" · "}نشر r{route.commercial_context.price_publication_revision}
-                    {" · "}تعيين r{route.commercial_context.assignment_revision}
-                  </span>
-                ) : route.sessionBound ? (
-                  <span
-                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-200"
-                    title="الجولة مرتبطة بـ WorkSession لكن RouteCommercialContext غير متاح في القراءة الحالية."
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    سياق تجاري غير متاح
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-              {renderActionButtons(route)}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+export function PendingRoutesTable({routes,pending=false,actionsPending=false,...actions}:PendingRoutesTableProps) {
+  const {i18n}=useTranslation();
+  // A route that is postponed or closed must not become an active control even
+  // when a route owner link, stale list, or mixed response includes that row.
+  const visible=routes.filter(route=>route.status==="active"||route.status==="waiting");
+  return <div className="dispatch-route-list max-h-[45vh] overflow-y-auto divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white shadow-sm custom-scrollbar"
+    dir={i18n.dir()}>
+    {!visible.length && <p data-testid="dispatch-routes-read-status"
+      role={pending?"status":undefined} className="p-6 text-center text-sm text-slate-500">
+      {activeRouteText(i18n.language,pending?"loading":"empty")}
+    </p>}
+    {visible.map(route=><ActiveRouteCard key={route.id} route={route} pending={pending||actionsPending} {...actions}/>)}
+  </div>;
 }

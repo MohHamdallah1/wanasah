@@ -1903,6 +1903,7 @@ function DispatchSession() {
                   <PendingRoutesTable
                     routes={tabReady ? pendingRoutes.filter(r => r.status !== "postponed" && (!archiveRouteFocus || r.id === archiveRouteFocus)) : []}
                     pending={!tabReady}
+                    actionsPending={!commandsAdmitted}
                     onAdjustInventory={(route) => {
                       setInventoryRoute(route);
                       setIsInventoryModalOpen(true);
