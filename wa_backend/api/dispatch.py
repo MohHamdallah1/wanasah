@@ -3924,26 +3924,33 @@ async def get_active_routes(
             sessions_info = (await db.execute(stmt_sessions)).all()
             session_ended_map = {s_id: (end_t is not None) for s_id, end_t in sessions_info}
     
-    # +++ حساب المحلات (المتبقية فقط) في المنطقة التي ليس لها مندوب +++
-    # نعد فقط الزيارات المحررة (الأيتام) التي لم تنجز بعد
-    stmt_shop_counts = select(Shop.zone_id, func.count(Visit.id)).join(
-        Visit, Shop.id == Visit.shop_id
-    ).filter(
-        authorized_shop_predicate,
-        Visit.company_id == access.company_id,
-        Shop.is_active == True,
-        Shop.is_archived == False,
-        Visit.status == 'Pending',
-        Visit.driver_id.is_(None) # استخدام is_(None) للآمان في SQLAlchemy
-    ).group_by(Shop.zone_id)
-    
-    shop_counts = (await db.execute(stmt_shop_counts)).all()
-    zone_shops_map = {z_id: count for z_id, count in shop_counts}
+    # Pausing/postponing a route does not clear the original FIELD assignee
+    # from its Pending visits. Count distinct still-pending shops in the zone
+    # regardless of that historic driver; otherwise postponement incorrectly
+    # reports zero remaining shops despite immutable unsold visit evidence.
+    # The company and authorized-shop filters must remain enforced by SQL.
+    zone_shops_map = {}
+    if zone_ids:
+        stmt_shop_counts = select(
+            Shop.zone_id, func.count(func.distinct(Shop.id))
+        ).join(
+            Visit, Shop.id == Visit.shop_id
+        ).filter(
+            authorized_shop_predicate,
+            Visit.company_id == access.company_id,
+            Shop.zone_id.in_(zone_ids),
+            Shop.is_active == True,
+            Shop.is_archived == False,
+            Visit.status == 'Pending',
+        ).group_by(Shop.zone_id)
+        shop_counts = (await db.execute(stmt_shop_counts)).all()
+        zone_shops_map = {z_id: count for z_id, count in shop_counts}
 
     res = []
     for r in routes:
-        # اللوجيك الأصلي: إذا كان الخط نشطاً والمندوب موجوداً، احسب الزيارات المعلقة للمندوب.
-        # أما إذا كان موقوفاً أو بدون مندوب، فالمحلات المتبقية هي كل محلات المنطقة.
+        # An active period retains its field-driver-specific pending count.
+        # Waiting/postponed routes instead show the distinct still-Pending
+        # shops of that zone, including visits assigned before postponement.
         current_driver = current_periods.get(r.id, {}).get("driver_id")
         if r.status == 'active' and current_driver:
             shops_remaining = pending_visits_map.get(current_driver, 0)

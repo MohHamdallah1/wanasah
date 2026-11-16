@@ -1081,6 +1081,18 @@ ZONES_1039_EXACT = frozenset({
 })
 assert len(ZONES_1039_EXACT) == 7
 
+# #1045 exact Backend Active Routes read + five owner guards.
+ARV1_B_1045_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+    ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+    "wa_backend/api/dispatch.py",
+    "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py",
+})
+assert len(ARV1_B_1045_EXACT) == 7
+
 
 # #1038: only the audited zones UI correction with the three historical
 # CI guards and their shared ownership policy; legacy scopes stay frozen.
@@ -1106,6 +1118,13 @@ ZONES_1038_EXACT = frozenset({
 assert len(ZONES_1038_EXACT) == 17
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == ARV1_B_1045_EXACT:
+        return ("not-applicable", []) if mode == "r3" else ("arv1-b-1045-exact", [])
+    if "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py" in changed:
+        return "fail", [
+            f"ARV1_B_1045_EXACT=FAIL missing={sorted(ARV1_B_1045_EXACT-changed)} "
+            f"foreign={sorted(changed-ARV1_B_1045_EXACT)}"
+        ]
     # M05 contains a complete independently audited literal path set.
     # Admit it BEFORE D07's distinct historic anchors; partial M05 and
     # foreign files are rejected by the dedicated negative ownership gate.
@@ -1528,6 +1547,25 @@ def selftest() -> None:
         ):
             _expect_fail(mode, set(ZONES_1039_EXACT) | {foreign}, policy_sem)
     print("ZONES_1039_LIVE_STOCK_SELFTEST=PASS exact=7 missing=7 foreign=3")
+
+    # Every Live Stock owner mode receives exact admission or R3
+    # not-applicable; no mixed/partial historical owner is ever borrowed.
+    for mode in ("ux", "r3", "operational"):
+        expected = ("not-applicable", []) if mode == "r3" else ("arv1-b-1045-exact", [])
+        assert classify(mode, set(ARV1_B_1045_EXACT), policy_sem) == expected
+        for missing in ARV1_B_1045_EXACT:
+            _expect_fail(mode, set(ARV1_B_1045_EXACT) - {missing}, policy_sem)
+        for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
+                        "dashboard/src/pages/DispatchBoard.tsx"):
+            _expect_fail(mode, set(ARV1_B_1045_EXACT) | {foreign}, policy_sem)
+        for mixed in (
+            set(ARV1_B_1045_EXACT) | {"wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py"},
+            set(ARV1_B_1045_EXACT) | {"wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py"},
+            (set(ARV1_B_1045_EXACT) - {".github/workflows/dispatch-route-launch-d07-acceptance.yml"})
+            | {"dashboard/src/features/dispatch/sessionScope.ts"},
+        ):
+            _expect_fail(mode, mixed, policy_sem)
+    print("ARV1_B_1045_LIVE_STOCK_SELFTEST=PASS modes=3 missing=21 foreign=9 mixed=9")
 
     # D07 #870: only complete fourteen-file route-launch diff admitted.
     for mode in ("ux", "operational"):
