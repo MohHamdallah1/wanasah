@@ -783,7 +783,20 @@ jobs:
               "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
           }
           assert len(zones_1039_exact) == 7
+          arv1_b_1045_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py",
+          }
+          assert len(arv1_b_1045_exact) == 7
           def ownership_mode(candidate):
+              if candidate == arv1_b_1045_exact: return "ARV1_B_1045_EXACT"
+              if "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py" in candidate:
+                  raise AssertionError("ARV1_B_1045 partial/foreign: " + repr(sorted(candidate)))
               if candidate == zones_1038_exact: return "ZONES_1038_EXACT"
               if candidate & zones_1038_distinct:
                   raise AssertionError("P0 ZONES_1038 partial/foreign: " + repr(sorted(candidate)))
@@ -1099,6 +1112,26 @@ jobs:
               else:
                   raise AssertionError(f"ZONES_1039_FOREIGN_ADMITTED={foreign}")
           print("ZONES_1039_P0_EXACT_SCOPE=PASS exact=7 missing=7 foreign=3")
+          assert ownership_mode(arv1_b_1045_exact) == "ARV1_B_1045_EXACT"
+          for missing in sorted(arv1_b_1045_exact):
+              try: ownership_mode(arv1_b_1045_exact - {missing})
+              except AssertionError: pass
+              else: raise AssertionError(f"ARV1_B_1045 admitted missing {missing}")
+          for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
+                          "dashboard/src/pages/DispatchBoard.tsx"):
+              try: ownership_mode(arv1_b_1045_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"ARV1_B_1045 admitted foreign {foreign}")
+          for mixed in (
+              arv1_b_1045_exact | {"wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py"},
+              arv1_b_1045_exact | {"wa_backend/tests/test_dispatch_m06_owner_acceptance_postgres.py"},
+              (arv1_b_1045_exact - {".github/workflows/dispatch-route-launch-d07-acceptance.yml"})
+              | {"dashboard/src/features/dispatch/sessionScope.ts"},
+          ):
+              try: ownership_mode(mixed)
+              except AssertionError: pass
+              else: raise AssertionError("ARV1_B_1045 admitted mixed scope")
+          print("ARV1_B_1045_P0_SELFTEST=PASS exact=7 missing=7 foreign=3 mixed=3")
           # M04 exact policy: all 57 files together, no partial or foreign set.
           assert ownership_mode(m04_942_exact) == 'M04_942_EXACT'
           for missing in sorted(m04_942_exact):
