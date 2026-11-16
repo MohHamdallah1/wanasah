@@ -12,6 +12,9 @@ import { ZoneModal } from "@/components/dispatch/ZoneModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopTable } from "@/components/dispatch/ShopTable";
+import { ZoneShopHeaderActions, ZoneShopImportAction } from "@/features/dispatch/zones/ZoneShopWorkspaceActions";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 vi.mock("@/features/tenantIdentity/useTenantIdentity", () => ({
   useTenantIdentity: () => ({ data: { company_id: 33, currency_code: "QAR" } }),
@@ -176,4 +179,55 @@ describe("ZV1-F #1038 keyboard, global search, safe zones", () => {
     fireEvent.click(screen.getByRole("button",{name:"Restore zone Zone A"}));
     expect(restore).toHaveBeenCalledExactlyOnceWith("A");
   });
+
+  it.each(["ar","en"] as const)("localized shop buttons and import callouts render genuine %s text with working callbacks", language => {
+    const openArchive = vi.fn(), addShop = vi.fn(), openImport = vi.fn();
+    render(<>
+      <ZoneShopHeaderActions language={language} onOpenArchive={openArchive} onAddShop={addShop} />
+      <ZoneShopImportAction language={language} onOpenImport={openImport} />
+    </>);
+    const archive = screen.getByRole("button", {name: zoneText(language,"shopArchiveOpen")});
+    const add = screen.getByRole("button",{name: zoneText(language,"shopAdd")});
+    const importer = screen.getByRole("button",{
+      name: new RegExp(language === "en" ? "Import new shops" : zoneText(language,"shopBulkImportTitle").split("(")[0])
+    });
+    expect(archive).toHaveAttribute("title",zoneText(language,"shopArchiveOpen"));
+    expect(add).toBeVisible();
+    expect(importer).toHaveTextContent(zoneText(language,"shopBulkImportHint"));
+    if (language === "en") {
+      expect(add).toHaveTextContent("Add shop");
+      expect(importer).toHaveTextContent("Import new shops");
+      expect(archive).toHaveAccessibleName("Open archived shops");
+    }
+    fireEvent.click(archive);fireEvent.click(add);fireEvent.click(importer);
+    expect(openArchive).toHaveBeenCalledOnce();
+    expect(addShop).toHaveBeenCalledOnce();
+    expect(openImport).toHaveBeenCalledOnce();
+  });
+
+  it("shop single-archive draft/commit/failure and generic confirmation have actionable English without Arabic literals", () => {
+    expect(zoneText("en","shopArchiveDraftTitle")).toContain("draft");
+    expect(zoneText("en","shopArchiveDraftWarning")).toContain("save changes");
+    expect(zoneText("en","shopArchiveDraftNotice")).toContain("Save changes");
+    expect(zoneText("en","shopArchiveNowTitle")).toBe("Confirm shop archive");
+    expect(zoneText("en","shopArchiveNowWarning")).toContain("restore");
+    expect(zoneText("en","shopArchiveNowSuccess")).toBe("Shop archived.");
+    expect(zoneText("en","shopArchiveNowFailed",{reason:"Forbidden"})).toContain("Forbidden");
+    expect(zoneText("en","cancel")).toBe("Cancel");
+    expect(zoneText("en","confirm")).toBe("Confirm");
+    const source=readFileSync(resolve(process.cwd(),"src/pages/DispatchBoard.tsx"),"utf8");
+    for (const key of ["shopArchiveDraftTitle","shopArchiveDraftWarning","shopArchiveDraftNotice",
+      "shopArchiveNowTitle","shopArchiveNowWarning","shopArchiveNowSuccess","shopArchiveNowFailed"]) {
+      expect(source).toContain('zoneCopy("'+key+'"');
+    }
+  });
+
+  it("preserves exact D14 browser zone-panel DIV child selector and keyboard-friendly zone buttons", () => {
+    const source=readFileSync(resolve(process.cwd(),"src/pages/DispatchBoard.tsx"),"utf8");
+    expect(source).toMatch(/dispatch-zones-workbench[^\n]+\n\s*<div className="w-full xl:w-\[29%\]/);
+    expect(source).toContain('<ZoneListItem zone={zone}');
+    expect(source).not.toContain('<aside className="w-full xl:w-[29%]');
+    expect(source).toContain('if (shopSearchQuery.trim())');
+  });
+
 });

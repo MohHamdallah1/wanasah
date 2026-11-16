@@ -6,7 +6,7 @@ import { buildRouteStatusOnlyPayload } from "@/features/dispatch/routeStatusPayl
 import type { DispatchNavigationIntent } from "@/features/dispatch/navigation";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Upload, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Archive, Rocket } from "lucide-react";
+import { Truck, LayoutGrid, ClipboardList, Calendar, Search, Pencil, Trash2, Plus, RotateCcw, X, Eye, Eraser, Save, XCircle, Loader2, AlertCircle, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 // Components
@@ -75,6 +75,7 @@ import { useDashboardSession } from "@/hooks/useDashboardSession";
 import { captureDashboardSession, isDashboardSessionCurrent, subscribeDashboardSession } from "@/lib/authStorage";
 import { apiErrorMessage, isAmbiguousRequestError } from "@/lib/apiErrors";
 import { zoneText, frequencyFromDays, daysFromFrequency } from "@/features/dispatch/zones/zoneUi";
+import { ZoneShopHeaderActions, ZoneShopImportAction } from "@/features/dispatch/zones/ZoneShopWorkspaceActions";
 import { ZoneListItem } from "@/features/dispatch/zones/ZoneListItem";
 import { ZoneBulkSelectionBar } from "@/features/dispatch/zones/ZoneBulkSelectionBar";
 import { zoneShopSelection } from "@/features/dispatch/zones/zoneShopSelection";
@@ -2390,7 +2391,7 @@ function DispatchSession() {
             </div>
           ) : (
             <div key="zones" data-testid="dispatch-zones-workspace" ref={realWorkspaceRef} className="dispatch-zones-workbench flex flex-col xl:flex-row gap-4 h-full flex-1 min-h-0 w-full mt-[4px]">
-              <aside className="w-full xl:w-[29%] flex min-h-0 flex-col gap-4">
+              <div className="w-full xl:w-[29%] flex min-h-0 flex-col gap-4">
                 <div className="dispatch-surface flex h-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
                   <div className="flex flex-col gap-3 border-b border-slate-100 p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2466,24 +2467,23 @@ function DispatchSession() {
                       </li>)}
                   </ul>
                 </div>
-              </aside>
+              </div>
 
               {/* +++ تم وضع قائمة المحلات ثانياً (على اليسار في RTL) وتوسيع عرضها لـ 75% +++ */}
               <div className="w-full min-w-0 xl:flex-1 flex flex-col gap-4 min-h-0">
                 <div className="dispatch-surface bg-white rounded-2xl border border-slate-200 flex flex-col h-full shadow-sm relative">
-                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">{zoneCopy("shopsTitle")}</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder={zoneCopy("shopsSearch")} className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 " /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 " /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <button
-                    onClick={() => setShowRecycleBin(true)}
-                    className="p-2.5 rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50 shadow-sm  hover:text-blue-600"
-                    title="فتح أرشيف المحلات المؤرشفة"
-                  >
-                    <Archive className="w-5 h-5" />
-                  </button>}{grants.zoneManage && <button onClick={() => {
-                    if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
-                      toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
-                      return;
-                    }
-                    setEditingShopId(null); setShopForm(emptyShopForm(selectedZoneIdForZones)); setIsShopModalOpen(true);
-                  }} className="bg-[#1e87bb] hover:bg-[#0f766e] text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm "><Plus className="w-4 h-4" /> إضافة محل</button>}</div></div>
+                  <div className="px-4 sm:px-6 py-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0 min-w-0"><div className="flex min-w-0 flex-1 flex-wrap items-center gap-3"><h2 className="text-lg font-bold text-slate-800 shrink-0">{zoneCopy("shopsTitle")}</h2><div className="relative min-w-0 w-full sm:w-auto"><Search className="absolute end-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /><input type="search" value={shopSearchQuery} onChange={e => setShopSearchQuery(e.target.value)} placeholder={zoneCopy("shopsSearch")} className="rounded-xl border border-slate-200 bg-slate-50 pe-9 ps-4 py-2 text-sm focus:ring-2 focus:ring-[#1e87bb]/20 outline-none w-full sm:w-80 max-w-full min-w-0 " /></div></div><div className="flex min-w-0 flex-wrap items-center justify-end gap-2">{isEditMode ? (<><button onClick={handleCancelReorder} disabled={isSaving} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200 disabled:opacity-50"><XCircle className="w-4 h-4" /> {shopOrderText(i18n.language, "cancel")}</button><button onClick={handleSaveReorder} disabled={isSaving || (!hasUnsavedChanges && !needsReconciliation)} className={`px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm ${hasUnsavedChanges || needsReconciliation ? 'bg-emerald-500 hover:bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 cursor-not-allowed'} disabled:opacity-60`}>{isSaving ? <><Loader2 className="w-4 h-4 " /> {shopOrderText(i18n.language, "saving")}</> : <><Save className="w-4 h-4" /> {shopOrderText(i18n.language, needsReconciliation ? "retryConfirm" : "save")}</>}</button></>) : (grants.zoneManage && <button onClick={() => { savedShopsRef.current = shops; setIsEditMode(true); }} className="px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2  shadow-sm border border-slate-200 text-slate-600 hover:bg-slate-50"><Pencil className="w-4 h-4" />{shopOrderText(i18n.language, "edit")}</button>)}{grants.zoneManage && <ZoneShopHeaderActions language={i18n.language}
+                    onOpenArchive={() => setShowRecycleBin(true)}
+                    onAddShop={() => {
+                      if (!canOpenShopForm(hasUnsavedChanges, needsReconciliation) || isSaving) {
+                        toast.error(shopOrderText(i18n.language, "changeZoneFirst"));
+                        return;
+                      }
+                      setEditingShopId(null);
+                      setShopForm(emptyShopForm(selectedZoneIdForZones));
+                      setIsShopModalOpen(true);
+                    }}
+                  />}</div></div>
                   {tabReady && shopSearchQuery.trim() && <p role="status" className="border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-900">
                     {zoneCopy("searchScope")}
                   </p>}
@@ -2511,22 +2511,22 @@ function DispatchSession() {
                       // +++ الكي الجراحي: استخدام نافذة النظام الموحدة بدلاً من نافذة المتصفح البدائية +++
                       setConfirmDialog({
                         isOpen: true,
-                        title: "تأكيد الإخفاء",
-                        message: "هل أنت متأكد من رغبتك في إخفاء هذا المحل مؤقتاً؟",
+                        title: zoneCopy("shopArchiveDraftTitle"),
+                        message: zoneCopy("shopArchiveDraftWarning"),
                         onConfirm: () => {
                           setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
                           setZones(prev => sortZones(prev.map(z => z.id === shops.find(s => s.id === id)?.zoneId ? { ...z, shopsCount: Math.max(0, (z.shopsCount || 0) - 1) } : z)));
                           setHasUnsavedChanges(true);
                           setConfirmDialog(d => ({ ...d, isOpen: false }));
-                          toast.info("تم إخفاء المحل محلياً. اضغط 'حفظ التعديلات' لتأكيد النقل للأرشيف.");
+                          toast.info(zoneCopy("shopArchiveDraftNotice"));
                         }
                       });
                     } else {
                       // الأرشفة الفورية العادية إذا لم يكن في وضع التعديل
                       setConfirmDialog({
                         isOpen: true,
-                        title: "تأكيد الأرشفة",
-                        message: "هل تريد أرشفة هذا المحل؟",
+                        title: zoneCopy("shopArchiveNowTitle"),
+                        message: zoneCopy("shopArchiveNowWarning"),
                         onConfirm: async () => {
                           const admitted = captureUiRead();
                           try {
@@ -2534,8 +2534,8 @@ function DispatchSession() {
                             if (!admitted()) return;
                             setShops(prev => prev.map(s => s.id === id ? { ...s, archived: true } : s));
                             fetchInitialData();
-                            toast.success("تم أرشفة المحل بنجاح");
-                          } catch (err: unknown) { if (admitted()) toast.error("خطأ في الأرشفة: " + getErrorMessage(err)); }
+                            toast.success(zoneCopy("shopArchiveNowSuccess"));
+                          } catch (err: unknown) { if (admitted()) toast.error(zoneCopy("shopArchiveNowFailed", {reason: apiErrorMessage(err, zoneCopy("permissionDenied"))})); }
                           finally { if (admitted()) setConfirmDialog(d => ({ ...d, isOpen: false })); }
                         }
                       });
@@ -2597,13 +2597,7 @@ function DispatchSession() {
                       }}
                     />}
 {grants.zoneManage && <div className="p-4 bg-slate-50 border-t border-slate-100 shrink-0">
-                    <button onClick={() => setIsBulkImportModalOpen(true)} className="w-full rounded-xl border-2 border-dashed border-slate-200 bg-white p-4 flex items-center justify-center gap-3 hover:border-[#1e87bb] hover:bg-slate-50  group shadow-sm">
-                      <Upload className="w-6 h-6 text-slate-400 group-hover:text-[#1e87bb]" />
-                      <div className="text-start">
-                        <p className="text-base font-bold text-slate-700 group-hover:text-[#1e87bb]">استيراد المحلات الذكي (Excel / Paste)</p>
-                        <p className="text-xs text-slate-500">اضغط هنا لفتح نافذة الاستيراد واختيار المنطقة</p>
-                      </div>
-                    </button>
+                    <ZoneShopImportAction language={i18n.language} onOpenImport={() => setIsBulkImportModalOpen(true)} />
                   </div>}
                 </div>
               </div>
@@ -2874,8 +2868,8 @@ function DispatchSession() {
           title={confirmDialog.title}
           footer={
             <div className="flex gap-2 w-full">
-              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">إلغاء</button>
-              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94]  shadow-lg">تأكيد</button>
+              <button onClick={() => setConfirmDialog({ ...confirmDialog, isOpen: false })} className="px-6 py-2 text-slate-500 font-bold hover:bg-slate-100 rounded-xl ">{zoneCopy("cancel")}</button>
+              <button onClick={confirmDialog.onConfirm} className="flex-1 bg-[#1e87bb] text-white py-2 rounded-xl font-bold hover:bg-[#166a94]  shadow-lg">{zoneCopy("confirm")}</button>
             </div>
           }
         >
