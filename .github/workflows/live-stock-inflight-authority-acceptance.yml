@@ -742,8 +742,8 @@ jobs:
               else:
                   raise AssertionError(f"ARV1_F_1044 foreign path admitted: {foreign}")
           for mixed in (
-              arv1_f_1044_exact | arv1_b_1045_exact,
-              arv1_f_1044_exact | zones_1039_exact,
+              arv1_f_1044_exact | {"wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py"},
+              arv1_f_1044_exact | {"wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py"},
               arv1_f_1044_exact | d07_complete_exact,
           ):
               try:
