@@ -1082,6 +1082,28 @@ ZONES_1039_EXACT = frozenset({
 assert len(ZONES_1039_EXACT) == 7
 
 
+# #1038: only the audited zones UI correction with the three historical
+# CI guards and their shared ownership policy; legacy scopes stay frozen.
+ZONES_1038_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/components/dispatch/ScheduleModal.tsx",
+    "dashboard/src/components/dispatch/ShopTable.tsx",
+    "dashboard/src/components/dispatch/ZoneModal.tsx",
+    "dashboard/src/components/dispatch/ZoneRecycleBinModal.tsx",
+    "dashboard/src/features/dispatch/zones/ZoneBulkSelectionBar.tsx",
+    "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+    "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+    "dashboard/src/features/dispatch/zones/zoneCommands.ts",
+    "dashboard/src/features/dispatch/zones/zoneShopSelection.ts",
+    "dashboard/src/features/dispatch/zones/zoneUi.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-zv1-f-zones-1038.test.tsx",
+})
+assert len(ZONES_1038_EXACT) == 16
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # M05 contains a complete independently audited literal path set.
     # Admit it BEFORE D07's distinct historic anchors; partial M05 and
@@ -1113,6 +1135,15 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         ]
     # Admit only the exact audited ZV1-B set before the historic D07 owner
     # anchor; old D07 missing/foreign checks below are unchanged.
+    if changed == ZONES_1038_EXACT:
+        return ("zones-1038-exact", []) if mode in {"ux","operational"} else ("not-applicable", [])
+    if changed & {
+        "dashboard/src/features/dispatch/zones/zoneUi.ts",
+        "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+        "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+    }:
+        return "fail", [f"ZONES_1038_EXACT=FAIL missing={sorted(ZONES_1038_EXACT-changed)} "
+                        f"foreign={sorted(changed-ZONES_1038_EXACT)}"]
     if changed == ZONES_1039_EXACT:
         return ("zones-1039-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
     if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in changed:
@@ -1470,6 +1501,18 @@ def selftest() -> None:
         "shop-form-850-exact"
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
+
+    # #1038: exact 16-file UI/CI acceptance with all 16 missing and 3
+    # foreign adversarial probes, across each supported ownership mode.
+    for mode in ("ux","r3","operational"):
+        expected = ("not-applicable",[]) if mode=="r3" else ("zones-1038-exact",[])
+        assert classify(mode,set(ZONES_1038_EXACT),policy_sem)==expected
+        for missing in ZONES_1038_EXACT:
+            _expect_fail(mode,set(ZONES_1038_EXACT)-{missing},policy_sem)
+        for foreign in ("wa_backend/models.py","wa_backend/api/driver.py",
+                        "wanasah_frontend/lib/main.dart"):
+            _expect_fail(mode,set(ZONES_1038_EXACT)|{foreign},policy_sem)
+    print("ZONES_1038_LIVE_STOCK_SELFTEST=PASS exact=16 missing=16 foreign=3")
 
     # #1039: exact seven-file geography/CI exception, plus strict negatives.
     for mode in ("ux", "r3", "operational"):

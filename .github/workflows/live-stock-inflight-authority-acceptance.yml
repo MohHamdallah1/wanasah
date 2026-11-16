@@ -570,7 +570,34 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          zones_1038_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ScheduleModal.tsx",
+              "dashboard/src/components/dispatch/ShopTable.tsx",
+              "dashboard/src/components/dispatch/ZoneModal.tsx",
+              "dashboard/src/components/dispatch/ZoneRecycleBinModal.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneBulkSelectionBar.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+              "dashboard/src/features/dispatch/zones/zoneCommands.ts",
+              "dashboard/src/features/dispatch/zones/zoneShopSelection.ts",
+              "dashboard/src/features/dispatch/zones/zoneUi.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-zv1-f-zones-1038.test.tsx",
+          }
+          assert len(zones_1038_exact) == 16
+          zones_1038_distinct = {
+              "dashboard/src/features/dispatch/zones/zoneUi.ts",
+              "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
+              "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
+          }
           def ownership_mode(candidate):
+              if candidate == zones_1038_exact: return "ZONES_1038_EXACT"
+              if candidate & zones_1038_distinct:
+                  raise AssertionError("INFLIGHT ZONES_1038 partial/foreign: " + repr(sorted(candidate)))
               if __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"](candidate):
                   return "C03_X01_983_RELEASE_EXACT"
               if candidate == u02_u03_969_exact:
@@ -669,6 +696,16 @@ jobs:
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
 
+          assert ownership_mode(zones_1038_exact) == "ZONES_1038_EXACT"
+          for missing in zones_1038_exact:
+              try: mode=ownership_mode(zones_1038_exact-{missing})
+              except AssertionError: pass
+              else: assert mode!="ZONES_1038_EXACT", "INFLIGHT ZONES_1038 incomplete accepted"
+          for foreign in ("wa_backend/models.py","wa_backend/api/driver.py","wanasah_frontend/lib/main.dart"):
+              try: ownership_mode(zones_1038_exact|{foreign})
+              except AssertionError: pass
+              else: raise AssertionError("INFLIGHT ZONES_1038 foreign accepted")
+          print("ZONES_1038_INFLIGHT_SCOPE_SELFTEST=PASS exact=16 missing=16 foreign=3")
           assert ownership_mode(dispatch_d11_881_exact) == "DISPATCH_D11_881_EXACT"
           for missing in dispatch_d11_881_exact:
               partial = dispatch_d11_881_exact - {missing}
