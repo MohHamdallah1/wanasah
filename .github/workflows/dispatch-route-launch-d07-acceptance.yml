@@ -214,6 +214,7 @@ jobs:
           # #1039 ZV1-B: strict six-file Backend/CI-only geography closure.
           # Existing D07/D06/D11/Flutter acceptance remains mandatory.
           zones_1039_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
               ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
               ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
@@ -221,7 +222,7 @@ jobs:
               "wa_backend/api/dispatch.py",
               "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
           }
-          assert len(zones_1039_exact) == 6
+          assert len(zones_1039_exact) == 7
           def zones_1039_mode(candidate):
               if candidate == zones_1039_exact:
                   return True
@@ -241,7 +242,7 @@ jobs:
               try: zones_1039_mode(zones_1039_exact | {foreign})
               except AssertionError: pass
               else: raise AssertionError(f"D07 ZONES_1039 admitted foreign {foreign}")
-          print("ZONES_1039_D07_SCOPE_SELFTEST=PASS exact=6 missing=6 foreign=3")
+          print("ZONES_1039_D07_SCOPE_SELFTEST=PASS exact=7 missing=7 foreign=3")
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
