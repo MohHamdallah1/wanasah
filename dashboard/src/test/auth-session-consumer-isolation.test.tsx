@@ -531,6 +531,9 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   const oldAction = screen.getByRole("button", { name: "Adjust vehicle load" });
   fireEvent.click(screen.getByRole("button", { name: /Requests & shortages/ }));
   await act(async () => {}); // demand-only signed Shops GET if not admitted yet
+  // D10 canonical isolation must still hold in the separate Pending view;
+  // the new quick-create screen deliberately no longer displays grouped rows.
+  fireEvent.click(screen.getByRole("button", { name: /Pending requests/ }));
   const shopAccordion = screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) A-shop/ });
   expect(shopAccordion).toBeInTheDocument();
   fireEvent.click(shopAccordion);
@@ -580,6 +583,7 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   expect(document.body.textContent).not.toMatch(/A-(zone|shop|route|driver|vehicle|warehouse|custody|stock|shortage|LATE)/);
   fireEvent.click(screen.getByRole("button", { name: /Requests & shortages/ }));
   await act(async () => {});
+  fireEvent.click(screen.getByRole("button", { name: /Pending requests/ }));
   expect(screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) B-shop/ })).toBeInTheDocument();
   expect(await readDurableCommand(scope)).toEqual(draft);
 

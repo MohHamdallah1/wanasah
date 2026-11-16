@@ -729,7 +729,7 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
       const view = render(
         <ShortageModal isOpen canCreate canCancel canEdit onClose={vi.fn()} zones={[]} activeShops={[]}
           shortageZoneId="3" shortageShopId="7" onZoneChange={vi.fn()} onShopChange={vi.fn()}
-          productScope="1:11" newShortage={{ quantity: 1 }} onNewShortageChange={vi.fn()}
+          productScope="1:11"
           shortageDraft={draft} onAddProductToDraft={vi.fn()} onRemoveProductFromDraft={vi.fn()}
           onUpdateDraftQty={vi.fn()} onClearDraft={vi.fn()}
           onConfirmShortages={vi.fn()} shortages={initial} onDeleteShortage={vi.fn()}

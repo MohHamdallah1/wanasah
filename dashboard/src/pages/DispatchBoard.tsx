@@ -388,7 +388,6 @@ function DispatchSession() {
   const [shortageDriverId, setShortageDriverId] = useState("");
   const [shortageShopId, setShortageShopId] = useState("");
   const [shortageDraft, setShortageDraft] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
-  const [newShortage, setNewShortage] = useState<Partial<Shortage>>({});
   const [editingShortageIds, setEditingShortageIds] = useState<string[]>([]); // IDs to delete on confirm
 
   const [isSchedulingModalOpen, setIsSchedulingModalOpen] = useState(false);
@@ -663,7 +662,7 @@ function DispatchSession() {
     setInventoryRoute(null); setRadarRoute(null); setRadarFocusTransferId(null);
     setTransferDriverId(""); setUnsavedTabPrompt(null);
     setRouteLoadCurrent({}); setRouteLoadTargets({}); setRouteLoadNames({}); setRouteLoadUnits({});
-    setShortageDraft([]); setNewShortage({}); setEditingShortageIds([]);
+    setShortageDraft([]); setEditingShortageIds([]);
     setIsShortageModalOpen(false); setIsZoneModalOpen(false); setIsShopModalOpen(false);
     setIsBulkImportModalOpen(false); setIsSchedulingModalOpen(false);
     setIsZoneRecycleBinOpen(false); setShowRecycleBin(false); setIsBulkTransferModalOpen(false);
@@ -1625,7 +1624,6 @@ function DispatchSession() {
       setShortages(rows);
       setEditingShortageIds([]);
       setShortageDraft([]);
-      setNewShortage({ quantity: 1 });
     },
     // A second tab may have completed the immutable request. Refresh only:
     // no success toast or inferred local idempotency result in this tab.
@@ -1718,7 +1716,6 @@ function DispatchSession() {
       const wasEditing = editingShortageIds.length > 0;
       setEditingShortageIds([]);
       setShortageDraft([]);
-      setNewShortage({ quantity: 1 });
       // Verified grouped PUT reports its own single authoritative success.
       // New standalone POST still uses the existing completion message.
       if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
@@ -1728,40 +1725,24 @@ function DispatchSession() {
     }
   };
 
-  const handleAddProductToDraft = () => {
-    if (!newShortage.productId || !newShortage.quantity) {
-      return toast.error(t("dispatchProductSearch.chooseQuantity"));
+  // One click on an authorized SHORTAGE search result adds one base-unit item.
+  // This is only a draft mutation: canonical product/tenant/visit authority stays on POST.
+  const handleAddProductToDraft = (productId: string, productName: string) => {
+    if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId)) ||
+      !productName || productName.length > 300) return;
+    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+      shortageGroup.hasUnresolved || shortageGroup.blocked) return;
+    if (shortageDraft.length >= 80 && !shortageDraft.some(row => row.productId === productId)) {
+      toast.error(dispatchUiText(i18n.language, "shortageQuickLimit"));
+      return;
     }
-
-    const product = newShortage.productName ? { id: newShortage.productId, name: newShortage.productName } : null;
-    if (!product) {
-      return toast.error(t("dispatchProductSearch.unavailable"));
-    }
-
-    setShortageDraft((prev) => {
-      const existing = prev.findIndex(
-        (item) => item.productId === product.id
-      );
-      if (existing !== -1) {
-        return prev.map((item, index) =>
-          index === existing
-            ? {
-                ...item,
-                quantity: item.quantity + Number(newShortage.quantity),
-              }
-            : item
-        );
-      }
-      return [
-        ...prev,
-        {
-          productId: product.id,
-          productName: product.name,
-          quantity: Number(newShortage.quantity),
-        },
-      ];
+    setShortageDraft(previous => {
+      const existing = previous.findIndex(row => row.productId === productId);
+      if (existing !== -1) return previous.map((row, i) => i === existing &&
+        row.quantity < Number.MAX_SAFE_INTEGER ? { ...row, quantity: row.quantity + 1 } : row);
+      if (previous.length >= 80) return previous;
+      return [...previous, { productId, productName, quantity: 1 }];
     });
-    setNewShortage((prev) => ({ ...prev, quantity: 1 }));
   };
 
   const handleEditShortageGroup = (
@@ -2623,8 +2604,6 @@ function DispatchSession() {
         onZoneChange={id => { setShortageZoneId(id); setShortageShopId(""); }}
         onShopChange={id => { setShortageShopId(id); }}
         productScope={productScope}
-        newShortage={newShortage}
-        onNewShortageChange={setNewShortage}
         shortageDraft={shortageDraft}
         onAddProductToDraft={handleAddProductToDraft}
         onRemoveProductFromDraft={idx => setShortageDraft(p => p.filter((_, i) => i !== idx))}

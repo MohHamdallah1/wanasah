@@ -40,8 +40,6 @@ function shortageProps(): ComponentProps<typeof ShortageModal> {
     canCreate: true, canEdit: true, canCancel: true, isOpen: true, onClose: vi.fn(),
     zones: [zone], activeShops: [shop], shortageZoneId: "3", shortageShopId: "11",
     onZoneChange: vi.fn(), onShopChange: vi.fn(), productScope: null,
-    newShortage: { quantity: 2, productId: "8", productName: "Lolo Chips" },
-    onNewShortageChange: vi.fn(),
     shortageDraft: [{ productId: "8", productName: "Lolo Chips", quantity: 2 }],
     onAddProductToDraft: vi.fn(), onRemoveProductFromDraft: vi.fn(),
     onUpdateDraftQty: vi.fn(), onClearDraft: vi.fn(), onConfirmShortages: vi.fn(),
@@ -148,10 +146,13 @@ describe("D13 real bilingual, currency, focus and shortage controls", () => {
   it("AR shortage draft and grouped Delete One / Delete All require keyboard-reachable confirmation", async () => {
     const props = shortageProps();
     render(<ShortageModal {...props}/>);
-    await waitFor(() => expect(screen.getByRole("spinbutton", { name: "كمية المنتج المطلوب" })).toHaveFocus());
+    const quantity = screen.getByRole("spinbutton", { name: "كمية Lolo Chips" });
+    quantity.focus();
+    expect(quantity).toHaveFocus();
     const plus = screen.getByRole("button", { name: "زيادة كمية Lolo Chips" });
     fireEvent.click(plus);
     expect(props.onUpdateDraftQty).toHaveBeenCalledWith(0, 3);
+    fireEvent.click(screen.getByRole("button", { name: "الطلبات المعلقة (1)" }));
     const open = screen.getByRole("button", { name: "عرض منتجات Corner Shop" });
     open.focus(); fireEvent.click(open);
     expect(open).toHaveAttribute("aria-expanded", "true");
