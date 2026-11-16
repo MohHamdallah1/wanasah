@@ -45,11 +45,20 @@ export function RouteLifecyclePanel({
   const [working, setWorking] = useState(false);
   const [pending, setPending] = useState<"checking" | "no" | "yes">("checking");
   const [result, setResult] = useState<RouteLifecycleOutcome | null>(null);
-  const [signedCustody, setSignedCustody] = useState<VehicleAcceptanceProof | null>(null);
+  // Bind accepted custody evidence to the principal and assignment period.
+  const [signedCustody, setSignedCustody] = useState<
+    (VehicleAcceptanceProof & { actorScope: string; assignmentContextRevision: number }) | null
+  >(null);
   const [probeError, setProbeError] = useState("");
   const verified = !!assignment && !!route && assignment.routeId === Number(route.id) &&
     route.can_execute === true && !!actorScope && authorized();
   const continuingPause = route?.status === "waiting" && assignment?.currentPeriodId != null;
+  const statusMismatch = !!route && (
+    (initialAction === "RESUME" && route.status !== "postponed" && route.status !== "waiting") ||
+    (initialAction === "PAUSE" && route.status !== "active") ||
+    (initialAction === "POSTPONE" && route.status !== "active" && route.status !== "waiting") ||
+    (initialAction === "CLOSE" && !["active", "waiting", "postponed"].includes(route.status))
+  );
   // Waiting may ONLY continue on the currently signed rep and vehicle; ignore
   // historic route IDs and never offer reassignment while assets are held.
   const targetDriver = continuingPause ? String(assignment?.currentDriverId ?? "") : selectedDriver;
@@ -57,11 +66,14 @@ export function RouteLifecyclePanel({
   const targetReady = !!signedCustody && signedCustody.accepted === true &&
     signedCustody.authorized === true &&
     String(signedCustody.driverId) === targetDriver &&
-    String(signedCustody.vehicleId) === targetVehicle;
-  const allowed = verified && pending === "no" && !working;
+    String(signedCustody.vehicleId) === targetVehicle &&
+    signedCustody.actorScope === actorScope &&
+    signedCustody.assignmentContextRevision === assignment?.assignmentRevision;
+  const allowed = verified && pending === "no" && !working && !statusMismatch;
   // Only revision-one frozen V1 has M02's documented no-period POSTPONE
   // exception. Versioned periods must carry their real signed current ID.
-  const canPostpone = allowed && !!assignment &&
+  const canPostpone = allowed && !!assignment && !!route &&
+    (route.status === "active" || route.status === "waiting") &&
     (assignment.currentPeriodId !== null || assignment.assignmentRevision === 1);
   const canPause = allowed && route?.status === "active" &&
     assignment?.currentPeriodId !== null && assignment?.currentPeriodId !== undefined;
@@ -84,7 +96,10 @@ export function RouteLifecyclePanel({
             proof.driverId === Number(targetDriver) && proof.vehicleId === Number(targetVehicle) &&
             Number.isSafeInteger(proof.custodyRevision) && (proof.custodyRevision ?? 0) > 0 &&
             proof.assignmentContextRevision === assignment.assignmentRevision) {
-          setSignedCustody(proof as VehicleAcceptanceProof);
+          setSignedCustody({ ...(proof as VehicleAcceptanceProof),
+            assignmentContextRevision: assignment.assignmentRevision,
+            actorScope: actorScope!,
+          });
         } else setProbeError(copy.noEvidence);
       }).catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -99,6 +114,7 @@ export function RouteLifecyclePanel({
       });
     return () => controller.abort();
   }, [isOpen, route?.id, route?.status, verified, continuingPause, targetDriver, targetVehicle,
+    actorScope,
     assignment?.assignmentRevision, assignment?.currentPeriodId,
     fetch, authorized, copy.noEvidence, copy.accessDenied,
     copy.targetBusy, copy.custodyMissing, copy.assignmentStale]);
@@ -116,7 +132,7 @@ export function RouteLifecyclePanel({
 
   const execute = async (action?: LifecycleAction) => {
     if (working || !route || !actorScope || !verified) return;
-    if (action && pending !== "no") return;
+    if (action && (pending !== "no" || statusMismatch)) return;
     if (action === "RESUME" && !targetReady) return;
     setWorking(true);
     try {
@@ -153,15 +169,16 @@ export function RouteLifecyclePanel({
       title={copy.title} maxWidth="max-w-xl">
       <div className="space-y-3" dir={i18n.dir()} data-testid="m05-lifecycle-panel">
         <p className="text-sm font-medium">{route?.zoneName || "—"}</p>
-        {(denied || ((isPostponed || continuingPause) && probeError)) && <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
-          {probeError || copy.noEvidence}
+        {(statusMismatch || denied || ((isPostponed || continuingPause) && probeError)) &&
+         <p role="status" className="rounded-lg border border-amber-300 p-3 text-sm">
+          {statusMismatch ? copy.assignmentStale : probeError || copy.noEvidence}
         </p>}
         {isPostponed && initialAction !== "CLOSE" && (
           <div className="grid gap-3 sm:grid-cols-2">
             <CustomSelect label={copy.driver} value={selectedDriver}
-              options={drivers} onChange={onDriverChange} disabled={working || pending !== "no"}/>
+              options={drivers} onChange={onDriverChange} disabled={working || pending !== "no" || statusMismatch}/>
             <CustomSelect label={copy.vehicle} value={selectedVehicle}
-              options={vehicles} onChange={onVehicleChange} disabled={working || pending !== "no"}/>
+              options={vehicles} onChange={onVehicleChange} disabled={working || pending !== "no" || statusMismatch}/>
           </div>
         )}
         <p className="text-xs text-slate-600">{copy.separatedStock}</p>

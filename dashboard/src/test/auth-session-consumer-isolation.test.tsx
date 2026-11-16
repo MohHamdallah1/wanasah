@@ -528,7 +528,7 @@ it("unmounts all A Dispatch state/actions on B login, rejects late A, admits onl
   fireEvent.click(screen.getByRole("tab", { name: "Active routes" }));
   await act(async () => {}); // actual independent signed Routes response
   expect(screen.getByText("A-route")).toBeInTheDocument();
-  const oldAction = screen.getByRole("button", { name: /تعديل الحمولة/ });
+  const oldAction = screen.getByRole("button", { name: "Adjust vehicle load" });
   fireEvent.click(screen.getByRole("button", { name: /Requests & shortages/ }));
   await act(async () => {}); // demand-only signed Shops GET if not admitted yet
   const shopAccordion = screen.getByRole("button", { name: /(?:عرض منتجات|Show items for) A-shop/ });

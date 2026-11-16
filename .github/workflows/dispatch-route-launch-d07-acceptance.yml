@@ -293,6 +293,30 @@ jobs:
               except AssertionError: pass
               else: raise AssertionError(f"D07 ZONES_1039 admitted foreign {foreign}")
           print("ZONES_1039_D07_SCOPE_SELFTEST=PASS exact=7 missing=7 foreign=3")
+          # #1044 Worker1 ARV1-F: an exact 14-path owner approval, never a prefix.
+          arv1_f_1044_exact = {
+              "dashboard/e2e/dispatch-p0-wire.spec.ts",
+              "dashboard/src/components/dispatch/PendingRoutesTable.tsx",
+              "dashboard/src/components/dispatch/PostponedRoutesModal.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/RouteLifecyclePanel.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+              "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+          }
+          assert len(arv1_f_1044_exact) == 14
+          arv1_f_1044_distinct = {
+              "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+              "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+              "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+          }
           def arv1_b_1045_mode(candidate):
               if candidate == arv1_b_1045_exact: return True
               if "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py" in candidate:
@@ -316,6 +340,42 @@ jobs:
           ):
               arv1_b_1045_denied(mixed)
           print("ARV1_B_1045_D07_SELFTEST=PASS exact=7 missing=7 foreign=3 mixed=3")
+          def arv1_f_1044_mode(candidate):
+              if candidate == arv1_f_1044_exact: return True
+              if candidate & arv1_f_1044_distinct:
+                  raise AssertionError("ARV1_F_1044 incomplete/foreign: " + repr(sorted(candidate)))
+              return False
+
+          # Every missing #1044 path must be rejected, not downgraded to a historical scope.
+          assert arv1_f_1044_mode(arv1_f_1044_exact) is True
+          for missing in arv1_f_1044_exact:
+              try:
+                  arv1_f_1044_mode(arv1_f_1044_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 missing path admitted: {missing}")
+          for foreign in ("wa_backend/models.py", "wa_backend/api/driver.py",
+                          "wanasah_frontend/lib/main.dart"):
+              try:
+                  arv1_f_1044_mode(arv1_f_1044_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 foreign path admitted: {foreign}")
+          for mixed in (
+              arv1_f_1044_exact | arv1_b_1045_exact,
+              arv1_f_1044_exact | zones_1039_exact,
+              arv1_f_1044_exact | d07_complete_exact,
+          ):
+              try:
+                  arv1_f_1044_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 mixed owners admitted: {sorted(mixed)}")
+          print("ARV1_F_1044_EXACT_SELFTEST=PASS exact=14 missing=14 foreign=3 mixed=3")
+
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
@@ -342,7 +402,7 @@ jobs:
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
               release_mode = __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"]
-          assert (arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+          assert (arv1_f_1044_mode(files) or arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"

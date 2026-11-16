@@ -595,7 +595,34 @@ jobs:
               "dashboard/src/features/dispatch/zones/ZoneListItem.tsx",
               "dashboard/src/features/dispatch/zones/ZoneShopWorkspaceActions.tsx",
           }
+          # #1044 Worker1 ARV1-F: an exact 14-path owner approval, never a prefix.
+          arv1_f_1044_exact = {
+              "dashboard/e2e/dispatch-p0-wire.spec.ts",
+              "dashboard/src/components/dispatch/PendingRoutesTable.tsx",
+              "dashboard/src/components/dispatch/PostponedRoutesModal.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/RouteLifecyclePanel.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+              "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+          }
+          assert len(arv1_f_1044_exact) == 14
+          arv1_f_1044_distinct = {
+              "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+              "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+              "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+              "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+          }
           def ownership_mode(candidate):
+              if candidate == arv1_f_1044_exact: return "ARV1_F_1044_EXACT"
+              if candidate & arv1_f_1044_distinct:
+                  raise AssertionError("ARV1_F_1044 incomplete/foreign: " + repr(sorted(candidate)))
               if candidate == zones_1038_exact: return "ZONES_1038_EXACT"
               if candidate & zones_1038_distinct:
                   raise AssertionError("INFLIGHT ZONES_1038 partial/foreign: " + repr(sorted(candidate)))
@@ -696,6 +723,36 @@ jobs:
                   return "SHOP_FORM_850_EXACT"
               assert candidate <= owned, sorted(candidate - owned)
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
+
+          # Every missing #1044 path must be rejected, not downgraded to a historical scope.
+          assert ownership_mode(arv1_f_1044_exact) == "ARV1_F_1044_EXACT"
+          for missing in arv1_f_1044_exact:
+              try:
+                  ownership_mode(arv1_f_1044_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 missing path admitted: {missing}")
+          for foreign in ("wa_backend/models.py", "wa_backend/api/driver.py",
+                          "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(arv1_f_1044_exact | {foreign})
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 foreign path admitted: {foreign}")
+          for mixed in (
+              arv1_f_1044_exact | {"wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py"},
+              arv1_f_1044_exact | {"wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py"},
+              arv1_f_1044_exact | d07_complete_exact,
+          ):
+              try:
+                  ownership_mode(mixed)
+              except AssertionError:
+                  pass
+              else:
+                  raise AssertionError(f"ARV1_F_1044 mixed owners admitted: {sorted(mixed)}")
+          print("ARV1_F_1044_EXACT_SELFTEST=PASS exact=14 missing=14 foreign=3 mixed=3")
 
           assert ownership_mode(zones_1038_exact) == "ZONES_1038_EXACT"
           for missing in zones_1038_exact:

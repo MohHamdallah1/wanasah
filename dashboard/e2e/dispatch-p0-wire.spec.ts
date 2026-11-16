@@ -37,7 +37,7 @@ test("built Dashboard → actual FastAPI bearer HTTP → PostgreSQL16 never muta
   await page.goto("/dispatch");
   const row = page.locator(".dispatch-route-row").first();
   await expect(row).toBeVisible();
-  const statusButton = row.getByRole("button", { name: /متابعة الحمولة|استئناف نفس الخط/ });
+  const statusButton = row.getByRole("button", { name: /Continue vehicle load|Follow up route/ });
   await expect(statusButton).toBeEnabled();
   await statusButton.click();
   const routeModal = page.getByRole("dialog");
@@ -75,8 +75,8 @@ test("built Dashboard → actual FastAPI bearer HTTP → PostgreSQL16 never muta
   // User opens the *real* current Vehicle's Adjust Load dialog after route
   // activation; only explicit reviewed +1 base can post physical movement.
   const current = page.locator(".dispatch-route-row").first();
-  await expect(current.getByRole("button", { name: "تعديل الحمولة" })).toBeEnabled();
-  await current.getByRole("button", { name: "تعديل الحمولة" }).click();
+  await expect(current.getByRole("button", { name: "Adjust vehicle load" })).toBeEnabled();
+  await current.getByRole("button", { name: "Adjust vehicle load" }).click();
   const modal = page.getByRole("dialog");
   await expect(modal).toBeVisible();
   const input = modal.getByRole("spinbutton").first();
@@ -144,8 +144,8 @@ test("built Dashboard → actual FastAPI bearer HTTP → PostgreSQL16 never muta
 
   await page.reload();
   const recoveryRow = page.locator(".dispatch-route-row").first();
-  await expect(recoveryRow.getByRole("button", { name: "تعديل الحمولة" })).toBeEnabled();
-  await recoveryRow.getByRole("button", { name: "تعديل الحمولة" }).click();
+  await expect(recoveryRow.getByRole("button", { name: "Adjust vehicle load" })).toBeEnabled();
+  await recoveryRow.getByRole("button", { name: "Adjust vehicle load" }).click();
   const recoveryModal = page.getByRole("dialog");
   await expect(recoveryModal).toContainText("Unresolved earlier load adjustment");
   await expect(recoveryModal).not.toContainText(legacy.requestId);
