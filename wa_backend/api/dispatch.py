@@ -3929,20 +3929,22 @@ async def get_active_routes(
     # regardless of that historic driver; otherwise postponement incorrectly
     # reports zero remaining shops despite immutable unsold visit evidence.
     # The company and authorized-shop filters must remain enforced by SQL.
-    stmt_shop_counts = select(
-        Shop.zone_id, func.count(func.distinct(Shop.id))
-    ).join(
-        Visit, Shop.id == Visit.shop_id
-    ).filter(
-        authorized_shop_predicate,
-        Visit.company_id == access.company_id,
-        Shop.is_active == True,
-        Shop.is_archived == False,
-        Visit.status == 'Pending',
-    ).group_by(Shop.zone_id)
-    
-    shop_counts = (await db.execute(stmt_shop_counts)).all()
-    zone_shops_map = {z_id: count for z_id, count in shop_counts}
+    zone_shops_map = {}
+    if zone_ids:
+        stmt_shop_counts = select(
+            Shop.zone_id, func.count(func.distinct(Shop.id))
+        ).join(
+            Visit, Shop.id == Visit.shop_id
+        ).filter(
+            authorized_shop_predicate,
+            Visit.company_id == access.company_id,
+            Shop.zone_id.in_(zone_ids),
+            Shop.is_active == True,
+            Shop.is_archived == False,
+            Visit.status == 'Pending',
+        ).group_by(Shop.zone_id)
+        shop_counts = (await db.execute(stmt_shop_counts)).all()
+        zone_shops_map = {z_id: count for z_id, count in shop_counts}
 
     res = []
     for r in routes:
