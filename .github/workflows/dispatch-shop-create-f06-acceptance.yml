@@ -80,9 +80,23 @@ jobs:
               "wa_backend/tests/test_dispatch_route_launch_d07_postgres.py",
           }
           assert len(expected) == 5 and len(d07_complete_exact) == 14
+          # #1039 ZV1-B: six-file exact geo correction plus four CI guards.
+          # Frozen F06/D07/M04/M05 modes remain intact for other PRs.
+          zones_1039_exact = {
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
+          }
+          assert len(zones_1039_exact) == 6
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           m05_mode = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"]
           def ownership_mode(candidate):
+              if candidate == zones_1039_exact: return "ZONES_1039_EXACT"
+              if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in candidate:
+                  raise AssertionError("ZONES_1039 partial/foreign scope: " + repr(sorted(candidate)))
               if m04_mode(candidate): return "M04_942_EXACT"
               if m05_mode(candidate): return "M05_945_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"](candidate):
@@ -105,6 +119,17 @@ jobs:
                       try: ownership_mode(exact | {foreign})
                       except AssertionError: pass
                       else: raise AssertionError(f"{label} admitted foreign {foreign}")
+          assert ownership_mode(zones_1039_exact) == "ZONES_1039_EXACT"
+          for missing in zones_1039_exact:
+              try: ownership_mode(zones_1039_exact - {missing})
+              except AssertionError: pass
+              else: raise AssertionError(f"ZONES_1039 admitted partial without {missing}")
+          for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
+                          "dashboard/src/pages/DispatchBoard.tsx"):
+              try: ownership_mode(zones_1039_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"ZONES_1039 admitted foreign {foreign}")
+          print("ZONES_1039_F06_SCOPE_SELFTEST=PASS exact=6 missing=6 foreign=3")
           mode = ownership_mode(changed)
           print(f"F06_D07_EXACT_SCOPE=PASS mode={mode} files={len(changed)}")
           PY
