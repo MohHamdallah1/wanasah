@@ -100,8 +100,6 @@ from models import (
     Shop,
     Visit,
     ShortageRequest,
-    Country,
-    Governorate,
     ImportLog,
     VisitItem,
     InventoryLocation,
@@ -5055,22 +5053,14 @@ async def add_zone(
                 raise HTTPException(status_code=409, detail="هذه المنطقة موجودة في الأرشيف؛ استعدها بدلاً من إنشائها.")
             raise HTTPException(status_code=409, detail="المنطقة موجودة ونشطة مسبقاً")
 
-        await db.execute(select(func.pg_advisory_xact_lock(func.hashtext("dispatch-geo-bootstrap"))))
-        gov = (await db.execute(select(Governorate).order_by(Governorate.id.asc()).limit(1))).scalars().first()
-        if gov is None:
-            country = (await db.execute(select(Country).order_by(Country.id.asc()).limit(1))).scalars().first()
-            if country is None:
-                country = Country(name="الأردن")
-                db.add(country)
-                await db.flush()
-            gov = Governorate(name="العاصمة", country_id=country.id)
-            db.add(gov)
-            await db.flush()
-
+        # The V1 request has no verified geographic choice and Company has no
+        # authoritative location. Do not assign a global Governorate or seed
+        # Jordan/capital by default. Existing nullable Zone.governorate_id and
+        # company/name uniqueness are the canonical no-geography contract.
         new_zone = Zone(
             company_id=company_id,
             name=name,
-            governorate_id=gov.id,
+            governorate_id=None,
             interval_days=(int(payload.intervalDays) if payload.intervalDays is not None else None),
             start_date=payload.startDate,
         )

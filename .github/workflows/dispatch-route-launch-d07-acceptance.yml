@@ -211,6 +211,38 @@ jobs:
               "wa_backend/tests/test_dispatch_route_load_uom_contract.py",
           }
           assert len(u02_u03_969_exact) == 15
+          # #1039 ZV1-B: strict six-file Backend/CI-only geography closure.
+          # Existing D07/D06/D11/Flutter acceptance remains mandatory.
+          zones_1039_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
+          }
+          assert len(zones_1039_exact) == 7
+          def zones_1039_mode(candidate):
+              if candidate == zones_1039_exact:
+                  return True
+              if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in candidate:
+                  raise AssertionError("D07 ZONES_1039 partial/foreign: " + repr(sorted(candidate)))
+              return False
+          assert zones_1039_mode(zones_1039_exact)
+          for missing in zones_1039_exact:
+              try:
+                  admitted = zones_1039_mode(zones_1039_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  assert not admitted, f"D07 ZONES_1039 admitted partial without {missing}"
+          for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
+                          "dashboard/src/pages/DispatchBoard.tsx"):
+              try: zones_1039_mode(zones_1039_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError(f"D07 ZONES_1039 admitted foreign {foreign}")
+          print("ZONES_1039_D07_SCOPE_SELFTEST=PASS exact=7 missing=7 foreign=3")
           if os.environ.get("PR_NUMBER") == "884":
               # GitHub's pull_request checkout is a synthetic merge commit.
               # A newer MAIN containing D12 must NOT be charged to D11.
@@ -237,7 +269,7 @@ jobs:
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
               release_mode = __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"]
-          assert (release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+          assert (zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"

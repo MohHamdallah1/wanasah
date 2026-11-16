@@ -1068,6 +1068,20 @@ DISPATCH_D07_NEW = frozenset({
 })
 assert len(DISPATCH_D07_COMPLETE_EXACT) == 14 and len(DISPATCH_D07_NEW) == 6
 
+# #1039: one reviewed geography correction, four historical CI guards and
+# the policy compatibility file. No unrelated D07/P0 scope is admitted.
+ZONES_1039_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+    ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+    "wa_backend/api/dispatch.py",
+    "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
+})
+assert len(ZONES_1039_EXACT) == 7
+
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # M05 contains a complete independently audited literal path set.
     # Admit it BEFORE D07's distinct historic anchors; partial M05 and
@@ -1096,6 +1110,15 @@ def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[s
         return "fail", [
             f"CI_POLICY_856_EXACT=FAIL missing={sorted(CI_POLICY_856_EXACT - changed)} "
             f"extra={sorted(changed - CI_POLICY_856_EXACT)}"
+        ]
+    # Admit only the exact audited ZV1-B set before the historic D07 owner
+    # anchor; old D07 missing/foreign checks below are unchanged.
+    if changed == ZONES_1039_EXACT:
+        return ("zones-1039-exact", []) if mode in {"ux", "operational"} else ("not-applicable", [])
+    if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in changed:
+        return "fail", [
+            f"ZONES_1039_EXACT=FAIL missing={sorted(ZONES_1039_EXACT - changed)} "
+            f"foreign={sorted(changed - ZONES_1039_EXACT)}"
         ]
     if changed & DISPATCH_D07_NEW:
         if changed != DISPATCH_D07_COMPLETE_EXACT:
@@ -1447,6 +1470,20 @@ def selftest() -> None:
         "shop-form-850-exact"
     )
     print("SHOP_FORM_850_LIVE_STOCK_SELFTEST=PASS exact=6 partial=6 foreign=12 mixed=3")
+
+    # #1039: exact seven-file geography/CI exception, plus strict negatives.
+    for mode in ("ux", "r3", "operational"):
+        expected = ("not-applicable", []) if mode == "r3" else ("zones-1039-exact", [])
+        assert classify(mode, set(ZONES_1039_EXACT), policy_sem) == expected
+        for missing in ZONES_1039_EXACT:
+            _expect_fail(mode, set(ZONES_1039_EXACT) - {missing}, policy_sem)
+        for foreign in (
+            "dashboard/src/pages/DispatchBoard.tsx",
+            "wa_backend/models.py",
+            "wa_backend/main.py",
+        ):
+            _expect_fail(mode, set(ZONES_1039_EXACT) | {foreign}, policy_sem)
+    print("ZONES_1039_LIVE_STOCK_SELFTEST=PASS exact=7 missing=7 foreign=3")
 
     # D07 #870: only complete fourteen-file route-launch diff admitted.
     for mode in ("ux", "operational"):
