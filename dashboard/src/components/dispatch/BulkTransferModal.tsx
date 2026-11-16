@@ -1,6 +1,8 @@
+import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/ui/modal";
 import { CustomSelect } from "@/components/ui/custom-select";
-import { Zone } from "@/types/dispatch";
+import type { Zone } from "@/types/dispatch";
+import { zoneText } from "@/features/dispatch/zones/zoneUi";
 
 interface BulkTransferModalProps {
   isOpen: boolean;
@@ -14,40 +16,45 @@ interface BulkTransferModalProps {
 }
 
 export function BulkTransferModal({
-  isOpen,
-  onClose,
-  selectedShopIds,
-  zones,
-  selectedZoneIdForZones,
-  targetTransferZoneId,
-  onTargetTransferZoneChange,
-  onConfirm,
+  isOpen, onClose, selectedShopIds, zones, selectedZoneIdForZones,
+  targetTransferZoneId, onTargetTransferZoneChange, onConfirm,
 }: BulkTransferModalProps) {
+  const { i18n } = useTranslation();
+  const text = (key: Parameters<typeof zoneText>[1], values?: Record<string, string | number>) =>
+    zoneText(i18n.language, key, values);
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="نقل المحلات الجماعي"
+      title={text("bulkTransferTitle")}
       footer={
         <button
+          type="button"
           onClick={onConfirm}
           disabled={selectedShopIds.length === 0 || !targetTransferZoneId}
-          className="w-full bg-[#1e87bb] text-white py-2.5 rounded-xl font-bold hover:bg-[#166a94] transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full rounded-xl bg-[#1e87bb] py-2.5 font-bold text-white shadow-lg transition-colors hover:bg-[#166a94] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          تأكيد النقل
+          {text("bulkTransferConfirm")}
         </button>
       }
     >
-      <div className="space-y-6 min-h-[250px] overflow-visible">
-        <p className="text-sm text-slate-600">سيتم نقل {selectedShopIds.length} محلات إلى المنطقة المختارة:</p>
+      <div className="min-h-[250px] space-y-6 overflow-visible" dir={i18n.dir()}>
+        <p className="text-sm text-slate-600">
+          {text("bulkTransferDescription", { count: selectedShopIds.length })}
+        </p>
         <div className="space-y-1.5">
-          <span className="text-xs font-bold text-slate-500 text-start block">المنطقة المستهدفة</span>
+          <span className="block text-start text-xs font-bold text-slate-500">
+            {text("bulkTransferTarget")}
+          </span>
           <CustomSelect
-            label=""
-            options={zones.filter(z => z.id !== selectedZoneIdForZones).map(z => ({ id: z.id, label: z.name }))}
+            label={text("bulkTransferTarget")}
+            options={zones.filter(zone => zone.id !== selectedZoneIdForZones).map(zone => ({
+              id: zone.id, label: zone.name,
+            }))}
             value={targetTransferZoneId}
             onChange={onTargetTransferZoneChange}
-            placeholder="— اختر المنطقة —"
+            placeholder={text("bulkTransferPlaceholder")}
             className="w-full"
           />
         </div>

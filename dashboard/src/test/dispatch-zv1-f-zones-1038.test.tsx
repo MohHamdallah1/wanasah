@@ -12,6 +12,7 @@ import { ZoneModal } from "@/components/dispatch/ZoneModal";
 import { ScheduleModal } from "@/components/dispatch/ScheduleModal";
 import { ZoneRecycleBinModal } from "@/components/dispatch/ZoneRecycleBinModal";
 import { ShopTable } from "@/components/dispatch/ShopTable";
+import { BulkTransferModal } from "@/components/dispatch/BulkTransferModal";
 import { ZoneShopHeaderActions, ZoneShopImportAction } from "@/features/dispatch/zones/ZoneShopWorkspaceActions";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -230,4 +231,20 @@ describe("ZV1-F #1038 keyboard, global search, safe zones", () => {
     expect(source).toContain('if (shopSearchQuery.trim())');
   });
 
+});
+
+
+describe("#1038 zone bulk transfer bilingual dialog", () => {
+  it("renders English destination and explains the exact count without Arabic-only copy", () => {
+    const destination = vi.fn();
+    render(<BulkTransferModal isOpen onClose={vi.fn()}
+      selectedShopIds={["a","b"]} zones={[zone("A"),zone("B")]}
+      selectedZoneIdForZones="A" targetTransferZoneId="B"
+      onTargetTransferZoneChange={destination} onConfirm={vi.fn()}/>);
+    expect(screen.getByText("Move 2 shops to the selected zone:")).toBeInTheDocument();
+    expect(screen.getAllByText("Destination zone").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button",{name:"Confirm transfer"})).toBeEnabled();
+    expect(zoneText("ar","bulkTransferConfirm")).not.toBe("Confirm transfer");
+    expect(zoneText("en","bulkTransferTitle")).toBe("Bulk transfer shops");
+  });
 });

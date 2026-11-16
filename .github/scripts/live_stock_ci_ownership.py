@@ -1090,6 +1090,7 @@ ZONES_1038_EXACT = frozenset({
     ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
     "dashboard/src/components/dispatch/ScheduleModal.tsx",
+    "dashboard/src/components/dispatch/BulkTransferModal.tsx",
     "dashboard/src/components/dispatch/ShopTable.tsx",
     "dashboard/src/components/dispatch/ZoneModal.tsx",
     "dashboard/src/components/dispatch/ZoneRecycleBinModal.tsx",
@@ -1102,7 +1103,7 @@ ZONES_1038_EXACT = frozenset({
     "dashboard/src/pages/DispatchBoard.tsx",
     "dashboard/src/test/dispatch-zv1-f-zones-1038.test.tsx",
 })
-assert len(ZONES_1038_EXACT) == 16
+assert len(ZONES_1038_EXACT) == 17
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     # M05 contains a complete independently audited literal path set.
@@ -1512,7 +1513,7 @@ def selftest() -> None:
         for foreign in ("wa_backend/models.py","wa_backend/api/driver.py",
                         "wanasah_frontend/lib/main.dart"):
             _expect_fail(mode,set(ZONES_1038_EXACT)|{foreign},policy_sem)
-    print("ZONES_1038_LIVE_STOCK_SELFTEST=PASS exact=16 missing=16 foreign=3")
+    print("ZONES_1038_LIVE_STOCK_SELFTEST=PASS exact=17 missing=17 foreign=3")
 
     # #1039: exact seven-file geography/CI exception, plus strict negatives.
     for mode in ("ux", "r3", "operational"):
