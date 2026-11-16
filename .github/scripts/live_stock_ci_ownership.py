@@ -1117,7 +1117,38 @@ ZONES_1038_EXACT = frozenset({
 })
 assert len(ZONES_1038_EXACT) == 17
 
+# #1044 Worker1 ARV1-F: an exact 14-path owner approval, never a prefix.
+ARV1_F_1044_EXACT = frozenset({
+    "dashboard/e2e/dispatch-p0-wire.spec.ts",
+    "dashboard/src/components/dispatch/PendingRoutesTable.tsx",
+    "dashboard/src/components/dispatch/PostponedRoutesModal.tsx",
+    "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+    "dashboard/src/features/dispatch/routeLifecycle/RouteLifecyclePanel.tsx",
+    "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+    "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+    "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+})
+assert len(ARV1_F_1044_EXACT) == 14
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == ARV1_F_1044_EXACT:
+        return ("not-applicable", []) if mode == "r3" else ("arv1-f-1044-exact", [])
+    if changed & {
+        "dashboard/src/features/dispatch/routeLifecycle/ActiveRouteCard.tsx",
+        "dashboard/src/features/dispatch/routeLifecycle/activeRouteCopy.ts",
+        "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
+        "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
+    }:
+        return "fail", [
+            f"ARV1_F_1044_EXACT=FAIL missing={sorted(ARV1_F_1044_EXACT-changed)} "
+            f"foreign={sorted(changed-ARV1_F_1044_EXACT)}"
+        ]
     if changed == ARV1_B_1045_EXACT:
         return ("not-applicable", []) if mode == "r3" else ("arv1-b-1045-exact", [])
     if "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py" in changed:
@@ -1547,6 +1578,23 @@ def selftest() -> None:
         ):
             _expect_fail(mode, set(ZONES_1039_EXACT) | {foreign}, policy_sem)
     print("ZONES_1039_LIVE_STOCK_SELFTEST=PASS exact=7 missing=7 foreign=3")
+
+    # Verify all 14 omissions and strict foreign/mixed refusal in each mode.
+    for mode in ("ux", "r3", "operational"):
+        expected=("not-applicable", []) if mode == "r3" else ("arv1-f-1044-exact", [])
+        assert classify(mode, set(ARV1_F_1044_EXACT), policy_sem) == expected
+        for missing in ARV1_F_1044_EXACT:
+            _expect_fail(mode, set(ARV1_F_1044_EXACT) - {missing}, policy_sem)
+        for foreign in ("wa_backend/models.py", "wa_backend/api/driver.py",
+                        "wanasah_frontend/lib/main.dart"):
+            _expect_fail(mode, set(ARV1_F_1044_EXACT) | {foreign}, policy_sem)
+        for mixed in (
+            set(ARV1_F_1044_EXACT) | ARV1_B_1045_EXACT,
+            set(ARV1_F_1044_EXACT) | ZONES_1039_EXACT,
+            set(ARV1_F_1044_EXACT) | DISPATCH_D07_COMPLETE_EXACT,
+        ):
+            _expect_fail(mode, mixed, policy_sem)
+    print("ARV1_F_1044_LIVE_STOCK_SELFTEST=PASS modes=3 exact=14 missing=42 foreign=9 mixed=9")
 
     # Every Live Stock owner mode receives exact admission or R3
     # not-applicable; no mixed/partial historical owner is ever borrowed.
