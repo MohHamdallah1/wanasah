@@ -243,22 +243,31 @@ describe("Dispatch cursor pickers", () => {
     expect(confirm).not.toHaveBeenCalled();
   });
 
-  it("Shortages reach result 200 without stock metadata and pin selected plus drafted choices", async () => {
-    const select = vi.fn();
+  it("Shortages reach result 200 and one-click additions remain in the visible draft across search changes", async () => {
+    const add = vi.fn();
     function Shortages() {
-      const [selected, setSelected] = useState<{ id: string; name: string } | null>(null);
-      return <ShortageProductPicker scope="1:3" selected={selected} drafted={[{ productId: "521", productName: "Drafted demand" }]}
-        onSelect={(id, name) => { setSelected({ id, name }); select(id, name); }} />;
+      const [drafted, setDrafted] = useState([
+        { productId: "521", productName: "Drafted demand", quantity: 2 },
+      ]);
+      return <>
+        <ShortageProductPicker scope="1:3" drafted={drafted}
+          onAdd={(id, name) => {
+            add(id, name);
+            setDrafted(current => [...current, { productId: id, productName: name, quantity: 1 }]);
+          }}/>
+        <div data-testid="shortage-cart">{drafted.map(row =>
+          <span key={row.productId}>{row.productName}</span>)}</div>
+      </>;
     }
     render(<Shortages />);
     expect(screen.getByText("Drafted demand")).toBeVisible();
     expect(fake.fetch).not.toHaveBeenCalled();
     await lastPage(true);
-    fireEvent.click(screen.getByRole("button", { name: "Select Matching 200" }));
-    expect(select).toHaveBeenCalledWith("1199", "Matching 200");
+    fireEvent.click(screen.getByRole("button", { name: "Add one unit of Matching 200 to request" }));
+    expect(add).toHaveBeenCalledWith("1199", "Matching 200");
     fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "" } });
-    expect(screen.getByText("Drafted demand")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Select Matching 200" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("shortage-cart")).toHaveTextContent("Drafted demand");
+    expect(screen.getByTestId("shortage-cart")).toHaveTextContent("Matching 200");
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=SHORTAGE");
   });
 

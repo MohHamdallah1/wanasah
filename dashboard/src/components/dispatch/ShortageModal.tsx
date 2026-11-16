@@ -3,13 +3,11 @@ import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useState, useMemo, useRef, useEffect, useId } from "react";
 import {
-  Minus, Plus, Trash2, Pencil, ChevronDown, ChevronUp,
-  Package, AlertTriangle, Clock, X, Eraser,
+  Trash2, Pencil, ChevronDown, ChevronUp, Package, AlertTriangle, Clock,
 } from "lucide-react";
-import { ShortageProductPicker } from "./ShortageProductPicker";
+import { ShortageRequestComposer } from "./ShortageRequestComposer";
 import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
 import { Modal } from "@/components/ui/modal";
-import { CustomSelect } from "@/components/ui/custom-select";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
 import { dispatchUiText, type DispatchUiKey } from "@/features/dispatch/dispatchUiText";
 
@@ -28,10 +26,8 @@ interface ShortageModalProps {
   onZoneChange: (id: string) => void;
   onShopChange: (id: string) => void;
   productScope: string | null;
-  newShortage: Partial<Shortage>;
-  onNewShortageChange: (shortage: Partial<Shortage>) => void;
   shortageDraft: { productId: string; productName: string; quantity: number }[];
-  onAddProductToDraft: () => void;
+  onAddProductToDraft: (id: string, name: string) => void;
   onRemoveProductFromDraft: (index: number) => void;
   onUpdateDraftQty: (index: number, qty: number) => void;
   onClearDraft: () => void;
@@ -116,70 +112,6 @@ function formatTimestamp(isoStr: string | null | undefined, language: string): s
 function isUrgentGroup(createdAt?: string): boolean {
   if (!createdAt) return false;
   return (Date.now() - new Date(createdAt).getTime()) / 60_000 >= 180;
-}
-
-// ─── Draft Qty Row ────────────────────────────────────────────────────────────
-function DraftRow({
-  item, idx, language, onQtyChange, onRemove,
-}: {
-  item: { productName: string; quantity: number };
-  idx: number;
-  language: string;
-  onQtyChange: (idx: number, qty: number) => void;
-  onRemove: (idx: number) => void;
-}) {
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const confirmRef = useRef<HTMLButtonElement>(null);
-  const deleteRef = useRef<HTMLButtonElement>(null);
-  const text = (key: DispatchUiKey) => dispatchUiText(language, key, { product: item.productName });
-  useEffect(() => { if (confirmDelete) confirmRef.current?.focus(); }, [confirmDelete]);
-  const cancel = () => {
-    setConfirmDelete(false);
-    requestAnimationFrame(() => deleteRef.current?.focus());
-  };
-  return (
-    <tr className="group">
-      <th scope="row" className="p-3 text-start font-medium text-slate-700 text-sm">{item.productName}</th>
-      <td className="p-2 text-center w-36">
-        <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2 py-1">
-          <button type="button" aria-label={text("shortageDecrease")}
-            disabled={item.quantity <= 1}
-            onClick={() => onQtyChange(idx, Math.max(1, item.quantity - 1))}
-            className="min-h-9 min-w-9 rounded-lg border border-slate-200 bg-white text-slate-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb] disabled:opacity-40">
-            <Minus className="mx-auto h-4 w-4" />
-          </button>
-          <output className="min-w-8 text-center font-bold text-[#1e87bb] text-sm" aria-live="polite">{item.quantity}</output>
-          <button type="button" aria-label={text("shortageIncrease")}
-            onClick={() => onQtyChange(idx, item.quantity + 1)}
-            className="min-h-9 min-w-9 rounded-lg border border-slate-200 bg-white text-slate-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
-            <Plus className="mx-auto h-4 w-4" />
-          </button>
-        </div>
-      </td>
-      <td className="p-2 min-w-16 text-center">
-        {confirmDelete ? (
-          <div className="flex flex-wrap items-center justify-center gap-1"
-            onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); cancel(); } }}>
-            <button type="button" ref={confirmRef} onClick={() => onRemove(idx)}
-              className="min-h-9 rounded-lg bg-red-600 px-2 text-xs font-bold text-white focus-visible:ring-2 focus-visible:ring-offset-2">
-              {text("shortageYes")}
-            </button>
-            <button type="button" onClick={cancel}
-              className="min-h-9 rounded-lg bg-slate-100 px-2 text-xs font-bold text-slate-700 focus-visible:ring-2">
-              {text("shortageNo")}
-            </button>
-          </div>
-        ) : (
-          <button type="button" ref={deleteRef} onClick={() => setConfirmDelete(true)}
-            aria-label={text("shortageRemove")}
-            title={text("shortageRemove")}
-            className="min-h-9 min-w-9 rounded-lg text-slate-500 hover:bg-red-50 hover:text-red-600 focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
-            <Trash2 className="mx-auto h-4 w-4" />
-          </button>
-        )}
-      </td>
-    </tr>
-  );
 }
 
 // ─── Shop Accordion Card ──────────────────────────────────────────────────────
@@ -331,8 +263,6 @@ export function ShortageModal({
   onZoneChange,
   onShopChange,
   productScope,
-  newShortage,
-  onNewShortageChange,
   shortageDraft,
   onAddProductToDraft,
   onRemoveProductFromDraft,
@@ -354,7 +284,14 @@ export function ShortageModal({
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
   const grouped = useMemo(() => groupByShop(shortages), [shortages]);
   const isEditMode = editingShortageIds.length > 0;
-  const qtyRef = useRef<HTMLInputElement>(null);
+  const [showPending, setShowPending] = useState(Boolean(focusShortageId));
+  useEffect(() => {
+    if (!isOpen) return;
+    // An unknown-result command stays visible with its pending rows and retry.
+    if (groupRecovery.pending || groupRecovery.blocked) setShowPending(true);
+    else if (isEditMode) setShowPending(false);
+    else if (focusShortageId) setShowPending(true);
+  }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked]);
   const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
     dispatchUiText(i18n.language, key, values);
 
@@ -363,10 +300,9 @@ export function ShortageModal({
       isOpen={isOpen}
       onClose={onClose}
       title={text("shortageTitle")}
-      initialFocusRef={qtyRef}
       maxWidth="max-w-5xl"
     >
-      <div className="space-y-6">
+      <div dir={i18n.dir()} className="min-w-0 space-y-4">
         {canCancel && (groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
           <section role="status" data-testid="shortage-group-recovery"
             dir={i18n.dir()}
@@ -403,149 +339,36 @@ export function ShortageModal({
           </section>
         )}
 
-        {/* ═══════════════════════════════════════════════════
-            INPUT / EDIT SECTION — visually separated (#1)
-        ═══════════════════════════════════════════════════ */}
-        {canCreate && <fieldset disabled={Boolean(groupRecovery.pending || groupRecovery.blocked ||
-          groupRecovery.busy || groupRecovery.restoring)}
-          className={`rounded-2xl border shadow-sm ${isEditMode
-          ? "bg-amber-50 border-amber-200 shadow-amber-100"
-          : "bg-slate-50 border-slate-200"
-        }`}>
+        <nav aria-label={text("shortageQuickViews")} className="flex min-w-0 gap-2 rounded-xl bg-slate-100 p-1" data-testid="shortage-quick-tabs">
+          {canCreate && <button type="button" aria-pressed={!showPending}
+            onClick={() => setShowPending(false)}
+            className={`min-h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-bold ${!showPending ? "bg-white text-blue-800 shadow-sm" : "text-slate-700"}`}>
+            {text("shortageQuickNew")}
+          </button>}
+          <button type="button" aria-pressed={showPending || !canCreate}
+            onClick={() => setShowPending(true)}
+            className={`min-h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-bold ${showPending || !canCreate ? "bg-white text-blue-800 shadow-sm" : "text-slate-700"}`}>
+            {text("shortageQuickPendingTab", { count: grouped.length })}
+          </button>
+        </nav>
+        {canCreate && !showPending && (
+          <ShortageRequestComposer
+            zones={zones} shops={activeShops}
+            shopId={shortageShopId} zoneId={shortageZoneId}
+            onChooseShop={(zoneId, shopId) => { onZoneChange(zoneId); onShopChange(shopId); }}
+            drivers={drivers} driverId={shortageDriverId} onDriverChange={onDriverChange}
+            productScope={productScope} draft={shortageDraft}
+            onQuickAdd={onAddProductToDraft}
+            onRemove={onRemoveProductFromDraft} onUpdateQuantity={onUpdateDraftQty}
+            onClear={onClearDraft} onSubmit={onConfirmShortages}
+            editing={isEditMode} onCancelEdit={onCancelEdit}
+            blocked={Boolean(groupRecovery.pending || groupRecovery.blocked ||
+              groupRecovery.busy || groupRecovery.restoring)}
+          />
+        )}
 
-          {/* Edit mode banner (#5) */}
-          {isEditMode && (
-            <div className="flex items-center justify-between bg-amber-100 border-b border-amber-200 rounded-t-2xl px-5 py-3">
-              <div className="flex items-center gap-2 text-amber-800 text-sm font-bold">
-                <Pencil className="w-4 h-4" />
-                {text("shortageEditMode")}
-              </div>
-            </div>
-          )}
-
-          <div className="p-5 space-y-4">
-            {/* Selects */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <CustomSelect
-                label={text("shortageZone")}
-                options={zones.map(z => ({ id: z.id, label: z.name }))}
-                value={shortageZoneId}
-                onChange={onZoneChange}
-                disabled={isEditMode}
-              />
-              <CustomSelect
-                label={text("shortageShop")}
-                options={activeShops.filter(s => s.zoneId === shortageZoneId).map(s => ({ id: s.id, label: s.name }))}
-                value={shortageShopId}
-                onChange={onShopChange}
-                disabled={isEditMode || !shortageZoneId}
-              />
-              <CustomSelect
-                label={text("shortageDriver")}
-                options={drivers.map(d => ({ id: d.id, label: d.name }))}
-                value={shortageDriverId}
-                onChange={onDriverChange}
-                disabled={isEditMode}
-              />
-            </div>
-
-            {/* Product + Qty picker */}
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <div className="sm:col-span-2 flex flex-col gap-1.5">
-                <span className="text-xs font-semibold text-slate-600">{t("dispatchProductSearch.product")}</span>
-                <ShortageProductPicker scope={productScope} selected={newShortage.productId && newShortage.productName
-                  ? { id: newShortage.productId, name: newShortage.productName } : null} drafted={shortageDraft}
-                  onSelect={(productId, productName) => onNewShortageChange({ ...newShortage, productId, productName })} />
-              </div>
-              <div className="sm:col-span-2 flex flex-col gap-1.5">
-                <label htmlFor="dispatch-shortage-qty" className="text-xs font-semibold text-slate-600">{text("shortageQuantity")}</label>
-                <input
-                  id="dispatch-shortage-qty"
-                  ref={qtyRef}
-                  aria-label={text("shortageQtyName")}
-                  type="number" min="1" step="1" inputMode="numeric"
-                  value={newShortage.quantity || 0}
-                  onChange={e => onNewShortageChange({ ...newShortage, quantity: parseInt(e.target.value) || 0 })}
-                  onFocus={e => e.target.select()}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-center outline-none focus:ring-2 focus:ring-[#1e87bb]/20"
-                />
-              </div>
-              <button type="button"
-                onClick={onAddProductToDraft}
-                disabled={!shortageShopId || !newShortage.productId || !Number.isSafeInteger(newShortage.quantity) || (newShortage.quantity ?? 0) < 1}
-                className="h-[46px] rounded-xl font-bold text-sm bg-[#1e87bb] text-white hover:bg-[#156a94] transition-colors shadow-lg shadow-[#1e87bb]/20 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {t("dispatchProductSearch.add")}
-              </button>
-            </div>
-
-            {/* Draft table — only shown when draft has items */}
-            {shortageDraft.length > 0 && (
-              <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-                {/* Draft table header with "Clear" button (#2) */}
-                <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-100">
-                  <span className="text-xs font-bold text-slate-600">{text("shortageDraftList", { count: shortageDraft.length })}</span>
-                  <button type="button"
-                    onClick={onClearDraft}
-                    className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-red-500 transition-colors"
-                    title={text("shortageClear")}
-                  >
-                    <Eraser className="w-3.5 h-3.5" /> {text("shortageClear")}
-                  </button>
-                </div>
-                <table className="w-full text-sm">
-                  <thead className="border-b border-slate-100">
-                    <tr>
-                      <th className="text-start p-3 text-slate-500 font-bold text-xs">{text("shortageProduct")}</th>
-                      <th className="text-center p-3 text-slate-500 font-bold text-xs w-36">{text("shortageQuantity")}</th>
-                      <th className="w-24 p-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {shortageDraft.map((item, idx) => (
-                      <DraftRow
-                        key={idx}
-                        item={item}
-                        idx={idx}
-                        language={i18n.language}
-                        onQtyChange={onUpdateDraftQty}
-                        onRemove={onRemoveProductFromDraft}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
-            {/* Confirm row — confirm button + cancel-edit button (#5) */}
-            <div className={`flex items-center gap-3 ${isEditMode ? "flex-row-reverse" : ""}`}>
-              <button type="button"
-                onClick={onConfirmShortages}
-                disabled={shortageDraft.length === 0 || !shortageShopId || !shortageZoneId}
-                className={`flex-1 py-3 rounded-xl font-bold transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-white ${
-                  isEditMode
-                    ? "bg-amber-500 hover:bg-amber-600 shadow-amber-500/20"
-                    : "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/20"
-                }`}
-              >
-                {text(isEditMode ? "shortageSaveEdit" : "shortageConfirm", { count: shortageDraft.length })}
-              </button>
-              {isEditMode && (
-                <button type="button"
-                  onClick={onCancelEdit}
-                  className="flex items-center gap-2 px-5 py-3 rounded-xl border border-slate-300 text-slate-600 text-sm font-bold hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-all"
-                >
-                  <X className="w-4 h-4" /> {text("shortageCancelEdit")}
-                </button>
-              )}
-            </div>
-          </div>
-        </fieldset>}
-
-        {/* ═══════════════════════════════════════════════════
-            PENDING LIST — visually distinct from input section
-        ═══════════════════════════════════════════════════ */}
-        <div className="space-y-3">
+        {/* One canonical pending list, separate from the quick composer. */}
+        {(showPending || !canCreate) && <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <div className="w-1 h-5 bg-[#1e87bb] rounded-full" />
@@ -588,7 +411,7 @@ export function ShortageModal({
               ))}
             </div>
           )}
-        </div>
+        </div>}
 
       </div>
     </Modal>
