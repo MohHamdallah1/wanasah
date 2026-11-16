@@ -230,7 +230,12 @@ jobs:
               return False
           assert zones_1039_mode(zones_1039_exact)
           for missing in zones_1039_exact:
-              assert not zones_1039_mode(zones_1039_exact - {missing}), missing
+              try:
+                  admitted = zones_1039_mode(zones_1039_exact - {missing})
+              except AssertionError:
+                  pass
+              else:
+                  assert not admitted, f"D07 ZONES_1039 admitted partial without {missing}"
           for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
                           "dashboard/src/pages/DispatchBoard.tsx"):
               try: zones_1039_mode(zones_1039_exact | {foreign})
