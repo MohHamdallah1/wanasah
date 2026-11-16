@@ -619,7 +619,33 @@ jobs:
               "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
               "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
           }
+          urgent_1050_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
+              "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/components/dispatch/ShortageShopPicker.tsx",
+              "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/auth-session-consumer-isolation.test.tsx",
+              "dashboard/src/test/dispatch-d13-accessibility.test.tsx",
+              "dashboard/src/test/dispatch-product-discovery.test.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+              "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+          }
+          urgent_1050_distinct = {
+              "dashboard/src/components/dispatch/ShortageShopPicker.tsx",
+              "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+          }
+          assert len(urgent_1050_exact) == 15
           def ownership_mode(candidate):
+              if candidate == urgent_1050_exact: return 'URGENT_1050_EXACT'
+              if candidate & urgent_1050_distinct:
+                  raise AssertionError('URGENT_1050 incomplete/foreign: '+repr(sorted(candidate)))
               if candidate == arv1_f_1044_exact: return "ARV1_F_1044_EXACT"
               if candidate & arv1_f_1044_distinct:
                   raise AssertionError("ARV1_F_1044 incomplete/foreign: " + repr(sorted(candidate)))
@@ -725,6 +751,24 @@ jobs:
               return "INFLIGHT_AUTH_REPAIR_SCOPE"
 
           # Every missing #1044 path must be rejected, not downgraded to a historical scope.
+          assert ownership_mode(urgent_1050_exact) == 'URGENT_1050_EXACT'
+          for missing in urgent_1050_exact:
+              try:
+                  ownership_mode(urgent_1050_exact-{missing})
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1050 missing path allowed: '+missing)
+          for foreign in ("wa_backend/models.py", "wa_backend/api/driver.py", "wanasah_frontend/lib/main.dart"):
+              try:
+                  ownership_mode(urgent_1050_exact | {foreign})
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1050 foreign path allowed')
+          for mixed in (arv1_f_1044_exact, arv1_b_1045_exact, zones_1039_exact):
+              try:
+                  ownership_mode(urgent_1050_exact | mixed)
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1050 mixed path allowed')
+          print('URGENT_1050_URGENT_1050_EXACT_SELFTEST=PASS exact=15 missing=15 foreign=3 mixed=3')
+
           assert ownership_mode(arv1_f_1044_exact) == "ARV1_F_1044_EXACT"
           for missing in arv1_f_1044_exact:
               try:
