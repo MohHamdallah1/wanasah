@@ -116,9 +116,25 @@ jobs:
           assert len(shop_create_f06_exact) == 5 and len(f06_new) == 4
           assert len(ci_policy_861_exact) == 2 and len(ci_new) == 1
 
+          # #1039: only this exact Backend geography + four owner CI guards.
+          # Do not broaden legacy #842 subsets or any historical F06/D07 mode.
+          zones_1039_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py",
+          }
+          assert len(zones_1039_exact) == 7
+
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           m05_mode = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"]
           def ownership_mode(candidate):
+              if candidate == zones_1039_exact: return "ZONES_1039_EXACT"
+              if "wa_backend/tests/test_dispatch_zones_1039_geo_pg16.py" in candidate:
+                  raise AssertionError("Finance ZONES_1039 partial/foreign: " + repr(sorted(candidate)))
               if m04_mode(candidate): return "M04_942_EXACT"
               if m05_mode(candidate): return "M05_945_EXACT"
               if __import__("runpy").run_path(".github/scripts/dispatch_d06_ci_scope.py")["d06_mode"](candidate):
@@ -255,6 +271,13 @@ jobs:
           ):
               denied(mixed, "Mixed Finance/Shop/CI owner files")
 
+          assert ownership_mode(zones_1039_exact) == "ZONES_1039_EXACT"
+          for missing in zones_1039_exact:
+              denied(zones_1039_exact - {missing}, f"ZONES_1039 missing {missing}")
+          for foreign in ("wa_backend/models.py", "wa_backend/schemas.py",
+                          "dashboard/src/pages/DispatchBoard.tsx"):
+              denied(zones_1039_exact | {foreign}, f"ZONES_1039 foreign {foreign}")
+          print("ZONES_1039_FINANCE_SCOPE_SELFTEST=PASS exact=7 missing=7 foreign=3")
           mode = ownership_mode(files)
           denied(files | {"wa_backend/domains/inventory/services.py"},
                  "Real PR foreign-file negative")
