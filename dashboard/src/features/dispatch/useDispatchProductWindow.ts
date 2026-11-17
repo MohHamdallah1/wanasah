@@ -72,6 +72,10 @@ export function useDispatchProductWindow(
   purpose: "LOAD" | "SHORTAGE" = "LOAD",
 ) {
   const authFetch = useAuthFetch();
+  // Keep the latest signed fetch without restarting the same discovery window
+  // on a caller that supplies a new callback identity every render.
+  const authFetchRef = useRef(authFetch);
+  authFetchRef.current = authFetch;
   const session = useDashboardSession();
   const query = search.trim();
   const key = JSON.stringify([session?.generation, session?.identity, scope, endpoint, query, purpose]);
@@ -102,10 +106,10 @@ export function useDispatchProductWindow(
   }, [endpoint, query]);
 
   const fetchPage = useCallback(async (index: number, cursor: string | null, signal: AbortSignal): Promise<StoredWindowPage> => {
-    const result = parseDispatchProductPage(await authFetch(requestUrl(cursor), { signal }), purpose);
+    const result = parseDispatchProductPage(await authFetchRef.current(requestUrl(cursor), { signal }), purpose);
     if (result.has_more && result.next_cursor === cursor) throw adjustmentError();
     return { index, cursor, items: result.items, nextCursor: result.next_cursor, hasMore: result.has_more };
-  }, [authFetch, purpose, requestUrl]);
+  }, [purpose, requestUrl]);
 
   // Browsing another Dashboard page or dispatch tab must not lose the first
   // signed 80-row window; visibility/readiness is still enforced by the caller.
