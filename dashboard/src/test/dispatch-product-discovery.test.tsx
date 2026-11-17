@@ -261,11 +261,17 @@ describe("Dispatch cursor pickers", () => {
     }
     render(<Shortages />);
     expect(screen.getByText("Drafted demand")).toBeVisible();
-    expect(fake.fetch).not.toHaveBeenCalled();
-    await lastPage(true);
+    // Urgent requests now browse the signed catalog immediately, even with blank search.
+    await waitFor(() => expect(fake.fetch).toHaveBeenCalled());
+    await screen.findByText("Matching 1");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Matching 160");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Matching 200");
+    expect(fake.fetch.mock.calls).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Add one unit of Matching 200 to request" }));
     expect(add).toHaveBeenCalledWith("1199", "Matching 200");
-    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }), { target: { value: "" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search name or product code (optional)" }), { target: { value: "" } });
     expect(screen.getByTestId("shortage-cart")).toHaveTextContent("Drafted demand");
     expect(screen.getByTestId("shortage-cart")).toHaveTextContent("Matching 200");
     expect(fake.fetch.mock.calls[0][0]).toContain("purpose=SHORTAGE");

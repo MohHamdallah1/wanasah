@@ -285,6 +285,7 @@ export function ShortageModal({
   const grouped = useMemo(() => groupByShop(shortages), [shortages]);
   const isEditMode = editingShortageIds.length > 0;
   const [showPending, setShowPending] = useState(Boolean(focusShortageId));
+  const [allowUnassigned, setAllowUnassigned] = useState(false);
   useEffect(() => {
     if (!isOpen) return;
     // An unknown-result command stays visible with its pending rows and retry.
@@ -294,15 +295,75 @@ export function ShortageModal({
   }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked]);
   const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
     dispatchUiText(i18n.language, key, values);
+  const blocked = Boolean(groupRecovery.pending || groupRecovery.blocked ||
+    groupRecovery.busy || groupRecovery.restoring);
+  const validShop = activeShops.some(shop => shop.id === shortageShopId &&
+    shop.zoneId === shortageZoneId && !shop.archived &&
+    zones.some(zone => zone.id === shop.zoneId));
+  const validItems = shortageDraft.length > 0 && shortageDraft.length <= 80 &&
+    shortageDraft.every(item => /^[1-9]\d*$/.test(item.productId) &&
+      Number.isSafeInteger(item.quantity) && item.quantity > 0);
+  const hasDriver = drivers.some(driver => driver.id === shortageDriverId);
+  const validTarget = hasDriver || (!shortageDriverId && (allowUnassigned || isEditMode));
+  const canSubmit = canCreate && !blocked && validShop && validItems && validTarget;
+  const numbers = new Intl.NumberFormat(i18n.language.startsWith("ar") ? "ar" : "en");
+  const totalUnits = shortageDraft.reduce((sum, item) =>
+    sum + (Number.isSafeInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0), 0);
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={text("shortageTitle")}
-      maxWidth="max-w-5xl"
+      title={text("shortageStudioDestination")}
+      hideHeader
+      maxWidth="max-w-6xl"
+      panelClassName="sm:max-h-[94dvh]"
+      bodyClassName="p-0"
+      footer={canCreate && !showPending ? (
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 text-start">
+            <p className="text-sm font-bold text-slate-800">{text("shortageStudioOrder")}</p>
+            <p className="mt-0.5 text-xs text-slate-500">{text("shortageStudioLineCount",{count:numbers.format(shortageDraft.length)})}
+              {" · "}{text("shortageStudioUnitCount",{count:numbers.format(totalUnits)})}</p>
+          </div>
+          <div className="flex min-w-0 flex-1 flex-wrap justify-end gap-2 sm:flex-initial">
+            {isEditMode && <button type="button" onClick={onCancelEdit}
+              className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
+              {text("shortageCancelEdit")}
+            </button>}
+            <button type="button" onClick={onConfirmShortages} disabled={!canSubmit}
+              className="min-h-12 min-w-44 flex-1 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-900/10 transition hover:bg-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none sm:flex-none">
+              {isEditMode ? text("shortageSaveEdit") : shortageDriverId ?
+                text("shortageStudioSend") : text("shortageStudioSaveUnassigned")}
+            </button>
+          </div>
+        </div>
+      ) : undefined}
     >
-      <div dir={i18n.dir()} className="min-w-0 space-y-4">
+      <div dir={i18n.dir()} className="min-w-0">
+        <header className="sticky top-0 z-10 flex min-w-0 flex-wrap items-center justify-between gap-3 bg-slate-900 py-3 ps-5 pe-14 text-white shadow-sm sm:flex-nowrap sm:py-4 sm:ps-6 sm:pe-14"
+          data-testid="shortage-dark-primary-header">
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold sm:text-base">{text("shortageStudioDestination")}</h2>
+            <p className="mt-0.5 text-[11px] leading-5 text-slate-300">{text("shortageStudioDestinationHint")}</p>
+          </div>
+          <nav aria-label={text("shortageQuickViews")} className="flex min-w-0 flex-wrap gap-2"
+            data-testid="shortage-quick-tabs">
+            {canCreate && <button type="button" aria-pressed={!showPending}
+              onClick={() => setShowPending(false)}
+              className={`min-h-10 rounded-xl px-4 text-xs font-bold transition ${!showPending ?
+                "bg-white text-slate-900 shadow-sm" : "bg-slate-700 text-slate-200 hover:bg-slate-600"}`}>
+              {text("shortageQuickNew")}
+            </button>}
+            <button type="button" aria-pressed={showPending || !canCreate}
+              onClick={() => setShowPending(true)}
+              className={`min-h-10 rounded-xl px-4 text-xs font-bold transition ${showPending || !canCreate ?
+                "bg-white text-slate-900 shadow-sm" : "bg-slate-700 text-slate-200 hover:bg-slate-600"}`}>
+              {text("shortageQuickPendingTab", {count:grouped.length})}
+            </button>
+          </nav>
+        </header>
+        <div className="min-w-0 space-y-4 p-3 sm:p-4 lg:p-5">
         {canCancel && (groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
           <section role="status" data-testid="shortage-group-recovery"
             dir={i18n.dir()}
@@ -339,18 +400,6 @@ export function ShortageModal({
           </section>
         )}
 
-        <nav aria-label={text("shortageQuickViews")} className="flex min-w-0 gap-2 rounded-xl bg-slate-100 p-1" data-testid="shortage-quick-tabs">
-          {canCreate && <button type="button" aria-pressed={!showPending}
-            onClick={() => setShowPending(false)}
-            className={`min-h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-bold ${!showPending ? "bg-white text-blue-800 shadow-sm" : "text-slate-700"}`}>
-            {text("shortageQuickNew")}
-          </button>}
-          <button type="button" aria-pressed={showPending || !canCreate}
-            onClick={() => setShowPending(true)}
-            className={`min-h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-bold ${showPending || !canCreate ? "bg-white text-blue-800 shadow-sm" : "text-slate-700"}`}>
-            {text("shortageQuickPendingTab", { count: grouped.length })}
-          </button>
-        </nav>
         {canCreate && !showPending && (
           <ShortageRequestComposer
             zones={zones} shops={activeShops}
@@ -360,10 +409,10 @@ export function ShortageModal({
             productScope={productScope} draft={shortageDraft}
             onQuickAdd={onAddProductToDraft}
             onRemove={onRemoveProductFromDraft} onUpdateQuantity={onUpdateDraftQty}
-            onClear={onClearDraft} onSubmit={onConfirmShortages}
-            editing={isEditMode} onCancelEdit={onCancelEdit}
-            blocked={Boolean(groupRecovery.pending || groupRecovery.blocked ||
-              groupRecovery.busy || groupRecovery.restoring)}
+            onClear={onClearDraft}
+            editing={isEditMode} allowUnassigned={allowUnassigned}
+            onAllowUnassigned={setAllowUnassigned}
+            blocked={blocked}
           />
         )}
 
@@ -412,7 +461,7 @@ export function ShortageModal({
             </div>
           )}
         </div>}
-
+        </div>
       </div>
     </Modal>
   );

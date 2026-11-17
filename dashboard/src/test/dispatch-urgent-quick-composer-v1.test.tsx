@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppLanguage } from "@/i18n";
 import type { Shop, Zone } from "@/types/dispatch";
@@ -7,91 +7,89 @@ import { ShortageShopPicker } from "@/components/dispatch/ShortageShopPicker";
 import { ShortageRequestComposer } from "@/components/dispatch/ShortageRequestComposer";
 
 vi.mock("@/features/dispatch/useDispatchProductSearch", () => ({
-  useDispatchProductSearch: (_endpoint: string | null, query: string) => ({
+  useDispatchProductSearch: () => ({
     mode: "paged",
-    items: query.trim().length >= 2 ? [{ id: "41", name: "Lolo Chips", load: null }] : [],
-    loading: false, error: null, searchRequired: true, hasMore: false,
+    items: [{ id: "41", name: "Lolo Chips", load: null }],
+    loading: false, error: null, searchRequired: false, hasMore: false,
     hasPrevious: false, pageNumber: 1, loadMore: vi.fn(), previous: vi.fn(), retry: vi.fn(),
   }),
 }));
 
 const zones = [
-  { id: "11", name: "Zone A" },
-  { id: "22", name: "Zone B" },
+  { id: "11", name: "Zone A" }, { id: "22", name: "Zone B" },
 ] as Zone[];
 const shops = [
-  { id: "101", name: "Grocery A", zoneId: "11", owner: "Omar", phone: "123",
-    archived: false },
-  { id: "102", name: "Special Grocery", zoneId: "22", owner: "Ali", phone: "456",
-    archived: false },
-  { id: "103", name: "Archived Grocery", zoneId: "22", owner: "Hidden", phone: "789",
-    archived: true },
+  { id: "101", name: "Grocery A", zoneId: "11", owner: "Omar", phone: "123", archived: false },
+  { id: "102", name: "Special Grocery", zoneId: "22", owner: "Ali", phone: "456", archived: false },
+  { id: "103", name: "Archived Grocery", zoneId: "22", owner: "Hidden", phone: "789", archived: true },
 ] as Shop[];
 
 beforeEach(async () => { await setAppLanguage("en"); });
 
-describe("V1 urgent shop request quick composer", () => {
-  it("searches shops across the authorized company rather than the current zone, deriving actual zone", () => {
+describe("V1 urgent shop request single-row layout and fixed scrolling", () => {
+  it("selects the authorized zone and shop from native dropdowns, excluding archived shops", () => {
     const onChoose = vi.fn();
     render(<ShortageShopPicker shops={shops} zones={zones} shopId="" zoneId=""
       disabled={false} onChoose={onChoose}/>);
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search shop name, phone, or zone" }),
-      { target: { value: "Special" } });
-    expect(screen.getByText(/Zone B/)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: /Special Grocery/ }));
-    expect(onChoose).toHaveBeenCalledExactlyOnceWith("22", "102");
-    expect(screen.queryByText("Archived Grocery")).not.toBeInTheDocument();
+    const zone = screen.getByRole("combobox", { name: "Zone" });
+    expect(zone).toHaveValue("");
+    fireEvent.change(zone, { target: { value: "22" } });
+    expect(onChoose).toHaveBeenLastCalledWith("22", "");
+    const shop = screen.getByRole("combobox", { name: /Destination shop/ });
+    expect(within(shop).getByRole("option", { name: /Special Grocery/ })).toBeInTheDocument();
+    expect(within(shop).queryByRole("option", { name: /Archived Grocery/ })).not.toBeInTheDocument();
   });
 
-  it("adds the searched product with one click, keeps one quantity row, and only submits valid shop + draft", () => {
-    const send = vi.fn();
+  it("adds visible catalog products without typing; keeps all chosen items in the fixed scroll area", () => {
     function Harness() {
       const [selected, setSelected] = useState({ shop: "", zone: "" });
-      const [draft, setDraft] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
-      return <ShortageRequestComposer zones={zones} shops={shops} shopId={selected.shop}
-        zoneId={selected.zone} onChooseShop={(zone, shop) => setSelected({ shop, zone })}
-        drivers={[{ id: "31", name: "Active rep" }]} driverId=""
-        onDriverChange={vi.fn()} productScope="1:1:1" draft={draft}
-        onQuickAdd={(id, name) => setDraft(rows => {
-          const index = rows.findIndex(row => row.productId === id);
-          return index === -1 ? [...rows, { productId: id, productName: name, quantity: 1 }]
-            : rows.map((row, i) => i === index ? { ...row, quantity: row.quantity + 1 } : row);
+      const [driver, setDriver] = useState("31");
+      const [rows, setRows] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
+      return <ShortageRequestComposer zones={zones} shops={shops}
+        shopId={selected.shop} zoneId={selected.zone}
+        onChooseShop={(zone,shop) => setSelected({ zone,shop })}
+        drivers={[{ id: "31", name: "Active rep" }]} driverId={driver}
+        onDriverChange={setDriver} productScope="1:1:1" draft={rows}
+        onQuickAdd={(id,name) => setRows(previous => {
+          const index=previous.findIndex(row => row.productId===id);
+          return index===-1 ? [...previous,{productId:id,productName:name,quantity:1}] :
+            previous.map((row,i) => index===i ? {...row,quantity:row.quantity+1} : row);
         })}
-        onUpdateQuantity={(index, qty) => setDraft(rows => rows.map((row, i) =>
-          index === i ? { ...row, quantity: qty } : row))}
-        onRemove={index => setDraft(rows => rows.filter((_, i) => index !== i))}
-        onClear={() => setDraft([])} onSubmit={send} editing={false}
-        onCancelEdit={vi.fn()} blocked={false}/>;
+        onUpdateQuantity={(index,qty) => setRows(previous =>
+          previous.map((row,i) => index===i ? {...row,quantity:qty} : row))}
+        onRemove={index => setRows(previous => previous.filter((_,i)=>i!==index))}
+        onClear={() => setRows([])} editing={false} blocked={false}
+        allowUnassigned={false} onAllowUnassigned={vi.fn()}/>;
     }
     render(<Harness />);
-    expect(screen.getByRole("button", { name: "Save request (0 items)" })).toBeDisabled();
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search shop name, phone, or zone" }),
-      { target: { value: "Special" } });
-    fireEvent.click(screen.getByRole("button", { name: /Special Grocery/ }));
-    expect(screen.getByText(/Zone B/)).toBeVisible();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Search products" }),
-      { target: { value: "Lo" } });
-    const quickAdd = screen.getByRole("button", { name: "Add one unit of Lolo Chips to request" });
-    fireEvent.click(quickAdd);
-    expect(screen.getByRole("spinbutton", { name: "Quantity of Lolo Chips" })).toHaveValue(1);
-    fireEvent.click(quickAdd);
+    const destination = screen.getByRole("combobox", { name: /Destination shop/ });
+    fireEvent.change(destination, { target: { value: "101" } });
+    expect(screen.getByRole("combobox", { name: "Assign to representative" })).toHaveValue("31");
+    const order = screen.getByTestId("shortage-current-order");
+    expect(order).toHaveClass("h-60", "flex-col", "overflow-hidden");
+    expect(screen.getByText("Lolo Chips")).toBeVisible();
+    const add = screen.getByRole("button", { name: "Add one unit of Lolo Chips to request" });
+    fireEvent.click(add);
+    fireEvent.click(add);
     expect(screen.getByRole("spinbutton", { name: "Quantity of Lolo Chips" })).toHaveValue(2);
-    expect(screen.getByRole("button", { name: "Save request (1 items)" })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: "Save request (1 items)" }));
-    expect(send).toHaveBeenCalledOnce();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Lolo Chips from draft" }));
-    expect(screen.getByRole("button", { name: "Save request (0 items)" })).toBeDisabled();
+    const scroller = order.querySelector(".min-h-0.flex-1.overflow-y-auto");
+    expect(scroller).toBeInTheDocument();
+    expect(scroller).toHaveClass("overscroll-contain");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Lolo Chips from request" }));
+    expect(screen.queryByRole("spinbutton", { name: "Quantity of Lolo Chips" })).not.toBeInTheDocument();
+    expect(order).toHaveClass("h-60");
   });
 
-  it("keeps the existing shop identity fixed in group edit mode", () => {
+  it("keeps the existing shop and representative fixed when editing a grouped request", () => {
     render(<ShortageRequestComposer zones={zones} shops={shops} shopId="102" zoneId="22"
-      onChooseShop={vi.fn()} drivers={[]} driverId="" onDriverChange={vi.fn()}
-      productScope="1:1:1" draft={[{ productId: "41", productName: "Lolo Chips", quantity: 3 }]}
+      onChooseShop={vi.fn()} drivers={[{id:"31",name:"Active rep"}]} driverId="31"
+      onDriverChange={vi.fn()} productScope="1:1:1"
+      draft={[{productId:"41",productName:"Lolo Chips",quantity:3}]}
       onQuickAdd={vi.fn()} onUpdateQuantity={vi.fn()} onRemove={vi.fn()} onClear={vi.fn()}
-      onSubmit={vi.fn()} editing onCancelEdit={vi.fn()} blocked={false}/>);
-    expect(screen.getByText("Special Grocery")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Change shop" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Edit mode/)).toBeInTheDocument();
+      editing blocked={false} allowUnassigned={false} onAllowUnassigned={vi.fn()}/>);
+    expect(screen.getByRole("combobox", { name: "Zone" })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: /Destination shop/ })).toBeDisabled();
+    expect(screen.getByRole("combobox", { name: "Assign to representative" })).toBeDisabled();
+    expect(screen.getByText(/Edit mode/)).toBeVisible();
   });
 });
