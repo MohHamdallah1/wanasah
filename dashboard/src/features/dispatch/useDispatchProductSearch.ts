@@ -45,7 +45,7 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
   useEffect(() => {
     const controller = new AbortController();
     setError(null); setLoading(false);
-    if (!endpoint || !scope || (purpose === "SHORTAGE" && query.length < 2) || query.length > 100) return;
+    if (!endpoint || !scope || (purpose === "SHORTAGE" && query.length === 1) || query.length > 100) return;
     setLoading(true);
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ search: query, limit: String(DISPATCH_PRODUCT_PAGE_SIZE) });
@@ -61,7 +61,7 @@ export function useDispatchProductSearch(endpoint: string | null, search: string
     }, cursor || !query ? 0 : 300);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [authFetch, endpoint, scope, key, query, cursor, purpose, revision]);
-  return { mode: "paged" as const, items: page.items, loading, error, searchRequired: purpose === "SHORTAGE", hasMore: page.has_more, hasPrevious: active.index > 0,
+  return { mode: "paged" as const, items: page.items, loading, error, searchRequired: false, hasMore: page.has_more, hasPrevious: active.index > 0,
     pageNumber: active.index + 1,
     loadMore: () => { if (!loading && page.next_cursor) setNavigation({ key, cursors: [...active.cursors.slice(0, active.index + 1), page.next_cursor], index: active.index + 1 }); },
     previous: () => { if (!loading && active.index > 0) setNavigation({ ...active, index: active.index - 1 }); },

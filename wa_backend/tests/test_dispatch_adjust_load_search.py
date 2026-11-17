@@ -120,6 +120,22 @@ class AdjustLoadSearchPostgres(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(seen, ids)
             self.assertEqual(len(set(seen)), 200)
         self.assertEqual(len((await self.discovery(search=""))["items"]), 80)
+        # The V1 urgent request catalog MUST browse without typed search.
+        # Cursor, company scope and lifecycle filters are identical to searched reads.
+        for query in ("", "Scale"):
+            shortage_seen, shortage_cursor = [], None
+            for expected_size in (80, 80, 40):
+                demand_page = await self.discovery("SHORTAGE", search=query, cursor=shortage_cursor, limit=80)
+                self.assertEqual(len(demand_page["items"]), expected_size)
+                self.assertEqual(demand_page["has_more"], expected_size == 80)
+                self.assertTrue(all(row["load"] is None for row in demand_page["items"]))
+                shortage_seen.extend(int(row["id"]) for row in demand_page["items"])
+                shortage_cursor = demand_page["next_cursor"]
+            self.assertEqual(shortage_seen, ids)
+            self.assertIsNone(shortage_cursor)
+        first_blank = await self.discovery("SHORTAGE", search="", limit=1)
+        with self.assertRaises(HTTPException):
+            await self.discovery("SHORTAGE", search="Scale", cursor=first_blank["next_cursor"], limit=1)
         last = page["items"][-1]
         self.assertEqual(last["load"]["current_base_quantity"], 0)
         request_id = uuid4()
