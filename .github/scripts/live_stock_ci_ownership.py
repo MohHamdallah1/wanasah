@@ -1136,6 +1136,25 @@ ARV1_F_1044_EXACT = frozenset({
 })
 assert len(ARV1_F_1044_EXACT) == 14
 
+URGENT_1055_EXACT = frozenset({
+    '.github/scripts/live_stock_ci_ownership.py',
+    '.github/workflows/dispatch-p0-route-stock-safety.yml',
+    '.github/workflows/dispatch-route-launch-d07-acceptance.yml',
+    '.github/workflows/live-stock-inflight-authority-acceptance.yml',
+    'dashboard/src/components/dispatch/ShortageModal.tsx',
+    'dashboard/src/components/dispatch/ShortageProductPicker.tsx',
+    'dashboard/src/features/dispatch/dispatchUiText.ts',
+    'dashboard/src/features/dispatch/useDispatchProductWindow.ts',
+    'dashboard/src/test/dispatch-product-discovery.test.tsx',
+    'dashboard/src/test/dispatch-shortage-infinite-1055.test.tsx',
+    'dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx',
+})
+URGENT_1055_DISTINCT = frozenset({
+    'dashboard/src/features/dispatch/useDispatchProductWindow.ts',
+    'dashboard/src/test/dispatch-shortage-infinite-1055.test.tsx',
+})
+assert len(URGENT_1055_EXACT)==11
+
 URGENT_1053_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
     '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -1185,6 +1204,10 @@ URGENT_1050_DISTINCT = frozenset({
 assert len(URGENT_1050_EXACT) == 15
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == URGENT_1055_EXACT:
+        return ('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])
+    if changed & URGENT_1055_DISTINCT:
+        return 'fail',[f'URGENT_1055_EXACT=FAIL missing={sorted(URGENT_1055_EXACT-changed)} foreign={sorted(changed-URGENT_1055_EXACT)}']
     if changed == URGENT_1053_EXACT:
         return ('not-applicable',[]) if mode=='r3' else ('urgent-1053-exact',[])
     if changed & URGENT_1053_DISTINCT:
@@ -1634,6 +1657,17 @@ def selftest() -> None:
         ):
             _expect_fail(mode, set(ZONES_1039_EXACT) | {foreign}, policy_sem)
     print("ZONES_1039_LIVE_STOCK_SELFTEST=PASS exact=7 missing=7 foreign=3")
+
+    for mode in ('ux','r3','operational'):
+        expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])
+        assert classify(mode,set(URGENT_1055_EXACT),policy_sem)==expect
+        for missing in URGENT_1055_EXACT:
+            _expect_fail(mode,set(URGENT_1055_EXACT)-{missing},policy_sem)
+        for foreign in ('wa_backend/models.py','wa_backend/api/driver.py','wanasah_frontend/lib/main.dart'):
+            _expect_fail(mode,set(URGENT_1055_EXACT)|{foreign},policy_sem)
+        for mixed in (ARV1_F_1044_EXACT,ARV1_B_1045_EXACT,ZONES_1039_EXACT):
+            _expect_fail(mode,set(URGENT_1055_EXACT)|set(mixed),policy_sem)
+    print('URGENT_1055_LIVE_STOCK_SELFTEST=PASS modes=3 missing=33 foreign=9 mixed=9')
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1053-exact',[])

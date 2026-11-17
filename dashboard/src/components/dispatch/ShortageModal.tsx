@@ -286,6 +286,7 @@ export function ShortageModal({
   const isEditMode = editingShortageIds.length > 0;
   const [showPending, setShowPending] = useState(Boolean(focusShortageId));
   const [allowUnassigned, setAllowUnassigned] = useState(false);
+  const sendReasonId = useId();
   useEffect(() => {
     if (!isOpen) return;
     // An unknown-result command stays visible with its pending rows and retry.
@@ -306,6 +307,15 @@ export function ShortageModal({
   const hasDriver = drivers.some(driver => driver.id === shortageDriverId);
   const validTarget = hasDriver || (!shortageDriverId && (allowUnassigned || isEditMode));
   const canSubmit = canCreate && !blocked && validShop && validItems && validTarget;
+  const disabledReason = !canCreate ? text("shortageSendReasonPermission")
+    : blocked ? text("shortageSendReasonPending")
+    : !shortageZoneId || !zones.some(zone => zone.id === shortageZoneId)
+      ? text("shortageSendReasonZone")
+    : !validShop ? text("shortageSendReasonShop")
+    : !validTarget ? text("shortageSendReasonDriver")
+    : shortageDraft.length === 0 ? text("shortageSendReasonProducts")
+    : !validItems ? text("shortageSendReasonQuantity")
+    : null;
   const numbers = new Intl.NumberFormat(i18n.language.startsWith("ar") ? "ar" : "en");
   const totalUnits = shortageDraft.reduce((sum, item) =>
     sum + (Number.isSafeInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0), 0);
@@ -331,11 +341,21 @@ export function ShortageModal({
               className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700">
               {text("shortageCancelEdit")}
             </button>}
-            <button type="button" onClick={onConfirmShortages} disabled={!canSubmit}
-              className="min-h-12 min-w-44 flex-1 rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-900/10 transition hover:bg-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none sm:flex-none">
-              {isEditMode ? text("shortageSaveEdit") : shortageDriverId ?
-                text("shortageStudioSend") : text("shortageStudioSaveUnassigned")}
-            </button>
+            <span className="group relative z-20 inline-flex min-w-44 flex-1 sm:flex-none"
+              tabIndex={!canSubmit ? 0 : -1}
+              aria-label={!canSubmit ? disabledReason ?? undefined : undefined}
+              data-testid="shortage-send-hint-anchor">
+              <button type="button" onClick={onConfirmShortages} disabled={!canSubmit}
+                aria-describedby={!canSubmit ? sendReasonId : undefined}
+                className="min-h-12 w-full rounded-xl bg-emerald-700 px-5 text-sm font-bold text-white shadow-lg shadow-emerald-900/10 transition hover:bg-emerald-800 focus-visible:ring-2 focus-visible:ring-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none">
+                {isEditMode ? text("shortageSaveEdit") : shortageDriverId ?
+                  text("shortageStudioSend") : text("shortageStudioSaveUnassigned")}
+              </button>
+              {!canSubmit && disabledReason && <span id={sendReasonId} role="tooltip"
+                className="pointer-events-none invisible absolute bottom-full start-1/2 z-30 mb-2 w-max max-w-[min(20rem,80vw)] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-center text-xs font-semibold leading-5 text-white opacity-0 shadow-xl transition-none group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100">
+                {disabledReason}
+              </span>}
+            </span>
           </div>
         </div>
       ) : undefined}

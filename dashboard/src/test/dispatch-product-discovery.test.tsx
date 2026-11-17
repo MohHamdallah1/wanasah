@@ -264,9 +264,15 @@ describe("Dispatch cursor pickers", () => {
     // Urgent requests now browse the signed catalog immediately, even with blank search.
     await waitFor(() => expect(fake.fetch).toHaveBeenCalled());
     await screen.findByText("Matching 1");
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const catalog = screen.getByTestId("shortage-visible-products");
+    Object.defineProperties(catalog, {
+      clientHeight: { configurable: true, value: 360 },
+      scrollHeight: { configurable: true, value: 1300 },
+    });
+    expect(screen.queryByRole("button", { name: /^(Next|Previous)$/ })).not.toBeInTheDocument();
+    fireEvent.scroll(catalog, { target: { scrollTop: 900 } });
     await screen.findByText("Matching 160");
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.scroll(catalog, { target: { scrollTop: 940 } });
     await screen.findByText("Matching 200");
     expect(fake.fetch.mock.calls).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Add one unit of Matching 200 to request" }));

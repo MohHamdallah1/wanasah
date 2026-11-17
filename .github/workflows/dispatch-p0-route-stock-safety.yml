@@ -817,6 +817,24 @@ jobs:
               "dashboard/src/test/dispatch-active-route-proof-1044.test.tsx",
               "dashboard/src/test/dispatch-active-routes-1044.test.tsx",
           }
+          urgent_1055_exact = {
+              '.github/scripts/live_stock_ci_ownership.py',
+              '.github/workflows/dispatch-p0-route-stock-safety.yml',
+              '.github/workflows/dispatch-route-launch-d07-acceptance.yml',
+              '.github/workflows/live-stock-inflight-authority-acceptance.yml',
+              'dashboard/src/components/dispatch/ShortageModal.tsx',
+              'dashboard/src/components/dispatch/ShortageProductPicker.tsx',
+              'dashboard/src/features/dispatch/dispatchUiText.ts',
+              'dashboard/src/features/dispatch/useDispatchProductWindow.ts',
+              'dashboard/src/test/dispatch-product-discovery.test.tsx',
+              'dashboard/src/test/dispatch-shortage-infinite-1055.test.tsx',
+              'dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx',
+          }
+          urgent_1055_distinct = {
+              'dashboard/src/features/dispatch/useDispatchProductWindow.ts',
+              'dashboard/src/test/dispatch-shortage-infinite-1055.test.tsx',
+          }
+          assert len(urgent_1055_exact)==11
           urgent_1053_exact = {
               '.github/scripts/live_stock_ci_ownership.py',
               '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -864,6 +882,9 @@ jobs:
           }
           assert len(urgent_1050_exact) == 15
           def ownership_mode(candidate):
+              if candidate == urgent_1055_exact: return 'URGENT_1055_EXACT'
+              if candidate & urgent_1055_distinct:
+                  raise AssertionError('URGENT_1055 partial/foreign: '+repr(sorted(candidate)))
               if candidate == urgent_1053_exact: return 'URGENT_1053_EXACT'
               if candidate & urgent_1053_distinct:
                   raise AssertionError('URGENT_1053 partial/foreign: '+repr(sorted(candidate)))
@@ -1055,6 +1076,20 @@ jobs:
               return "AUTH_SESSION"
 
           # Every missing #1044 path must be rejected, not downgraded to a historical scope.
+          assert ownership_mode(urgent_1055_exact) == 'URGENT_1055_EXACT'
+          for missing in urgent_1055_exact:
+              try: ownership_mode(urgent_1055_exact-{missing})
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1055 missing: '+missing)
+          for foreign in ('wa_backend/models.py','wa_backend/api/driver.py','wanasah_frontend/lib/main.dart'):
+              try: ownership_mode(urgent_1055_exact|{foreign})
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1055 foreign: '+foreign)
+          for mixed in (arv1_f_1044_exact,arv1_b_1045_exact,zones_1039_exact):
+              try: ownership_mode(urgent_1055_exact | mixed)
+              except AssertionError: pass
+              else: raise AssertionError('URGENT_1055 mixed: '+repr(mixed))
+          print('URGENT_1055_SELFTEST=PASS exact=11 missing=11 foreign=3 mixed=3')
           assert ownership_mode(urgent_1053_exact) == 'URGENT_1053_EXACT'
           for missing in urgent_1053_exact:
               try: ownership_mode(urgent_1053_exact-{missing})
