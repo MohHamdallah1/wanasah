@@ -75,10 +75,11 @@ export function useDispatchProductWindow(
   const session = useDashboardSession();
   const query = search.trim();
   const key = JSON.stringify([session?.generation, session?.identity, scope, endpoint, query, purpose]);
-  // Never share a signed discovery window across a login generation, actor,
-  // warehouse, vehicle or search context. Shortage mode keeps its old behavior.
+  // Never share a signed discovery window across login generations, actors,
+  // warehouse, vehicle or search contexts. Only LOAD may reuse warm windows.
   const warmKey = purpose === "LOAD" && session && scope && endpoint ? key : null;
-  const valid = !!endpoint && !!scope && !(purpose === "SHORTAGE" && query.length < 2) && query.length <= 100;
+  // Shortage allows blank browsable catalog; only a one-character LIKE remains blocked.
+  const valid = !!endpoint && !!scope && !(purpose === "SHORTAGE" && query.length === 1) && query.length <= 100;
   const [state, setState] = useState<WindowState>(() => readWarmWindow(warmKey) ?? emptyState(""));
   const [loading, setLoading] = useState(false);
   const [loadingWindow, setLoadingWindow] = useState(false);
@@ -270,7 +271,7 @@ export function useDispatchProductWindow(
     loading,
     loadingWindow,
     error,
-    searchRequired: purpose === "SHORTAGE",
+    searchRequired: false,
     hasMore,
     hasPrevious,
     loadMore,

@@ -6,12 +6,14 @@ import type { Shop, Zone } from "@/types/dispatch";
 import { ShortageShopPicker } from "@/components/dispatch/ShortageShopPicker";
 import { ShortageRequestComposer } from "@/components/dispatch/ShortageRequestComposer";
 
-vi.mock("@/features/dispatch/useDispatchProductSearch", () => ({
-  useDispatchProductSearch: () => ({
-    mode: "paged",
+vi.mock("@/features/dispatch/useDispatchProductWindow", () => ({
+  useDispatchProductWindow: () => ({
+    mode: "windowed", queryKey: "test-company:search", firstPageReady: true,
+    pages: [{ index: 0, items: [{ id: "41", name: "Lolo Chips", load: null }] }],
     items: [{ id: "41", name: "Lolo Chips", load: null }],
-    loading: false, error: null, searchRequired: false, hasMore: false,
-    hasPrevious: false, pageNumber: 1, loadMore: vi.fn(), previous: vi.fn(), retry: vi.fn(),
+    topSpacerHeight: 0, bottomSpacerHeight: 0, loading: false, loadingWindow: false,
+    error: null, hasMore: false, hasPrevious: false,
+    loadMore: vi.fn(), loadPrevious: vi.fn(), retry: vi.fn(), registerPageHeight: vi.fn(),
   }),
 }));
 
