@@ -44,6 +44,7 @@ def test_sellable_quote_subtracts_reservations_expiry_and_non_sellable():
     (_line(10, 1, "Infinity"), {1: (10, None, "RELEASED")}),
     (_line(10, 1, "1"), {}),
     (_line(10, 1, "1"), {1: (11, None, "RELEASED")}),
+    (_line(10, 1, "1", status="UNSUPPORTED_STATUS"), {1: (10, None, "RELEASED")}),
 ])
 def test_unverifiable_physical_evidence_never_becomes_zero(line, batches):
     assert _sellable_by_variant(
