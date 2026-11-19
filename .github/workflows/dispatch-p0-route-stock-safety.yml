@@ -102,6 +102,11 @@ jobs:
               conn.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
               conn.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
           PY
+      - name: Signed shortage vehicle quote math and unknown-evidence acceptance
+        working-directory: wa_backend
+        run: |
+          python -m py_compile api/dispatch_shortage_availability.py tests/test_dispatch_shortage_vehicle_availability.py
+          python -B -m pytest -p no:cacheprovider -q -s tests/test_dispatch_shortage_vehicle_availability.py
       - name: Exact physical balances and movement acceptance
         working-directory: wa_backend
         run: >-
@@ -152,6 +157,9 @@ jobs:
           src/test/dispatch-p0-route-stock-safety.test.tsx
           src/test/dispatch-adjust-load.test.tsx
           src/test/dispatch-product-discovery.test.tsx
+          src/test/dispatch-shortage-vehicle-availability-1057.test.tsx
+          src/test/dispatch-shortage-group-recovery-v1.test.tsx
+          src/test/dispatch-urgent-quick-composer-v1.test.tsx
       - name: Ownership and whitespace
         run: |
           python .github/scripts/dispatch_d15_visual_ci_scope.py --selftest
