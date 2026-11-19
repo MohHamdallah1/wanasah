@@ -25,6 +25,9 @@ from services import get_company_local_date
 
 router = APIRouter()
 MAX_PRODUCTS = 240
+_ALLOWED_VEHICLE_STATES = frozenset({
+    "AVAILABLE", "QUARANTINED", "BLOCKED", "RECALLED", "DAMAGED", "DISPOSAL_PENDING",
+})
 
 
 def _unknown(reason: str) -> dict:
@@ -58,7 +61,7 @@ def _sellable_by_variant(
                 return None
             on_hand = _nonnegative(line["on_hand"])
             reserved = _nonnegative(line["reserved"])
-            if reserved > on_hand:
+            if reserved > on_hand or line["status"] not in _ALLOWED_VEHICLE_STATES:
                 return None
             if (
                 line["status"] == "AVAILABLE"
