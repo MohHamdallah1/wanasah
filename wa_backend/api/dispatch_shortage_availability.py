@@ -91,7 +91,12 @@ async def shortage_vehicle_availability(
     if len(set(product_ids)) != len(product_ids) or any(type(x) is not int or x <= 0 for x in product_ids):
         raise HTTPException(422, detail={"code": "SHORTAGE_AVAILABILITY_PRODUCT_IDS_INVALID", "context": {}})
     try:
+        # Without an accepted epoch the vehicle location is unknowable; still
+        # require dispatch.read on at least one persisted authorized location
+        # before exposing whether the representative/products/custody exist.
+        # An actual accepted vehicle is additionally checked by require_vehicle.
         await access.require("shortage.create")
+        await access.require("dispatch.read", any_location=True)
     except BackofficeCapabilityAccessRejected as exc:
         raise HTTPException(403, detail={"code": "SHORTAGE_AVAILABILITY_CAPABILITY_DENIED", "context": {}}) from exc
     company_id = access.company_id
