@@ -2,12 +2,10 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { Check, Package, Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
-import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
+import { compareShortageVehicleBase, dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { MeasuredProductPage } from "./DispatchProductWindow";
-import {
-  compareShortageVehicleBase, useShortageVehicleAvailability,
-} from "@/features/dispatch/useShortageVehicleAvailability";
+import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
 import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 
 /** Continuous 50k-safe browsing: only 3×80 signed products are mounted at once. */

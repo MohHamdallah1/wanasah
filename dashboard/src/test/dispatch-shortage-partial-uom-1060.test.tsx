@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { setAppLanguage } from "@/i18n";
-import { compareShortageVehicleBase } from "@/features/dispatch/useShortageVehicleAvailability";
+import { compareShortageVehicleBase } from "@/features/dispatch/dispatchUiText";
 import { parseDispatchProductPage } from "@/features/dispatch/useDispatchProductSearch";
 import {
   saveShortageDraft, restoreShortageDraft, shortageDraftKey,

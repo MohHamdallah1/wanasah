@@ -1,13 +1,11 @@
 import { ClipboardList, Eraser, Minus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Shop, Zone } from "@/types/dispatch";
-import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
+import { compareShortageVehicleBase, dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { ShortageShopPicker } from "./ShortageShopPicker";
 import { ShortageProductPicker } from "./ShortageProductPicker";
 import { ShortageDriverPicker } from "./ShortageDriverPicker";
-import {
-  compareShortageVehicleBase, useShortageVehicleAvailability,
-} from "@/features/dispatch/useShortageVehicleAvailability";
+import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
 import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 
 type RequestItem = ShortageDraftRow;
