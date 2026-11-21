@@ -1464,7 +1464,15 @@ class CreateShortageItem(RequestModel):
     product_variant_id: PositiveDbInt = Field(..., alias="productId")
     productName: Optional[str] = Field(None, max_length=200)
     driverId: OptionalPositiveDbInt = None
-    quantity: PositiveDbInt = 1
+    quantity: PositiveDbInt = Field(
+        default=1,
+        description=(
+            "Positive integer number of the selected SKU's canonical base stock UOM. "
+            "For base PACK and outer CARTON (50 PACK), quantity=10 means 10 PACK, "
+            "not 10 CARTON. No implicit UOM conversion or request UOM selector. "
+            "This contract does not retroactively reinterpret historical shortage rows."
+        ),
+    )
 
     @field_validator("productName", mode="before")
     @classmethod
