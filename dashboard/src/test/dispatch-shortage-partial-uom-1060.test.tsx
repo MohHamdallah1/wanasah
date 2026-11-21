@@ -119,7 +119,7 @@ describe("#1060 exact base-quantity quote (never delivery authorization)", () =>
     ["en","10","Potentially available: 10 PACK"],
     ["en","0","Potentially available: 0 PACK"],
   ])("shows nonpromissory %s quote for %s",async(lang,available,expected)=>{
-    await setAppLanguage(lang);
+    await setAppLanguage(lang as "ar" | "en");
     fake.fetch.mockResolvedValue(vehicle(available));
     render(<ShortageRequestComposer
       zones={zones} shops={shops} zoneId="1" shopId="2" onChooseShop={vi.fn()}
