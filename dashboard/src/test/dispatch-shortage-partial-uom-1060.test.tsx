@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { setAppLanguage } from "@/i18n";
 import { compareShortageVehicleBase } from "@/features/dispatch/useShortageVehicleAvailability";
 import { parseDispatchProductPage } from "@/features/dispatch/useDispatchProductSearch";
