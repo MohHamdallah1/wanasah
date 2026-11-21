@@ -169,12 +169,14 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 from api.dispatch_products import router as product_discovery_router
+from api.dispatch_shortage_availability import router as shortage_availability_router
 from api.dispatch_product_schemas import DispatchProductPageResponse
 from domains.dispatch_product_discovery import dispatch_product_page
 from domains.dispatch_product_cursor import DispatchProductCursorError
 
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 router.include_router(product_discovery_router)
+router.include_router(shortage_availability_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")

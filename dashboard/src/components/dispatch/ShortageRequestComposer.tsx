@@ -5,6 +5,7 @@ import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { ShortageShopPicker } from "./ShortageShopPicker";
 import { ShortageProductPicker } from "./ShortageProductPicker";
 import { ShortageDriverPicker } from "./ShortageDriverPicker";
+import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
 
 type RequestItem = { productId: string; productName: string; quantity: number };
 
@@ -40,6 +41,16 @@ export function ShortageRequestComposer({
   const number = new Intl.NumberFormat(i18n.language.startsWith("ar") ? "ar" : "en");
   const unitCount = draft.reduce((sum, item) =>
     sum + (Number.isSafeInteger(item.quantity) && item.quantity > 0 ? item.quantity : 0), 0);
+  const stock = useShortageVehicleAvailability({
+    driverId, scope: productScope, productIds: draft.map(item => item.productId),
+  });
+  const stockSummary = draft.reduce((result, item) => {
+    const line = stock.byProduct.get(item.productId);
+    if (stock.status !== "VERIFIED" || !line) result.unknown++;
+    else if (Number(line.available_base) > 0) result.present++;
+    else result.missing++;
+    return result;
+  }, {present:0,missing:0,unknown:0});
 
   return <fieldset disabled={blocked} data-testid="shortage-quick-composer"
     className="min-w-0 space-y-4">
@@ -57,7 +68,7 @@ export function ShortageRequestComposer({
       </div>
     </div>
 
-    <ShortageProductPicker scope={productScope} drafted={draft} onAdd={onQuickAdd} disabled={blocked}/>
+    <ShortageProductPicker scope={productScope} drafted={draft} driverId={driverId} onAdd={onQuickAdd} disabled={blocked}/>
     <section className="flex h-60 min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm"
         data-testid="shortage-current-order">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-sky-100 bg-sky-50/80 px-4 py-3">
@@ -70,7 +81,16 @@ export function ShortageRequestComposer({
           </span>
         </header>
         {draft.length > 0 && <div className="flex shrink-0 items-center justify-between gap-2 px-4 pt-2">
-          <span className="text-xs text-slate-500">{t("shortageStudioUnitCount", {count: number.format(unitCount)})}</span>
+          <span className="min-w-0 text-xs text-slate-500">
+            {t("shortageStudioUnitCount", {count: number.format(unitCount)})}
+            {driverId && <span className="block text-[11px] leading-4 text-slate-500">
+              {t("shortageVehicleSummary", {
+                present: number.format(stockSummary.present),
+                missing: number.format(stockSummary.missing),
+                unknown: number.format(stockSummary.unknown),
+              })}
+            </span>}
+          </span>
           <button type="button" onClick={onClear}
             className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-500 transition hover:bg-red-50 hover:text-red-700">
             <Eraser aria-hidden="true" className="h-4 w-4"/>{t("shortageStudioClear")}
@@ -88,7 +108,19 @@ export function ShortageRequestComposer({
               <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
                 {number.format(index+1)}
               </span>
-              <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-5 text-slate-800">{item.productName}</span>
+              <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-5 text-slate-800">
+                {item.productName}
+                {driverId && <span className="block text-[11px] font-normal leading-4 text-slate-500">
+                  {stock.status !== "VERIFIED" || !stock.byProduct.get(item.productId)
+                    ? t("shortageVehicleUnknown")
+                    : Number(stock.byProduct.get(item.productId)!.available_base) > 0
+                      ? t("shortageVehicleAvailable", {
+                          count: stock.byProduct.get(item.productId)!.available_base,
+                          unit: stock.byProduct.get(item.productId)!.base_uom,
+                        })
+                      : t("shortageVehicleNeedsSupply")}
+                </span>}
+              </span>
               <div className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 bg-slate-50">
                 <button type="button" disabled={item.quantity<=1}
                   onClick={() => onUpdateQuantity(index, item.quantity-1)}

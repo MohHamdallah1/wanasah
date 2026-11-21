@@ -5,12 +5,14 @@ import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProduct
 import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { MeasuredProductPage } from "./DispatchProductWindow";
+import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
 
 /** Continuous 50k-safe browsing: only 3×80 signed products are mounted at once. */
 export function ShortageProductPicker({
-  scope, drafted, onAdd, disabled = false,
+  scope, drafted, onAdd, disabled = false, driverId = "",
 }: {
   scope: string | null;
+  driverId?: string;
   drafted: { productId: string; productName: string; quantity: number }[];
   onAdd: (id: string, name: string) => void;
   disabled?: boolean;
@@ -48,6 +50,9 @@ export function ShortageProductPicker({
   };
 
   const counts = useMemo(() => new Map(drafted.map(item => [item.productId, item.quantity])), [drafted]);
+  const vehicle = useShortageVehicleAvailability({
+    driverId, scope, productIds: page.items.map(product => product.id),
+  });
   const firstLoad = page.loading && !page.pages.length;
   const hasProducts = page.items.length > 0;
 
@@ -94,6 +99,9 @@ export function ShortageProductPicker({
               >
                 {windowPage.items.map(product => {
                   const count = counts.get(product.id) || 0;
+                  const stock = vehicle.byProduct.get(product.id);
+                  const hasQuote = vehicle.status === "VERIFIED" && !!stock;
+                  const positive = stock ? Number(stock.available_base) > 0 : false;
                   return <button key={product.id} type="button" disabled={disabled}
                     aria-label={t("shortageQuickAddOne", {product: product.name})}
                     onClick={() => onAdd(product.id, product.name)}
@@ -108,6 +116,13 @@ export function ShortageProductPicker({
                       <span className="block line-clamp-2 text-xs font-semibold leading-5 text-slate-800">{product.name}</span>
                       {count > 0 && <span className="block text-[11px] font-bold text-sky-700">
                         {t("shortageStudioAdded", {count: new Intl.NumberFormat(i18n.language.startsWith("ar") ? "ar" : "en").format(count)})}
+                      </span>}
+                      {driverId && <span className={`block text-[11px] font-semibold ${hasQuote
+                        ? positive ? "text-emerald-700" : "text-amber-700" : "text-slate-500"}`}>
+                        {hasQuote && stock ? positive
+                          ? t("shortageVehicleAvailable", {count: stock.available_base, unit:stock.base_uom})
+                          : t("shortageVehicleNeedsSupply")
+                          : t("shortageVehicleUnknown")}
                       </span>}
                     </span>
                     <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-700 text-white shadow-sm group-hover:bg-sky-800">

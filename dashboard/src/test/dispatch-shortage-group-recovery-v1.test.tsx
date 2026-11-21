@@ -25,6 +25,13 @@ vi.mock("@/lib/authStorage", async orig => ({
 vi.mock("@/components/dispatch/ShortageProductPicker", () => ({
   ShortageProductPicker: () => <div data-testid="shortage-product-picker"/>,
 }));
+// The separately signed vehicle read is not part of D05 grouped command tests.
+vi.mock("@/features/dispatch/useShortageVehicleAvailability", () => ({
+  useShortageVehicleAvailability: () => ({
+    status: "UNKNOWN", reason: "NO_ACCEPTED_VEHICLE_CUSTODY",
+    byProduct: new Map(), loading: false, refresh: vi.fn(),
+  }),
+}));
 
 const heldLocks = new Set<string>();
 const fakeLocks = {
