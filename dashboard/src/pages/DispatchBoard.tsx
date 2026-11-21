@@ -1694,7 +1694,12 @@ function DispatchSession() {
       let saved = false;
       if (editingShortageIds.length > 0) {
         saved = await shortageGroup.save(
-          editingShortageIds, newShortages, shortageDraft,
+          editingShortageIds, newShortages,
+          // The durable #849 retry draft keeps its original three fields.
+          // Base-UOM metadata stays in the UI-only draft, never in a command.
+          shortageDraft.map(({productId, productName, quantity}) => ({
+            productId, productName, quantity,
+          })),
         );
       } else {
         shortageMutationInFlightRef.current = true;
