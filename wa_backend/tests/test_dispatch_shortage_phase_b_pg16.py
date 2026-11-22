@@ -358,3 +358,53 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
                 ShortageDeliveryEvent.event_type == "DELIVERY",
             ))
             assert sorted(int(item.quantity_delta) for item in real) == [4, 6]
+
+
+
+async def test_atomic_late_commit_failure_reuse_same_uuid_pg(pg):
+    """Actual SQLAlchemy PG transaction late abort; no fake HTTP/auth dependencies."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    company, zone, products, driver = await _setup(pg)
+    async with _real_http() as client:
+        owner = await _token(client, pg, company, company.owner, "NoLotSyntheticFixture123")
+        shop, _ = await _add_shop(client, owner, zone, balance="0", cap="0")
+        original = _command(uuid4(), shop, zone, driver, products[0], 10)
+        before = await _snapshot(pg, company, shop)
+        fired = []
+
+        def abort_late(session):
+            if any(
+                isinstance(item, OperationIdempotency)
+                and item.operation == "DISPATCH_SHORTAGE_DEMAND_V2"
+                and item.state == "COMMITTED"
+                for item in session.identity_map.values()
+            ):
+                fired.append(True)
+                raise RuntimeError("1067 simulated late commit failure")
+
+        event.listen(Session, "before_commit", abort_late)
+        try:
+            failed = await client.post(
+                "/dispatch/shortage-commands", headers=owner, json=original,
+            )
+        finally:
+            event.remove(Session, "before_commit", abort_late)
+        assert fired, "Abort must reach the committed-in-transaction receipt"
+        assert failed.status_code == 500, failed.text
+        assert await _snapshot(pg, company, shop) == before
+        recovered = await client.post(
+            "/dispatch/shortage-commands", headers=owner, json=original,
+        )
+        assert recovered.status_code == 201, recovered.text
+        after = await _snapshot(pg, company, shop)
+        assert len(after[0]) == len(before[0]) + 1
+        assert after[1] == before[1]
+        assert recovered.json()["request_id"] == original["request_id"]
+        proof = await client.get(
+            f"/dispatch/shortage-commands/{original['request_id']}",
+            headers=owner,
+        )
+        assert proof.status_code == 200
+        assert proof.json() == recovered.json()
