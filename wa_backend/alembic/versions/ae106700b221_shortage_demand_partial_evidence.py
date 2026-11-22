@@ -41,7 +41,7 @@ def upgrade():
         "uq_shortage_requests_company_id", "shortage_requests", ["company_id", "id"],
     )
     op.create_check_constraint(
-        "chk_shortage_requests_chk_shortage_partial_quantity", "shortage_requests",
+        "ck_shortage_requests_chk_shortage_partial_quantity", "shortage_requests",
         "(fulfillment_version IS NULL AND fulfilled_base IS NULL) OR "
         "(fulfillment_version = 1 AND fulfilled_base IS NOT NULL "
         "AND fulfilled_base >= 0 AND fulfilled_base <= quantity)",
@@ -66,7 +66,7 @@ def upgrade():
                                 ondelete="RESTRICT", name="fk_shortage_assignment_tenant_visit"),
         sa.ForeignKeyConstraint(["company_id", "driver_id"], ["drivers.company_id", "drivers.id"],
                                 ondelete="RESTRICT", name="fk_shortage_assignment_tenant_driver"),
-        sa.CheckConstraint("approved_base > 0", name="chk_shortage_assignment_positive"),
+        sa.CheckConstraint("approved_base > 0", name="ck_shortage_urgent_assignments_chk_shortage_assignment_positive"),
     )
     op.create_index("ix_shortage_assignment_company_demand", "shortage_urgent_assignments",
                     ["company_id", "shortage_id"])
@@ -101,7 +101,7 @@ def upgrade():
         sa.CheckConstraint(
             "(event_type = 'DELIVERY' AND quantity_delta > 0 AND reverses_event_id IS NULL) OR "
             "(event_type = 'REVERSAL' AND quantity_delta < 0 AND reverses_event_id IS NOT NULL)",
-            name="chk_shortage_delivery_direction",
+            name="ck_shortage_delivery_events_chk_shortage_delivery_direction",
         ),
     )
     op.create_index("ix_shortage_delivery_company_assignment", "shortage_delivery_events",
@@ -128,7 +128,7 @@ def downgrade():
             raise RuntimeError("Shortage delivery history exists; downgrade is blocked")
     op.drop_table("shortage_delivery_events")
     op.drop_table("shortage_urgent_assignments")
-    op.drop_constraint("chk_shortage_requests_chk_shortage_partial_quantity",
+    op.drop_constraint("ck_shortage_requests_chk_shortage_partial_quantity",
                        "shortage_requests", type_="check")
     op.drop_constraint("uq_shortage_requests_company_id",
                        "shortage_requests", type_="unique")
