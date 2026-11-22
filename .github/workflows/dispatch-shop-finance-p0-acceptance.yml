@@ -146,22 +146,32 @@ jobs:
               ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
               "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
               "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
               "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
               "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
               "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+              "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
               "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
               "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
               "wa_backend/api/dispatch.py",
+              "wa_backend/api/dispatch_product_schemas.py",
               "wa_backend/api/dispatch_shortage_availability.py",
+              "wa_backend/domains/dispatch_product_discovery.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
               "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
           }
           shortage_1057_distinct = {
               "wa_backend/api/dispatch_shortage_availability.py",
               "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
           }
-          assert len(shortage_1057_exact)==16
+          assert len(shortage_1057_exact)==26
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           m05_mode = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"]
           def ownership_mode(candidate):
@@ -223,7 +233,7 @@ jobs:
               denied(shortage_1057_exact | {foreign}, 'SHORTAGE_1057 foreign '+foreign)
           for mixed in (arv1_b_1045_exact,zones_1039_exact,d07_complete_exact):
               denied(shortage_1057_exact | mixed, 'SHORTAGE_1057 mixed')
-          print('SHORTAGE_1057_FINANCE_SELFTEST=PASS exact=16 missing=16 foreign=3 mixed=3')
+          print('SHORTAGE_1057_FINANCE_SELFTEST=PASS exact=26 missing=26 foreign=3 mixed=3')
           # Preserve all original #842 nonempty subsets and its exact four-file
           # provenance, not a new general Dispatch or money write authority.
           finance_items = sorted(finance_842_allowed)
