@@ -11,7 +11,7 @@ import {
 import { saveShortageDraft, restoreShortageDraft } from "@/features/dispatch/dispatchDrafts";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { clearLocalStoragePreservingLoginHintsAndPreferences, type DashboardSession } from "@/lib/authStorage";
-import type { Shop, Zone, Shortage } from "@/types/dispatch";
+import type { Shop, Zone } from "@/types/dispatch";
 
 const actor = "1:2:3";
 const differentActor = "1:99:3";
@@ -268,15 +268,15 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
 describe.each(["en","ar"] as const)("#1068 signed partial demand presentation %s", language=>{
   it("shows authoritative fulfilled/outstanding while refusing invented legacy progress",async()=>{
     await setAppLanguage(language);
-    const confirmed: Shortage = {
+    const confirmed = {
       id:"100",productId:"40",productName:"Chips",zoneId:"3",zoneName:"Zone",
       shopId:"7",shopName:"Shop",driverId:"9",driverName:"FIELD",
-      quantity:10,fulfilledBase:4,outstandingBase:6,fulfillmentEvidence:"SIGNED_V1",
-      status:"pending",
+      quantity:10,fulfilledBase:4,outstandingBase:6,fulfillmentEvidence:"SIGNED_V1" as const,
+      status:"pending" as const,
     };
-    const historical: Shortage = {
+    const historical = {
       ...confirmed,id:"101",productId:"41",productName:"Old chips",
-      fulfilledBase:null,outstandingBase:null,fulfillmentEvidence:"LEGACY_UNKNOWN",
+      fulfilledBase:null,outstandingBase:null,fulfillmentEvidence:"LEGACY_UNKNOWN" as const,
     };
     render(<ShortageModal isOpen canCreate canCancel canEdit focusShortageId="100" onClose={vi.fn()}
       zones={zones} activeShops={shops}
