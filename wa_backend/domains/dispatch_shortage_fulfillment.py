@@ -44,8 +44,10 @@ async def apply_signed_shortage_sale(
             ShortageUrgentAssignment.company_id == company_id,
             ShortageUrgentAssignment.visit_id == visit.id,
         )
+        # Approved assignment rows are immutable; the demand row below is
+        # the quantity serialization point. Do not take assignment row locks
+        # ahead of the demand (manager promotion locks demand first).
         .order_by(ShortageUrgentAssignment.id.asc())
-        .with_for_update()
     )).scalars().all()
     if not rows:
         return []
