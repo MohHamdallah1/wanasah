@@ -69,6 +69,10 @@ export interface Shortage {
   productName: string;
   quantity: number;
   status: "pending" | "fulfilled";
+  /** Backend #1067: signed partial sale projection; null for historical rows. */
+  fulfilledBase?: number | null;
+  outstandingBase?: number | null;
+  fulfillmentEvidence?: "SIGNED_V1" | "LEGACY_UNKNOWN";
   waitTime?: string | null;
   createdAt?: string | null;
 }
