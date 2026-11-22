@@ -744,7 +744,7 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
           editingShortageIds={ids} onCancelEdit={vi.fn()}
           drivers={[]} shortageDriverId="9" onDriverChange={vi.fn()}
           commandRecovery={{
-            pending: null, blocked: false, busy: false, feedback: null, onRetry: vi.fn(),
+            pending: null, blocked: false, busy: false, feedback: null, onRetry: vi.fn(), onVerify: vi.fn(),
           }}
           groupRecovery={{
             pending: { requestId: "ded0c901-babc-4455-9abc-000000000003", payload: intent },
