@@ -436,6 +436,13 @@ async def promote_shortage_with_signed_stock(
         )).all()
         if len(pending_visits) > 1:
             raise _rejected(409, "SHORTAGE_PENDING_VISIT_AMBIGUOUS", "Duplicate pending visits.")
+        if pending_visits and (
+            pending_visits[0].work_session_id is not None
+            or pending_visits[0].execution_period_id is not None
+            or pending_visits[0].current_sales_revision_id is not None
+        ):
+            raise _rejected(409, "SHORTAGE_PENDING_VISIT_STARTED",
+                            "Cannot modify an already-started or revision-bound Visit.")
         visit = ensure_shortage_pending_visit(
             db, company_id=company, driver_id=int(payload.driver_id),
             shop=shop, operational_date=await get_company_local_date(db, company),
