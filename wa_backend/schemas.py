@@ -1453,6 +1453,10 @@ class ShortageResponseItem(BaseModel):
     productName: str
     quantity: int
     status: str
+    # Additive V2 quantitative projection; NULL keeps legacy rows honest.
+    fulfilledBase: Optional[int] = None
+    outstandingBase: Optional[int] = None
+    fulfillmentEvidence: str = "LEGACY_UNKNOWN"
     waitTime: Optional[str] = None
     createdAt: Optional[str] = None
 
