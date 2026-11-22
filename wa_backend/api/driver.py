@@ -61,7 +61,7 @@ import logging
 from models import (
     Driver, WorkSession, DispatchRoute, Visit,
     WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, Zone,
-    ShortageRequest, SystemAuditLog,
+    ShortageRequest, ShortageUrgentAssignment, SystemAuditLog,
     InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch,
     InventoryTransferHeader, InventoryTransferLine,
     SessionInventorySnapshot,
@@ -1067,26 +1067,19 @@ async def update_visit(
                 detail="خط السير الحالي غير مربوط بسيارة صالحة للمخزون.",
             )
 
-        has_active_shortage = (
-            await db.execute(
-                select(ShortageRequest.id)
-                .filter(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none() is not None
-
-        is_emergency_request = payload.is_emergency or visit.is_emergency
-        if shop.zone_id != current_route.zone_id and not (
-            is_emergency_request or has_active_shortage
-        ):
+        # #1067: a pending replenishment demand is NOT a FIELD visit grant.
+        # A client-supplied is_emergency flag is never an authorization proof.
+        # Existing persisted historic emergency Visits remain executable,
+        # but new cross-zone urgency requires a manager-created Visit assignment.
+        assigned_urgent = await db.scalar(
+            select(ShortageUrgentAssignment.id).where(
+                ShortageUrgentAssignment.company_id == company_id,
+                ShortageUrgentAssignment.visit_id == visit.id,
+                ShortageUrgentAssignment.driver_id == driver_id,
+            ).limit(1)
+        )
+        is_emergency_request = visit.is_emergency or assigned_urgent is not None
+        if shop.zone_id != current_route.zone_id and not is_emergency_request:
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -1314,7 +1307,7 @@ async def update_visit(
         visit.latitude = payload.latitude if payload.latitude is not None else visit.latitude
         visit.longitude = payload.longitude if payload.longitude is not None else visit.longitude
         visit.shop_balance_before = original_shop_balance
-        visit.is_emergency = payload.is_emergency or visit.is_emergency
+        visit.is_emergency = bool(visit.is_emergency or assigned_urgent is not None)
         visit.work_session_id = active_session.id
         if execution.canonical:
             visit.execution_period_id = int(execution.period.id)
