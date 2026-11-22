@@ -26,6 +26,7 @@ from domains.authorization.backoffice_access import BackofficeCapabilityAccess, 
 from domains.dispatch_shop_read_scope import company_shop_directory, visible_shop_filter
 from dispatch_access import require_vehicle
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.identity.migration.models import IdentityLegacyDriverMap
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 from domains.dispatch.route_execution.custody.snapshot import read_vehicle_state
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
@@ -35,7 +36,7 @@ from product_lifecycle import (
 )
 from models import (
     Driver, Shop, Zone, ProductVariant, ProductBatch, Visit, DispatchRoute,
-    InventoryBalance, IdentityLegacyDriverMap, OperationIdempotency,
+    InventoryBalance, OperationIdempotency,
     ShortageRequest, ShortageUrgentAssignment, SystemAuditLog,
 )
 from services import (
@@ -388,6 +389,15 @@ async def promote_shortage_with_signed_stock(
                 InventoryBalance.product_variant_id == product_id,
             ).order_by(InventoryBalance.id.asc()).with_for_update()
         )
+        # Re-read AFTER acquiring balance locks. A prior GET or earlier read
+        # is not trusted if a sale/transfer modified the physical rows meanwhile.
+        try:
+            state = await read_vehicle_state(db, company, int(epoch.vehicle_id))
+        except CustodyRejected as exc:
+            raise _rejected(409, "SHORTAGE_VEHICLE_UNVERIFIED", "Vehicle custody changed during validation.") from exc
+        if (state.epoch is None or int(state.epoch.id) != int(epoch.id)
+                or state.location_id != int(epoch.vehicle_location_id)):
+            raise _rejected(409, "SHORTAGE_CUSTODY_CHANGED", "Custody moved while verifying quantity.")
         selected_lines = [line for line in state.lines if int(line["variant_id"]) == product_id]
         batch_ids = {int(line["batch_id"]) for line in selected_lines}
         batch_rows = (await db.execute(
