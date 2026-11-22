@@ -225,6 +225,7 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
     Object.defineProperty(window,"innerWidth",{configurable:true,value:width});
     const original=prepareShortageCommand(actor,"3","7","9",[row],()=>id).pending;
     const retry=vi.fn();
+    const verify=vi.fn();
     render(<ShortageModal
       isOpen canCreate canCancel canEdit onClose={vi.fn()}
       zones={zones} activeShops={shops}
@@ -235,7 +236,7 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
       shortages={[]} onDeleteShortage={vi.fn()} onDeleteShortageGroup={vi.fn()}
       onEditShortageGroup={vi.fn()} editingShortageIds={[]} onCancelEdit={vi.fn()}
       drivers={drivers} shortageDriverId="9" onDriverChange={vi.fn()}
-      commandRecovery={{pending:original,blocked:false,busy:false,feedback:"unknown",onRetry:retry,onVerify:vi.fn()}}
+      commandRecovery={{pending:original,blocked:false,busy:false,feedback:"unknown",onRetry:retry,onVerify:verify}}
       groupRecovery={{pending:null,blocked:false,restoring:false,busy:false,
         feedback:null,httpReference:null,onRetry:vi.fn()}}
     />);
@@ -243,6 +244,8 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
     expect(screen.getByTestId("shortage-command-uuid")).toHaveTextContent(id);
     expect(screen.getByTestId("shortage-quick-composer")).toBeDisabled();
     expect(screen.queryByText(language==="ar"?"عاجل":"Urgent")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("shortage-command-lookup"));
+    expect(verify).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByTestId("shortage-command-retry"));
     expect(retry).toHaveBeenCalledOnce();
   });
