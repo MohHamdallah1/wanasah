@@ -143,7 +143,15 @@ export function parseShortageReceipt(raw: unknown, intent: ShortageCommandBody):
   const root = raw as Record<string, unknown>;
   const response = root.receipt && typeof root.receipt === "object" &&
     !Array.isArray(root.receipt) ? root.receipt as Record<string, unknown> : root;
-  if (response.request_id !== intent.request_id || !Array.isArray(response.lines)) return null;
+  // W1 #1067's actual persisted immutable receipt, not a generic message.
+  // In particular, the database demand primary key is "shortage_id".
+  if (response.version !== 2 || response.status !== "PENDING_REPLENISHMENT" ||
+      response.request_id !== intent.request_id ||
+      response.shop_id !== intent.shop_id || response.zone_id !== intent.zone_id ||
+      response.requested_driver_id !== intent.requested_driver_id ||
+      typeof response.request_hash !== "string" ||
+      !/^[a-f0-9]{64}$/.test(response.request_hash) ||
+      !Array.isArray(response.lines)) return null;
   const received = response.lines as Array<Record<string, unknown>>;
   if (received.length !== intent.lines.length) return null;
   const expected = new Map(intent.lines.map(line => [line.product_id, line.quantity_base]));
@@ -155,7 +163,7 @@ export function parseShortageReceipt(raw: unknown, intent: ShortageCommandBody):
     const requestedBase = Number(value.requested_base);
     const fulfilledBase = Number(value.fulfilled_base);
     const outstandingBase = Number(value.outstanding_base);
-    const demandId = Number(value.demand_id);
+    const demandId = Number(value.shortage_id);
     if (!positive(productId) || !positive(demandId) ||
         expected.get(productId) !== requestedBase || !Number.isSafeInteger(fulfilledBase) ||
         !Number.isSafeInteger(outstandingBase) || fulfilledBase < 0 || outstandingBase < 0 ||
