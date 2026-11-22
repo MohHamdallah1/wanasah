@@ -1963,23 +1963,11 @@ async def dispatch_route(
                     visit.work_session_id = None
                     existing_by_shop[shop_id] = visit
 
-            shortage_shop_ids = set((
-                await db.execute(
-                    select(ShortageRequest.shop_id).filter(
-                        ShortageRequest.company_id == company_id,
-                        ShortageRequest.shop_id.in_(shop_ids),
-                        or_(
-                            ShortageRequest.driver_id == payload.driver_id,
-                            ShortageRequest.driver_id.is_(None),
-                        ),
-                        ShortageRequest.status == "pending",
-                    )
-                )
-            ).scalars().all())
-
+            # #1067: Route launch may create ordinary route Visits but may NOT
+            # upgrade outstanding replenishment demand into an urgent Visit.
+            # An already authorized emergency Visit remains intact.
             for shop in shops_in_zone:
                 shop_id = int(shop.id)
-                is_emergency = shop_id in shortage_shop_ids
                 existing = existing_by_shop.get(shop_id)
                 if existing is None and shop_id not in seen_today:
                     db.add(Visit(
@@ -1989,10 +1977,8 @@ async def dispatch_route(
                         operational_date=company_local_date,
                         status="Pending",
                         sequence=shop.sequence,
-                        is_emergency=is_emergency,
+                        is_emergency=False,
                     ))
-                elif existing is not None and is_emergency:
-                    existing.is_emergency = True
 
         response = complete_route_launch(
             record, payload=payload, response={
