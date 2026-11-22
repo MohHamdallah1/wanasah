@@ -2248,12 +2248,20 @@ async def update_visit(
         # manager-authorized Visit↔shortage assignment may receive an allocation.
         # Any unrelated sale of the same SKU does NOT touch demand.
         if payload.outcome == "Sale":
+            # A single SKU may occur in multiple valid commercial lines/UOMs.
+            # Sum physically validated canonical base quantities, never let a
+            # dictionary comprehension overwrite an earlier line.
+            sold_base_by_variant = {}
+            for ctx in item_contexts:
+                base = ctx["sale_base_quantity"]
+                if base > 0:
+                    pid = int(ctx["item"].product_variant_id)
+                    sold_base_by_variant[pid] = (
+                        sold_base_by_variant.get(pid, Decimal("0")) + base
+                    )
             await apply_signed_shortage_sale(
                 db, company_id=company_id, visit=visit,
-                sale_quantities={
-                    int(ctx["item"].product_variant_id): ctx["sale_base_quantity"]
-                    for ctx in item_contexts if ctx["sale_base_quantity"] > 0
-                },
+                sale_quantities=sold_base_by_variant,
                 request_id=str(payload.request_id),
             )
 
@@ -2269,6 +2277,12 @@ async def update_visit(
                         Visit.status == "Pending",
                         Visit.operational_date == visit.operational_date,
                         Visit.id != visit.id,
+                        # An already-authorized urgent Visit is separate
+                        # evidence: ordinary route completion must not erase it.
+                        ~select(ShortageUrgentAssignment.id).where(
+                            ShortageUrgentAssignment.company_id == company_id,
+                            ShortageUrgentAssignment.visit_id == Visit.id,
+                        ).exists(),
                     )
                 )
 
