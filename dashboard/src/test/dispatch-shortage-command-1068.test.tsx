@@ -46,9 +46,12 @@ const fakeLocks = { request: async <T,>(
 }};
 const err = (status:number) => Object.assign(new Error("private error"),{status});
 const receipt = (body:ReturnType<typeof buildShortageIntent>) => ({
-  request_id:body.request_id,
+  version: 2, status: "PENDING_REPLENISHMENT",
+  request_id:body.request_id, request_hash:"a".repeat(64),
+  shop_id:body.shop_id, zone_id:body.zone_id,
+  requested_driver_id:body.requested_driver_id,
   lines:body.lines.map((l,i)=>({
-    product_id:l.product_id,demand_id:300+i,requested_base:l.quantity_base,
+    product_id:l.product_id,shortage_id:300+i,requested_base:l.quantity_base,
     fulfilled_base:0,outstanding_base:l.quantity_base,
   })),
 });
@@ -104,6 +107,8 @@ describe("#1068 immutable command contract",()=>{
     const intent=buildShortageIntent("3","7","9",[row],id);
     expect(parseShortageReceipt({message:"ok"},intent)).toBeNull();
     expect(parseShortageReceipt({...receipt(intent),request_id:crypto.randomUUID()},intent)).toBeNull();
+    expect(parseShortageReceipt({...receipt(intent),zone_id:999},intent)).toBeNull();
+    expect(parseShortageReceipt({...receipt(intent),status:"URGENT_AUTHORIZED"},intent)).toBeNull();
     expect(parseShortageReceipt({request_id:id,lines:[]},intent)).toBeNull();
     expect(parseShortageReceipt({request_id:id,lines:[{...receipt(intent).lines[0],outstanding_base:2}]},intent)).toBeNull();
     expect(()=>buildShortageIntent("3","7","9",Array(81).fill(row),id)).toThrow();
