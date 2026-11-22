@@ -49,6 +49,7 @@ interface ShortageModalProps {
     busy: boolean;
     feedback: "unknown" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
     onRetry: () => void;
+    onVerify: () => void;
   };
   groupRecovery: {
     pending: { requestId: string; payload: GroupIntent } | null;
@@ -402,12 +403,20 @@ export function ShortageModal({
                 {commandRecovery.pending.command.request_id}
               </p>
               <p className="text-xs">{text("shortageCommandPendingOnly")}</p>
-              <button type="button" onClick={commandRecovery.onRetry}
-                disabled={commandRecovery.busy || commandRecovery.blocked}
-                className="min-h-11 rounded-lg bg-amber-800 px-4 text-xs font-bold text-white disabled:opacity-50"
-                data-testid="shortage-command-retry">
-                {text("shortageCommandRetry")}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={commandRecovery.onVerify}
+                  disabled={commandRecovery.busy || commandRecovery.blocked}
+                  className="min-h-11 rounded-lg border border-amber-800 px-4 text-xs font-bold text-amber-900 disabled:opacity-50"
+                  data-testid="shortage-command-lookup">
+                  {text("shortageCommandLookup")}
+                </button>
+                <button type="button" onClick={commandRecovery.onRetry}
+                  disabled={commandRecovery.busy || commandRecovery.blocked}
+                  className="min-h-11 rounded-lg bg-amber-800 px-4 text-xs font-bold text-white disabled:opacity-50"
+                  data-testid="shortage-command-retry">
+                  {text("shortageCommandRetry")}
+                </button>
+              </div>
             </>}
           </section>
         )}
