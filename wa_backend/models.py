@@ -2317,6 +2317,12 @@ class ShortageUrgentAssignment(Base):
         ForeignKeyConstraint(['company_id', 'driver_id'],
                              ['drivers.company_id', 'drivers.id'],
                              ondelete='RESTRICT', name='fk_shortage_assignment_tenant_driver'),
+        ForeignKeyConstraint(['company_id', 'vehicle_id'],
+                             ['vehicles.company_id', 'vehicles.id'],
+                             ondelete='RESTRICT', name='fk_shortage_assignment_tenant_vehicle'),
+        ForeignKeyConstraint(['company_id', 'custody_epoch_id'],
+                             ['vehicle_custody_epochs.company_id', 'vehicle_custody_epochs.id'],
+                             ondelete='RESTRICT', name='fk_shortage_assignment_tenant_epoch'),
         CheckConstraint('approved_base > 0', name='chk_shortage_assignment_positive'),
     )
     id = Column(Integer, primary_key=True)
