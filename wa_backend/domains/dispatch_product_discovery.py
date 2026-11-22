@@ -3,7 +3,7 @@ from sqlalchemy import func, or_, select
 from domains.dispatch_adjust_load_read import read_adjust_load_snapshot, project_adjust_load_items
 from domains.dispatch_product_cursor import decode_product_cursor, encode_product_cursor
 from domains.inventory_source_stock import warehouse_load_candidate_ids_statement
-from models import ProductVariant
+from models import ProductVariant, UOM
 from product_lifecycle import REPLENISHMENT_NEW, product_capability_predicate
 from services import get_company_local_date
 
@@ -55,7 +55,15 @@ async def dispatch_product_page(db, *, company_id, purpose, search, cursor=None,
         rows = await project_adjust_load_items(db, company_id=company_id, product_ids=page_ids, snapshot=snapshot)
         items = [dict(id=row["product_id"], name=row["product_name"], load=row) for row in rows]
     else:
-        rows = (await db.execute(select(ProductVariant.id, ProductVariant.name).where(
-            ProductVariant.company_id == company_id, ProductVariant.id.in_(page_ids)).order_by(ProductVariant.id))).all()
-        items = [dict(id=str(pid), name=name, load=None) for pid, name in rows]
+        # The global UOM catalog is reached only through a tenant-scoped SKU.
+        # One bounded JOIN for the whole page: no per-product UOM reads, no
+        # stock/location filtering, and no guessed carton/display conversion.
+        rows = (await db.execute(
+            select(ProductVariant.id, ProductVariant.name, UOM.code)
+            .join(UOM, UOM.id == ProductVariant.base_uom_id)
+            .where(ProductVariant.company_id == company_id, ProductVariant.id.in_(page_ids))
+            .order_by(ProductVariant.id)
+        )).all()
+        items = [dict(id=str(pid), name=name, load=None, base_uom_code=base_code)
+                 for pid, name, base_code in rows]
     return dict(items=items, next_cursor=encode_product_cursor(page_ids[-1], scope=scope) if has_more else None, has_more=has_more)
