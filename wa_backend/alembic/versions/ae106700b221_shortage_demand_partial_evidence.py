@@ -66,6 +66,11 @@ def upgrade():
                                 ondelete="RESTRICT", name="fk_shortage_assignment_tenant_visit"),
         sa.ForeignKeyConstraint(["company_id", "driver_id"], ["drivers.company_id", "drivers.id"],
                                 ondelete="RESTRICT", name="fk_shortage_assignment_tenant_driver"),
+        sa.ForeignKeyConstraint(["company_id", "vehicle_id"], ["vehicles.company_id", "vehicles.id"],
+                                ondelete="RESTRICT", name="fk_shortage_assignment_tenant_vehicle"),
+        sa.ForeignKeyConstraint(["company_id", "custody_epoch_id"],
+                                ["vehicle_custody_epochs.company_id", "vehicle_custody_epochs.id"],
+                                ondelete="RESTRICT", name="fk_shortage_assignment_tenant_epoch"),
         sa.CheckConstraint("approved_base > 0", name="ck_shortage_urgent_assignments_chk_shortage_assignment_positive"),
     )
     op.create_index("ix_shortage_assignment_company_demand", "shortage_urgent_assignments",
