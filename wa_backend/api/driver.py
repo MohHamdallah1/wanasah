@@ -97,6 +97,9 @@ from domains.sales_calculation.driver_sale import (
 )
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
+from domains.dispatch_shortage_fulfillment import (
+    apply_signed_shortage_sale, reverse_signed_shortage_sale,
+)
 from domains.inventory_costing.service import resolve_linked_return_cost_sources
 from domains.work_session_multi_route.context import (
     PeriodProof, SessionPeriodRejected, resolve_active_execution,
@@ -1244,6 +1247,12 @@ async def update_visit(
                 shop,
                 admin_id=driver_id,
             )
+            # #1067: compensating quantity evidence for only this signed Visit.
+            # Legacy unlinked shortages remain unquantified; no SKU-only inference.
+            await reverse_signed_shortage_sale(
+                db, company_id=company_id, visit_id=int(visit.id),
+                request_id=str(payload.request_id),
+            )
             db.add(
                 SystemAuditLog(
                     company_id=company_id,
@@ -2239,29 +2248,18 @@ async def update_visit(
         else:
             visit.shop_balance_after = original_shop_balance
 
-        sold_variant_ids = sorted({
-            item.product_variant_id
-            for item in payload.cart_items
-            if item.quantity > 0 or item.packs_quantity > 0
-        })
-        if payload.outcome == "Sale" and sold_variant_ids:
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    ShortageRequest.product_variant_id.in_(sold_variant_ids),
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
-                )
-                .values(
-                    status="fulfilled",
-                    fulfilled_by_visit_id=visit.id,
-                    fulfilled_at=get_utc_now(),
-                )
+        # #1067: physical sale quantity was validated against the frozen
+        # commercial calculation and moved through FEFO above. Only a
+        # manager-authorized Visit↔shortage assignment may receive an allocation.
+        # Any unrelated sale of the same SKU does NOT touch demand.
+        if payload.outcome == "Sale":
+            await apply_signed_shortage_sale(
+                db, company_id=company_id, visit=visit,
+                sale_quantities={
+                    int(ctx["item"].product_variant_id): ctx["sale_base_quantity"]
+                    for ctx in item_contexts if ctx["sale_base_quantity"] > 0
+                },
+                request_id=str(payload.request_id),
             )
 
         if payload.outcome in {"Sale", "NoSale"}:
