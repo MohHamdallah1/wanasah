@@ -1666,8 +1666,17 @@ function DispatchSession() {
     actorScope,
     authorized: Boolean(actorScope && accessState === "ready" &&
       dispatchReadState === "ready" && grants.shortages && grants.shortageCreate &&
-      grants.routes && isDashboardSessionCurrent(session!)),
+      grants.routes && readParts.init && readParts.shops &&
+      isDashboardSessionCurrent(session!)),
     fetch: authenticatedFetch,
+    canRestore: pending => {
+      const c = pending.command;
+      return zones.some(z => z.id === String(c.zone_id)) &&
+        shops.some(shop => shop.id === String(c.shop_id) &&
+          shop.zoneId === String(c.zone_id) && !shop.archived) &&
+        (c.requested_driver_id === null || drivers.some(
+          driver => driver.id === String(c.requested_driver_id)));
+    },
     onRestored: pending => {
       const original = pending.command;
       setShortageZoneId(String(original.zone_id));
@@ -1848,7 +1857,7 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
-    if (shortageGroup.hasUnresolved) return;
+    if (shortageGroup.hasUnresolved || shortageCommand.hasUnresolved || shortageCommand.busy) return;
     clearShortageDraft(actorScope); // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
