@@ -2307,6 +2307,7 @@ class ShortageUrgentAssignment(Base):
     __tablename__ = 'shortage_urgent_assignments'
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_shortage_assignment_company_id'),
+        Index('ix_shortage_assignment_company_demand', 'company_id', 'shortage_id'),
         UniqueConstraint('company_id', 'shortage_id', 'visit_id', name='uq_shortage_assignment_visit'),
         ForeignKeyConstraint(['company_id', 'shortage_id'],
                              ['shortage_requests.company_id', 'shortage_requests.id'],
@@ -2326,8 +2327,8 @@ class ShortageUrgentAssignment(Base):
         CheckConstraint('approved_base > 0', name='chk_shortage_assignment_positive'),
     )
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
-    shortage_id = Column(Integer, nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, )
+    shortage_id = Column(Integer, nullable=False, )
     visit_id = Column(Integer, nullable=False)
     driver_id = Column(Integer, nullable=False)
     vehicle_id = Column(Integer, nullable=False)
@@ -2341,6 +2342,7 @@ class ShortageDeliveryEvent(Base):
     __tablename__ = 'shortage_delivery_events'
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_shortage_delivery_company_id'),
+        Index('ix_shortage_delivery_company_assignment', 'company_id', 'assignment_id', 'id'),
         UniqueConstraint('company_id', 'assignment_id', 'sales_revision_id', 'event_type',
                          name='uq_shortage_delivery_revision_type'),
         UniqueConstraint('company_id', 'reverses_event_id', name='uq_shortage_delivery_reversal'),
@@ -2364,8 +2366,8 @@ class ShortageDeliveryEvent(Base):
         ),
     )
     id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
-    assignment_id = Column(Integer, nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, )
+    assignment_id = Column(Integer, nullable=False, )
     visit_id = Column(Integer, nullable=False)
     sales_revision_id = Column(Integer, nullable=False)
     event_type = Column(String(12), nullable=False)
