@@ -2253,6 +2253,7 @@ class VisitReturn(Base):
 class ShortageRequest(Base):
     __tablename__ = 'shortage_requests'
     __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_shortage_requests_company_id'),
         ForeignKeyConstraint(['company_id', 'zone_id'], ['zones.company_id', 'zones.id'],
                              name='fk_shortage_tenant_zone'),
         ForeignKeyConstraint(['company_id', 'shop_id'], ['shops.company_id', 'shops.id'],
@@ -2268,6 +2269,12 @@ class ShortageRequest(Base):
             "(fulfilled_by_visit_id IS NOT NULL AND fulfilled_at IS NOT NULL))",
             name='chk_shortage_fulfillment_pair'
         ),
+        CheckConstraint(
+            "(fulfillment_version IS NULL AND fulfilled_base IS NULL) OR "
+            "(fulfillment_version = 1 AND fulfilled_base IS NOT NULL "
+            "AND fulfilled_base >= 0 AND fulfilled_base <= quantity)",
+            name='chk_shortage_partial_quantity'
+        ),
     )
     id                 = Column(Integer, primary_key=True)
     company_id         = Column(Integer, ForeignKey('companies.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -2278,6 +2285,9 @@ class ShortageRequest(Base):
     product_variant_id = Column(Integer, nullable=False, index=True)
 
     quantity   = Column(Integer, CheckConstraint('quantity > 0', name='chk_shortage_qty_positive'), nullable=False)
+    # NULL means legacy unverified history; V1 demand commands set version=1, fulfilled_base=0.
+    fulfillment_version = Column(Integer, nullable=True)
+    fulfilled_base = Column(Integer, nullable=True)
     status     = Column(String(50), nullable=False, default='pending', index=True)
     wait_time  = Column(String(50), nullable=True,  default='الآن')
     notes      = Column(Text,       nullable=True)   # بدل product_name - لو في ملاحظات إضافية
@@ -2289,6 +2299,74 @@ class ShortageRequest(Base):
     shop            = relationship('Shop', foreign_keys=[shop_id], lazy='raise')
     driver          = relationship('Driver', foreign_keys=[driver_id], lazy='raise')
     product_variant = relationship('ProductVariant', foreign_keys=[product_variant_id], lazy='raise')  # FIX ③
+
+
+
+class ShortageUrgentAssignment(Base):
+    """Approved bounded manager intent; the FIELD Visit is never created by demand alone."""
+    __tablename__ = 'shortage_urgent_assignments'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_shortage_assignment_company_id'),
+        UniqueConstraint('company_id', 'shortage_id', 'visit_id', name='uq_shortage_assignment_visit'),
+        ForeignKeyConstraint(['company_id', 'shortage_id'],
+                             ['shortage_requests.company_id', 'shortage_requests.id'],
+                             ondelete='RESTRICT', name='fk_shortage_assignment_tenant_demand'),
+        ForeignKeyConstraint(['company_id', 'visit_id'],
+                             ['visits.company_id', 'visits.id'],
+                             ondelete='RESTRICT', name='fk_shortage_assignment_tenant_visit'),
+        ForeignKeyConstraint(['company_id', 'driver_id'],
+                             ['drivers.company_id', 'drivers.id'],
+                             ondelete='RESTRICT', name='fk_shortage_assignment_tenant_driver'),
+        CheckConstraint('approved_base > 0', name='chk_shortage_assignment_positive'),
+    )
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+    shortage_id = Column(Integer, nullable=False, index=True)
+    visit_id = Column(Integer, nullable=False)
+    driver_id = Column(Integer, nullable=False)
+    vehicle_id = Column(Integer, nullable=False)
+    custody_epoch_id = Column(BigInteger, nullable=False)
+    approved_base = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
+
+
+class ShortageDeliveryEvent(Base):
+    """Append-only allocation/reversal attached to a signed FIELD sales revision."""
+    __tablename__ = 'shortage_delivery_events'
+    __table_args__ = (
+        UniqueConstraint('company_id', 'id', name='uq_shortage_delivery_company_id'),
+        UniqueConstraint('company_id', 'assignment_id', 'sales_revision_id', 'event_type',
+                         name='uq_shortage_delivery_revision_type'),
+        UniqueConstraint('company_id', 'reverses_event_id', name='uq_shortage_delivery_reversal'),
+        ForeignKeyConstraint(['company_id', 'assignment_id'],
+                             ['shortage_urgent_assignments.company_id', 'shortage_urgent_assignments.id'],
+                             ondelete='RESTRICT', name='fk_shortage_delivery_tenant_assignment'),
+        ForeignKeyConstraint(['company_id', 'visit_id'],
+                             ['visits.company_id', 'visits.id'],
+                             ondelete='RESTRICT', name='fk_shortage_delivery_tenant_visit'),
+        ForeignKeyConstraint(['company_id', 'visit_id', 'sales_revision_id'],
+                             ['sales_visit_revisions.company_id', 'sales_visit_revisions.visit_id',
+                              'sales_visit_revisions.id'],
+                             ondelete='RESTRICT', name='fk_shortage_delivery_sale_revision'),
+        ForeignKeyConstraint(['company_id', 'reverses_event_id'],
+                             ['shortage_delivery_events.company_id', 'shortage_delivery_events.id'],
+                             ondelete='RESTRICT', name='fk_shortage_delivery_reverses'),
+        CheckConstraint(
+            "(event_type = 'DELIVERY' AND quantity_delta > 0 AND reverses_event_id IS NULL) OR "
+            "(event_type = 'REVERSAL' AND quantity_delta < 0 AND reverses_event_id IS NOT NULL)",
+            name='chk_shortage_delivery_direction',
+        ),
+    )
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey('companies.id', ondelete='RESTRICT'), nullable=False, index=True)
+    assignment_id = Column(Integer, nullable=False, index=True)
+    visit_id = Column(Integer, nullable=False)
+    sales_revision_id = Column(Integer, nullable=False)
+    event_type = Column(String(12), nullable=False)
+    quantity_delta = Column(Integer, nullable=False)
+    reverses_event_id = Column(Integer, nullable=True)
+    request_id = Column(String(36), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now)
 
 
 # =================================================================================
