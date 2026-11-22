@@ -176,3 +176,25 @@ export function parseShortageReceipt(raw: unknown, intent: ShortageCommandBody):
 }
 export const shortageCommandBody = (pending: ShortagePendingCommand): ShortageCommandBody =>
   pending.command;
+
+/**
+ * W1 #1067's additive GET /dispatch/shortages projection is the sole authority
+ * for actually fulfilled quantities. The vehicle quote is only potential stock.
+ * Legacy rows carry null evidence and MUST NOT be silently marked 0/fulfilled.
+ */
+export function signedShortageProgress(row: {
+  quantity: number; fulfilledBase?: number | null; outstandingBase?: number | null;
+  fulfillmentEvidence?: string;
+}): {requested: number; fulfilled: number; outstanding: number} | null {
+  if (row.fulfillmentEvidence !== "SIGNED_V1" ||
+      !Number.isSafeInteger(row.quantity) || row.quantity <= 0 ||
+      !Number.isSafeInteger(row.fulfilledBase) ||
+      !Number.isSafeInteger(row.outstandingBase) ||
+      (row.fulfilledBase ?? -1) < 0 || (row.outstandingBase ?? -1) < 0 ||
+      (row.fulfilledBase ?? 0) + (row.outstandingBase ?? 0) !== row.quantity) return null;
+  return {
+    requested: row.quantity,
+    fulfilled: row.fulfilledBase!,
+    outstanding: row.outstandingBase!,
+  };
+}
