@@ -1071,13 +1071,15 @@ async def update_visit(
         # A client-supplied is_emergency flag is never an authorization proof.
         # Existing persisted historic emergency Visits remain executable,
         # but new cross-zone urgency requires a manager-created Visit assignment.
-        assigned_urgent = await db.scalar(
-            select(ShortageUrgentAssignment.id).where(
-                ShortageUrgentAssignment.company_id == company_id,
-                ShortageUrgentAssignment.visit_id == visit.id,
-                ShortageUrgentAssignment.driver_id == driver_id,
-            ).limit(1)
-        )
+        assigned_urgent = None
+        if shop.zone_id != current_route.zone_id:
+            assigned_urgent = await db.scalar(
+                select(ShortageUrgentAssignment.id).where(
+                    ShortageUrgentAssignment.company_id == company_id,
+                    ShortageUrgentAssignment.visit_id == visit.id,
+                    ShortageUrgentAssignment.driver_id == driver_id,
+                ).limit(1)
+            )
         is_emergency_request = visit.is_emergency or assigned_urgent is not None
         if shop.zone_id != current_route.zone_id and not is_emergency_request:
             raise HTTPException(
