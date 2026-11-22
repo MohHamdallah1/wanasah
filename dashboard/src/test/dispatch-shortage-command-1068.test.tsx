@@ -6,7 +6,7 @@ import { useShortageCommandCommit } from "@/features/dispatch/shortageCommand/us
 import {
   buildShortageIntent, clearConfirmedShortage, isShortagePending,
   parseShortageReceipt, pendingShortageKey, prepareShortageCommand,
-  readPendingShortage,
+  readPendingShortage, signedShortageProgress,
 } from "@/features/dispatch/shortageCommand/contract";
 import { saveShortageDraft, restoreShortageDraft } from "@/features/dispatch/dispatchDrafts";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
@@ -102,6 +102,20 @@ describe("#1068 immutable command contract",()=>{
     expect(clearLocalStoragePreservingLoginHintsAndPreferences()).toBe(true);
     expect(readPendingShortage(actor)?.command.request_id).toBe(id);
     expect(readPendingShortage(differentActor)).toBeNull();
+  });
+  it("accepts signed 10/4/6 actual partial, rejects legacy and corrupt evidence",()=>{
+    const actual = { quantity:10, fulfilledBase:4, outstandingBase:6,
+      fulfillmentEvidence:"SIGNED_V1" as const };
+    expect(signedShortageProgress(actual)).toEqual({
+      requested:10,fulfilled:4,outstanding:6,
+    });
+    expect(signedShortageProgress({...actual,fulfilledBase:1})).toBeNull();
+    expect(signedShortageProgress({...actual,fulfillmentEvidence:"LEGACY_UNKNOWN"})).toBeNull();
+    expect(signedShortageProgress({...actual,fulfilledBase:null,outstandingBase:null})).toBeNull();
+    expect(signedShortageProgress({...actual,fulfilledBase:-1,outstandingBase:11})).toBeNull();
+    expect(signedShortageProgress({...actual,fulfilledBase:0,outstandingBase:10})).toEqual({
+      requested:10,fulfilled:0,outstanding:10,
+    });
   });
   it("rejects phantom/mismatched receipt, wrong actor, corrupt UUID and 81 lines",()=>{
     const intent=buildShortageIntent("3","7","9",[row],id);
