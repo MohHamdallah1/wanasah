@@ -321,6 +321,24 @@ async def promote_shortage_with_signed_stock(
         )
         if pre is None:
             raise _rejected(404, "SHORTAGE_NOT_FOUND", "No such demand.")
+        # Lifecycle guards must precede Zone/Shop/vehicle locks. A product
+        # suspended or recalled since the original demand is not promotable,
+        # even if an older vehicle stock snapshot still looks sellable.
+        product_id = int(pre.product_variant_id)
+        await acquire_product_lifecycle_guards(
+            db, company, [product_id], exclusive=False,
+        )
+        variant = await db.scalar(select(ProductVariant).where(
+            ProductVariant.company_id == company,
+            ProductVariant.id == product_id,
+        ))
+        if variant is None:
+            raise _rejected(404, "SHORTAGE_PRODUCT_NOT_FOUND", "SKU no longer available.")
+        capability = evaluate_product_capability(
+            variant.lifecycle_status, variant.operational_hold, REPLENISHMENT_NEW,
+        )
+        if not capability.allowed:
+            raise _rejected(409, capability.code, "SKU cannot be promoted while suspended.")
         shop = await _lock_zone_shop(db, access, int(pre.shop_id), int(pre.zone_id))
         shortage = await db.scalar(
             select(ShortageRequest).where(
