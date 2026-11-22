@@ -21,7 +21,7 @@ from domains.dispatch_shortage_visits import (
 )
 from models import (
     DispatchRoute, Driver, ProductVariant, Shop, ShortageRequest, SystemAuditLog,
-    Visit, Zone,
+    Visit, Zone, ShortageUrgentAssignment,
 )
 from product_lifecycle import (
     REPLENISHMENT_NEW, acquire_product_lifecycle_guards,
@@ -242,8 +242,20 @@ async def replace_shortage_group(
     if any(int(row.zone_id) != zone_id
            or (int(row.driver_id) if row.driver_id is not None else None) != old_driver_id
            or row.fulfilled_by_visit_id is not None or row.fulfilled_at is not None
+           or (row.fulfillment_version == 1 and int(row.fulfilled_base or 0) > 0)
            for row in selected):
         _reject(409, "SHORTAGE_SELECTION_CHANGED", "تغيّرت حالة المجموعة؛ أعد تحميلها.")
+
+    # #1067: replacement cannot silently erase accepted urgent/partial Visit evidence.
+    authorized = await db.scalar(
+        select(ShortageUrgentAssignment.id).where(
+            ShortageUrgentAssignment.company_id == company_id,
+            ShortageUrgentAssignment.shortage_id.in_(sorted(ids)),
+        ).limit(1)
+    )
+    if authorized is not None:
+        _reject(409, "SHORTAGE_GROUP_HAS_URGENT_ASSIGNMENT",
+                "لا يمكن استبدال طلب مربوط بزيارة عاجلة معتمدة.")
 
     variants = (await db.execute(
         select(ProductVariant).where(
@@ -294,19 +306,14 @@ async def replace_shortage_group(
         row = ShortageRequest(
             company_id=company_id, zone_id=zone_id, shop_id=shop_id,
             driver_id=driver_id, product_variant_id=int(item.product_variant_id),
-            quantity=int(item.quantity),
+            quantity=int(item.quantity), fulfillment_version=1, fulfilled_base=0,
         )
         db.add(row)
         new_rows.append(row)
     await db.flush()
 
-    if resolved:
-        company_date = await get_company_local_date(db, company_id)
-        for driver_id in sorted({driver for _, driver in resolved if driver is not None}):
-            visits[driver_id] = ensure_shortage_pending_visit(
-                db, company_id=company_id, driver_id=driver_id,
-                shop=shop, operational_date=company_date, existing=visits.get(driver_id),
-            )
+    # #1067: grouped replacement records replenishment demand only.
+    # No automatic executable emergency Visit (even when assigned).
     if old_driver_id is not None:
         await settle_shortage_pending_visit(
             db, company_id=company_id, shop=shop, driver_id=old_driver_id,
