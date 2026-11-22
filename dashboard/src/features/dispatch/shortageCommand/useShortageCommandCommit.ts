@@ -67,6 +67,7 @@ export function useShortageCommandCommit({
   const perform = useCallback(async (
     submitted: {zone: string; shop: string; driver: string; rows: ShortageDraftRow[]} | null,
     retry: boolean,
+    receiptLookup = false,
   ): Promise<boolean> => {
     if (!live() || !scope || flight.current || state.busy || state.blocked) return false;
     if (typeof navigator === "undefined" || !navigator.locks?.request) {
@@ -122,10 +123,14 @@ export function useShortageCommandCommit({
           }
           if (!live()) return false;
           try {
-            const response = await fetch("/dispatch/shortage-commands", {
-              method: "POST",
-              body: JSON.stringify(shortageCommandBody(original)),
-            });
+            const response = await fetch(
+              receiptLookup
+                ? `/dispatch/shortage-commands/${original.command.request_id}`
+                : "/dispatch/shortage-commands",
+              receiptLookup
+                ? { method: "GET", cache: "no-store" }
+                : { method: "POST", body: JSON.stringify(shortageCommandBody(original)) },
+            );
             if (!live()) return false;
             // An acknowledged HTTP success with no exact immutable line
             // receipt is still UNKNOWN. A subsequent list is not evidence.
@@ -170,8 +175,9 @@ export function useShortageCommandCommit({
   const save = useCallback((zone: string, shop: string, driver: string, rows: ShortageDraftRow[]) =>
     perform({zone,shop,driver,rows}, false), [perform]);
   const retry = useCallback(() => perform(null, true), [perform]);
+  const verify = useCallback(() => perform(null, true, true), [perform]);
   return {
     ...state, pending: authorized && live() ? state.pending : null,
-    save,retry,hasUnresolved: Boolean(state.pending) || state.blocked,
+    save, retry, verify, hasUnresolved: Boolean(state.pending) || state.blocked,
   };
 }
