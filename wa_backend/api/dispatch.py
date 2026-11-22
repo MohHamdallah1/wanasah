@@ -4797,24 +4797,11 @@ async def update_route_status(
                         visit.work_session_id = work_session_id
                         existing_pending[shop_id] = visit
 
-                shortage_shop_ids = set((
-                    await db.execute(
-                        select(ShortageRequest.shop_id).filter(
-                            ShortageRequest.company_id == company_id,
-                            ShortageRequest.shop_id.in_(shop_ids),
-                            or_(
-                                ShortageRequest.driver_id == route.driver_id,
-                                ShortageRequest.driver_id.is_(None),
-                            ),
-                            ShortageRequest.status == "pending",
-                        )
-                    )
-                ).scalars().all())
-
+                # #1067 route activation creates ordinary Visits only; pending
+                # replenishment demand cannot become executable emergency authority.
                 for shop in shops_in_zone:
                     shop_id = int(shop.id)
                     existing = existing_pending.get(shop_id)
-                    is_emergency = shop_id in shortage_shop_ids
                     if existing is None and shop_id not in seen_today:
                         db.add(Visit(
                             company_id=company_id,
@@ -4823,11 +4810,9 @@ async def update_route_status(
                             operational_date=company_local_date,
                             status="Pending",
                             sequence=shop.sequence,
-                            is_emergency=is_emergency,
+                            is_emergency=False,
                             work_session_id=work_session_id,
                         ))
-                    elif existing is not None and is_emergency:
-                        existing.is_emergency = True
 
         changed = (
             old_status != route.status
