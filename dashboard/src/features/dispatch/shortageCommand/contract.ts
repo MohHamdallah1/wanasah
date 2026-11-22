@@ -32,7 +32,9 @@ export type ShortageCommandReceipt = {
     fulfilledBase: number; outstandingBase: number;
   }>;
 };
-const keyPrefix = "wanasah:dispatch:shortage-command:v2:";
+// D10 actor-scoped prefix is explicitly retained across logout by authStorage.
+// Do not use a new, unpreserved top-level prefix for an UNKNOWN command.
+const keyPrefix = "wanasah:dispatch:d10:shortage-command:v2:";
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0;
