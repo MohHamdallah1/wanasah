@@ -355,6 +355,7 @@ jobs:
               "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
               "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
               "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
               "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
               "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
               "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
@@ -372,7 +373,7 @@ jobs:
               "wa_backend/api/dispatch_shortage_availability.py",
               "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
           }
-          assert len(shortage_1057_exact)==26
+          assert len(shortage_1057_exact)==27
           urgent_1055_exact = {
               '.github/scripts/live_stock_ci_ownership.py',
               '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -455,7 +456,7 @@ jobs:
               try: shortage_1057_mode(shortage_1057_exact|mixed)
               except AssertionError: pass
               else: raise AssertionError('SHORTAGE_1057 mixed: '+repr(mixed))
-          print('SHORTAGE_1057_D07_SELFTEST=PASS exact=26 missing=26 foreign=3 mixed=3')
+          print('SHORTAGE_1057_D07_SELFTEST=PASS exact=27 missing=27 foreign=3 mixed=3')
           def urgent_1055_mode(candidate):
               if candidate == urgent_1055_exact: return True
               if candidate & urgent_1055_distinct:
@@ -603,7 +604,7 @@ jobs:
               "dashboard/src/features/dispatch/sessionScope.ts",
               "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
+              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files == shortage_1057_exact or files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
           print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD

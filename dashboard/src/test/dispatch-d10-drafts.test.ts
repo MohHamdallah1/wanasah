@@ -86,7 +86,7 @@ describe("Dispatch D10 location and actor drafts", () => {
   it("preserves an authorized shortage draft on refresh and blocks changed shop-zone or actor", () => {
     const rows = [{ productId: "11", productName: "Lolo", quantity: 4 }];
     saveShortageDraft(actor, { zoneId: "7", shopId: "6", driverId: "5", rows });
-    expect(restoreShortageDraft(actor, zones, shops, drivers)?.rows).toEqual(rows);
+    expect(restoreShortageDraft(actor, zones, shops, drivers)?.rows).toEqual([{ ...rows[0], baseUomCode: null }]);
     expect(restoreShortageDraft("1:99:3", zones, shops, drivers)).toBeNull();
     expect(restoreShortageDraft("2:2:3", zones, shops, drivers)).toBeNull();
     expect(restoreShortageDraft(actor, zones, [{ ...shops[0], zoneId: "9" }], drivers)).toBeNull();

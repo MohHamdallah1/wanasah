@@ -1151,6 +1151,7 @@ SHORTAGE_1057_EXACT = frozenset({
     "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
     "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
     "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-d10-drafts.test.ts",
     "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
     "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
     "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
@@ -1168,7 +1169,7 @@ SHORTAGE_1057_DISTINCT = frozenset({
     "wa_backend/api/dispatch_shortage_availability.py",
     "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
 })
-assert len(SHORTAGE_1057_EXACT) == 26
+assert len(SHORTAGE_1057_EXACT) == 27
 
 URGENT_1055_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
@@ -1705,7 +1706,7 @@ def selftest() -> None:
             _expect_fail(mode,set(SHORTAGE_1057_EXACT)|{foreign},policy_sem)
         for mixed in (ARV1_F_1044_EXACT,ARV1_B_1045_EXACT,ZONES_1039_EXACT):
             _expect_fail(mode,set(SHORTAGE_1057_EXACT)|set(mixed),policy_sem)
-    print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=78 foreign=9 mixed=9")
+    print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=81 foreign=9 mixed=9")
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])
