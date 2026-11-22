@@ -1143,22 +1143,32 @@ SHORTAGE_1057_EXACT = frozenset({
     ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
     ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
     ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/components/dispatch/ShortageModal.tsx",
     "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
     "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+    "dashboard/src/features/dispatch/dispatchDrafts.ts",
     "dashboard/src/features/dispatch/dispatchUiText.ts",
+    "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
     "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
     "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+    "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
     "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
     "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
     "wa_backend/api/dispatch.py",
+    "wa_backend/api/dispatch_product_schemas.py",
     "wa_backend/api/dispatch_shortage_availability.py",
+    "wa_backend/domains/dispatch_product_discovery.py",
+    "wa_backend/schemas.py",
+    "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
     "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+    "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
 })
 SHORTAGE_1057_DISTINCT = frozenset({
     "wa_backend/api/dispatch_shortage_availability.py",
     "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
 })
-assert len(SHORTAGE_1057_EXACT) == 16
+assert len(SHORTAGE_1057_EXACT) == 26
 
 URGENT_1055_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
@@ -1695,7 +1705,7 @@ def selftest() -> None:
             _expect_fail(mode,set(SHORTAGE_1057_EXACT)|{foreign},policy_sem)
         for mixed in (ARV1_F_1044_EXACT,ARV1_B_1045_EXACT,ZONES_1039_EXACT):
             _expect_fail(mode,set(SHORTAGE_1057_EXACT)|set(mixed),policy_sem)
-    print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=48 foreign=9 mixed=9")
+    print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=78 foreign=9 mixed=9")
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])
