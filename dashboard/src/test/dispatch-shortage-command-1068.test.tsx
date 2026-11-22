@@ -206,7 +206,7 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
       shortages={[]} onDeleteShortage={vi.fn()} onDeleteShortageGroup={vi.fn()}
       onEditShortageGroup={vi.fn()} editingShortageIds={[]} onCancelEdit={vi.fn()}
       drivers={drivers} shortageDriverId="9" onDriverChange={vi.fn()}
-      commandRecovery={{pending:original,blocked:false,busy:false,feedback:"unknown",onRetry:retry}}
+      commandRecovery={{pending:original,blocked:false,busy:false,feedback:"unknown",onRetry:retry,onVerify:vi.fn()}}
       groupRecovery={{pending:null,blocked:false,restoring:false,busy:false,
         feedback:null,httpReference:null,onRetry:vi.fn()}}
     />);
