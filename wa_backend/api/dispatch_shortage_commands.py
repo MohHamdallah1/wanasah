@@ -378,6 +378,7 @@ async def promote_shortage_with_signed_stock(
             or state.epoch.custodian_kind != "FIELD_REPRESENTATIVE"
             or int(state.epoch.field_representative_id or 0) != int(representative_id)
             or int(state.location_id) != int(epoch.vehicle_location_id)
+            or int(state.epoch.custodian_principal_id or 0) != int(epoch.custodian_principal_id or 0)
         ):
             raise _rejected(409, "SHORTAGE_CUSTODY_CHANGED", "Vehicle assignment changed.")
         product_id = int(shortage.product_variant_id)
@@ -421,7 +422,22 @@ async def promote_shortage_with_signed_stock(
                 ShortageUrgentAssignment.shortage_id == shortage_id,
             ).order_by(ShortageUrgentAssignment.id.asc()).with_for_update()
         )).all()
-        remaining_unassigned = int(shortage.quantity) - sum(int(a.approved_base) for a in assignments)
+        # Historical approved amounts never vanish, but a terminal Sale /
+        # NoSale/Cancelled Visit is no longer an outstanding dispatch task.
+        # Its actually credited base units remain protected by fulfilled_base;
+        # only still-Pending assignments consume a new urgency budget.
+        pending_visit_ids = set((await db.scalars(
+            select(Visit.id).where(
+                Visit.company_id == company,
+                Visit.id.in_([int(a.visit_id) for a in assignments]),
+                Visit.status == "Pending",
+            )
+        )).all()) if assignments else set()
+        remaining_unassigned = (
+            int(shortage.quantity) - int(shortage.fulfilled_base)
+            - sum(int(a.approved_base) for a in assignments
+                  if int(a.visit_id) in pending_visit_ids)
+        )
         if int(payload.quantity_base) > remaining_unassigned:
             raise _rejected(409, "SHORTAGE_URGENT_EXCEEDS_OUTSTANDING", "Requested urgent amount exceeds unassigned demand.")
         await db.execute(text(
@@ -432,7 +448,7 @@ async def promote_shortage_with_signed_stock(
             select(Visit).where(
                 Visit.company_id == company, Visit.driver_id == int(payload.driver_id),
                 Visit.shop_id == int(shop.id), Visit.status == "Pending",
-            ).order_by(Visit.id.asc()).with_for_update()
+            ).order_by(Visit.id.asc()).with_for_update(nowait=True)
         )).all()
         if len(pending_visits) > 1:
             raise _rejected(409, "SHORTAGE_PENDING_VISIT_AMBIGUOUS", "Duplicate pending visits.")
