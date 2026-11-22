@@ -100,6 +100,7 @@ from models import (
     Shop,
     Visit,
     ShortageRequest,
+    ShortageUrgentAssignment,
     ImportLog,
     VisitItem,
     InventoryLocation,
@@ -170,6 +171,7 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 from api.dispatch_products import router as product_discovery_router
 from api.dispatch_shortage_availability import router as shortage_availability_router
+from api.dispatch_shortage_commands import router as shortage_commands_router
 from api.dispatch_product_schemas import DispatchProductPageResponse
 from domains.dispatch_product_discovery import dispatch_product_page
 from domains.dispatch_product_cursor import DispatchProductCursorError
@@ -177,6 +179,7 @@ from domains.dispatch_product_cursor import DispatchProductCursorError
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 router.include_router(product_discovery_router)
 router.include_router(shortage_availability_router)
+router.include_router(shortage_commands_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
@@ -5537,6 +5540,12 @@ async def get_shortages(
         "productName": s.product_variant.variant_name if s.product_variant else "غير معروف",
         "quantity": s.quantity,
         "status": s.status,
+        "fulfilledBase": s.fulfilled_base if s.fulfillment_version == 1 else None,
+        "outstandingBase": (
+            int(s.quantity) - int(s.fulfilled_base)
+            if s.fulfillment_version == 1 and s.fulfilled_base is not None else None
+        ),
+        "fulfillmentEvidence": "SIGNED_V1" if s.fulfillment_version == 1 else "LEGACY_UNKNOWN",
         "waitTime": s.wait_time,
         # +++ نسف لغم الـ Timezone الأخير في السيستم: توحيد توقيت الطوارئ مع جرينتش لمنع كراش الموبايل +++
         "createdAt": s.created_at.replace(tzinfo=timezone.utc).isoformat() if s.created_at else None
@@ -5688,43 +5697,14 @@ async def add_shortages(
                 return int(item.driverId)
             return active_route_driver_by_zone.get(int(item.zoneId))
 
-        owner_pairs = sorted({
-            (driver_id, int(item.shopId))
-            for item in payload
-            for driver_id in [resolve_shortage_driver_id(item)]
-            if driver_id is not None
-        })
-        if owner_pairs:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[
-                    f"pending-visit:{driver_id}:{shop_id}"
-                    for driver_id, shop_id in owner_pairs
-                ],
+        # #1067: a shortage is DEMAND, never permission to manufacture a Visit.
+        # Exact urgent eligibility is a separate signed manager command.
+        item_pairs = [(int(i.shopId), int(i.product_variant_id)) for i in payload]
+        if len(item_pairs) != len(set(item_pairs)):
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "SHORTAGE_DUPLICATE_LINES", "context": {}},
             )
-
-        existing_owner_visits = {}
-        if owner_pairs:
-            owner_driver_ids = sorted({driver_id for driver_id, _ in owner_pairs})
-            owner_shop_ids = sorted({shop_id for _, shop_id in owner_pairs})
-            rows = (await db.execute(
-                select(Visit).filter(
-                    Visit.company_id == company_id,
-                    Visit.driver_id.in_(owner_driver_ids),
-                    Visit.shop_id.in_(owner_shop_ids),
-                    Visit.status == "Pending",
-                ).order_by(Visit.driver_id.asc(), Visit.shop_id.asc(), Visit.id.asc()).with_for_update()
-            )).scalars().all()
-            for visit in rows:
-                key = (int(visit.driver_id), int(visit.shop_id))
-                if key in existing_owner_visits:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إضافة طوارئ جديدة.",
-                    )
-                existing_owner_visits[key] = visit
-
         payload_tracker = set()
         for item in payload:
             shop_id = int(item.shopId)
@@ -5748,27 +5728,10 @@ async def add_shortages(
                 driver_id=driver_id,
                 product_variant_id=product_id,
                 quantity=int(item.quantity),
+                fulfillment_version=1,
+                fulfilled_base=0,
             ))
             existing_pairs.add(pair)
-            if driver_id is None:
-                continue
-
-            owner_key = (driver_id, shop_id)
-            visit = existing_owner_visits.get(owner_key)
-            if visit is None:
-                visit = Visit(
-                    company_id=company_id,
-                    driver_id=driver_id,
-                    shop_id=shop_id,
-                    operational_date=company_local_date,
-                    status="Pending",
-                    sequence=shop.sequence if shop.sequence is not None else 999,
-                    is_emergency=True,
-                )
-                db.add(visit)
-                existing_owner_visits[owner_key] = visit
-            else:
-                visit.is_emergency = True
 
         await db.commit()
         asyncio.create_task(dispatch_manager.broadcast(
@@ -5821,6 +5784,18 @@ async def delete_shortage(
         )).scalar_one_or_none()
         if shortage is None:
             return {"message": "الطلب غير موجود أصلاً."}
+        assignment = await db.scalar(select(ShortageUrgentAssignment.id).where(
+            ShortageUrgentAssignment.company_id == company_id,
+            ShortageUrgentAssignment.shortage_id == shortage_id,
+        ).limit(1))
+        if assignment is not None or (
+            shortage.fulfillment_version == 1 and int(shortage.fulfilled_base or 0) > 0
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "SHORTAGE_HAS_AUTHORIZED_VISIT_OR_DELIVERY",
+                        "message": "Cannot delete a shortage with urgent or delivered evidence."},
+            )
         shop = (await db.execute(
             select(Shop).filter_by(id=shop_id, company_id=company_id).order_by(Shop.id.asc()).with_for_update()
         )).scalar_one_or_none()
