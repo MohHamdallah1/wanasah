@@ -3,7 +3,7 @@ import { isDashboardSessionCurrent, type DashboardSession } from "@/lib/authStor
 import { apiErrorStatus } from "@/lib/apiErrors";
 import {
   clearConfirmedShortage, prepareShortageCommand, readPendingShortage,
-  shortageCommandBody, type ShortageCommandReceipt, type ShortagePendingCommand,
+  shortageCommandBody, parseShortageReceipt, type ShortageCommandReceipt, type ShortagePendingCommand,
 } from "./contract";
 import type { ShortageDraftRow } from "../dispatchDrafts";
 
@@ -14,6 +14,7 @@ type Props = {
   authorized: boolean;
   fetch: Fetch;
   onRestored: (pending: ShortagePendingCommand) => void;
+  canRestore: (pending: ShortagePendingCommand) => boolean;
   onCommitted: (receipt: ShortageCommandReceipt) => void;
 };
 export type ShortageCommandState = {
@@ -25,15 +26,17 @@ export type ShortageCommandState = {
 
 /** UUID replay is the only resolution of an ambiguous create, never a fresh GET. */
 export function useShortageCommandCommit({
-  session, actorScope, authorized, fetch, onRestored, onCommitted,
+  session, actorScope, authorized, fetch, onRestored, canRestore, onCommitted,
 }: Props) {
   const [state, setState] = useState<ShortageCommandState>({
     pending: null, busy: false, blocked: false, feedback: null,
   });
   const flight = useRef(false);
   const onRestoredRef = useRef(onRestored);
+  const canRestoreRef = useRef(canRestore);
   const onCommittedRef = useRef(onCommitted);
   onRestoredRef.current = onRestored;
+  canRestoreRef.current = canRestore;
   onCommittedRef.current = onCommitted;
   const scope = authorized ? actorScope : null;
   const live = useCallback(() => authorized && Boolean(scope) &&
@@ -46,9 +49,15 @@ export function useShortageCommandCommit({
     }
     try {
       const saved = readPendingShortage(scope);
-      setState({pending: saved, busy: false, blocked: false,
-        feedback: saved ? "unknown" : null});
-      if (saved) onRestoredRef.current(saved);
+      if (saved && !canRestoreRef.current(saved)) {
+        // A same-actor command can outlive its shop/zone/representative grant.
+        // Never disclose or retry it through a now-unauthorized viewport.
+        setState({pending: null,busy:false,blocked:true,feedback:"denied"});
+      } else {
+        setState({pending: saved, busy: false, blocked: false,
+          feedback: saved ? "unknown" : null});
+        if (saved) onRestoredRef.current(saved);
+      }
     } catch {
       // Corrupt/missing durable evidence must NOT be silently overwritten.
       setState({pending: null, busy: false, blocked: true, feedback: "storage"});
@@ -79,6 +88,10 @@ export function useShortageCommandCommit({
           let original: ShortagePendingCommand;
           try {
             const existing = readPendingShortage(scope);
+            if (existing && !canRestoreRef.current(existing)) {
+              setState({pending:null,busy:false,blocked:true,feedback:"denied"});
+              return false;
+            }
             if (retry) {
               // The original UUID and payload must still be the same durable record.
               if (!existing || !state.pending ||
@@ -116,17 +129,20 @@ export function useShortageCommandCommit({
             if (!live()) return false;
             // An acknowledged HTTP success with no exact immutable line
             // receipt is still UNKNOWN. A subsequent list is not evidence.
-            const { parseShortageReceipt } = await import("./contract");
             const receipt = parseShortageReceipt(response, original.command);
             if (!receipt) {
               setState(s => ({...s,pending:original,feedback:"unknown"}));
               return false;
             }
-            onCommittedRef.current(receipt);
-            // A confirmed server receipt is the only permission to retire
-            // this actor's durable command. Never clear a different UUID.
-            clearConfirmedShortage(scope, original.command.request_id);
+            // An original server receipt is authoritative, but a failed
+            // local removal must block further new sends to prevent duplicate.
+            try { clearConfirmedShortage(scope, original.command.request_id); }
+            catch {
+              setState(s => ({...s,pending:original,blocked:true,feedback:"storage"}));
+              return false;
+            }
             setState({pending:null,busy:true,blocked:false,feedback:null});
+            onCommittedRef.current(receipt);
             return true;
           } catch (error) {
             if (!live()) return false;
