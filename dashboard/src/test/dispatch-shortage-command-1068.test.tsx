@@ -11,7 +11,7 @@ import {
 import { saveShortageDraft, restoreShortageDraft } from "@/features/dispatch/dispatchDrafts";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
 import { clearLocalStoragePreservingLoginHintsAndPreferences, type DashboardSession } from "@/lib/authStorage";
-import type { Shop, Zone } from "@/types/dispatch";
+import type { Shop, Zone, Shortage } from "@/types/dispatch";
 
 const actor = "1:2:3";
 const differentActor = "1:99:3";
@@ -262,5 +262,43 @@ describe.each(["en","ar"] as const)("#1068 bilingual recovered UNKNOWN UI %s",la
     expect(verify).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByTestId("shortage-command-retry"));
     expect(retry).toHaveBeenCalledOnce();
+  });
+});
+
+describe.each(["en","ar"] as const)("#1068 signed partial demand presentation %s", language=>{
+  it("shows authoritative fulfilled/outstanding while refusing invented legacy progress",async()=>{
+    await setAppLanguage(language);
+    const confirmed: Shortage = {
+      id:"100",productId:"40",productName:"Chips",zoneId:"3",zoneName:"Zone",
+      shopId:"7",shopName:"Shop",driverId:"9",driverName:"FIELD",
+      quantity:10,fulfilledBase:4,outstandingBase:6,fulfillmentEvidence:"SIGNED_V1",
+      status:"pending",
+    };
+    const historical: Shortage = {
+      ...confirmed,id:"101",productId:"41",productName:"Old chips",
+      fulfilledBase:null,outstandingBase:null,fulfillmentEvidence:"LEGACY_UNKNOWN",
+    };
+    render(<ShortageModal isOpen canCreate canCancel canEdit focusShortageId="100" onClose={vi.fn()}
+      zones={zones} activeShops={shops}
+      shortageZoneId="3" shortageShopId="7" onZoneChange={vi.fn()} onShopChange={vi.fn()}
+      productScope={actor} shortageDraft={[row]}
+      onAddProductToDraft={vi.fn()} onRemoveProductFromDraft={vi.fn()}
+      onUpdateDraftQty={vi.fn()} onClearDraft={vi.fn()} onConfirmShortages={vi.fn()}
+      shortages={[confirmed,historical]} onDeleteShortage={vi.fn()}
+      onDeleteShortageGroup={vi.fn()} onEditShortageGroup={vi.fn()}
+      editingShortageIds={[]} onCancelEdit={vi.fn()}
+      drivers={drivers} shortageDriverId="9" onDriverChange={vi.fn()}
+      commandRecovery={{pending:null,blocked:false,busy:false,feedback:null,
+        onRetry:vi.fn(),onVerify:vi.fn()}}
+      groupRecovery={{pending:null,blocked:false,restoring:false,busy:false,
+        feedback:null,httpReference:null,onRetry:vi.fn()}}
+    />);
+    expect(screen.getByTestId("shortage-signed-progress-100")).toHaveTextContent(
+      language==="ar" ? "تم تسليم 4" : "fulfilled 4",
+    );
+    expect(screen.getByTestId("shortage-signed-progress-100")).toHaveTextContent("6");
+    expect(screen.getByTestId("shortage-signed-progress-101")).toHaveTextContent(
+      language==="ar" ? "غير موثقين" : "unverified",
+    );
   });
 });
