@@ -204,3 +204,157 @@ async def test_concurrent_same_uuid_and_actor_revocation(pg):
             f"/dispatch/shortage-commands/{cmd['request_id']}", headers=ordinary,
         )
         assert other_read.status_code in (403, 404), other_read.text
+
+
+
+async def test_real_signed_manager_partial_field_sale_correction_and_multiple_visits(pg):
+    """Actual signed HTTP + accepted vehicle epoch and immutable FIELD sale revision.
+
+    These assertions are an execution gate, not evidence until run on migrated PG16.
+    """
+    from models import InventoryLocation
+    from tests.test_dispatch_shop_finance_edit_v1_postgres import (
+        _real_field_sale_prerequisites,
+    )
+    from tests.test_dispatch_shortage_vehicle_availability_pg16 import _epoch
+
+    tenant = pg.tenants[0]
+    field, zone, jurisdiction, launch_body = await _real_field_sale_prerequisites(pg, tenant)
+    vehicle = int(launch_body["vehicle_id"])
+    async with pg.session() as db:
+        vehicle_location = await db.scalar(select(InventoryLocation.id).where(
+            InventoryLocation.company_id == tenant.company_id,
+            InventoryLocation.vehicle_id == vehicle,
+            InventoryLocation.location_type == "VEHICLE",
+        ))
+        assert vehicle_location is not None
+
+    async with _real_http() as client:
+        owner = await _token(client, pg, tenant, tenant.owner, "NoLotSyntheticFixture123")
+        field_auth = await _token(client, pg, tenant, field, "SyntheticFixture123")
+        launched = await client.post("/dispatch/route", headers=owner, json=launch_body)
+        assert launched.status_code == 201, launched.text
+        # Fixture-only durable signed epoch; HTTP mutation always uses genuine
+        # actor/company/location grants and an actual persisted accepted custody.
+        epoch_id = await _epoch(pg, tenant, field, vehicle, int(vehicle_location))
+        started = await client.post(
+            "/driver/sessions/start",
+            headers={**field_auth, "Idempotency-Key": str(uuid4())}, json={},
+        )
+        assert started.status_code == 201, started.text
+        session_id = int(started.json()["session_id"])
+        allowed = await client.put(
+            f"/admin/sessions/{session_id}/authorize",
+            headers=owner, json={"is_authorized": True},
+        )
+        assert allowed.status_code == 200, allowed.text
+        context = await client.get("/driver/sessions/execution-context", headers=field_auth)
+        assert context.status_code == 200, context.text
+        proof = context.json()["execution_context"]
+        assert int(proof["custody_epoch_id"]) == epoch_id
+        signed_headers = {
+            **field_auth,
+            "X-Execution-Period-ID": str(proof["period_id"]),
+            "X-Assignment-Context-Revision": str(proof["assignment_context_revision"]),
+            "X-Vehicle-Custody-Epoch-ID": str(proof["custody_epoch_id"]),
+        }
+
+        async def demand(shop):
+            cmd = _command(uuid4(), shop, zone, int(field.driver.id), tenant.variant_id, 10)
+            r = await client.post("/dispatch/shortage-commands", headers=owner, json=cmd)
+            assert r.status_code == 201, r.text
+            return int(r.json()["lines"][0]["shortage_id"])
+
+        async def approve(shortage_id, quantity):
+            r = await client.post(
+                f"/dispatch/shortages/{shortage_id}/promote-urgent",
+                headers=owner,
+                json={"request_id": str(uuid4()), "driver_id": int(field.driver.id),
+                      "quantity_base": quantity},
+            )
+            assert r.status_code == 201, r.text
+            assert r.json()["approved_base"] == quantity
+            return int(r.json()["visit_id"])
+
+        async def sale(visit, quantity):
+            r = await client.put(f"/visits/{visit}", headers=signed_headers, json={
+                "request_id": str(uuid4()), "outcome": "Sale",
+                "cash_collected": "0", "debt_paid": "0",
+                "cart_items": [{"product_variant_id": tenant.variant_id,
+                                "packs_quantity": quantity}],
+            })
+            assert r.status_code == 200, r.text
+
+        async def read(shortage_id):
+            response = await client.get("/dispatch/shortages", headers=owner)
+            assert response.status_code == 200, response.text
+            return next(row for row in response.json()
+                        if int(row["id"]) == shortage_id)
+
+        first_shop, _ = await _add_shop(
+            client, owner, zone, balance="0", cap="100000",
+            jurisdiction_id=jurisdiction,
+        )
+        first = await demand(first_shop)
+        visit = await approve(first, 4)
+        await sale(visit, 1)
+        partial = await read(first)
+        assert partial["status"] == "pending"
+        assert partial["fulfilledBase"] == 1 and partial["outstandingBase"] == 9
+        async with pg.session() as db:
+            allocations = (await db.scalars(select(ShortageDeliveryEvent).where(
+                ShortageDeliveryEvent.company_id == tenant.company_id,
+                ShortageDeliveryEvent.visit_id == visit,
+            ))).all()
+            assert len(allocations) == 1
+            assert allocations[0].event_type == "DELIVERY"
+            assert allocations[0].quantity_delta == 1
+        corrected = await client.put(
+            f"/visits/{visit}", headers=signed_headers, json={
+                "request_id": str(uuid4()), "outcome": "NoSale",
+                "cash_collected": "0", "debt_paid": "0", "cart_items": [],
+            },
+        )
+        assert corrected.status_code == 200, corrected.text
+        reset = await read(first)
+        assert reset["fulfilledBase"] == 0 and reset["outstandingBase"] == 10
+        async with pg.session() as db:
+            reversal = (await db.scalars(select(ShortageDeliveryEvent).where(
+                ShortageDeliveryEvent.company_id == tenant.company_id,
+                ShortageDeliveryEvent.visit_id == visit,
+                ShortageDeliveryEvent.event_type == "REVERSAL",
+            ))).all()
+            assert len(reversal) == 1 and reversal[0].quantity_delta == -1
+
+        # A distinct 10-base demand can be fulfilled 4+6 in two Visits;
+        # the first completion is not a false total fulfillment.
+        second_shop, _ = await _add_shop(
+            client, owner, zone, balance="0", cap="100000",
+            jurisdiction_id=jurisdiction,
+        )
+        second = await demand(second_shop)
+        visit_a = await approve(second, 4)
+        await sale(visit_a, 4)
+        assert (await read(second))["outstandingBase"] == 6
+        visit_b = await approve(second, 6)
+        assert visit_b != visit_a
+        await sale(visit_b, 6)
+        async with pg.session() as db:
+            total = await db.scalar(select(ShortageRequest).where(
+                ShortageRequest.company_id == tenant.company_id,
+                ShortageRequest.id == second,
+            ))
+            assert total is not None
+            assert total.fulfilled_base == 10 and total.quantity == 10
+            assert total.status == "fulfilled"
+            real = await db.scalars(select(ShortageDeliveryEvent).where(
+                ShortageDeliveryEvent.company_id == tenant.company_id,
+                ShortageDeliveryEvent.assignment_id.in_(
+                    select(ShortageUrgentAssignment.id).where(
+                        ShortageUrgentAssignment.company_id == tenant.company_id,
+                        ShortageUrgentAssignment.shortage_id == second,
+                    )
+                ),
+                ShortageDeliveryEvent.event_type == "DELIVERY",
+            ))
+            assert sorted(int(item.quantity_delta) for item in real) == [4, 6]
