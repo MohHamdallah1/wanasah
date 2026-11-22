@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { ShortageRequestComposer } from "./ShortageRequestComposer";
 import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
-import type { ShortagePendingCommand } from "@/features/dispatch/shortageCommand/contract";
+import { signedShortageProgress, type ShortagePendingCommand } from "@/features/dispatch/shortageCommand/contract";
 import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
 import { Modal } from "@/components/ui/modal";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
@@ -235,7 +235,20 @@ function ShopCard({
           <div key={item.id} data-shortage-id={item.id}
             className={`group flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-5 ${item.id === focusShortageId ? "bg-amber-50 ring-2 ring-inset ring-amber-300" : ""}`}>
             <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{idx + 1}</span>
-            <span className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">{item.productName}</span>
+            <span className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">
+              {item.productName}
+              {(() => {
+                const signed = signedShortageProgress(item);
+                return <span className="block text-[11px] font-normal leading-5 text-slate-500"
+                  data-testid={"shortage-signed-progress-" + item.id}>
+                  {signed ? text("shortageDemandProgress", {
+                    requested: signed.requested,
+                    fulfilled: signed.fulfilled,
+                    outstanding: signed.outstanding,
+                  }) : text("shortageDemandLegacyUnknown")}
+                </span>;
+              })()}
+            </span>
             <span className="min-w-10 shrink-0 rounded-xl border border-[#1e87bb]/20 bg-[#1e87bb]/10 px-2 py-1 text-center text-sm font-bold text-[#1e87bb]">{item.quantity}</span>
             {canCancel && (
               <button type="button" onClick={event => requestDelete(event, { kind: "one", id: item.id, product: item.productName })}
