@@ -163,7 +163,7 @@ describe("#1068 immutable command contract",()=>{
         committed = receipt(command);
         throw new Error("lost response after database commit");
       }
-      expect(path).toMatch(/^\\/dispatch\\/shortage-commands\\/[0-9a-f-]{36}$/);
+      expect(path).toMatch(/^\/dispatch\/shortage-commands\/[0-9a-f-]{36}$/);
       expect(opts?.method).toBe("GET");
       expect(opts?.cache).toBe("no-store");
       return committed;
