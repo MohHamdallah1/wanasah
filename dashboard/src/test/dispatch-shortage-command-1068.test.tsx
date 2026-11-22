@@ -153,6 +153,35 @@ describe("#1068 immutable command contract",()=>{
     expect(againProps.onCommitted).toHaveBeenCalledOnce();
     expect(second.result.current.pending).toBeNull();
   });
+  it("looks up signed receipt after lost 201 without resending POST or trusting a shortage list", async()=>{
+    const calls: Array<{path:string;method:string|undefined}> = [];
+    let committed: ReturnType<typeof receipt> | null = null;
+    const fetch = vi.fn(async(path:string,opts?:RequestInit):Promise<unknown>=>{
+      calls.push({path,method:opts?.method});
+      if (opts?.method === "POST") {
+        const command = JSON.parse(String(opts.body)) as ReturnType<typeof buildShortageIntent>;
+        committed = receipt(command);
+        throw new Error("lost response after database commit");
+      }
+      expect(path).toMatch(/^\\/dispatch\\/shortage-commands\\/[0-9a-f-]{36}$/);
+      expect(opts?.method).toBe("GET");
+      expect(opts?.cache).toBe("no-store");
+      return committed;
+    });
+    const p = props(fetch);
+    const h = renderHook(()=>useShortageCommandCommit(p));
+    await act(async()=>expect(await h.result.current.save("3","7","9",[row])).toBe(false));
+    const originalUuid = readPendingShortage(actor)!.command.request_id;
+    expect(h.result.current.hasUnresolved).toBe(true);
+    await act(async()=>expect(await h.result.current.verify()).toBe(true));
+    expect(calls).toEqual([
+      {path:"/dispatch/shortage-commands",method:"POST"},
+      {path:`/dispatch/shortage-commands/${originalUuid}`,method:"GET"},
+    ]);
+    expect(readPendingShortage(actor)).toBeNull();
+    expect(p.onCommitted).toHaveBeenCalledOnce();
+  });
+
   it.each([409,401,403,500])("HTTP %d never clears ambiguous UUID",async status=>{
     const fetch=vi.fn().mockRejectedValue(err(status));
     const hooked=renderHook(()=>useShortageCommandCommit(props(fetch)));
