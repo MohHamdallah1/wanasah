@@ -291,6 +291,25 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
             return next(row for row in response.json()
                         if int(row["id"]) == shortage_id)
 
+        # NoSale is zero actual delivery. Its terminal Visit frees the
+        # unused urgent approval while preserving the original audit.
+        no_sale_shop, _ = await _add_shop(
+            client, owner, zone, balance="0", cap="100000",
+            jurisdiction_id=jurisdiction,
+        )
+        no_sale_shortage = await demand(no_sale_shop)
+        no_sale_visit = await approve(no_sale_shortage, 4)
+        no_sale_response = await client.put(
+            f"/visits/{no_sale_visit}", headers=signed_headers, json={
+                "request_id": str(uuid4()), "outcome": "NoSale",
+                "cash_collected": "0", "debt_paid": "0", "cart_items": [],
+            },
+        )
+        assert no_sale_response.status_code == 200, no_sale_response.text
+        assert (await read(no_sale_shortage))["outstandingBase"] == 10
+        second_approval = await approve(no_sale_shortage, 4)
+        assert second_approval != no_sale_visit
+
         first_shop, _ = await _add_shop(
             client, owner, zone, balance="0", cap="100000",
             jurisdiction_id=jurisdiction,
