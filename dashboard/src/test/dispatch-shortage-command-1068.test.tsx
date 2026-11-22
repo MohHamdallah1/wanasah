@@ -10,7 +10,7 @@ import {
 } from "@/features/dispatch/shortageCommand/contract";
 import { saveShortageDraft, restoreShortageDraft } from "@/features/dispatch/dispatchDrafts";
 import { ShortageModal } from "@/components/dispatch/ShortageModal";
-import type { DashboardSession } from "@/lib/authStorage";
+import { clearLocalStoragePreservingLoginHintsAndPreferences, type DashboardSession } from "@/lib/authStorage";
 import type { Shop, Zone } from "@/types/dispatch";
 
 const actor = "1:2:3";
@@ -94,6 +94,12 @@ describe("#1068 immutable command contract",()=>{
     clearConfirmedShortage(actor,id);
     expect(readPendingShortage(actor)).toBeNull();
   });
+  it("preserves original UUID through normal logout without exposing it to another actor",()=>{
+    prepareShortageCommand(actor,"3","7","9",[row],()=>id);
+    expect(clearLocalStoragePreservingLoginHintsAndPreferences()).toBe(true);
+    expect(readPendingShortage(actor)?.command.request_id).toBe(id);
+    expect(readPendingShortage(differentActor)).toBeNull();
+  });
   it("rejects phantom/mismatched receipt, wrong actor, corrupt UUID and 81 lines",()=>{
     const intent=buildShortageIntent("3","7","9",[row],id);
     expect(parseShortageReceipt({message:"ok"},intent)).toBeNull();
@@ -150,7 +156,7 @@ describe("#1068 immutable command contract",()=>{
     expect(hooked.result.current.blocked).toBe([409,401,403].includes(status));
     if(status===401||status===403) expect(hooked.result.current.pending).toBeNull();
     else expect(hooked.result.current.pending).not.toBeNull();
-    expect(await hooked.result.current.retry()).toBe(false === ([409,401,403].includes(status)) ? false : false);
+    if ([409,401,403].includes(status)) expect(await hooked.result.current.retry()).toBe(false);
   });
   it("revoked/changed actor and removed shop never show or retry a private pending command",async()=>{
     prepareShortageCommand(actor,"3","7","9",[row],()=>id);
