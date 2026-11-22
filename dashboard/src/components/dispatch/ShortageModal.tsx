@@ -43,7 +43,7 @@ interface ShortageModalProps {
   drivers: { id: string; name: string }[];
   shortageDriverId: string;
   onDriverChange: (id: string) => void;
-  commandRecovery: {
+  commandRecovery?: {
     pending: ShortagePendingCommand | null;
     blocked: boolean;
     busy: boolean;
@@ -295,7 +295,10 @@ export function ShortageModal({
   shortageDriverId,
   onDriverChange,
   groupRecovery,
-  commandRecovery,
+  commandRecovery = {
+    pending: null, blocked: false, busy: false, feedback: null,
+    onRetry: () => undefined, onVerify: () => undefined,
+  },
 }: ShortageModalProps) {
   const { t, i18n } = useTranslation();
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
