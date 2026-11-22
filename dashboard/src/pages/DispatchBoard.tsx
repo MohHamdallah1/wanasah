@@ -2680,6 +2680,7 @@ function DispatchSession() {
           busy: shortageCommand.busy,
           feedback: shortageCommand.feedback,
           onRetry: () => { void shortageCommand.retry(); },
+          onVerify: () => { void shortageCommand.verify(); },
         }}
         groupRecovery={{
           pending: shortageGroup.pending,
