@@ -1,13 +1,14 @@
 import { ClipboardList, Eraser, Minus, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { Shop, Zone } from "@/types/dispatch";
-import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
+import { compareShortageVehicleBase, dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { ShortageShopPicker } from "./ShortageShopPicker";
 import { ShortageProductPicker } from "./ShortageProductPicker";
 import { ShortageDriverPicker } from "./ShortageDriverPicker";
 import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
+import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 
-type RequestItem = { productId: string; productName: string; quantity: number };
+type RequestItem = ShortageDraftRow;
 
 /** One visible command workspace; the in-memory rows are NOT a second draft workflow. */
 export function ShortageRequestComposer({
@@ -26,7 +27,7 @@ export function ShortageRequestComposer({
   onDriverChange: (id: string) => void;
   productScope: string | null;
   draft: RequestItem[];
-  onQuickAdd: (id: string, name: string) => void;
+  onQuickAdd: (id: string, name: string, baseUomCode?: string | null) => void;
   onUpdateQuantity: (index: number, quantity: number) => void;
   onRemove: (index: number) => void;
   onClear: () => void;
@@ -44,13 +45,31 @@ export function ShortageRequestComposer({
   const stock = useShortageVehicleAvailability({
     driverId, scope: productScope, productIds: draft.map(item => item.productId),
   });
+  const compareLine = (item: RequestItem) => compareShortageVehicleBase({
+    requested: item.quantity,
+    requestBaseUomCode: item.baseUomCode,
+    stock: stock.byProduct.get(item.productId),
+    verified: stock.status === "VERIFIED",
+  });
   const stockSummary = draft.reduce((result, item) => {
-    const line = stock.byProduct.get(item.productId);
-    if (stock.status !== "VERIFIED" || !line) result.unknown++;
-    else if (Number(line.available_base) > 0) result.present++;
-    else result.missing++;
+    const kind = compareLine(item).kind;
+    if (kind === "FULL") result.full++;
+    else if (kind === "PARTIAL") result.partial++;
+    else if (kind === "ZERO") result.zero++;
+    else result.unknown++;
     return result;
-  }, {present:0,missing:0,unknown:0});
+  }, {full:0, partial:0, zero:0, unknown:0});
+  const lineQuote = (item: RequestItem): string => {
+    const comparison = compareLine(item);
+    if (comparison.kind === "UNKNOWN") return t("shortageVehicleUnknown");
+    const values = {
+      potential: comparison.potentialBase, outstanding: comparison.outstandingBase,
+      unit: item.baseUomCode ?? "",
+    };
+    return comparison.kind === "FULL" ? t("shortageVehicleFull", values)
+      : comparison.kind === "PARTIAL" ? t("shortageVehiclePartial", values)
+      : t("shortageVehicleZero", values);
+  };
 
   return <fieldset disabled={blocked} data-testid="shortage-quick-composer"
     className="min-w-0 space-y-4">
@@ -85,10 +104,14 @@ export function ShortageRequestComposer({
             {t("shortageStudioUnitCount", {count: number.format(unitCount)})}
             {driverId && <span className="block text-[11px] leading-4 text-slate-500">
               {t("shortageVehicleSummary", {
-                present: number.format(stockSummary.present),
-                missing: number.format(stockSummary.missing),
+                full: number.format(stockSummary.full),
+                partial: number.format(stockSummary.partial),
+                zero: number.format(stockSummary.zero),
                 unknown: number.format(stockSummary.unknown),
               })}
+              <span className="block text-[11px] leading-4 text-slate-500">
+                {t("shortageVehicleIndicative")}
+              </span>
             </span>}
           </span>
           <button type="button" onClick={onClear}
@@ -110,15 +133,17 @@ export function ShortageRequestComposer({
               </span>
               <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-5 text-slate-800">
                 {item.productName}
-                {driverId && <span className="block text-[11px] font-normal leading-4 text-slate-500">
-                  {stock.status !== "VERIFIED" || !stock.byProduct.get(item.productId)
-                    ? t("shortageVehicleUnknown")
-                    : Number(stock.byProduct.get(item.productId)!.available_base) > 0
-                      ? t("shortageVehicleAvailable", {
-                          count: stock.byProduct.get(item.productId)!.available_base,
-                          unit: stock.byProduct.get(item.productId)!.base_uom,
-                        })
-                      : t("shortageVehicleNeedsSupply")}
+                <span className="block text-[11px] font-normal leading-4 text-slate-500"
+                  data-testid={"shortage-request-uom-" + item.productId}>
+                  {item.baseUomCode
+                    ? t("shortageVehicleRequested", {
+                        count: number.format(item.quantity), unit: item.baseUomCode,
+                      })
+                    : t("shortageVehicleRequestUnitUnknown")}
+                </span>
+                {driverId && <span className="block text-[11px] font-normal leading-4 text-slate-500"
+                    data-testid={"shortage-availability-" + item.productId}>
+                  {lineQuote(item)}
                 </span>}
               </span>
               <div className="inline-flex shrink-0 items-center rounded-lg border border-slate-200 bg-slate-50">

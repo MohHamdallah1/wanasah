@@ -1,3 +1,4 @@
+import type { VehicleAvailabilityLine } from "./useShortageVehicleAvailability";
 /** D13: business-facing Dispatch copy, kept out of the large dispatch components. */
 const copy = {
   "ar": {
@@ -47,7 +48,14 @@ const copy = {
     "shortageVehicleAvailable": "بالسيارة: {count} {unit}",
     "shortageVehicleNeedsSupply": "لا يوجد رصيد قابل للتسليم بالسيارة",
     "shortageVehicleUnknown": "رصيد السيارة غير مؤكد",
-    "shortageVehicleSummary": "بالسيارة: {present} · تحتاج تزويد: {missing} · غير مؤكدة: {unknown}",
+    "shortageVehicleSummary": "تغطية تقديرية: كامل {full} · جزئي {partial} · بلا رصيد {zero} · غير مؤكد {unknown}",
+    "shortageVehicleRequested": "مطلوب: {count} {unit}",
+    "shortageVehicleRequestUnitUnknown": "وحدة الطلب غير مؤكدة (طلب سابق أو كتالوج غير مكتمل)",
+    "shortageVehicleBaseUnit": "الوحدة الأساسية: {unit}",
+    "shortageVehicleFull": "متاح محتملًا: {potential} {unit} · المتبقي: {outstanding}",
+    "shortageVehiclePartial": "متاح محتملًا: {potential} {unit} · المتبقي: {outstanding} {unit}",
+    "shortageVehicleZero": "متاح محتملًا: 0 {unit} · المتبقي: {outstanding} {unit}",
+    "shortageVehicleIndicative": "تقدير فقط، وليس حجزًا أو ضمان تسليم. يُعاد التحقق عند التنفيذ.",
     "shortageStudioCatalog": "كتالوج المنتجات",
     "shortageStudioOnPage": "{count} منتج",
     "shortageStudioSearchProduct": "ابحث بالاسم أو رمز المنتج (اختياري)",
@@ -250,7 +258,14 @@ const copy = {
     "shortageVehicleAvailable": "In vehicle: {count} {unit}",
     "shortageVehicleNeedsSupply": "No deliverable vehicle stock",
     "shortageVehicleUnknown": "Vehicle stock unverified",
-    "shortageVehicleSummary": "In vehicle: {present} · Replenish: {missing} · Unverified: {unknown}",
+    "shortageVehicleSummary": "Indicative coverage: full {full} · partial {partial} · zero {zero} · unknown {unknown}",
+    "shortageVehicleRequested": "Requested: {count} {unit}",
+    "shortageVehicleRequestUnitUnknown": "Request base unit unverified (older draft or missing catalog metadata)",
+    "shortageVehicleBaseUnit": "Base unit: {unit}",
+    "shortageVehicleFull": "Potentially available: {potential} {unit} · outstanding: {outstanding}",
+    "shortageVehiclePartial": "Potentially available: {potential} {unit} · outstanding: {outstanding} {unit}",
+    "shortageVehicleZero": "Potentially available: 0 {unit} · outstanding: {outstanding} {unit}",
+    "shortageVehicleIndicative": "Estimate only, not reserved or guaranteed. Recheck before fulfilment.",
     "shortageStudioCatalog": "Product catalog",
     "shortageStudioOnPage": "{count} products",
     "shortageStudioSearchProduct": "Search name or product code (optional)",
@@ -413,4 +428,47 @@ export function dispatchUiText(language: string, key: DispatchUiKey, values: Rec
   const text: string = copy[language.toLowerCase().startsWith("ar") ? "ar" : "en"][key];
   return text.replace(/\{([a-zA-Z]+)\}/g, (match, name: string) =>
     Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match);
+}
+
+/** Comparison only: a shortage integer is a count of SKU base UOM (§17.6.1).
+ * Vehicle decimals are exact strings. No Number rounding, guessed UOM,
+ * inventory reservation, or evidence borrowed from an old actor/driver.
+ */
+export type ShortageVehicleComparison =
+  | { kind: "UNKNOWN"; potentialBase: null; outstandingBase: null }
+  | { kind: "FULL" | "PARTIAL" | "ZERO"; potentialBase: string; outstandingBase: string };
+
+export function compareShortageVehicleBase({
+  requested, requestBaseUomCode, stock, verified,
+}: {
+  requested: number;
+  requestBaseUomCode?: string | null;
+  stock?: VehicleAvailabilityLine;
+  verified: boolean;
+}): ShortageVehicleComparison {
+  const unknown: ShortageVehicleComparison = {
+    kind: "UNKNOWN", potentialBase: null, outstandingBase: null,
+  };
+  if (!verified || !Number.isSafeInteger(requested) || requested <= 0 ||
+      typeof requestBaseUomCode !== "string" || !requestBaseUomCode ||
+      !stock || stock.base_uom !== requestBaseUomCode ||
+      typeof stock.available_base !== "string" ||
+      stock.available_base.length > 70 ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,24})?$/.test(stock.available_base)) return unknown;
+  const [whole, decimals = ""] = stock.available_base.split(".");
+  const factor = 10n ** BigInt(decimals.length);
+  const available = BigInt(whole) * factor + BigInt(decimals || "0");
+  const wanted = BigInt(requested) * factor;
+  const potential = available < wanted ? available : wanted;
+  const outstanding = wanted - potential;
+  const format = (n: bigint): string => {
+    if (!decimals.length) return String(n);
+    const integer = String(n / factor);
+    const fractional = String(n % factor).padStart(decimals.length, "0").replace(/0+$/, "");
+    return fractional ? integer + "." + fractional : integer;
+  };
+  return {
+    kind: available === 0n ? "ZERO" : available >= wanted ? "FULL" : "PARTIAL",
+    potentialBase: format(potential), outstandingBase: format(outstanding),
+  };
 }

@@ -6,6 +6,7 @@ import {
   Trash2, Pencil, ChevronDown, ChevronUp, Package, AlertTriangle, Clock,
 } from "lucide-react";
 import { ShortageRequestComposer } from "./ShortageRequestComposer";
+import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
 import { Modal } from "@/components/ui/modal";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
@@ -26,8 +27,8 @@ interface ShortageModalProps {
   onZoneChange: (id: string) => void;
   onShopChange: (id: string) => void;
   productScope: string | null;
-  shortageDraft: { productId: string; productName: string; quantity: number }[];
-  onAddProductToDraft: (id: string, name: string) => void;
+  shortageDraft: ShortageDraftRow[];
+  onAddProductToDraft: (id: string, name: string, baseUomCode?: string | null) => void;
   onRemoveProductFromDraft: (index: number) => void;
   onUpdateDraftQty: (index: number, qty: number) => void;
   onClearDraft: () => void;

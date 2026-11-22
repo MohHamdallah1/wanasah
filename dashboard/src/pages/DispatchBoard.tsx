@@ -66,6 +66,7 @@ import {
 import {
   clearRouteLoadDraft, clearShortageDraft, restoreRouteLoadDraft,
   restoreShortageDraft, saveRouteLoadDraft, saveShortageDraft,
+  type ShortageDraftRow,
 } from "@/features/dispatch/dispatchDrafts";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
@@ -387,7 +388,7 @@ function DispatchSession() {
   const [shortageZoneId, setShortageZoneId] = useState("");
   const [shortageDriverId, setShortageDriverId] = useState("");
   const [shortageShopId, setShortageShopId] = useState("");
-  const [shortageDraft, setShortageDraft] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
+  const [shortageDraft, setShortageDraft] = useState<ShortageDraftRow[]>([]);
   const [editingShortageIds, setEditingShortageIds] = useState<string[]>([]); // IDs to delete on confirm
 
   const [isSchedulingModalOpen, setIsSchedulingModalOpen] = useState(false);
@@ -1643,7 +1644,8 @@ function DispatchSession() {
       if (command.action === "edit") {
         const first = command.items[0];
         setEditingShortageIds(command.shortageIds.map(String));
-        setShortageDraft(command.draft);
+        // Group recovery's historical rows have no signed UOM snapshot.
+        setShortageDraft(command.draft.map(row => ({...row, baseUomCode: null})));
         if (first) {
           setShortageZoneId(String(first.zoneId));
           setShortageShopId(String(first.shopId));
@@ -1692,7 +1694,12 @@ function DispatchSession() {
       let saved = false;
       if (editingShortageIds.length > 0) {
         saved = await shortageGroup.save(
-          editingShortageIds, newShortages, shortageDraft,
+          editingShortageIds, newShortages,
+          // The durable #849 retry draft keeps its original three fields.
+          // Base-UOM metadata stays in the UI-only draft, never in a command.
+          shortageDraft.map(({productId, productName, quantity}) => ({
+            productId, productName, quantity,
+          })),
         );
       } else {
         shortageMutationInFlightRef.current = true;
@@ -1727,7 +1734,9 @@ function DispatchSession() {
 
   // One click on an authorized SHORTAGE search result adds one base-unit item.
   // This is only a draft mutation: canonical product/tenant/visit authority stays on POST.
-  const handleAddProductToDraft = (productId: string, productName: string) => {
+  const handleAddProductToDraft = (
+    productId: string, productName: string, baseUomCode?: string | null,
+  ) => {
     if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId)) ||
       !productName || productName.length > 300) return;
     if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
@@ -1741,7 +1750,8 @@ function DispatchSession() {
       if (existing !== -1) return previous.map((row, i) => i === existing &&
         row.quantity < Number.MAX_SAFE_INTEGER ? { ...row, quantity: row.quantity + 1 } : row);
       if (previous.length >= 80) return previous;
-      return [...previous, { productId, productName, quantity: 1 }];
+      return [...previous, { productId, productName, quantity: 1,
+        baseUomCode: baseUomCode ?? null }];
     });
   };
 
@@ -1781,6 +1791,8 @@ function DispatchSession() {
         productId: item.productId,
         productName: item.productName,
         quantity: item.quantity,
+        // No UOM snapshot in historical persisted shortage records.
+        baseUomCode: null,
       }))
     );
 

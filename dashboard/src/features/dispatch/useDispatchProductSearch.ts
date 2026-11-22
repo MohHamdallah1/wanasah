@@ -3,7 +3,11 @@ import { useAuthFetch } from "@/hooks/useAuthFetch";
 import { adjustmentError, parseAdjustLoadInventory, type AdjustLoadItem } from "./adjustLoad";
 
 export const DISPATCH_PRODUCT_PAGE_SIZE = 80;
-export interface DispatchDiscoveryProduct { id: string; name: string; load: AdjustLoadItem | null }
+export interface DispatchDiscoveryProduct {
+  id: string; name: string; load: AdjustLoadItem | null;
+  /** Additive signed shortage SKU metadata; absence is UNKNOWN until #1062. */
+  baseUomCode?: string | null;
+}
 interface ProductPage { items: DispatchDiscoveryProduct[]; next_cursor: string | null; has_more: boolean }
 const emptyPage: ProductPage = { items: [], next_cursor: null, has_more: false };
 
@@ -22,7 +26,12 @@ export function parseDispatchProductPage(raw: unknown, purpose: "LOAD" | "SHORTA
     const load = item.load == null ? null : parseAdjustLoadInventory([item.load])[0];
     if (purpose === "LOAD" && !load) throw adjustmentError();
     if (load && (load.product_id !== item.id || load.product_name !== item.name)) throw adjustmentError();
-    return { id: item.id, name: item.name, load };
+    const code = item.base_uom_code;
+    const baseUomCode = purpose === "SHORTAGE" && typeof code === "string" &&
+      code.length > 0 && code.length <= 64 && !/[\s<>&]/u.test(code) ? code : null;
+    // Keep LOAD discovery's previous wire shape untouched.
+    return purpose === "SHORTAGE" ? { id: item.id, name: item.name, load, baseUomCode }
+      : { id: item.id, name: item.name, load };
   });
   return { items, has_more: page.has_more, next_cursor: page.next_cursor as string | null };
 }
