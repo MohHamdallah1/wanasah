@@ -302,6 +302,12 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
         assert response.json()["status"] == "VERIFIED"
         assert response.json()["items"][0]["available_base"] == "10011"
         async with pg.session() as db:
+            with pytest.raises(CustodyRejected) as missing_scope:
+                await read_selected_vehicle_stock(
+                    db, tenant.company_id, vehicle, {product},
+                    for_approval=True,
+                )
+            assert missing_scope.value.code == "CUSTODY_APPROVAL_SIGNED_SCOPE_REQUIRED"
             evidence = await read_selected_vehicle_stock(
                 db, tenant.company_id, vehicle, {product},
                 expected_epoch_id=epoch,
