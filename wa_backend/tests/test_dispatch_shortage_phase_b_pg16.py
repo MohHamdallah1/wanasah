@@ -279,14 +279,21 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
         assert allowed.status_code == 200, allowed.text
         context = await client.get("/driver/sessions/execution-context", headers=field_auth)
         assert context.status_code == 200, context.text
+        assert context.json()["active_session_found"] is True
+        assert int(context.json()["session_id"]) == session_id
         proof = context.json()["execution_context"]
-        assert int(proof["custody_epoch_id"]) == epoch_id
-        signed_headers = {
-            **field_auth,
-            "X-Execution-Period-ID": str(proof["period_id"]),
-            "X-Assignment-Context-Revision": str(proof["assignment_context_revision"]),
-            "X-Vehicle-Custody-Epoch-ID": str(proof["custody_epoch_id"]),
-        }
+        # This fixture launches a signed legacy route, which can legitimately
+        # lack an M03 execution period. Never forge client-side period headers
+        # or bypass FIELD authentication: the real JWT/session/accepted epoch
+        # must pass every visit mutation's server-side custody checks.
+        signed_headers = dict(field_auth)
+        if proof is not None:
+            assert int(proof["custody_epoch_id"]) == epoch_id
+            signed_headers.update({
+                "X-Execution-Period-ID": str(proof["period_id"]),
+                "X-Assignment-Context-Revision": str(proof["assignment_context_revision"]),
+                "X-Vehicle-Custody-Epoch-ID": str(proof["custody_epoch_id"]),
+            })
 
         async def demand(shop):
             cmd = _command(uuid4(), shop, zone, int(field.driver.id), tenant.variant_id, 10)

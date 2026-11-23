@@ -28,15 +28,15 @@ from dispatch_access import require_vehicle
 from domains.dispatch_representatives import has_canonical_field_identity
 from domains.identity.migration.models import IdentityLegacyDriverMap
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
-from domains.dispatch.route_execution.custody.snapshot import read_vehicle_state
+from domains.dispatch_shortage_selected_stock import read_selected_vehicle_stock
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
 from api.dispatch_shortage_availability import _sellable_by_variant
 from product_lifecycle import (
     REPLENISHMENT_NEW, acquire_product_lifecycle_guards, evaluate_product_capability,
 )
 from models import (
-    Driver, Shop, Zone, ProductVariant, ProductBatch, Visit, DispatchRoute,
-    InventoryBalance, OperationIdempotency,
+    Driver, Shop, Zone, ProductVariant, Visit, DispatchRoute,
+    OperationIdempotency,
     ShortageRequest, ShortageUrgentAssignment, SystemAuditLog,
 )
 from services import (
@@ -461,49 +461,41 @@ async def promote_shortage_with_signed_stock(
         )).all()
         if len(routes) != 1:
             raise _rejected(409, "SHORTAGE_ROUTE_ASSIGNMENT_UNKNOWN", "No unique current route and vehicle.")
-        # Match signed accepted epoch with the same authoritative stock reader as Phase A.
+        # #1071: a SINGLE selected-SKU signed read, in this same business
+        # transaction. Approval takes the EXCLUSIVE vehicle-location guard
+        # before selected balance-row locks, avoiding whole-vehicle balance
+        # reads and the lifetime inventory_movements COUNT/MAX scans.
+        # The opaque quote marker is NEVER an approval authority.
         try:
-            state = await read_vehicle_state(db, company, int(epoch.vehicle_id))
+            state = await read_selected_vehicle_stock(
+                db, company, int(epoch.vehicle_id), {product_id},
+                expected_epoch_id=int(epoch.id),
+                expected_representative_id=int(representative_id),
+                expected_principal_id=int(epoch.custodian_principal_id or 0),
+                for_approval=True,
+            )
         except CustodyRejected as exc:
-            raise _rejected(409, "SHORTAGE_VEHICLE_UNVERIFIED", "Vehicle custody cannot be verified.") from exc
+            raise _rejected(
+                409, "SHORTAGE_VEHICLE_UNVERIFIED",
+                "Current signed selected vehicle inventory cannot be verified.",
+            ) from exc
         if (
             state.epoch is None or int(state.epoch.id) != int(epoch.id)
             or state.epoch.state != "ACCEPTED"
             or state.epoch.custodian_kind != "FIELD_REPRESENTATIVE"
             or int(state.epoch.field_representative_id or 0) != int(representative_id)
             or int(state.location_id) != int(epoch.vehicle_location_id)
-            or int(state.epoch.custodian_principal_id or 0) != int(epoch.custodian_principal_id or 0)
+            or int(state.epoch.custodian_principal_id or 0)
+               != int(epoch.custodian_principal_id or 0)
         ):
             raise _rejected(409, "SHORTAGE_CUSTODY_CHANGED", "Vehicle assignment changed.")
-        product_id = int(shortage.product_variant_id)
-        # Lock balances: any concurrent movement serialized through the same physical rows.
-        await db.execute(
-            select(InventoryBalance).where(
-                InventoryBalance.company_id == company,
-                InventoryBalance.location_id == int(state.location_id),
-                InventoryBalance.product_variant_id == product_id,
-            ).order_by(InventoryBalance.id.asc()).with_for_update()
-        )
-        # Re-read AFTER acquiring balance locks. A prior GET or earlier read
-        # is not trusted if a sale/transfer modified the physical rows meanwhile.
-        try:
-            state = await read_vehicle_state(db, company, int(epoch.vehicle_id))
-        except CustodyRejected as exc:
-            raise _rejected(409, "SHORTAGE_VEHICLE_UNVERIFIED", "Vehicle custody changed during validation.") from exc
-        if (state.epoch is None or int(state.epoch.id) != int(epoch.id)
-                or state.location_id != int(epoch.vehicle_location_id)):
-            raise _rejected(409, "SHORTAGE_CUSTODY_CHANGED", "Custody moved while verifying quantity.")
-        selected_lines = [line for line in state.lines if int(line["variant_id"]) == product_id]
-        batch_ids = {int(line["batch_id"]) for line in selected_lines}
-        batch_rows = (await db.execute(
-            select(ProductBatch.id, ProductBatch.product_variant_id,
-                   ProductBatch.expiry_date, ProductBatch.disposition)
-            .where(ProductBatch.company_id == company, ProductBatch.id.in_(batch_ids))
-        )).all() if batch_ids else []
-        batches = {int(r[0]): (int(r[1]), r[2], str(r[3])) for r in batch_rows}
+        # Re-check current persisted grants after acquiring the stock guard:
+        # a revoked location or role must never authorize an urgent visit.
+        await require_vehicle(access, "dispatch.execute", int(epoch.vehicle_id))
+        await require_vehicle(access, "dispatch.read", int(epoch.vehicle_id))
         available = _sellable_by_variant(
-            lines=selected_lines, batches=batches,
-            today=await get_company_local_date(db, company), product_ids={product_id},
+            lines=state.lines, batches=state.batches,
+            today=state.company_day, product_ids={product_id},
         )
         if available is None:
             raise _rejected(409, "SHORTAGE_STOCK_UNKNOWN", "Stock proof is unverified.")

@@ -16,12 +16,11 @@ from dispatch_access import require_vehicle
 from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
 from domains.dispatch_representatives import has_canonical_field_identity
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
-from domains.dispatch.route_execution.custody.snapshot import read_vehicle_state
+from domains.dispatch_shortage_selected_stock import read_selected_vehicle_stock
 from domains.dispatch.route_execution.vehicle_custody_models import VehicleCustodyEpoch
 from domains.identity.migration.models import IdentityLegacyDriverMap
-from models import Driver, ProductBatch, ProductVariant, UOM
+from models import Driver, ProductVariant, UOM
 from quantity import QUANTITY_MAX, canonical_quantity
-from services import get_company_local_date
 
 router = APIRouter()
 MAX_PRODUCTS = 240
@@ -142,7 +141,12 @@ async def shortage_vehicle_availability(
     epoch = epochs[0]
     await require_vehicle(access, "dispatch.read", int(epoch.vehicle_id))
     try:
-        state = await read_vehicle_state(db, company_id, int(epoch.vehicle_id))
+        state = await read_selected_vehicle_stock(
+            db, company_id, int(epoch.vehicle_id), set(product_ids),
+            expected_epoch_id=int(epoch.id),
+            expected_representative_id=int(representative_id),
+            expected_principal_id=int(epoch.custodian_principal_id or 0),
+        )
     except CustodyRejected:
         return _unknown("VEHICLE_STOCK_UNVERIFIED")
     if (
@@ -155,23 +159,19 @@ async def shortage_vehicle_availability(
     ):
         return _unknown("VEHICLE_CUSTODY_CHANGED")
 
-    selected = set(product_ids)
-    selected_lines = [line for line in state.lines if line["variant_id"] in selected]
-    batch_ids = {line["batch_id"] for line in selected_lines}
-    batches = {}
-    if batch_ids:
-        rows = (await db.execute(
-            select(ProductBatch.id, ProductBatch.product_variant_id,
-                   ProductBatch.expiry_date, ProductBatch.disposition)
-            .where(ProductBatch.company_id == company_id, ProductBatch.id.in_(batch_ids))
-        )).all()
-        batches = {int(row[0]): (int(row[1]), row[2], str(row[3])) for row in rows}
-    today = await get_company_local_date(db, company_id)
+    # Only requested SKU rows/batches were read under the SAME transaction
+    # guard as stock writers.  No whole-vehicle balance list and no lifetime
+    # COUNT/MAX inventory_movements call. The marker is selected-quote scoped,
+    # opaque, and NEVER an authorization, reservation or delivery proof.
     quantities = _sellable_by_variant(
-        lines=selected_lines, batches=batches, today=today, product_ids=selected,
+        lines=state.lines, batches=state.batches,
+        today=state.company_day, product_ids=set(product_ids),
     )
     if quantities is None:
         return _unknown("VEHICLE_STOCK_UNVERIFIED")
+    # A role/location revocation after the initial access check must not admit
+    # a quote using an earlier permission snapshot.
+    await require_vehicle(access, "dispatch.read", int(epoch.vehicle_id))
     return {
         "status": "VERIFIED",
         "source": "CANONICAL_VEHICLE_CUSTODY",

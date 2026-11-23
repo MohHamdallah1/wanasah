@@ -381,7 +381,7 @@ async def test_80_vs_240_ids_real_http_source_sql_and_bounded_snapshot(pg):
             assert len(response.json()["items"]) == count
             stock = [s for s in statements if "FROM inventory_balances" in s]
             moves = [s for s in statements if "FROM inventory_movements" in s]
-            assert len(stock) == 1 and len(moves) == 1
+            assert len(stock) == 1 and len(moves) == 0, "Selected-SKU quote must not scan lifetime inventory movements"
             assert "LIMIT" in stock[0].upper(), stock[0]
             measurements.append((count, len(statements), milliseconds, len(stock), len(moves)))
             print("1059_HTTP_SQL ids=%d selects=%d milliseconds=%.1f stock_reads=%d movement_reads=%d" % measurements[-1])
@@ -391,5 +391,5 @@ async def test_80_vs_240_ids_real_http_source_sql_and_bounded_snapshot(pg):
             URL, headers=owner, params=_params(rep.driver.id, ids + [ids[0]])
         )
         assert too_many.status_code == 422, too_many.text
-    print("1059_LEAD_DECISION original=80 API=240 snapshot_MAX_STOCK_LINES=10000 "
-          "movement_watermark_count_across_full_vehicle_history")
+    print("1059_LEAD_DECISION catalog=80 quote_MAX_PRODUCTS=240 "
+          "selected_stock_limit=10000 movement_history_reads=0 quote_is_not_authority")
