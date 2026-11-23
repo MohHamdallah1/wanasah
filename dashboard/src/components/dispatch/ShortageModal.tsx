@@ -47,7 +47,7 @@ interface ShortageModalProps {
     pending: ShortagePendingCommand | null;
     blocked: boolean;
     busy: boolean;
-    feedback: "unknown" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
+    feedback: "unknown" | "lookup-denied" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
     onRetry: () => void;
     onVerify: () => void;
   };
@@ -410,7 +410,8 @@ export function ShortageModal({
           commandRecovery.feedback) && (
           <section role="status" data-testid="shortage-post-recovery"
             className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-            <p className="font-semibold">{text(commandRecovery.feedback === "denied" ? "shortageCommandDenied"
+            <p className="font-semibold">{text(commandRecovery.feedback === "lookup-denied" ? "shortageCommandLookupDenied" :
+              commandRecovery.feedback === "denied" ? "shortageCommandDenied"
               : commandRecovery.feedback === "conflict" ? "shortageCommandConflict"
               : commandRecovery.feedback === "storage" ? "shortageCommandStorage"
               : "shortageCommandUnknown")}</p>
