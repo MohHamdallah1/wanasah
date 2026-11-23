@@ -50,6 +50,7 @@ from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation,
     InventoryTransferHeader, InventoryMovement, ProductVariant, SessionInventorySnapshot, Shop, Visit,
     VisitItem, VisitReturn, Vehicle, SystemAuditLog, ShortageRequest,
+    ShortageUrgentAssignment,
     WorkBreakLog, WorkSession,
 )
 from quantity import QUANTITY_MAX
