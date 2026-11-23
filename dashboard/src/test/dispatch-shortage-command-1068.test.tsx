@@ -93,7 +93,7 @@ describe("#1068 immutable command contract",()=>{
     expect(restoreShortageDraft(actor,zones,shops,drivers)?.rows).toEqual(rows);
     expect(readPendingShortage(differentActor)).toBeNull();
     expect(readPendingShortage(actor)?.command.request_id).toBe(id);
-    expect(await parseShortageReceipt(receipt(original),original)?.lines).toEqual([
+    expect((await parseShortageReceipt(receipt(original),original))?.lines).toEqual([
       {productId:5,requestedBase:4,fulfilledBase:0,outstandingBase:4},
       {productId:40,requestedBase:10,fulfilledBase:0,outstandingBase:10},
     ]);
@@ -202,6 +202,29 @@ describe("#1068 immutable command contract",()=>{
     expect(p.onCommitted).toHaveBeenCalledOnce();
   });
 
+  it("read-only 403 on signed receipt lookup keeps UUID, then same POST replay confirms",async()=>{
+    let first=true;
+    const sent:string[]=[];
+    const server=vi.fn(async(path:string,opts?:RequestInit):Promise<unknown>=>{
+      if(opts?.method === "GET") throw err(403);
+      expect(path).toBe("/dispatch/shortage-commands");
+      const body=JSON.parse(String(opts?.body)) as ReturnType<typeof buildShortageIntent>;
+      sent.push(String(opts?.body));
+      if(first){first=false;throw new Error("lost-201");}
+      return receipt(body);
+    });
+    const h=renderHook(()=>useShortageCommandCommit(props(server)));
+    await act(async()=>expect(await h.result.current.save("3","7","9",[row])).toBe(false));
+    const uuid=readPendingShortage(actor)!.command.request_id;
+    await act(async()=>expect(await h.result.current.verify()).toBe(false));
+    expect(h.result.current.feedback).toBe("lookup-denied");
+    expect(h.result.current.blocked).toBe(false);
+    expect(readPendingShortage(actor)?.command.request_id).toBe(uuid);
+    await act(async()=>expect(await h.result.current.retry()).toBe(true));
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBe(sent[1]);
+    expect(readPendingShortage(actor)).toBeNull();
+  });
   it.each([409,401,403,500])("HTTP %d never clears ambiguous UUID",async status=>{
     const fetch=vi.fn().mockRejectedValue(err(status));
     const hooked=renderHook(()=>useShortageCommandCommit(props(fetch)));
