@@ -246,8 +246,12 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
         _real_field_sale_prerequisites,
     )
     from tests.test_dispatch_shortage_vehicle_availability_pg16 import _epoch
+    from tests.test_live_stock_v1_quantity_reconciliation_postgres import _seed_carton_conversion
 
     tenant = pg.tenants[0]
+    # Real FIELD mobile Sale requires the catalog's explicit 1-carton = 8-base
+    # conversion. Seed canonical master data, never bypass UOM validation.
+    await _seed_carton_conversion(pg, tenant)
     field, zone, jurisdiction, launch_body = await _real_field_sale_prerequisites(pg, tenant)
     vehicle = int(launch_body["vehicle_id"])
     async with pg.session() as db:
