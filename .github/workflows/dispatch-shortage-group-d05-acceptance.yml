@@ -83,7 +83,7 @@ jobs:
           pr_files = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["PR_BASE"], "HEAD"], text=True,
           ).splitlines())
-          # #1058 final signed release only: exact 47-file integration delta,
+          # #1058 final signed release only: exact 48-file integration delta,
           # including this workflow; no wildcard, no historic #849 bypass.
           # Keep #849/D11 scope checks for every other PR.
           from pathlib import Path
@@ -97,6 +97,7 @@ jobs:
               ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
               ".github/workflows/live-stock-inflight-authority-acceptance.yml",
               ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/flutter-v1-field-seams-client-adapters.yml",
               "dashboard/src/components/dispatch/ShortageModal.tsx",
               "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
               "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
@@ -138,7 +139,7 @@ jobs:
               "wa_backend/tests/test_legacy_field_transport_boundary.py",
               "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
           }
-          assert len(release_items) == 47
+          assert len(release_items) == 48
           def exact_release(candidate):
               return candidate == release_items
           assert exact_release(release_items)
@@ -147,7 +148,7 @@ jobs:
           for foreign in ("wa_backend/api/warehouse.py", "wanasah_frontend/lib/main.dart"):
               assert not exact_release(release_items | {foreign})
           if pr_files == release_items and os.environ["PR_BASE"] == "9460f6b8568bf118ff2e0ae30922bf0288a39183":
-              print("D05_INTEGRATED_RELEASE_EXACT=PASS files=47 missing=47 foreign=2; original #849 intact")
+              print("D05_INTEGRATED_RELEASE_EXACT=PASS files=48 missing=48 foreign=2; original #849 intact")
           elif pr_files == d11_exact:
               print("D11_D05_CROSS_OWNER=PASS exact=16 original #849 unchanged")
           else:
