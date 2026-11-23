@@ -362,6 +362,16 @@ async def test_80_240_ids_real_http_with_unrelated_10050_vehicle_rows(pg):
             selected.append(int(child.id))
         await db.commit()
     assert len(set(selected)) == 240
+    # Demonstrate the full valid 240-ID response BEFORE constructing the
+    # intentionally pathological 10,050-lot selected variant below.
+    async with _real_http() as client:
+        owner = await _owner(client, pg, tenant)
+        full_valid = await client.get(
+            URL, headers=owner, params=_params(field.driver.id, selected)
+        )
+        assert full_valid.status_code == 200, full_valid.text
+        assert full_valid.json()["status"] == "VERIFIED"
+        assert len(full_valid.json()["items"]) == 240
     unrelated = selected[-1]
     async with pg.admin_engine.begin() as db:
         await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
