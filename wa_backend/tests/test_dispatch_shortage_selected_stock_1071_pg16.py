@@ -28,7 +28,7 @@ from domains.dispatch_shortage_selected_stock import (
 )
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
 from domains.inventory_vehicle_load.service import mutate_vehicle_load
-from models import InventoryBalance, InventoryMovement, ProductBatch, ProductVariant, UserLocationAccess
+from models import InventoryBalance, InventoryMovement, ProductBatch, ProductVariant
 from services import acquire_inventory_location_guard
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _real_http, _owner, _token, _grant_company_dispatch_capability
@@ -225,8 +225,8 @@ async def test_real_101k_history_signed_http_no_movement_or_whole_vehicle_read(p
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
 async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reader(pg):
     tenant, _, field, vehicle, location, epoch, product, batch = await _signed_stock_fixture(pg)
-    # Seed an independent tenant-safe 10k-lot workload for the selected SKU,
-    # beyond a 240 item catalog window, without touching stock writers.
+    # Grow the selected SKU from 1 to 1k to 10k lots, then 10k+1 UNKNOWN.
+    # The data remains a synthetic disposable test tenant.
     tag = uuid4().hex[:14]
     async with pg.admin_engine.begin() as db:
         await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
@@ -236,7 +236,7 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
                                         expiry_date,disposition)
             SELECT :company, :variant, :prefix || gs::text,
                    CURRENT_DATE + 120, 'RELEASED'
-            FROM generate_series(1,9999) gs
+            FROM generate_series(1,999) gs
         """), {"company": tenant.company_id, "variant": product, "prefix": "1071-" + tag})
         await db.execute(text("""
             INSERT INTO inventory_balances(company_id,location_id,product_variant_id,
@@ -250,7 +250,33 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
         await db.execute(text("ANALYZE inventory_balances"))
     async with _real_http() as client:
         owner = await _owner(client, pg, tenant)
-        # 10k selected lots is accepted, 10k+1 fails closed UNKNOWN.
+        thousand = await client.get(URL, headers=owner, params=_params(field.driver.id,[product]))
+        assert thousand.status_code == 200
+        assert thousand.json()["status"] == "VERIFIED"
+        assert thousand.json()["items"][0]["available_base"] == "1011"
+        # Expand to 10k lots; all selected evidence is still bounded by 10k.
+        async with pg.admin_engine.begin() as db:
+            await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
+                             {"c": str(tenant.company_id)})
+            await db.execute(text("""
+                INSERT INTO product_batches(company_id,product_variant_id,batch_number,
+                                            expiry_date,disposition)
+                SELECT :company, :variant, :prefix || gs::text,
+                       CURRENT_DATE + 120, 'RELEASED'
+                FROM generate_series(1000,9999) gs
+            """), {"company":tenant.company_id,"variant":product,"prefix":"1071-"+tag})
+            await db.execute(text("""
+                INSERT INTO inventory_balances(company_id,location_id,product_variant_id,
+                                               batch_id,stock_status,on_hand_quantity,reserved_quantity)
+                SELECT :company,:location,:variant,b.id,'AVAILABLE',1,0
+                FROM product_batches b
+                WHERE b.company_id=:company AND b.product_variant_id=:variant
+                  AND b.batch_number LIKE :prefix AND
+                  b.batch_number NOT LIKE :oldprefix
+            """), {"company":tenant.company_id,"location":location,"variant":product,
+                   "prefix":"1071-"+tag+"%",
+                   "oldprefix":"1071-"+tag+"-none%"})
+            # Existing 999 rows must not be duplicated by this INSERT.
         response = await client.get(
             URL, headers=owner, params=_params(field.driver.id, [product])
         )
