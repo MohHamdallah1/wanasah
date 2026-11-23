@@ -97,12 +97,12 @@ async def _bulk_100k_source_dest_collisions(gate, tenant, vehicle_location, othe
                 source_location_id, destination_location_id,
                 source_stock_status, destination_stock_status,
                 movement_kind, reservation_action, quantity,
-                reference_type, reference_id, idempotency_key
+                reference_type, reference_id, idempotency_key, created_at
             )
             SELECT :company, :actor, :variant, :batch, :location, :location,
                    'AVAILABLE', 'AVAILABLE', 'RESERVATION', 'RESERVE', 1,
                    'PERF_SYNTHETIC', '1071-' || :tag,
-                   '1071-' || :tag || '-' || gs::text
+                   '1071-' || :tag || '-' || gs::text, NOW()
             FROM generate_series(1, 100001) AS gs
         """), {
             "company": tenant.company_id, "actor": tenant.owner.driver_id,
@@ -116,12 +116,12 @@ async def _bulk_100k_source_dest_collisions(gate, tenant, vehicle_location, othe
                 source_location_id, destination_location_id,
                 source_stock_status, destination_stock_status,
                 movement_kind, reservation_action, quantity,
-                reference_type, reference_id, idempotency_key
+                reference_type, reference_id, idempotency_key, created_at
             )
             SELECT :company, :actor, :variant, :batch, :other, :location,
                    'AVAILABLE', 'AVAILABLE', 'PHYSICAL', NULL, 1,
                    'PERF_SYNTHETIC', '1071-d-' || :tag,
-                   '1071-d-' || :tag || '-' || gs::text
+                   '1071-d-' || :tag || '-' || gs::text, NOW()
             FROM generate_series(1, 1000) AS gs
         """), {
             "company": tenant.company_id, "actor": tenant.owner.driver_id,
@@ -252,15 +252,15 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
                          {"c": str(tenant.company_id)})
         await db.execute(text("""
             INSERT INTO product_batches(company_id,product_variant_id,batch_number,
-                                        expiry_date,disposition)
+                                        expiry_date,disposition,created_at,updated_at)
             SELECT :company, :variant, :prefix || gs::text,
-                   CURRENT_DATE + 120, 'RELEASED'
+                   CURRENT_DATE + 120, 'RELEASED', NOW(), NOW()
             FROM generate_series(1,999) gs
         """), {"company": tenant.company_id, "variant": product, "prefix": "1071-" + tag})
         await db.execute(text("""
             INSERT INTO inventory_balances(company_id,location_id,product_variant_id,
-                                           batch_id,stock_status,on_hand_quantity,reserved_quantity)
-            SELECT :company,:location,:variant,b.id,'AVAILABLE',1,0
+                                           batch_id,stock_status,on_hand_quantity,reserved_quantity,last_updated)
+            SELECT :company,:location,:variant,b.id,'AVAILABLE',1,0,NOW()
             FROM product_batches b
             WHERE b.company_id = :company AND b.product_variant_id = :variant
               AND b.batch_number LIKE :prefix
@@ -280,18 +280,18 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
             await db.execute(text("""
                 WITH inserted AS (
                     INSERT INTO product_batches(
-                        company_id,product_variant_id,batch_number,expiry_date,disposition
+                        company_id,product_variant_id,batch_number,expiry_date,disposition,created_at,updated_at
                     )
                     SELECT :company, :variant, :prefix || gs::text,
-                           CURRENT_DATE + 120, 'RELEASED'
+                           CURRENT_DATE + 120, 'RELEASED', NOW(), NOW()
                     FROM generate_series(1000,9999) gs
                     RETURNING id
                 )
                 INSERT INTO inventory_balances(
                     company_id,location_id,product_variant_id,batch_id,stock_status,
-                    on_hand_quantity,reserved_quantity
+                    on_hand_quantity,reserved_quantity,last_updated
                 )
-                SELECT :company,:location,:variant,id,'AVAILABLE',1,0
+                SELECT :company,:location,:variant,id,'AVAILABLE',1,0,NOW()
                 FROM inserted
             """), {"company":tenant.company_id,"location":location,
                    "variant":product,"prefix":"1071-"+tag})
@@ -324,8 +324,8 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
                              {"c": str(tenant.company_id)})
             await db.execute(text("""
                 INSERT INTO product_batches(company_id,product_variant_id,batch_number,
-                                            expiry_date,disposition)
-                VALUES(:company,:variant,:name,CURRENT_DATE+120,'RELEASED')
+                                            expiry_date,disposition,created_at,updated_at)
+                VALUES(:company,:variant,:name,CURRENT_DATE+120,'RELEASED',NOW(),NOW())
                 RETURNING id
             """), {"company": tenant.company_id, "variant": product, "name": "1071-"+tag+"-overflow"})
             bid = (await db.execute(text(
@@ -335,8 +335,8 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
                 "name": "1071-"+tag+"-overflow"})).scalar_one()
             await db.execute(text("""
                 INSERT INTO inventory_balances(company_id,location_id,product_variant_id,
-                                               batch_id,stock_status,on_hand_quantity,reserved_quantity)
-                VALUES(:company,:location,:variant,:batch,'AVAILABLE',1,0)
+                                               batch_id,stock_status,on_hand_quantity,reserved_quantity,last_updated)
+                VALUES(:company,:location,:variant,:batch,'AVAILABLE',1,0,NOW())
             """), {"company": tenant.company_id, "location": location,
                    "variant": product, "batch": bid})
         overflow = await client.get(
@@ -385,16 +385,16 @@ async def test_80_240_ids_real_http_with_unrelated_10050_vehicle_rows(pg):
         await db.execute(text("""
             WITH inserted AS (
               INSERT INTO product_batches(company_id,product_variant_id,batch_number,
-                                          expiry_date,disposition)
-              SELECT :company,:variant,:prefix || gs::text,CURRENT_DATE+120,'RELEASED'
+                                          expiry_date,disposition,created_at,updated_at)
+              SELECT :company,:variant,:prefix || gs::text,CURRENT_DATE+120,'RELEASED',NOW(),NOW()
               FROM generate_series(1,10050) gs
               RETURNING id
             )
             INSERT INTO inventory_balances(
               company_id,location_id,product_variant_id,batch_id,stock_status,
-              on_hand_quantity,reserved_quantity
+              on_hand_quantity,reserved_quantity,last_updated
             )
-            SELECT :company,:location,:variant,id,'AVAILABLE',1,0 FROM inserted
+            SELECT :company,:location,:variant,id,'AVAILABLE',1,0,NOW() FROM inserted
         """), {"company":tenant.company_id,"location":location,
                "variant":unrelated,"prefix":"1071-"+uuid4().hex[:14]})
         await db.execute(text("ANALYZE inventory_balances"))
