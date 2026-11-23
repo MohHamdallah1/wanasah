@@ -321,6 +321,74 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
         assert overflow.json()["reason"] == "VEHICLE_STOCK_UNVERIFIED"
 
 
+
+@pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
+async def test_80_240_ids_real_http_with_unrelated_10050_vehicle_rows(pg):
+    tenant, _, field, vehicle, location, epoch, product, batch = await _signed_stock_fixture(pg)
+    selected = [product]
+    async with pg.session() as db:
+        parent = await db.get(ProductVariant, product)
+        for _ in range(239):
+            tag = "1071-" + uuid4().hex[:15]
+            child = ProductVariant(
+                company_id=tenant.company_id, product_id=parent.product_id,
+                name=tag, sku=tag, base_uom_id=tenant.uom_id,
+                quantity_scale=6, quantity_step=Decimal("0.000001"),
+                lot_control_mode="OPTIONAL", expiry_control_mode="OPTIONAL",
+                lifecycle_status="ACTIVE", published_at=parent.published_at,
+            )
+            db.add(child)
+            await db.flush()
+            selected.append(int(child.id))
+        await db.commit()
+    assert len(set(selected)) == 240
+    unrelated = selected[-1]
+    async with pg.admin_engine.begin() as db:
+        await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
+                         {"c": str(tenant.company_id)})
+        await db.execute(text("""
+            WITH inserted AS (
+              INSERT INTO product_batches(company_id,product_variant_id,batch_number,
+                                          expiry_date,disposition)
+              SELECT :company,:variant,:prefix || gs::text,CURRENT_DATE+120,'RELEASED'
+              FROM generate_series(1,10050) gs
+              RETURNING id
+            )
+            INSERT INTO inventory_balances(
+              company_id,location_id,product_variant_id,batch_id,stock_status,
+              on_hand_quantity,reserved_quantity
+            )
+            SELECT :company,:location,:variant,id,'AVAILABLE',1,0 FROM inserted
+        """), {"company":tenant.company_id,"location":location,
+               "variant":unrelated,"prefix":"1071-"+uuid4().hex[:14]})
+        await db.execute(text("ANALYZE inventory_balances"))
+    async with _real_http() as client:
+        owner = await _owner(client, pg, tenant)
+        for n in (80,239):
+            t0 = perf_counter()
+            response = await client.get(
+                URL, headers=owner, params=_params(field.driver.id, selected[:n])
+            )
+            elapsed = round((perf_counter()-t0)*1000,2)
+            assert response.status_code == 200, response.text
+            body = response.json()
+            assert body["status"] == "VERIFIED"
+            assert len(body["items"]) == n
+            assert body["items"][0]["available_base"] == "12"
+            assert all(line["available_base"] == "0" for line in body["items"][1:])
+            print(f"1071_REAL_PG16_SELECTED_IDS count={n} elapsed_ms={elapsed} "
+                  "unrelated_vehicle_rows=10050")
+        # 240 selected includes an intentionally over-cap SKU.
+        too_many_selected_lots = await client.get(
+            URL, headers=owner, params=_params(field.driver.id, selected)
+        )
+        assert too_many_selected_lots.status_code == 200
+        assert too_many_selected_lots.json()["status"] == "UNKNOWN"
+        assert too_many_selected_lots.json()["reason"] == "VEHICLE_STOCK_UNVERIFIED"
+        assert (await client.get(
+            URL, headers=owner, params=_params(field.driver.id, selected + [product])
+        )).status_code == 422
+
 @pytest.mark.parametrize("pg", ["FIFO"], indirect=True)
 async def test_signed_quote_guard_fences_mid_read_stock_writer_and_hold_unknown(pg):
     tenant, _, field, vehicle, location, epoch, product, batch = await _signed_stock_fixture(pg)
