@@ -1,0 +1,86 @@
+name: "LEAD #1070 real shortage PostgreSQL16 acceptance"
+on:
+  push:
+    branches: [lead/1070-pg16-proof-20261123]
+permissions:
+  contents: read
+jobs:
+  real-pg16-shortage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      ENVIRONMENT: test
+      SECRET_KEY: "SyntheticOnlyReleaseProof2026_Aa12345678901234567890"
+      DATABASE_URL: "postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test"
+      DATABASE_URL_MIGRATION: "postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test"
+      WANASAH_NO_LOT_PG_GATE: "1"
+      WANASAH_SHORTAGE_PHASE_B_PG_GATE: "1"
+      WANASAH_NO_LOT_PG_URL: "postgresql+asyncpg://wanasah_app@127.0.0.1:55439/wanasah_no_lot_contract_test"
+      WANASAH_NO_LOT_PG_ADMIN_URL: "postgresql+asyncpg://p0_dispatch_admin@127.0.0.1:55439/wanasah_no_lot_contract_test"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Start disposable local PostgreSQL16
+        run: |
+          docker run --detach --name lead-shortage-pg16 --env POSTGRES_USER=p0_dispatch_admin --env POSTGRES_DB=wanasah_no_lot_contract_test --env POSTGRES_HOST_AUTH_METHOD=trust --publish 127.0.0.1:55439:55439 postgres:16 -p 55439
+          for attempt in $(seq 1 35); do
+            if docker exec lead-shortage-pg16 pg_isready -U p0_dispatch_admin -d wanasah_no_lot_contract_test -p 55439; then exit 0; fi
+            sleep 1
+          done
+          docker logs lead-shortage-pg16
+          exit 1
+      - name: Create restricted NOBYPASSRLS runtime
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn=make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn,autocommit=True) as db:
+              db.execute("CREATE ROLE wanasah_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+          PY
+      - name: Apply full fresh Alembic schema
+        working-directory: wa_backend
+        run: |
+          alembic upgrade head
+          alembic check
+      - name: Grant disposable DML to restricted runtime
+        run: |
+          python - <<'PY'
+          import os, psycopg
+          from sqlalchemy.engine import make_url
+          dsn=make_url(os.environ["DATABASE_URL_MIGRATION"]).set(drivername="postgresql").render_as_string(hide_password=False)
+          with psycopg.connect(dsn,autocommit=True) as db:
+              db.execute("GRANT USAGE ON SCHEMA public TO wanasah_app")
+              db.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO wanasah_app")
+              db.execute("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO wanasah_app")
+          PY
+      - name: True signed Phase B PG16 partial/reversal/retry/permissions
+        working-directory: wa_backend
+        run: python -B -m pytest -p no:cacheprovider -q -s --tb=short tests/test_dispatch_shortage_phase_b_pg16.py --junitxml=lead-phase-b-pg16.xml
+      - name: Mandatory real test manifest (never accept skips)
+        if: always()
+        working-directory: wa_backend
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          p=Path("lead-phase-b-pg16.xml")
+          assert p.is_file(), "No real PG16 JUnit acceptance artifact"
+          cases=list(ET.parse(p).getroot().iter("testcase"))
+          assert len(cases)>0, "Empty opt-in acceptance"
+          bad=[(x.get("name"),s) for x in cases for s in ("skipped","failure","error") if x.find(s) is not None]
+          print("PHASE_B_REAL_PG16_COUNT",len(cases),"BAD",bad)
+          assert not bad, bad
+          PY
+      - name: Retain real proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lead-phase-b-pg16-evidence
+          path: wa_backend/lead-phase-b-pg16.xml
+          if-no-files-found: warn
