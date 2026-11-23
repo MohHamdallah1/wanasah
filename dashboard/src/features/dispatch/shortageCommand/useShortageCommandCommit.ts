@@ -134,7 +134,8 @@ export function useShortageCommandCommit({
             if (!live()) return false;
             // An acknowledged HTTP success with no exact immutable line
             // receipt is still UNKNOWN. A subsequent list is not evidence.
-            const receipt = parseShortageReceipt(response, original.command);
+            const receipt = await parseShortageReceipt(response, original.command);
+            if (!live()) return false;
             if (!receipt) {
               setState(s => ({...s,pending:original,feedback:"unknown"}));
               return false;
