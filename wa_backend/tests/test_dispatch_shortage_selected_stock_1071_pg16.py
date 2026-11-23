@@ -228,8 +228,8 @@ async def test_real_101k_history_signed_http_no_movement_or_whole_vehicle_read(p
     finally:
         event.remove(http_engine.sync_engine, "before_cursor_execute", capture)
     # Old unbounded movement-history COUNT/MAX is not even executed by GET.
-    assert not any("FROM inventory_movements" in sql.lower() for sql in captured)
-    selected_reads = [sql for sql in captured if "FROM inventory_balances" in sql.lower()]
+    assert not any("from inventory_movements" in sql.lower() for sql in captured)
+    selected_reads = [sql for sql in captured if "from inventory_balances" in sql.lower()]
     assert len(selected_reads) == 4
     assert all("product_variant_id IN" in sql for sql in selected_reads)
     assert all("LIMIT" in sql.upper() for sql in selected_reads)
