@@ -1,4 +1,4 @@
-import { webcrypto } from "node:crypto";
+import { createHash, webcrypto } from "node:crypto";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppLanguage } from "@/i18n";
@@ -47,7 +47,12 @@ const fakeLocks = { request: async <T,>(
 const err = (status:number) => Object.assign(new Error("private error"),{status});
 const receipt = (body:ReturnType<typeof buildShortageIntent>) => ({
   version: 2, status: "PENDING_REPLENISHMENT",
-  request_id:body.request_id, request_hash:"a".repeat(64),
+  request_id:body.request_id, request_hash: createHash("sha256").update(JSON.stringify({
+    lines: body.lines.map(line => [line.product_id, line.quantity_base])
+      .sort((a,b) => a[0]-b[0]),
+    requested_driver_id: body.requested_driver_id,
+    shop_id: body.shop_id, version: body.version, zone_id: body.zone_id,
+  })).digest("hex"),
   shop_id:body.shop_id, zone_id:body.zone_id,
   requested_driver_id:body.requested_driver_id,
   lines:body.lines.map((l,i)=>({
@@ -72,7 +77,7 @@ afterEach(()=>{
   Object.defineProperty(navigator,"locks",{configurable:true,value:undefined});
 });
 describe("#1068 immutable command contract",()=>{
-  it("sorts 2 products, uses BASE not CARTON and keeps existing D10 separate",()=>{
+  it("sorts 2 products, uses BASE not CARTON and keeps existing D10 separate",async()=>{
     saveShortageDraft(actor,{zoneId:"3",shopId:"7",driverId:"9",rows});
     const original = buildShortageIntent("3","7","9",rows,id);
     expect(original).toEqual({
@@ -88,7 +93,7 @@ describe("#1068 immutable command contract",()=>{
     expect(restoreShortageDraft(actor,zones,shops,drivers)?.rows).toEqual(rows);
     expect(readPendingShortage(differentActor)).toBeNull();
     expect(readPendingShortage(actor)?.command.request_id).toBe(id);
-    expect(parseShortageReceipt(receipt(original),original)?.lines).toEqual([
+    expect(await parseShortageReceipt(receipt(original),original)?.lines).toEqual([
       {productId:5,requestedBase:4,fulfilledBase:0,outstandingBase:4},
       {productId:40,requestedBase:10,fulfilledBase:0,outstandingBase:10},
     ]);
@@ -117,14 +122,15 @@ describe("#1068 immutable command contract",()=>{
       requested:10,fulfilled:0,outstanding:10,
     });
   });
-  it("rejects phantom/mismatched receipt, wrong actor, corrupt UUID and 81 lines",()=>{
+  it("rejects phantom/mismatched receipt, wrong actor, corrupt UUID and 81 lines",async()=>{
     const intent=buildShortageIntent("3","7","9",[row],id);
-    expect(parseShortageReceipt({message:"ok"},intent)).toBeNull();
-    expect(parseShortageReceipt({...receipt(intent),request_id:crypto.randomUUID()},intent)).toBeNull();
-    expect(parseShortageReceipt({...receipt(intent),zone_id:999},intent)).toBeNull();
-    expect(parseShortageReceipt({...receipt(intent),status:"URGENT_AUTHORIZED"},intent)).toBeNull();
-    expect(parseShortageReceipt({request_id:id,lines:[]},intent)).toBeNull();
-    expect(parseShortageReceipt({request_id:id,lines:[{...receipt(intent).lines[0],outstanding_base:2}]},intent)).toBeNull();
+    expect(await parseShortageReceipt({message:"ok"},intent)).toBeNull();
+    expect(await parseShortageReceipt({...receipt(intent),request_id:crypto.randomUUID()},intent)).toBeNull();
+    expect(await parseShortageReceipt({...receipt(intent),request_hash:"f".repeat(64)},intent)).toBeNull();
+    expect(await parseShortageReceipt({...receipt(intent),zone_id:999},intent)).toBeNull();
+    expect(await parseShortageReceipt({...receipt(intent),status:"URGENT_AUTHORIZED"},intent)).toBeNull();
+    expect(await parseShortageReceipt({request_id:id,lines:[]},intent)).toBeNull();
+    expect(await parseShortageReceipt({request_id:id,lines:[{...receipt(intent).lines[0],outstanding_base:2}]},intent)).toBeNull();
     expect(()=>buildShortageIntent("3","7","9",Array(81).fill(row),id)).toThrow();
     expect(()=>buildShortageIntent("3","7","9",[row,row],id)).toThrow();
     expect(()=>buildShortageIntent("3","7","9",[{...row,quantity:0}],id)).toThrow();
