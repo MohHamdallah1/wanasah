@@ -204,9 +204,9 @@ jobs:
                   if reason == "emergency":
                       visit.is_emergency = True
                   elif reason == "pending_shortage":
-                      # The signed M03 route is resolved outside db.execute;
-                      # slot 4 is now the real pending-shortage query, not route.
-                      results[4] = result(123)
+                      # A demand alone is NOT a signed urgent Visit grant.
+                      # Keep custody evidence intact; negative result is 403.
+                      pass
               elif reason == "active_break":
                   session.break_start_time = datetime(2026, 10, 23)
               elif reason == "unauthorized":
@@ -249,7 +249,7 @@ jobs:
                   ("settled_visit_session", 403), ("missing_route", 403),
                   ("missing_canonical_execution", 409),
                   ("missing_vehicle", 409), ("outside_zone", 403),
-                  ("emergency", 418), ("pending_shortage", 418),
+                  ("emergency", 418), ("pending_shortage", 403),
                   ("active_break", 403), ("unauthorized", 403),
                   ("pending_handshake", 403), ("inventory_lock", 403),
                   ("wrong_driver", 403), ("different_session", 409),

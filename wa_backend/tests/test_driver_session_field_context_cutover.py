@@ -569,8 +569,13 @@ def load_custody_routes(**dependencies):
 def custody_db():
     db = MagicMock(spec=AsyncSession)
     state = SimpleNamespace(is_active=True, maintenance_status="Active")
+    # The AST sandbox models real no-grant defaults: a pending shortage
+    # (and arbitrary truthy stock/location flags) must never fabricate a
+    # signed urgent assignment for an out-of-zone FIELD visit.
     db.scalar.side_effect = lambda statement: (
-        state if statement.column_descriptions[0].get("entity") is Vehicle else True
+        state if statement.column_descriptions[0].get("entity") is Vehicle
+        else None if statement.column_descriptions[0].get("entity") is ShortageUrgentAssignment
+        else True
     )
     return db, state
 
