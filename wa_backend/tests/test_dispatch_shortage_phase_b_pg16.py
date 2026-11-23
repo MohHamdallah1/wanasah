@@ -61,6 +61,35 @@ def _command(request_id, shop, zone, driver, product, quantity=10):
     }
 
 
+async def _grant_location_dispatch_capability(gate, tenant, actor, code, location_id):
+    """Persist a real warehouse/vehicle-scoped Backoffice role; never fake JWT scope."""
+    from models import Permission, Role, UserLocationAccess, role_permissions
+
+    async with gate.session() as db:
+        permission = await db.scalar(select(Permission).where(Permission.code == code))
+        assert permission is not None
+        role = Role(
+            company_id=tenant.company_id,
+            name="1067 scoped " + code + " " + uuid4().hex[:10],
+        )
+        db.add(role)
+        await db.flush()
+        await db.execute(role_permissions.insert().values(
+            company_id=tenant.company_id,
+            role_id=int(role.id),
+            permission_id=int(permission.id),
+        ))
+        db.add(UserLocationAccess(
+            company_id=tenant.company_id,
+            driver_id=int(actor.driver_id),
+            role_id=int(role.id),
+            location_id=int(location_id),
+        ))
+        role_id = int(role.id)
+        await db.commit()
+        return role_id
+
+
 async def test_durable_exact_receipt_retry_conflicts_tenants_pending_only(pg):
     await _rls()
     company, zone, products, driver = await _setup(pg)
@@ -378,6 +407,187 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
             ))
             assert sorted(int(item.quantity_delta) for item in real) == [4, 6]
 
+        # A separate correction path calls the shared invoice-reversal service
+        # directly, NOT the FIELD NoSale adapter. It must atomically append the
+        # -6 event and restore outstanding demand to 6 without a binary reset.
+        from models import Shop, WorkSession
+        from services import reverse_previous_visit_state
+        async with pg.session() as db:
+            old_visit = await db.get(Visit, visit_b)
+            assert old_visit is not None and old_visit.status == "Completed"
+            old_session = await db.get(WorkSession, old_visit.work_session_id)
+            old_shop = await db.get(Shop, old_visit.shop_id)
+            assert old_session is not None and old_shop is not None
+            await reverse_previous_visit_state(
+                db, old_visit, old_session, old_shop,
+                admin_id=int(field.driver.id), request_id=str(uuid4()),
+            )
+            await db.commit()
+        reopened = await read(second)
+        assert reopened["fulfilledBase"] == 4
+        assert reopened["outstandingBase"] == 6
+        assert reopened["status"] == "pending"
+        async with pg.session() as db:
+            reversed_six = (await db.scalars(select(ShortageDeliveryEvent).where(
+                ShortageDeliveryEvent.company_id == tenant.company_id,
+                ShortageDeliveryEvent.visit_id == visit_b,
+                ShortageDeliveryEvent.event_type == "REVERSAL",
+            ))).all()
+            assert len(reversed_six) == 1
+            assert int(reversed_six[0].quantity_delta) == -6
+            assert reversed_six[0].reverses_event_id is not None
+            verified = await db.get(ShortageRequest, second)
+            assert verified.fulfilled_base == 4
+            assert verified.fulfilled_by_visit_id is None
+
+
+async def test_signed_promotion_replay_revoked_vehicle_and_shop_scope(pg):
+    """A previously signed HTTP 201 is not a transferable historical grant."""
+    from sqlalchemy import delete as sa_delete
+    from models import InventoryLocation, UserRole, UserLocationAccess
+    from tests.test_dispatch_shop_finance_edit_v1_postgres import (
+        _real_field_sale_prerequisites,
+    )
+    from tests.test_dispatch_shortage_vehicle_availability_pg16 import _epoch
+
+    tenant = pg.tenants[0]
+    field, zone, _, launch = await _real_field_sale_prerequisites(pg, tenant)
+    vehicle = int(launch["vehicle_id"])
+    async with pg.session() as db:
+        vehicle_loc = await db.scalar(select(InventoryLocation.id).where(
+            InventoryLocation.company_id == tenant.company_id,
+            InventoryLocation.vehicle_id == vehicle,
+            InventoryLocation.location_type == "VEHICLE",
+        ))
+        assert vehicle_loc is not None
+
+    # Keep warehouse execute on replay to prove that broad any-location
+    # permission is insufficient after the exact vehicle grant is revoked.
+    await _grant_company_dispatch_capability(
+        pg, tenant, tenant.ordinary, "shortage.create",
+    )
+    company_read_role = await _grant_company_dispatch_capability(
+        pg, tenant, tenant.ordinary, "dispatch.read",
+    )
+    await _grant_location_dispatch_capability(
+        pg, tenant, tenant.ordinary, "dispatch.execute", tenant.location_id,
+    )
+    vehicle_execute_role = await _grant_location_dispatch_capability(
+        pg, tenant, tenant.ordinary, "dispatch.execute", int(vehicle_loc),
+    )
+
+    async with _real_http() as client:
+        owner = await _token(client, pg, tenant, tenant.owner, "NoLotSyntheticFixture123")
+        ordinary = await _token(
+            client, pg, tenant, tenant.ordinary, "SyntheticFixture123",
+        )
+        created = await client.post("/dispatch/route", headers=owner, json=launch)
+        assert created.status_code == 201, created.text
+        await _epoch(pg, tenant, field, vehicle, int(vehicle_loc))
+        shop, _ = await _add_shop(client, owner, zone, balance="0", cap="100000")
+        command = _command(uuid4(), shop, zone, int(field.driver.id), tenant.variant_id, 10)
+        demand = await client.post("/dispatch/shortage-commands", headers=owner, json=command)
+        assert demand.status_code == 201, demand.text
+        shortage_id = int(demand.json()["lines"][0]["shortage_id"])
+        promotion = {
+            "request_id": str(uuid4()), "driver_id": int(field.driver.id),
+            "quantity_base": 1,
+        }
+        endpoint = f"/dispatch/shortages/{shortage_id}/promote-urgent"
+        first = await client.post(endpoint, headers=ordinary, json=promotion)
+        assert first.status_code == 201, first.text
+        receipt = first.json()
+        replay = await client.post(endpoint, headers=ordinary, json=promotion)
+        assert replay.status_code == 201 and replay.json() == receipt, replay.text
+        unchanged = await _snapshot(pg, tenant, shop)
+
+        async with pg.session() as db:
+            await db.execute(sa_delete(UserLocationAccess).where(
+                UserLocationAccess.company_id == tenant.company_id,
+                UserLocationAccess.driver_id == tenant.ordinary.driver_id,
+                UserLocationAccess.role_id == vehicle_execute_role,
+                UserLocationAccess.location_id == int(vehicle_loc),
+            ))
+            await db.commit()
+        denied_vehicle = await client.post(endpoint, headers=ordinary, json=promotion)
+        assert denied_vehicle.status_code in (403, 404), denied_vehicle.text
+        assert "assignment_id" not in denied_vehicle.text
+        assert await _snapshot(pg, tenant, shop) == unchanged
+
+        # Restore vehicle execute; replace company Shop directory with a
+        # warehouse-only read role that has no authorized vehicle/route Visit.
+        from models import UserLocationAccess
+        async with pg.session() as db:
+            db.add(UserLocationAccess(
+                company_id=tenant.company_id,
+                driver_id=int(tenant.ordinary.driver_id),
+                role_id=vehicle_execute_role,
+                location_id=int(vehicle_loc),
+            ))
+            await db.execute(sa_delete(UserRole).where(
+                UserRole.company_id == tenant.company_id,
+                UserRole.driver_id == tenant.ordinary.driver_id,
+                UserRole.role_id == company_read_role,
+            ))
+            await db.commit()
+        await _grant_location_dispatch_capability(
+            pg, tenant, tenant.ordinary, "dispatch.read", tenant.location_id,
+        )
+        denied_shop = await client.post(endpoint, headers=ordinary, json=promotion)
+        assert denied_shop.status_code in (403, 404), denied_shop.text
+        assert "assignment_id" not in denied_shop.text
+        assert await _snapshot(pg, tenant, shop) == unchanged
+
+
+async def test_legacy_and_versioned_shortage_writes_enforce_shop_route_scope(pg):
+    """No company-wide Shop writes via a warehouse-only Backoffice principal."""
+    tenant, zone, products, driver = await _setup(pg)
+    for permission in ("shortage.read", "shortage.create", "shortage.cancel"):
+        await _grant_company_dispatch_capability(
+            pg, tenant, tenant.ordinary, permission,
+        )
+    await _grant_location_dispatch_capability(
+        pg, tenant, tenant.ordinary, "dispatch.read", tenant.location_id,
+    )
+    async with _real_http() as client:
+        owner = await _token(client, pg, tenant, tenant.owner, "NoLotSyntheticFixture123")
+        ordinary = await _token(client, pg, tenant, tenant.ordinary, "SyntheticFixture123")
+        invisible, _ = await _add_shop(client, owner, zone, balance="0", cap="0")
+        original = await _snapshot(pg, tenant, invisible)
+        legacy_create = await client.post(
+            "/dispatch/shortages", headers=ordinary,
+            json=[_item(invisible, zone, driver, products[0], 2)],
+        )
+        assert legacy_create.status_code in (403, 404), legacy_create.text
+        versioned = await client.post(
+            "/dispatch/shortage-commands", headers=ordinary,
+            json=_command(uuid4(), invisible, zone, driver, products[0], 10),
+        )
+        assert versioned.status_code in (403, 404), versioned.text
+        assert await _snapshot(pg, tenant, invisible) == original
+
+        allowed = await client.post(
+            "/dispatch/shortages", headers=owner,
+            json=[_item(invisible, zone, driver, products[0], 2)],
+        )
+        assert allowed.status_code == 201, allowed.text
+        after = await _snapshot(pg, tenant, invisible)
+        listing = await client.get("/dispatch/shortages", headers=owner)
+        ids = [int(row["id"]) for row in listing.json()
+               if int(row["shopId"]) == invisible]
+        assert len(ids) == 1
+
+        old_delete = await client.delete(
+            f"/dispatch/shortages/{ids[0]}", headers=ordinary,
+        )
+        assert old_delete.status_code in (403, 404), old_delete.text
+        grouped = await client.put(
+            "/dispatch/shortages/group", headers=ordinary,
+            json={"request_id": str(uuid4()), "shortage_ids": ids,
+                  "items": [_item(invisible, zone, driver, products[1], 1)]},
+        )
+        assert grouped.status_code in (403, 404), grouped.text
+        assert await _snapshot(pg, tenant, invisible) == after
 
 
 async def test_atomic_late_commit_failure_reuse_same_uuid_pg(pg):
