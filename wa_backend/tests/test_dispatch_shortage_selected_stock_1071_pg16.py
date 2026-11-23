@@ -287,6 +287,7 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
                 db, tenant.company_id, vehicle, {product},
                 expected_epoch_id=epoch,
                 expected_representative_id=field.context.representative_id,
+                expected_principal_id=field.context.principal_id,
                 for_approval=True,
             )
             assert len(evidence.lines) == 10000
