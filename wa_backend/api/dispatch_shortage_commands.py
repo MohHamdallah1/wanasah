@@ -345,7 +345,15 @@ async def _authorize_promotion_replay(
     if len(routes) != 1:
         raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Route no longer uniquely authorized.")
     try:
-        state = await read_vehicle_state(db, company, int(assignment.vehicle_id))
+        # Receipt replay revalidates CURRENT signed custody and access without
+        # re-reading the entire vehicle or its lifetime movement history.
+        state = await read_selected_vehicle_stock(
+            db, company, int(assignment.vehicle_id),
+            {int(demand.product_variant_id)},
+            expected_epoch_id=int(epoch.id),
+            expected_representative_id=int(representative_id or 0),
+            expected_principal_id=int(epoch.custodian_principal_id or 0),
+        )
     except CustodyRejected as exc:
         raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody changed.") from exc
     if (state.epoch is None or int(state.epoch.id) != int(epoch.id)

@@ -338,6 +338,7 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
         no_sale_response = await client.put(
             f"/visits/{no_sale_visit}", headers=signed_headers, json={
                 "request_id": str(uuid4()), "outcome": "NoSale",
+                "notes": "Customer did not purchase, zero delivered quantity.",
                 "cash_collected": "0", "debt_paid": "0", "cart_items": [],
             },
         )
@@ -367,6 +368,7 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
         corrected = await client.put(
             f"/visits/{visit}", headers=signed_headers, json={
                 "request_id": str(uuid4()), "outcome": "NoSale",
+                "notes": "Customer did not purchase, zero delivered quantity.",
                 "cash_collected": "0", "debt_paid": "0", "cart_items": [],
             },
         )
