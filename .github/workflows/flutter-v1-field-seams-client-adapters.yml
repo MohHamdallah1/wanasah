@@ -212,9 +212,10 @@ jobs:
               elif reason == "unauthorized":
                   session.is_authorized_to_sell = False
               elif reason == "pending_handshake":
-                  # The obsolete route SELECT is gone; position 6 now carries
-                  # the actual pending-handshake query result.
-                  results[6] = result(123)
+                  # New urgent assignments use db.scalar, not db.execute.
+                  # The actual pending-handshake SELECT is now slot 5.
+                  # Preserve the existing 403 rejection; do not bypass it.
+                  results[5] = result(123)
               elif reason == "inventory_lock":
                   setup.namespace["check_inventory_locks_batch"].side_effect = ValueError("synthetic lock")
               elif reason == "wrong_driver":
