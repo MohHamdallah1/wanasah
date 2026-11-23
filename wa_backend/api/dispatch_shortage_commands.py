@@ -322,30 +322,36 @@ async def _authorize_promotion_replay(
         IdentityLegacyDriverMap.company_id == company,
         IdentityLegacyDriverMap.legacy_driver_id == driver_id,
     ))
-    epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+    epochs = (await db.scalars(select(VehicleCustodyEpoch).where(
         VehicleCustodyEpoch.company_id == company,
-        VehicleCustodyEpoch.id == int(assignment.custody_epoch_id),
-        VehicleCustodyEpoch.vehicle_id == int(assignment.vehicle_id),
         VehicleCustodyEpoch.field_representative_id == representative_id,
         VehicleCustodyEpoch.custodian_kind == "FIELD_REPRESENTATIVE",
         VehicleCustodyEpoch.state == "ACCEPTED",
         VehicleCustodyEpoch.ended_at.is_(None),
-    ))
-    if epoch is None:
+    ).order_by(VehicleCustodyEpoch.id.desc()).limit(2))).all()
+    # The representative must own exactly the SAME single accepted epoch as
+    # at authorization, not merely one of multiple stale/competing vehicles.
+    if (len(epochs) != 1
+            or int(epochs[0].id) != int(assignment.custody_epoch_id)
+            or int(epochs[0].vehicle_id) != int(assignment.vehicle_id)):
         raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody no longer authorized.")
-    route = await db.scalar(select(DispatchRoute.id).where(
+    epoch = epochs[0]
+    routes = (await db.scalars(select(DispatchRoute.id).where(
         DispatchRoute.company_id == company,
         DispatchRoute.driver_id == driver_id,
         DispatchRoute.vehicle_id == int(assignment.vehicle_id),
         DispatchRoute.status == "active",
-    ).limit(1))
-    if route is None:
-        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Route no longer authorized.")
+    ).order_by(DispatchRoute.id.asc()).limit(2))).all()
+    if len(routes) != 1:
+        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Route no longer uniquely authorized.")
     try:
         state = await read_vehicle_state(db, company, int(assignment.vehicle_id))
     except CustodyRejected as exc:
         raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody changed.") from exc
     if (state.epoch is None or int(state.epoch.id) != int(epoch.id)
+            or state.epoch.state != "ACCEPTED"
+            or state.epoch.custodian_kind != "FIELD_REPRESENTATIVE"
+            or int(state.epoch.field_representative_id or 0) != int(representative_id or 0)
             or int(state.location_id) != int(epoch.vehicle_location_id)
             or int(state.epoch.custodian_principal_id or 0) != int(epoch.custodian_principal_id or 0)):
         raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody changed.")
