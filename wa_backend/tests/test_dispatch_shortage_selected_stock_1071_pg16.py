@@ -259,24 +259,23 @@ async def test_selected_lots_1_1000_10000_limit_10001_unknown_and_approval_reade
             await db.execute(text("SELECT set_config('app.current_tenant',:c,true)"),
                              {"c": str(tenant.company_id)})
             await db.execute(text("""
-                INSERT INTO product_batches(company_id,product_variant_id,batch_number,
-                                            expiry_date,disposition)
-                SELECT :company, :variant, :prefix || gs::text,
-                       CURRENT_DATE + 120, 'RELEASED'
-                FROM generate_series(1000,9999) gs
-            """), {"company":tenant.company_id,"variant":product,"prefix":"1071-"+tag})
-            await db.execute(text("""
-                INSERT INTO inventory_balances(company_id,location_id,product_variant_id,
-                                               batch_id,stock_status,on_hand_quantity,reserved_quantity)
-                SELECT :company,:location,:variant,b.id,'AVAILABLE',1,0
-                FROM product_batches b
-                WHERE b.company_id=:company AND b.product_variant_id=:variant
-                  AND b.batch_number LIKE :prefix AND
-                  b.batch_number NOT LIKE :oldprefix
-            """), {"company":tenant.company_id,"location":location,"variant":product,
-                   "prefix":"1071-"+tag+"%",
-                   "oldprefix":"1071-"+tag+"-none%"})
-            # Existing 999 rows must not be duplicated by this INSERT.
+                WITH inserted AS (
+                    INSERT INTO product_batches(
+                        company_id,product_variant_id,batch_number,expiry_date,disposition
+                    )
+                    SELECT :company, :variant, :prefix || gs::text,
+                           CURRENT_DATE + 120, 'RELEASED'
+                    FROM generate_series(1000,9999) gs
+                    RETURNING id
+                )
+                INSERT INTO inventory_balances(
+                    company_id,location_id,product_variant_id,batch_id,stock_status,
+                    on_hand_quantity,reserved_quantity
+                )
+                SELECT :company,:location,:variant,id,'AVAILABLE',1,0
+                FROM inserted
+            """), {"company":tenant.company_id,"location":location,
+                   "variant":product,"prefix":"1071-"+tag})
         response = await client.get(
             URL, headers=owner, params=_params(field.driver.id, [product])
         )
