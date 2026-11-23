@@ -161,6 +161,25 @@ async def test_real_101k_history_signed_http_no_movement_or_whole_vehicle_read(p
         )) or 0)
         assert history >= 101001
         plan = await _selected_plan(db, tenant.company_id, location, product)
+        # For an honest BEFORE proxy, EXPLAIN the exact old full-lifetime
+        # COUNT/MAX shape ONCE against real synthetic 101k+ movements. Do not
+        # run this plan through the optimized HTTP endpoint.
+        historical_explain = (await db.execute(text("""
+            EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
+            SELECT count(id), max(id) FROM inventory_movements
+            WHERE company_id=:company
+              AND (source_location_id=:location OR destination_location_id=:location)
+        """), {"company":tenant.company_id,"location":location})).scalar_one()
+        if isinstance(historical_explain, str):
+            historical_explain = json.loads(historical_explain)
+        old_explain = historical_explain[0]
+        print("1071_OLD_HISTORY_BASELINE_EXPLAIN " + json.dumps({
+            "historical_rows": history,
+            "execution_ms": old_explain["Execution Time"],
+            "top_node": old_explain["Plan"]["Node Type"],
+            "shared_hit": old_explain["Plan"].get("Shared Hit Blocks"),
+            "shared_read": old_explain["Plan"].get("Shared Read Blocks"),
+        }, sort_keys=True))
         print("1071_SELECTED_EXPLAIN " + json.dumps({
             "node": plan["Plan"]["Node Type"],
             "total_ms": plan["Execution Time"],
