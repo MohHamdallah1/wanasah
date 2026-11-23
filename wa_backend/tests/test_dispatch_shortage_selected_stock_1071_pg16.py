@@ -28,7 +28,7 @@ from domains.dispatch_shortage_selected_stock import (
 )
 from domains.dispatch.route_execution.custody.proofs import CustodyRejected
 from domains.inventory_vehicle_load.service import mutate_vehicle_load
-from models import InventoryBalance, InventoryMovement, ProductBatch, ProductVariant
+from models import InventoryBalance, InventoryMovement, ProductBatch, ProductVariant, utc_now
 from services import acquire_inventory_location_guard
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_shop_finance_edit_v1_postgres import _real_http, _owner, _token, _grant_company_dispatch_capability
@@ -355,7 +355,7 @@ async def test_80_240_ids_real_http_with_unrelated_10050_vehicle_rows(pg):
                 name=tag, sku=tag, base_uom_id=tenant.uom_id,
                 quantity_scale=6, quantity_step=Decimal("0.000001"),
                 lot_control_mode="OPTIONAL", expiry_control_mode="OPTIONAL",
-                lifecycle_status="ACTIVE", published_at=parent.published_at,
+                lifecycle_status="ACTIVE", published_at=utc_now(),
             )
             db.add(child)
             await db.flush()
