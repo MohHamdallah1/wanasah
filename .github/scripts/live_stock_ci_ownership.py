@@ -1136,6 +1136,64 @@ ARV1_F_1044_EXACT = frozenset({
 })
 assert len(ARV1_F_1044_EXACT) == 14
 
+SHORTAGE_1057_EXACT = frozenset({
+    ".github/scripts/live_stock_ci_ownership.py",
+    ".github/workflows/dispatch-p0-route-stock-safety.yml",
+    ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+    ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+    ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+    ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+    "dashboard/src/components/dispatch/ShortageModal.tsx",
+    "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
+    "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+    "dashboard/src/features/dispatch/dispatchDrafts.ts",
+    "dashboard/src/features/dispatch/dispatchUiText.ts",
+    "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
+    "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+    "dashboard/src/pages/DispatchBoard.tsx",
+    "dashboard/src/test/dispatch-d10-drafts.test.ts",
+    "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+    "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
+    "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+    "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+    "wa_backend/api/dispatch.py",
+    "wa_backend/api/dispatch_product_schemas.py",
+    "wa_backend/api/dispatch_shortage_availability.py",
+    "wa_backend/domains/dispatch_product_discovery.py",
+    "wa_backend/schemas.py",
+    "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
+    "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+    "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
+})
+SHORTAGE_1057_DISTINCT = frozenset({
+    "wa_backend/api/dispatch_shortage_availability.py",
+    "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+})
+assert len(SHORTAGE_1057_EXACT) == 27
+SHORTAGE_1057_RELEASE_EXACT = SHORTAGE_1057_EXACT | frozenset({
+    ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+    ".github/workflows/flutter-v1-field-seams-client-adapters.yml",
+    "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+    "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+    "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+    "wa_backend/domains/dispatch_shortage_selected_stock.py",
+    "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+    "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+    "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+    "wa_backend/api/dispatch_shortage_commands.py",
+    "wa_backend/api/dispatch_shortages_group.py",
+    "wa_backend/api/driver.py",
+    "wa_backend/domains/dispatch_shortage_fulfillment.py",
+    "wa_backend/domains/dispatch_shortage_visits.py",
+    "wa_backend/domains/dispatch_shortages_group.py",
+    "wa_backend/models.py",
+    "wa_backend/services.py",
+    "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+    "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+    "wa_backend/tests/test_driver_session_field_context_cutover.py",
+    "wa_backend/tests/test_legacy_field_transport_boundary.py",
+})
+assert len(SHORTAGE_1057_RELEASE_EXACT) == 48
 URGENT_1055_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
     '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -1204,6 +1262,12 @@ URGENT_1050_DISTINCT = frozenset({
 assert len(URGENT_1050_EXACT) == 15
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == SHORTAGE_1057_RELEASE_EXACT:
+        return ("not-applicable",[]) if mode=="r3" else ("shortage-1057-release-exact",[])
+    if changed == SHORTAGE_1057_EXACT:
+        return ("not-applicable",[]) if mode=="r3" else ("shortage-1057-exact",[])
+    if changed & SHORTAGE_1057_DISTINCT:
+        return "fail",[f"SHORTAGE_1057_EXACT_DENIED missing={sorted(SHORTAGE_1057_EXACT-changed)} foreign={sorted(changed-SHORTAGE_1057_EXACT)}"]
     if changed == URGENT_1055_EXACT:
         return ('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])
     if changed & URGENT_1055_DISTINCT:
@@ -1657,6 +1721,25 @@ def selftest() -> None:
         ):
             _expect_fail(mode, set(ZONES_1039_EXACT) | {foreign}, policy_sem)
     print("ZONES_1039_LIVE_STOCK_SELFTEST=PASS exact=7 missing=7 foreign=3")
+
+    for mode in ("ux","r3","operational"):
+        expected = ("not-applicable",[]) if mode=="r3" else ("shortage-1057-exact",[])
+        assert classify(mode,set(SHORTAGE_1057_EXACT),policy_sem)==expected
+        for missing in SHORTAGE_1057_EXACT:
+            _expect_fail(mode,set(SHORTAGE_1057_EXACT)-{missing},policy_sem)
+        for foreign in ("wa_backend/models.py","wa_backend/api/driver.py","wanasah_frontend/lib/main.dart"):
+            _expect_fail(mode,set(SHORTAGE_1057_EXACT)|{foreign},policy_sem)
+        for mixed in (ARV1_F_1044_EXACT,ARV1_B_1045_EXACT,ZONES_1039_EXACT):
+            _expect_fail(mode,set(SHORTAGE_1057_EXACT)|set(mixed),policy_sem)
+    print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=81 foreign=9 mixed=9")
+    for mode in ("ux","r3","operational"):
+        expected_release=("not-applicable",[]) if mode=="r3" else ("shortage-1057-release-exact",[])
+        assert classify(mode,set(SHORTAGE_1057_RELEASE_EXACT),policy_sem)==expected_release
+        for missing in SHORTAGE_1057_RELEASE_EXACT:
+            _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)-{missing},policy_sem)
+        for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
+            _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)|{foreign},policy_sem)
+    print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=48 missing=144 foreign=6")
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])

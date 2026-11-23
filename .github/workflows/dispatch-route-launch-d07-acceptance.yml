@@ -340,6 +340,64 @@ jobs:
           ):
               arv1_b_1045_denied(mixed)
           print("ARV1_B_1045_D07_SELFTEST=PASS exact=7 missing=7 foreign=3 mixed=3")
+          shortage_1057_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
+              "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
+              "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+              "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
+              "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+              "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/dispatch_product_schemas.py",
+              "wa_backend/api/dispatch_shortage_availability.py",
+              "wa_backend/domains/dispatch_product_discovery.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
+          }
+          shortage_1057_distinct = {
+              "wa_backend/api/dispatch_shortage_availability.py",
+              "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+          }
+          assert len(shortage_1057_exact)==27
+          shortage_1057_release_exact = shortage_1057_exact | {
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/flutter-v1-field-seams-client-adapters.yml",
+              "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+              "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+              "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+              "wa_backend/domains/dispatch_shortage_selected_stock.py",
+              "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+              "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+              "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+              "wa_backend/api/dispatch_shortage_commands.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/dispatch_shortage_fulfillment.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+          }
+          assert len(shortage_1057_release_exact) == 48
           urgent_1055_exact = {
               '.github/scripts/live_stock_ci_ownership.py',
               '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -404,6 +462,36 @@ jobs:
               "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
           }
           assert len(urgent_1050_exact) == 15
+          def shortage_1057_mode(candidate):
+              if candidate == shortage_1057_release_exact: return True
+              if candidate == shortage_1057_exact: return True
+              if candidate & shortage_1057_distinct:
+                  raise AssertionError('SHORTAGE_1057 partial/foreign: '+repr(sorted(candidate)))
+              return False
+          assert shortage_1057_mode(shortage_1057_exact) is True
+          for missing in shortage_1057_exact:
+              try: shortage_1057_mode(shortage_1057_exact-{missing})
+              except AssertionError: pass
+              else: raise AssertionError('SHORTAGE_1057 missing: '+missing)
+          for foreign in ('wa_backend/models.py','wa_backend/api/driver.py','wanasah_frontend/lib/main.dart'):
+              try: shortage_1057_mode(shortage_1057_exact|{foreign})
+              except AssertionError: pass
+              else: raise AssertionError('SHORTAGE_1057 foreign: '+foreign)
+          for mixed in (arv1_f_1044_exact,arv1_b_1045_exact,zones_1039_exact):
+              try: shortage_1057_mode(shortage_1057_exact|mixed)
+              except AssertionError: pass
+              else: raise AssertionError('SHORTAGE_1057 mixed: '+repr(mixed))
+          print('SHORTAGE_1057_D07_SELFTEST=PASS exact=27 missing=27 foreign=3 mixed=3')
+          assert shortage_1057_mode(shortage_1057_release_exact) == True
+          for missing in shortage_1057_release_exact:
+              try: valid = shortage_1057_mode(shortage_1057_release_exact - {missing})
+              except AssertionError: continue
+              raise AssertionError("release missing-scope admitted: "+str(missing))
+          for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
+              try: valid = shortage_1057_mode(shortage_1057_release_exact | {foreign})
+              except AssertionError: continue
+              raise AssertionError("release foreign-scope admitted: "+str(foreign))
+          print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=48 missing=48 foreign=2")
           def urgent_1055_mode(candidate):
               if candidate == urgent_1055_exact: return True
               if candidate & urgent_1055_distinct:
@@ -527,7 +615,7 @@ jobs:
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
               release_mode = __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"]
-          assert (urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files) or arv1_f_1044_mode(files) or arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+          assert (shortage_1057_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files) or arv1_f_1044_mode(files) or arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
@@ -551,7 +639,7 @@ jobs:
               "dashboard/src/features/dispatch/sessionScope.ts",
               "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
+              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files in (shortage_1057_exact, shortage_1057_release_exact) or files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
           print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD

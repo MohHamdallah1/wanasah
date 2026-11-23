@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next";
 import { resolveI18nLocale } from "@/lib/locale";
 import { useState, useMemo, useRef, useEffect, useId } from "react";
 import {
-  Trash2, Pencil, ChevronDown, ChevronUp, Package, AlertTriangle, Clock,
+  Trash2, Pencil, ChevronDown, ChevronUp, Package, Clock,
 } from "lucide-react";
 import { ShortageRequestComposer } from "./ShortageRequestComposer";
+import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
+import { signedShortageProgress, type ShortagePendingCommand } from "@/features/dispatch/shortageCommand/contract";
 import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
 import { Modal } from "@/components/ui/modal";
 import { Zone, Shop, Shortage } from "@/types/dispatch";
@@ -26,8 +28,8 @@ interface ShortageModalProps {
   onZoneChange: (id: string) => void;
   onShopChange: (id: string) => void;
   productScope: string | null;
-  shortageDraft: { productId: string; productName: string; quantity: number }[];
-  onAddProductToDraft: (id: string, name: string) => void;
+  shortageDraft: ShortageDraftRow[];
+  onAddProductToDraft: (id: string, name: string, baseUomCode?: string | null) => void;
   onRemoveProductFromDraft: (index: number) => void;
   onUpdateDraftQty: (index: number, qty: number) => void;
   onClearDraft: () => void;
@@ -41,6 +43,14 @@ interface ShortageModalProps {
   drivers: { id: string; name: string }[];
   shortageDriverId: string;
   onDriverChange: (id: string) => void;
+  commandRecovery?: {
+    pending: ShortagePendingCommand | null;
+    blocked: boolean;
+    busy: boolean;
+    feedback: "unknown" | "lookup-denied" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
+    onRetry: () => void;
+    onVerify: () => void;
+  };
   groupRecovery: {
     pending: { requestId: string; payload: GroupIntent } | null;
     blocked: boolean;
@@ -109,11 +119,6 @@ function formatTimestamp(isoStr: string | null | undefined, language: string): s
   return `${relative} • ${clock}, ${calendar}`;
 }
 
-function isUrgentGroup(createdAt?: string): boolean {
-  if (!createdAt) return false;
-  return (Date.now() - new Date(createdAt).getTime()) / 60_000 >= 180;
-}
-
 // ─── Shop Accordion Card ──────────────────────────────────────────────────────
 function ShopCard({
   focusShortageId, group, language, isBeingEdited, isEditModeActive,
@@ -156,10 +161,9 @@ function ShopCard({
     setConfirm(null);
   };
 
-  const urgent = isUrgentGroup(group.createdAt);
-  const border = isBeingEdited ? "border-amber-300 ring-2 ring-amber-200" :
-    urgent ? "border-red-200" : "border-slate-200";
-  const bg = isBeingEdited ? "bg-amber-50" : urgent ? "bg-red-50" : "bg-slate-50";
+  // Age alone is NEVER authority to label a demand as an executable urgent visit.
+  const border = isBeingEdited ? "border-amber-300 ring-2 ring-amber-200" : "border-slate-200";
+  const bg = isBeingEdited ? "bg-amber-50" : "bg-slate-50";
   return (
     <section className={`overflow-hidden rounded-2xl border shadow-sm ${border}`}>
       <div className={`flex flex-wrap items-center justify-between gap-2 px-3 py-3 sm:px-5 ${bg}`}>
@@ -169,14 +173,13 @@ function ShopCard({
           className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-lg text-start focus-visible:ring-2 focus-visible:ring-[#1e87bb]">
           <span aria-hidden="true" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#1e87bb]/10">
             {isBeingEdited ? <Pencil className="h-4 w-4 text-amber-600" /> :
-              urgent ? <AlertTriangle className="h-4 w-4 text-red-500" /> :
-                <Package className="h-4 w-4 text-[#1e87bb]" />}
+              <Package className="h-4 w-4 text-[#1e87bb]" />}
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
               <span className="break-words text-sm font-bold text-slate-800">{group.shopName}</span>
               {isBeingEdited && <span className="rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">{text("shortageEditing")}</span>}
-              {!isBeingEdited && urgent && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">{text("shortageUrgent")}</span>}
+              {!isBeingEdited && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-bold text-slate-700">{text("shortageDemandPending")}</span>}
             </span>
             <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
               <span>{group.zoneName}</span><span aria-hidden="true">•</span>
@@ -232,7 +235,20 @@ function ShopCard({
           <div key={item.id} data-shortage-id={item.id}
             className={`group flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-5 ${item.id === focusShortageId ? "bg-amber-50 ring-2 ring-inset ring-amber-300" : ""}`}>
             <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{idx + 1}</span>
-            <span className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">{item.productName}</span>
+            <span className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">
+              {item.productName}
+              {(() => {
+                const signed = signedShortageProgress(item);
+                return <span className="block text-[11px] font-normal leading-5 text-slate-500"
+                  data-testid={"shortage-signed-progress-" + item.id}>
+                  {signed ? text("shortageDemandProgress", {
+                    requested: signed.requested,
+                    fulfilled: signed.fulfilled,
+                    outstanding: signed.outstanding,
+                  }) : text("shortageDemandLegacyUnknown")}
+                </span>;
+              })()}
+            </span>
             <span className="min-w-10 shrink-0 rounded-xl border border-[#1e87bb]/20 bg-[#1e87bb]/10 px-2 py-1 text-center text-sm font-bold text-[#1e87bb]">{item.quantity}</span>
             {canCancel && (
               <button type="button" onClick={event => requestDelete(event, { kind: "one", id: item.id, product: item.productName })}
@@ -279,6 +295,10 @@ export function ShortageModal({
   shortageDriverId,
   onDriverChange,
   groupRecovery,
+  commandRecovery = {
+    pending: null, blocked: false, busy: false, feedback: null,
+    onRetry: () => undefined, onVerify: () => undefined,
+  },
 }: ShortageModalProps) {
   const { t, i18n } = useTranslation();
   // +++ الكي الجراحي: تغليف الدالة بـ useMemo لمنع إعادة تجميع المصفوفة مع كل رندرة +++
@@ -290,13 +310,15 @@ export function ShortageModal({
   useEffect(() => {
     if (!isOpen) return;
     // An unknown-result command stays visible with its pending rows and retry.
-    if (groupRecovery.pending || groupRecovery.blocked) setShowPending(true);
+    if (commandRecovery.pending || commandRecovery.blocked) setShowPending(false);
+    else if (groupRecovery.pending || groupRecovery.blocked) setShowPending(true);
     else if (isEditMode) setShowPending(false);
     else if (focusShortageId) setShowPending(true);
-  }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked]);
+  }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked, commandRecovery.pending, commandRecovery.blocked]);
   const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
     dispatchUiText(i18n.language, key, values);
-  const blocked = Boolean(groupRecovery.pending || groupRecovery.blocked ||
+  const blocked = Boolean(commandRecovery.pending || commandRecovery.blocked ||
+    commandRecovery.busy || groupRecovery.pending || groupRecovery.blocked ||
     groupRecovery.busy || groupRecovery.restoring);
   const validShop = activeShops.some(shop => shop.id === shortageShopId &&
     shop.zoneId === shortageZoneId && !shop.archived &&
@@ -384,6 +406,37 @@ export function ShortageModal({
           </nav>
         </header>
         <div className="min-w-0 space-y-4 p-3 sm:p-4 lg:p-5">
+        {canCreate && (commandRecovery.pending || commandRecovery.blocked ||
+          commandRecovery.feedback) && (
+          <section role="status" data-testid="shortage-post-recovery"
+            className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            <p className="font-semibold">{text(commandRecovery.feedback === "lookup-denied" ? "shortageCommandLookupDenied" :
+              commandRecovery.feedback === "denied" ? "shortageCommandDenied"
+              : commandRecovery.feedback === "conflict" ? "shortageCommandConflict"
+              : commandRecovery.feedback === "storage" ? "shortageCommandStorage"
+              : "shortageCommandUnknown")}</p>
+            {commandRecovery.pending && <>
+              <p dir="ltr" className="break-all font-mono text-xs" data-testid="shortage-command-uuid">
+                {commandRecovery.pending.command.request_id}
+              </p>
+              <p className="text-xs">{text("shortageCommandPendingOnly")}</p>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={commandRecovery.onVerify}
+                  disabled={commandRecovery.busy || commandRecovery.blocked}
+                  className="min-h-11 rounded-lg border border-amber-800 px-4 text-xs font-bold text-amber-900 disabled:opacity-50"
+                  data-testid="shortage-command-lookup">
+                  {text("shortageCommandLookup")}
+                </button>
+                <button type="button" onClick={commandRecovery.onRetry}
+                  disabled={commandRecovery.busy || commandRecovery.blocked}
+                  className="min-h-11 rounded-lg bg-amber-800 px-4 text-xs font-bold text-white disabled:opacity-50"
+                  data-testid="shortage-command-retry">
+                  {text("shortageCommandRetry")}
+                </button>
+              </div>
+            </>}
+          </section>
+        )}
         {canCancel && (groupRecovery.pending || groupRecovery.blocked || groupRecovery.feedback || groupRecovery.restoring) && (
           <section role="status" data-testid="shortage-group-recovery"
             dir={i18n.dir()}

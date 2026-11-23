@@ -139,9 +139,71 @@ jobs:
           }
           assert len(arv1_b_1045_exact) == 7
 
+          shortage_1057_exact = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
+              "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
+              "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+              "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
+              "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+              "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/dispatch_product_schemas.py",
+              "wa_backend/api/dispatch_shortage_availability.py",
+              "wa_backend/domains/dispatch_product_discovery.py",
+              "wa_backend/schemas.py",
+              "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
+          }
+          shortage_1057_distinct = {
+              "wa_backend/api/dispatch_shortage_availability.py",
+              "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+          }
+          assert len(shortage_1057_exact)==27
+          shortage_1057_release_exact = shortage_1057_exact | {
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              ".github/workflows/flutter-v1-field-seams-client-adapters.yml",
+              "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+              "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+              "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+              "wa_backend/domains/dispatch_shortage_selected_stock.py",
+              "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+              "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+              "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+              "wa_backend/api/dispatch_shortage_commands.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/dispatch_shortage_fulfillment.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+          }
+          assert len(shortage_1057_release_exact) == 48
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           m05_mode = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"]
           def ownership_mode(candidate):
+              if candidate == shortage_1057_release_exact: return 'SHORTAGE_1057_RELEASE_EXACT'
+              if candidate == shortage_1057_exact: return 'SHORTAGE_1057_EXACT'
+              if candidate & shortage_1057_distinct:
+                  raise AssertionError('SHORTAGE_1057 partial/foreign: '+repr(sorted(candidate)))
               if candidate == arv1_b_1045_exact: return "ARV1_B_1045_EXACT"
               if "wa_backend/tests/test_dispatch_active_routes_arv1_pg16.py" in candidate:
                   raise AssertionError("ARV1_B_1045 partial/foreign: " + repr(sorted(candidate)))
@@ -190,6 +252,24 @@ jobs:
                   return
               raise AssertionError(f"{label}: unexpected Finance ownership admission: {sorted(candidate)}")
 
+          assert ownership_mode(shortage_1057_exact) == 'SHORTAGE_1057_EXACT'
+          for missing in shortage_1057_exact:
+              denied(shortage_1057_exact - {missing}, 'SHORTAGE_1057 missing '+missing)
+          for foreign in ('wa_backend/models.py','wa_backend/api/driver.py','wanasah_frontend/lib/main.dart'):
+              denied(shortage_1057_exact | {foreign}, 'SHORTAGE_1057 foreign '+foreign)
+          for mixed in (arv1_b_1045_exact,zones_1039_exact,d07_complete_exact):
+              denied(shortage_1057_exact | mixed, 'SHORTAGE_1057 mixed')
+          print('SHORTAGE_1057_FINANCE_SELFTEST=PASS exact=27 missing=27 foreign=3 mixed=3')
+          assert ownership_mode(shortage_1057_release_exact) == 'SHORTAGE_1057_RELEASE_EXACT'
+          for missing in shortage_1057_release_exact:
+              try: valid = ownership_mode(shortage_1057_release_exact - {missing})
+              except AssertionError: continue
+              raise AssertionError("release missing-scope admitted: "+str(missing))
+          for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
+              try: valid = ownership_mode(shortage_1057_release_exact | {foreign})
+              except AssertionError: continue
+              raise AssertionError("release foreign-scope admitted: "+str(foreign))
+          print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=48 missing=48 foreign=2")
           # Preserve all original #842 nonempty subsets and its exact four-file
           # provenance, not a new general Dispatch or money write authority.
           finance_items = sorted(finance_842_allowed)

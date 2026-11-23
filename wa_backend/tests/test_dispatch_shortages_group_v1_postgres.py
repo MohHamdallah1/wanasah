@@ -135,7 +135,7 @@ async def test_http_group_edit_delete_replay_atomic_and_other_shop(pg):
                          if int(row["shopId"]) == shop)
         assert len(old_ids) == 2
         old = await _snapshot(pg, tenant, shop)
-        assert any(v[1] == "Pending" and v[2] for v in old[1])
+        assert not any(v[2] for v in old[1]), "Demand must not auto-create emergency visits"
 
         edited = {
             "request_id": str(uuid4()), "shortage_ids": old_ids,
@@ -186,8 +186,9 @@ async def test_http_group_edit_delete_replay_atomic_and_other_shop(pg):
         gone = await _snapshot(pg, tenant, shop)
         assert not gone[0] and gone[2] == saved[2] + 1
         assert gone[4:] == saved[4:]
-        # Legacy delete keeps the Visit row but cancels its pending emergency task.
-        assert any(v[1] == "Cancelled" and not v[2] for v in gone[1])
+        # #1067 pending demands never auto-created an emergency Visit;
+        # group delete must therefore not invent an orphan task to cancel.
+        assert not any(v[2] for v in gone[1])
         assert await client.put("/dispatch/shortages/group", headers=owner, json=dropped)
         replayed = await client.put("/dispatch/shortages/group", headers=owner, json=dropped)
         assert replayed.status_code == 200 and replayed.json() == deleted.json()
@@ -251,6 +252,11 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
         )).status_code == 404
         assert await _snapshot(pg, tenant, shop) == before
 
+        # The same selected-Shop authorization now also requires persisted
+        # dispatch.read; this role is company-scoped for this positive case.
+        await _grant_company_dispatch_capability(
+            pg, tenant, tenant.ordinary, "dispatch.read",
+        )
         # Cancel permission without create is sufficient only for Delete All.
         delete = {"request_id": str(uuid4()), "shortage_ids": ids, "items": []}
         permitted = await client.put(

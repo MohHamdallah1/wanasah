@@ -12,7 +12,7 @@ from api.authentication.backoffice_authorization import (
 from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
-from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
 from domains.dispatch_shop_read_scope import (
     company_shop_directory, can_read_shop_financials,
     visible_shop_filter, visible_zone_filter, project_shop,
@@ -100,6 +100,7 @@ from models import (
     Shop,
     Visit,
     ShortageRequest,
+    ShortageUrgentAssignment,
     ImportLog,
     VisitItem,
     InventoryLocation,
@@ -169,12 +170,16 @@ CreateShortageItem, BulkImportRequest, UpdateZoneRequest, RestoreZoneRequest, Fo
 
 # إنشاء روتر خاص بمسارات الإدارة (بتاج منفصل لتنظيم Swagger)
 from api.dispatch_products import router as product_discovery_router
+from api.dispatch_shortage_availability import router as shortage_availability_router
+from api.dispatch_shortage_commands import router as shortage_commands_router
 from api.dispatch_product_schemas import DispatchProductPageResponse
 from domains.dispatch_product_discovery import dispatch_product_page
 from domains.dispatch_product_cursor import DispatchProductCursorError
 
 router = APIRouter(tags=["Admin & Dispatch Operations"])
 router.include_router(product_discovery_router)
+router.include_router(shortage_availability_router)
+router.include_router(shortage_commands_router)
 
 _work_session_read = require_backoffice_capability("work_session.read")
 _work_session_authorize_sale = require_backoffice_capability("work_session.authorize_sale")
@@ -1958,23 +1963,11 @@ async def dispatch_route(
                     visit.work_session_id = None
                     existing_by_shop[shop_id] = visit
 
-            shortage_shop_ids = set((
-                await db.execute(
-                    select(ShortageRequest.shop_id).filter(
-                        ShortageRequest.company_id == company_id,
-                        ShortageRequest.shop_id.in_(shop_ids),
-                        or_(
-                            ShortageRequest.driver_id == payload.driver_id,
-                            ShortageRequest.driver_id.is_(None),
-                        ),
-                        ShortageRequest.status == "pending",
-                    )
-                )
-            ).scalars().all())
-
+            # #1067: Route launch may create ordinary route Visits but may NOT
+            # upgrade outstanding replenishment demand into an urgent Visit.
+            # An already authorized emergency Visit remains intact.
             for shop in shops_in_zone:
                 shop_id = int(shop.id)
-                is_emergency = shop_id in shortage_shop_ids
                 existing = existing_by_shop.get(shop_id)
                 if existing is None and shop_id not in seen_today:
                     db.add(Visit(
@@ -1984,10 +1977,8 @@ async def dispatch_route(
                         operational_date=company_local_date,
                         status="Pending",
                         sequence=shop.sequence,
-                        is_emergency=is_emergency,
+                        is_emergency=False,
                     ))
-                elif existing is not None and is_emergency:
-                    existing.is_emergency = True
 
         response = complete_route_launch(
             record, payload=payload, response={
@@ -4806,24 +4797,11 @@ async def update_route_status(
                         visit.work_session_id = work_session_id
                         existing_pending[shop_id] = visit
 
-                shortage_shop_ids = set((
-                    await db.execute(
-                        select(ShortageRequest.shop_id).filter(
-                            ShortageRequest.company_id == company_id,
-                            ShortageRequest.shop_id.in_(shop_ids),
-                            or_(
-                                ShortageRequest.driver_id == route.driver_id,
-                                ShortageRequest.driver_id.is_(None),
-                            ),
-                            ShortageRequest.status == "pending",
-                        )
-                    )
-                ).scalars().all())
-
+                # #1067 route activation creates ordinary Visits only; pending
+                # replenishment demand cannot become executable emergency authority.
                 for shop in shops_in_zone:
                     shop_id = int(shop.id)
                     existing = existing_pending.get(shop_id)
-                    is_emergency = shop_id in shortage_shop_ids
                     if existing is None and shop_id not in seen_today:
                         db.add(Visit(
                             company_id=company_id,
@@ -4832,11 +4810,9 @@ async def update_route_status(
                             operational_date=company_local_date,
                             status="Pending",
                             sequence=shop.sequence,
-                            is_emergency=is_emergency,
+                            is_emergency=False,
                             work_session_id=work_session_id,
                         ))
-                    elif existing is not None and is_emergency:
-                        existing.is_emergency = True
 
         changed = (
             old_status != route.status
@@ -5488,6 +5464,28 @@ async def edit_shop_details(
         raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء تعديل المحل.") from exc
 
 
+async def _require_legacy_shortage_shop_scope(
+    db: AsyncSession, access: BackofficeCapabilityAccess, shop_ids: set[int],
+) -> None:
+    """Legacy write authorization must match the versioned Shop directory."""
+    try:
+        await access.require("dispatch.read", any_location=True)
+    except BackofficeCapabilityAccessRejected as exc:
+        raise HTTPException(status_code=403, detail={
+            "code": "SHORTAGE_SHOP_SCOPE_DENIED", "context": {},
+        }) from exc
+    directory = await company_shop_directory(access)
+    visible = (await db.scalars(select(Shop.id).where(
+        Shop.company_id == access.company_id,
+        Shop.id.in_(sorted(shop_ids)),
+        visible_shop_filter(access, company_directory=directory),
+    ))).all()
+    if {int(shop_id) for shop_id in visible} != shop_ids:
+        raise HTTPException(status_code=404, detail={
+            "code": "SHORTAGE_SHOP_UNAVAILABLE", "context": {},
+        })
+
+
 # =========================================
 # 23. جلب الطلبات العاجلة (شاشة النواقص) - GET
 # =========================================
@@ -5535,6 +5533,12 @@ async def get_shortages(
         "productName": s.product_variant.variant_name if s.product_variant else "غير معروف",
         "quantity": s.quantity,
         "status": s.status,
+        "fulfilledBase": s.fulfilled_base if s.fulfillment_version == 1 else None,
+        "outstandingBase": (
+            int(s.quantity) - int(s.fulfilled_base)
+            if s.fulfillment_version == 1 and s.fulfilled_base is not None else None
+        ),
+        "fulfillmentEvidence": "SIGNED_V1" if s.fulfillment_version == 1 else "LEGACY_UNKNOWN",
         "waitTime": s.wait_time,
         # +++ نسف لغم الـ Timezone الأخير في السيستم: توحيد توقيت الطوارئ مع جرينتش لمنع كراش الموبايل +++
         "createdAt": s.created_at.replace(tzinfo=timezone.utc).isoformat() if s.created_at else None
@@ -5584,6 +5588,7 @@ async def add_shortages(
             db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}" for shop_id in shop_ids]
         )
         bulk_shops = await _dispatch_lock_shop_rows(db, company_id=company_id, shop_ids=shop_ids)
+        await _require_legacy_shortage_shop_scope(db, access, set(shop_ids))
         if any(shop.is_archived or not shop.is_active for shop in bulk_shops.values()):
             raise HTTPException(status_code=404, detail="أحد المحلات غير فعال/مؤرشف أو لا يتبع شركتك.")
 
@@ -5686,43 +5691,14 @@ async def add_shortages(
                 return int(item.driverId)
             return active_route_driver_by_zone.get(int(item.zoneId))
 
-        owner_pairs = sorted({
-            (driver_id, int(item.shopId))
-            for item in payload
-            for driver_id in [resolve_shortage_driver_id(item)]
-            if driver_id is not None
-        })
-        if owner_pairs:
-            await _dispatch_advisory_locks(
-                db,
-                company_id=company_id,
-                keys=[
-                    f"pending-visit:{driver_id}:{shop_id}"
-                    for driver_id, shop_id in owner_pairs
-                ],
+        # #1067: a shortage is DEMAND, never permission to manufacture a Visit.
+        # Exact urgent eligibility is a separate signed manager command.
+        item_pairs = [(int(i.shopId), int(i.product_variant_id)) for i in payload]
+        if len(item_pairs) != len(set(item_pairs)):
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "SHORTAGE_DUPLICATE_LINES", "context": {}},
             )
-
-        existing_owner_visits = {}
-        if owner_pairs:
-            owner_driver_ids = sorted({driver_id for driver_id, _ in owner_pairs})
-            owner_shop_ids = sorted({shop_id for _, shop_id in owner_pairs})
-            rows = (await db.execute(
-                select(Visit).filter(
-                    Visit.company_id == company_id,
-                    Visit.driver_id.in_(owner_driver_ids),
-                    Visit.shop_id.in_(owner_shop_ids),
-                    Visit.status == "Pending",
-                ).order_by(Visit.driver_id.asc(), Visit.shop_id.asc(), Visit.id.asc()).with_for_update()
-            )).scalars().all()
-            for visit in rows:
-                key = (int(visit.driver_id), int(visit.shop_id))
-                if key in existing_owner_visits:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="تم اكتشاف أكثر من زيارة Pending لنفس المندوب والمحل؛ أصلح البيانات قبل إضافة طوارئ جديدة.",
-                    )
-                existing_owner_visits[key] = visit
-
         payload_tracker = set()
         for item in payload:
             shop_id = int(item.shopId)
@@ -5746,27 +5722,10 @@ async def add_shortages(
                 driver_id=driver_id,
                 product_variant_id=product_id,
                 quantity=int(item.quantity),
+                fulfillment_version=1,
+                fulfilled_base=0,
             ))
             existing_pairs.add(pair)
-            if driver_id is None:
-                continue
-
-            owner_key = (driver_id, shop_id)
-            visit = existing_owner_visits.get(owner_key)
-            if visit is None:
-                visit = Visit(
-                    company_id=company_id,
-                    driver_id=driver_id,
-                    shop_id=shop_id,
-                    operational_date=company_local_date,
-                    status="Pending",
-                    sequence=shop.sequence if shop.sequence is not None else 999,
-                    is_emergency=True,
-                )
-                db.add(visit)
-                existing_owner_visits[owner_key] = visit
-            else:
-                visit.is_emergency = True
 
         await db.commit()
         asyncio.create_task(dispatch_manager.broadcast(
@@ -5807,6 +5766,7 @@ async def delete_shortage(
             return {"message": "الطلب غير موجود أصلاً."}
         shop_id, zone_id = int(pre.shop_id), int(pre.zone_id)
         driver_id = int(pre.driver_id) if pre.driver_id is not None else None
+        await _require_legacy_shortage_shop_scope(db, access, {shop_id})
 
         await _dispatch_lock_zone_rows(db, company_id=company_id, zone_ids=[zone_id])
         await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}"])
@@ -5819,6 +5779,18 @@ async def delete_shortage(
         )).scalar_one_or_none()
         if shortage is None:
             return {"message": "الطلب غير موجود أصلاً."}
+        assignment = await db.scalar(select(ShortageUrgentAssignment.id).where(
+            ShortageUrgentAssignment.company_id == company_id,
+            ShortageUrgentAssignment.shortage_id == shortage_id,
+        ).limit(1))
+        if assignment is not None or (
+            shortage.fulfillment_version == 1 and int(shortage.fulfilled_base or 0) > 0
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "SHORTAGE_HAS_AUTHORIZED_VISIT_OR_DELIVERY",
+                        "message": "Cannot delete a shortage with urgent or delivered evidence."},
+            )
         shop = (await db.execute(
             select(Shop).filter_by(id=shop_id, company_id=company_id).order_by(Shop.id.asc()).with_for_update()
         )).scalar_one_or_none()
@@ -5845,6 +5817,9 @@ async def delete_shortage(
                         Visit.driver_id == driver_id,
                         Visit.status == "Pending",
                         Visit.is_emergency.is_(True),
+                        Visit.work_session_id.is_(None),
+                        Visit.execution_period_id.is_(None),
+                        Visit.current_sales_revision_id.is_(None),
                     ).order_by(Visit.id.asc()).with_for_update()
                 )).scalars().all()
                 active_route = (await db.execute(

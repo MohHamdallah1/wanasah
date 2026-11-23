@@ -24,6 +24,7 @@ import {
 } from "@/features/dispatch/shopForm/contract";
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
+import { useShortageCommandCommit } from "@/features/dispatch/shortageCommand/useShortageCommandCommit";
 import { groupText } from "@/features/dispatch/shortageGroup/contract";
 import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
 import { useCommercialPreflight } from "@/features/dispatch/commercialPreflight/useCommercialPreflight";
@@ -66,6 +67,7 @@ import {
 import {
   clearRouteLoadDraft, clearShortageDraft, restoreRouteLoadDraft,
   restoreShortageDraft, saveRouteLoadDraft, saveShortageDraft,
+  type ShortageDraftRow,
 } from "@/features/dispatch/dispatchDrafts";
 import { RouteLoadProductTable } from "@/components/dispatch/RouteLoadProductTable";
 // Types
@@ -387,7 +389,7 @@ function DispatchSession() {
   const [shortageZoneId, setShortageZoneId] = useState("");
   const [shortageDriverId, setShortageDriverId] = useState("");
   const [shortageShopId, setShortageShopId] = useState("");
-  const [shortageDraft, setShortageDraft] = useState<{ productId: string; productName: string; quantity: number }[]>([]);
+  const [shortageDraft, setShortageDraft] = useState<ShortageDraftRow[]>([]);
   const [editingShortageIds, setEditingShortageIds] = useState<string[]>([]); // IDs to delete on confirm
 
   const [isSchedulingModalOpen, setIsSchedulingModalOpen] = useState(false);
@@ -1643,7 +1645,8 @@ function DispatchSession() {
       if (command.action === "edit") {
         const first = command.items[0];
         setEditingShortageIds(command.shortageIds.map(String));
-        setShortageDraft(command.draft);
+        // Group recovery's historical rows have no signed UOM snapshot.
+        setShortageDraft(command.draft.map(row => ({...row, baseUomCode: null})));
         if (first) {
           setShortageZoneId(String(first.zoneId));
           setShortageShopId(String(first.shopId));
@@ -1653,6 +1656,45 @@ function DispatchSession() {
       // A lost successful DELETE has no remaining selected rows to click.
       // Reentry must expose the exact original recovery action.
       setIsShortageModalOpen(true);
+    },
+  });
+
+  // Phase B opt-in POST owns its own immutable UUID. Grouped PUT retains its
+  // historical, independent durable envelope and remains wire-compatible.
+  const shortageCommand = useShortageCommandCommit({
+    session: session!,
+    actorScope,
+    authorized: Boolean(actorScope && accessState === "ready" &&
+      dispatchReadState === "ready" && grants.shortages && grants.shortageCreate &&
+      grants.routes && readParts.init && readParts.shops &&
+      isDashboardSessionCurrent(session!)),
+    fetch: authenticatedFetch,
+    canRestore: pending => {
+      const c = pending.command;
+      return zones.some(z => z.id === String(c.zone_id)) &&
+        shops.some(shop => shop.id === String(c.shop_id) &&
+          shop.zoneId === String(c.zone_id) && !shop.archived) &&
+        (c.requested_driver_id === null || drivers.some(
+          driver => driver.id === String(c.requested_driver_id)));
+    },
+    onRestored: pending => {
+      const original = pending.command;
+      setShortageZoneId(String(original.zone_id));
+      setShortageShopId(String(original.shop_id));
+      setShortageDriverId(original.requested_driver_id == null ? "" :
+        String(original.requested_driver_id));
+      setShortageDraft(pending.presentation);
+      setEditingShortageIds([]);
+      setIsShortageModalOpen(true);
+    },
+    onCommitted: () => {
+      // This is authorized only by the exact immutable server receipt; a
+      // fresh GET alone must never close an ambiguous POST.
+      clearShortageDraft(actorScope);
+      setShortageDraft([]);
+      setEditingShortageIds([]);
+      toast.success(dispatchUiText(i18n.language, "shortageCommandCommitted"));
+      void refreshShortages().catch(() => undefined);
     },
   });
 
@@ -1683,8 +1725,9 @@ function DispatchSession() {
     }));
 
     if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
-      shortageGroup.hasUnresolved || shortageGroup.blocked) {
-      toast.info(groupText(i18n.language, shortageGroup.hasUnresolved ? "different" : "inProgress"));
+      shortageGroup.hasUnresolved || shortageGroup.blocked || shortageCommand.hasUnresolved ||
+      shortageCommand.busy) {
+      toast.info(dispatchUiText(i18n.language, "shortageCommandUnknown"));
       return;
     }
 
@@ -1692,33 +1735,30 @@ function DispatchSession() {
       let saved = false;
       if (editingShortageIds.length > 0) {
         saved = await shortageGroup.save(
-          editingShortageIds, newShortages, shortageDraft,
+          editingShortageIds, newShortages,
+          // The durable #849 retry draft keeps its original three fields.
+          // Base-UOM metadata stays in the UI-only draft, never in a command.
+          shortageDraft.map(({productId, productName, quantity}) => ({
+            productId, productName, quantity,
+          })),
         );
       } else {
-        shortageMutationInFlightRef.current = true;
-        try {
-          await authenticatedFetch("/dispatch/shortages", {
-            method: "POST",
-            body: JSON.stringify(newShortages),
-          });
-          if (!admitted()) return;
-          await refreshShortages();
-          if (!admitted()) return;
-          saved = true;
-        } finally {
-          shortageMutationInFlightRef.current = false;
-        }
+        // The hook writes and verifies the immutable actor-scoped command
+        // BEFORE network I/O. A lost response remains UNKNOWN, retrying its
+        // original UUID only. No bare-array POST or fresh-GET success inference.
+        saved = await shortageCommand.save(
+          shortageZoneId, shortageShopId, shortageDriverId, shortageDraft,
+        );
       }
 
       if (!saved || !admitted()) return;
-      clearShortageDraft(actorScope);
-
-      const wasEditing = editingShortageIds.length > 0;
-      setEditingShortageIds([]);
-      setShortageDraft([]);
-      // Verified grouped PUT reports its own single authoritative success.
-      // New standalone POST still uses the existing completion message.
-      if (!wasEditing) toast.success("تم تسجيل الطلبات بنجاح");
+      if (editingShortageIds.length > 0) {
+        clearShortageDraft(actorScope);
+        setEditingShortageIds([]);
+        setShortageDraft([]);
+      }
+      // For POST the confirmed-receipt callback alone clears and announces.
+      // Existing grouped PUT handles its own success toast.
     } catch (err: unknown) {
       if (admitted()) toast.error(getErrorMessage(err));
       shortageMutationInFlightRef.current = false;
@@ -1727,11 +1767,14 @@ function DispatchSession() {
 
   // One click on an authorized SHORTAGE search result adds one base-unit item.
   // This is only a draft mutation: canonical product/tenant/visit authority stays on POST.
-  const handleAddProductToDraft = (productId: string, productName: string) => {
+  const handleAddProductToDraft = (
+    productId: string, productName: string, baseUomCode?: string | null,
+  ) => {
     if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId)) ||
       !productName || productName.length > 300) return;
     if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
-      shortageGroup.hasUnresolved || shortageGroup.blocked) return;
+      shortageGroup.hasUnresolved || shortageGroup.blocked ||
+      shortageCommand.hasUnresolved || shortageCommand.busy) return;
     if (shortageDraft.length >= 80 && !shortageDraft.some(row => row.productId === productId)) {
       toast.error(dispatchUiText(i18n.language, "shortageQuickLimit"));
       return;
@@ -1741,7 +1784,8 @@ function DispatchSession() {
       if (existing !== -1) return previous.map((row, i) => i === existing &&
         row.quantity < Number.MAX_SAFE_INTEGER ? { ...row, quantity: row.quantity + 1 } : row);
       if (previous.length >= 80) return previous;
-      return [...previous, { productId, productName, quantity: 1 }];
+      return [...previous, { productId, productName, quantity: 1,
+        baseUomCode: baseUomCode ?? null }];
     });
   };
 
@@ -1755,7 +1799,8 @@ function DispatchSession() {
         (item.driverId || "") === (driverId || "")
     );
     if (shopShortages.length === 0) return;
-    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked ||
+        shortageCommand.hasUnresolved || shortageCommand.busy) {
       toast.info(groupText(i18n.language, "different"));
       return;
     }
@@ -1781,6 +1826,8 @@ function DispatchSession() {
         productId: item.productId,
         productName: item.productName,
         quantity: item.quantity,
+        // No UOM snapshot in historical persisted shortage records.
+        baseUomCode: null,
       }))
     );
 
@@ -1810,7 +1857,7 @@ function DispatchSession() {
 
   const handleCloseShortageModal = () => {
     setIsShortageModalOpen(false);
-    if (shortageGroup.hasUnresolved) return;
+    if (shortageGroup.hasUnresolved || shortageCommand.hasUnresolved || shortageCommand.busy) return;
     clearShortageDraft(actorScope); // retain visible draft until recovery
     setShortageDraft([]);
     setShortageZoneId("");
@@ -2627,6 +2674,14 @@ function DispatchSession() {
             await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
         onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
+        commandRecovery={{
+          pending: shortageCommand.pending,
+          blocked: shortageCommand.blocked,
+          busy: shortageCommand.busy,
+          feedback: shortageCommand.feedback,
+          onRetry: () => { void shortageCommand.retry(); },
+          onVerify: () => { void shortageCommand.verify(); },
+        }}
         groupRecovery={{
           pending: shortageGroup.pending,
           blocked: shortageGroup.blocked,

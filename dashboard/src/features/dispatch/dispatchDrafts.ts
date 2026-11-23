@@ -69,11 +69,18 @@ export function clearRouteLoadDraft(scope: string | null, warehouse: string, veh
     localStorage.removeItem(routeDraftKey(scope!, warehouse, vehicle, zone, driver));
 }
 
-export type ShortageDraftRow = { productId: string; productName: string; quantity: number };
+export type ShortageDraftRow = {
+  productId: string; productName: string; quantity: number;
+  /** Missing on legacy/historical rows; never infer canonical UOM from a name. */
+  baseUomCode?: string | null;
+};
 export type DispatchShortageDraft = {
   scope: string; zoneId: string; shopId: string; driverId: string;
-  rows: ShortageDraftRow[]; version: 1;
+  rows: ShortageDraftRow[]; version: 2;
 };
+const validatedBaseCode = (value: unknown): string | null =>
+  typeof value === "string" && value.length > 0 && value.length <= 64 &&
+  !/[\s<>&]/u.test(value) ? value : null;
 export function clearShortageDraft(scope: string | null): void {
   if (safeScope(scope)) localStorage.removeItem(shortageDraftKey(scope!));
 }
@@ -83,7 +90,13 @@ export function saveShortageDraft(scope: string | null, draft: Omit<DispatchShor
       draft.rows.length > 80 || !draft.rows.every(row => validId(row.productId) &&
         row.productName.length > 0 && row.productName.length <= 300 &&
         Number.isSafeInteger(row.quantity) && row.quantity > 0)) return;
-  write(shortageDraftKey(scope!), { ...draft, scope, version: 1 } satisfies DispatchShortageDraft);
+  write(shortageDraftKey(scope!), {
+    ...draft, scope, version: 2,
+    rows: draft.rows.map(row => ({
+      productId: row.productId, productName: row.productName, quantity: row.quantity,
+      baseUomCode: validatedBaseCode(row.baseUomCode),
+    })),
+  } satisfies DispatchShortageDraft);
 }
 export function restoreShortageDraft(scope: string | null,
   zones: readonly Zone[], shops: readonly Shop[], drivers: readonly { id: string }[],
@@ -91,8 +104,9 @@ export function restoreShortageDraft(scope: string | null,
   if (!safeScope(scope)) return null;
   const value = read(shortageDraftKey(scope!));
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const draft = value as DispatchShortageDraft;
-  if (draft.version !== 1 || draft.scope !== scope || !validId(draft.zoneId) ||
+  const draft = value as DispatchShortageDraft | (Omit<DispatchShortageDraft, "version"> & {version: 1});
+  if ((draft.version !== 1 && draft.version !== 2) ||
+      draft.scope !== scope || !validId(draft.zoneId) ||
       !validId(draft.shopId) || !zones.some(zone => zone.id === draft.zoneId) ||
       !shops.some(shop => shop.id === draft.shopId && shop.zoneId === draft.zoneId && !shop.archived) ||
       (draft.driverId !== "" && !drivers.some(driver => driver.id === draft.driverId)) ||
@@ -100,5 +114,13 @@ export function restoreShortageDraft(scope: string | null,
       !draft.rows.every(row => row && validId(row.productId) && typeof row.productName === "string" &&
         row.productName.length > 0 && row.productName.length <= 300 &&
         Number.isSafeInteger(row.quantity) && row.quantity > 0)) return null;
-  return draft;
+  return {
+    ...draft, version: 2,
+    // Legacy V1 had no unit signature: preserve quantities and pins exactly,
+    // but an old row can never claim a verified UOM or available stock.
+    rows: draft.rows.map(row => ({
+      productId: row.productId, productName: row.productName, quantity: row.quantity,
+      baseUomCode: draft.version === 2 ? validatedBaseCode(row.baseUomCode) : null,
+    })),
+  };
 }

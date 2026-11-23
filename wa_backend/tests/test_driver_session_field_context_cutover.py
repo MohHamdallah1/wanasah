@@ -50,6 +50,7 @@ from models import (
     DispatchRoute, Driver, InventoryBalance, InventoryLocation,
     InventoryTransferHeader, InventoryMovement, ProductVariant, SessionInventorySnapshot, Shop, Visit,
     VisitItem, VisitReturn, Vehicle, SystemAuditLog, ShortageRequest,
+    ShortageUrgentAssignment,
     WorkBreakLog, WorkSession,
 )
 from quantity import QUANTITY_MAX
@@ -568,8 +569,13 @@ def load_custody_routes(**dependencies):
 def custody_db():
     db = MagicMock(spec=AsyncSession)
     state = SimpleNamespace(is_active=True, maintenance_status="Active")
+    # The AST sandbox models real no-grant defaults: a pending shortage
+    # (and arbitrary truthy stock/location flags) must never fabricate a
+    # signed urgent assignment for an out-of-zone FIELD visit.
     db.scalar.side_effect = lambda statement: (
-        state if statement.column_descriptions[0].get("entity") is Vehicle else True
+        state if statement.column_descriptions[0].get("entity") is Vehicle
+        else None if statement.column_descriptions[0].get("entity") is ShortageUrgentAssignment
+        else True
     )
     return db, state
 
@@ -642,9 +648,12 @@ class DriverCustodyCutoverTests(unittest.IsolatedAsyncioTestCase):
         after = result(501)
         if invalid_at_guard:
             after.scalars.return_value.all.return_value = [501, 502]
+        # No obsolete shortage-based emergency read is allowed before
+        # custody. The old fifth result() modeled that retired query and
+        # consumed the actual custody result, masking real error precedence.
         db.execute.side_effect = [
             result(session), result(901), result(shop), result(visit),
-            result(), history, result(), after,
+            history, result(), after,
         ]
         events = []
         # M03 resolves route/vehicle from a single authoritative legacy

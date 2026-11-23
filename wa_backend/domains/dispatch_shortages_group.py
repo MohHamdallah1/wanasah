@@ -16,12 +16,14 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.dispatch_shop_read_scope import company_shop_directory, visible_shop_filter
 from domains.dispatch_shortage_visits import (
     ensure_shortage_pending_visit, settle_shortage_pending_visit,
 )
 from models import (
     DispatchRoute, Driver, ProductVariant, Shop, ShortageRequest, SystemAuditLog,
-    Visit, Zone,
+    Visit, Zone, ShortageUrgentAssignment,
 )
 from product_lifecycle import (
     REPLENISHMENT_NEW, acquire_product_lifecycle_guards,
@@ -74,6 +76,18 @@ def _hash_payload(command: GroupShortageMutation) -> str:
         sort_keys=True, separators=(",", ":"), ensure_ascii=True,
     )
     return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def _require_group_shop_scope(
+    db: AsyncSession, access: BackofficeCapabilityAccess, shop_id: int,
+) -> None:
+    directory = await company_shop_directory(access)
+    visible = await db.scalar(select(Shop.id).where(
+        Shop.company_id == access.company_id, Shop.id == shop_id,
+        visible_shop_filter(access, company_directory=directory),
+    ))
+    if visible is None:
+        _reject(404, "SHORTAGE_SHOP_NOT_FOUND", "المحل غير متاح ضمن نطاق المسارات.")
 
 
 async def _shop_lock(db: AsyncSession, *, company_id: int, shop_id: int):
@@ -172,7 +186,7 @@ async def _pending_visits(
 
 async def replace_shortage_group(
     db: AsyncSession, *, company_id: int, actor_id: int,
-    command: GroupShortageMutation,
+    command: GroupShortageMutation, access: BackofficeCapabilityAccess,
 ) -> tuple[dict, bool]:
     """Return (persisted response, was_new_mutation). Caller maps/rolls back exceptions."""
     record, replay = await begin_idempotent_operation(
@@ -182,9 +196,15 @@ async def replace_shortage_group(
         request_hash=_hash_payload(command),
     )
     if replay is not None:
-        # Re-auth happened before this function. Release replay row/advisory locks.
+        # Selection rows may have been deleted by this committed mutation.
+        # Store original Shop scope privately in the immutable idempotency
+        # receipt; recheck current route grants without altering old HTTP wire.
+        replay_shop = replay.get("_scope_shop_id")
+        if not isinstance(replay_shop, int) or replay_shop <= 0:
+            _reject(403, "SHORTAGE_GROUP_SCOPE_UNVERIFIED", "تعذر إثبات صلاحية المحل.")
+        await _require_group_shop_scope(db, access, replay_shop)
         await db.rollback()
-        return replay, False
+        return {key: val for key, val in replay.items() if key != "_scope_shop_id"}, False
 
     ids = set(map(int, command.shortage_ids))
     pre = (await db.execute(
@@ -203,6 +223,7 @@ async def replace_shortage_group(
     shop_id = next(iter(shop_ids))
     zone_id = next(iter(zone_ids))
     old_driver_id = next(iter(old_owners))
+    await _require_group_shop_scope(db, access, shop_id)
 
     items = command.items
     if any(int(i.shopId) != shop_id or int(i.zoneId) != zone_id for i in items):
@@ -242,8 +263,20 @@ async def replace_shortage_group(
     if any(int(row.zone_id) != zone_id
            or (int(row.driver_id) if row.driver_id is not None else None) != old_driver_id
            or row.fulfilled_by_visit_id is not None or row.fulfilled_at is not None
+           or (row.fulfillment_version == 1 and int(row.fulfilled_base or 0) > 0)
            for row in selected):
         _reject(409, "SHORTAGE_SELECTION_CHANGED", "تغيّرت حالة المجموعة؛ أعد تحميلها.")
+
+    # #1067: replacement cannot silently erase accepted urgent/partial Visit evidence.
+    authorized = await db.scalar(
+        select(ShortageUrgentAssignment.id).where(
+            ShortageUrgentAssignment.company_id == company_id,
+            ShortageUrgentAssignment.shortage_id.in_(sorted(ids)),
+        ).limit(1)
+    )
+    if authorized is not None:
+        _reject(409, "SHORTAGE_GROUP_HAS_URGENT_ASSIGNMENT",
+                "لا يمكن استبدال طلب مربوط بزيارة عاجلة معتمدة.")
 
     variants = (await db.execute(
         select(ProductVariant).where(
@@ -294,19 +327,14 @@ async def replace_shortage_group(
         row = ShortageRequest(
             company_id=company_id, zone_id=zone_id, shop_id=shop_id,
             driver_id=driver_id, product_variant_id=int(item.product_variant_id),
-            quantity=int(item.quantity),
+            quantity=int(item.quantity), fulfillment_version=1, fulfilled_base=0,
         )
         db.add(row)
         new_rows.append(row)
     await db.flush()
 
-    if resolved:
-        company_date = await get_company_local_date(db, company_id)
-        for driver_id in sorted({driver for _, driver in resolved if driver is not None}):
-            visits[driver_id] = ensure_shortage_pending_visit(
-                db, company_id=company_id, driver_id=driver_id,
-                shop=shop, operational_date=company_date, existing=visits.get(driver_id),
-            )
+    # #1067: grouped replacement records replenishment demand only.
+    # No automatic executable emergency Visit (even when assigned).
     if old_driver_id is not None:
         await settle_shortage_pending_visit(
             db, company_id=company_id, shop=shop, driver_id=old_driver_id,
@@ -330,6 +358,6 @@ async def replace_shortage_group(
             "quantity": int(row.quantity), "driver_id": row.driver_id,
         } for row in new_rows], sort_keys=True),
     ))
-    complete_idempotent_operation(record, response)
+    complete_idempotent_operation(record, {**response, "_scope_shop_id": shop_id})
     await db.commit()
     return response, True

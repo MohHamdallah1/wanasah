@@ -61,7 +61,7 @@ import logging
 from models import (
     Driver, WorkSession, DispatchRoute, Visit,
     WorkBreakLog, VisitItem, Shop, ProductVariant, VisitReturn, Zone,
-    ShortageRequest, SystemAuditLog,
+    ShortageRequest, ShortageUrgentAssignment, SystemAuditLog,
     InventoryLocation, InventoryBalance, InventoryMovement, ProductBatch,
     InventoryTransferHeader, InventoryTransferLine,
     SessionInventorySnapshot,
@@ -97,6 +97,9 @@ from domains.sales_calculation.driver_sale import (
 )
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
+from domains.dispatch_shortage_fulfillment import (
+    apply_signed_shortage_sale,
+)
 from domains.inventory_costing.service import resolve_linked_return_cost_sources
 from domains.work_session_multi_route.context import (
     PeriodProof, SessionPeriodRejected, resolve_active_execution,
@@ -1064,34 +1067,6 @@ async def update_visit(
                 detail="خط السير الحالي غير مربوط بسيارة صالحة للمخزون.",
             )
 
-        has_active_shortage = (
-            await db.execute(
-                select(ShortageRequest.id)
-                .filter(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
-                )
-                .limit(1)
-            )
-        ).scalar_one_or_none() is not None
-
-        is_emergency_request = payload.is_emergency or visit.is_emergency
-        if shop.zone_id != current_route.zone_id and not (
-            is_emergency_request or has_active_shortage
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة "
-                    "إلا بتصريح طلب عاجل."
-                ),
-            )
-
         veh_loc_id = await _driver_vehicle_custody_location_id(
             db,
             company_id=company_id,
@@ -1099,6 +1074,32 @@ async def update_visit(
             expected_location_id=execution.vehicle_location_id,
             require_operational=True,
         )
+        # Custody/vehicle precedence is security authority. Never query an
+        # optional shortage assignment before resolving current FIELD custody:
+        # that changes negative error codes and may consume mocked/real reads.
+        # Demand alone is not a cross-zone Visit grant. Keep this initialized
+        # on same-zone and historic authorized visits too: downstream signed
+        # Visit projection uses the value after validation.
+        assigned_urgent = None
+        if shop.zone_id != current_route.zone_id and not visit.is_emergency:
+            assigned_urgent = await db.scalar(
+                select(ShortageUrgentAssignment.id).where(
+                    ShortageUrgentAssignment.company_id == company_id,
+                    ShortageUrgentAssignment.visit_id == visit.id,
+                    ShortageUrgentAssignment.driver_id == driver_id,
+                    ShortageUrgentAssignment.vehicle_id == int(
+                        execution.period.vehicle_id if execution.canonical else current_route.vehicle_id
+                    ),
+                ).limit(1)
+            )
+            if assigned_urgent is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة "
+                        "إلا بتصريح طلب عاجل."
+                    ),
+                )
         if execution.canonical:
             await acquire_inventory_location_guard(
                 db, company_id, veh_loc_id, exclusive=True,
@@ -1243,6 +1244,7 @@ async def update_visit(
                 active_session,
                 shop,
                 admin_id=driver_id,
+                request_id=str(payload.request_id),
             )
             db.add(
                 SystemAuditLog(
@@ -1305,7 +1307,7 @@ async def update_visit(
         visit.latitude = payload.latitude if payload.latitude is not None else visit.latitude
         visit.longitude = payload.longitude if payload.longitude is not None else visit.longitude
         visit.shop_balance_before = original_shop_balance
-        visit.is_emergency = payload.is_emergency or visit.is_emergency
+        visit.is_emergency = bool(visit.is_emergency or assigned_urgent is not None)
         visit.work_session_id = active_session.id
         if execution.canonical:
             visit.execution_period_id = int(execution.period.id)
@@ -2239,29 +2241,26 @@ async def update_visit(
         else:
             visit.shop_balance_after = original_shop_balance
 
-        sold_variant_ids = sorted({
-            item.product_variant_id
-            for item in payload.cart_items
-            if item.quantity > 0 or item.packs_quantity > 0
-        })
-        if payload.outcome == "Sale" and sold_variant_ids:
-            await db.execute(
-                update(ShortageRequest)
-                .where(
-                    ShortageRequest.company_id == company_id,
-                    ShortageRequest.shop_id == shop.id,
-                    ShortageRequest.status == "pending",
-                    ShortageRequest.product_variant_id.in_(sold_variant_ids),
-                    or_(
-                        ShortageRequest.driver_id.is_(None),
-                        ShortageRequest.driver_id == driver_id,
-                    ),
-                )
-                .values(
-                    status="fulfilled",
-                    fulfilled_by_visit_id=visit.id,
-                    fulfilled_at=get_utc_now(),
-                )
+        # #1067: physical sale quantity was validated against the frozen
+        # commercial calculation and moved through FEFO above. Only a
+        # manager-authorized Visit↔shortage assignment may receive an allocation.
+        # Any unrelated sale of the same SKU does NOT touch demand.
+        if payload.outcome == "Sale":
+            # A single SKU may occur in multiple valid commercial lines/UOMs.
+            # Sum physically validated canonical base quantities, never let a
+            # dictionary comprehension overwrite an earlier line.
+            sold_base_by_variant = {}
+            for ctx in item_contexts:
+                base = ctx["sale_base_quantity"]
+                if base > 0:
+                    pid = int(ctx["item"].product_variant_id)
+                    sold_base_by_variant[pid] = (
+                        sold_base_by_variant.get(pid, Decimal("0")) + base
+                    )
+            await apply_signed_shortage_sale(
+                db, company_id=company_id, visit=visit,
+                sale_quantities=sold_base_by_variant,
+                request_id=str(payload.request_id),
             )
 
         if payload.outcome in {"Sale", "NoSale"}:
@@ -2276,6 +2275,12 @@ async def update_visit(
                         Visit.status == "Pending",
                         Visit.operational_date == visit.operational_date,
                         Visit.id != visit.id,
+                        # An already-authorized urgent Visit is separate
+                        # evidence: ordinary route completion must not erase it.
+                        ~select(ShortageUrgentAssignment.id).where(
+                            ShortageUrgentAssignment.company_id == company_id,
+                            ShortageUrgentAssignment.visit_id == Visit.id,
+                        ).exists(),
                     )
                 )
 

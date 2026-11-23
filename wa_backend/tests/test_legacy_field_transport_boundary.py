@@ -649,6 +649,14 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
                 "require_previous_day_closed", "prepare_next_day_period",
             },
             "domains.dispatch.route_execution.models": {"DispatchRouteExecutionPeriod"},
+            # #1067 owner-approved FIELD shortage correctness seam. Preserve
+            # exact allowlist rather than relaxing unrelated FIELD assertions.
+            "models": {"ShortageUrgentAssignment"},
+            # Compensating reversal now lives in shared invoice-reversal
+            # service; the FIELD transport only imports signed sale allocation.
+            "domains.dispatch_shortage_fulfillment": {
+                "apply_signed_shortage_sale",
+            },
         })
 
         # M03 changed helpers must remain read-only and location-scoped.

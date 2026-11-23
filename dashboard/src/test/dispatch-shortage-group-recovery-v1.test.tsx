@@ -25,6 +25,13 @@ vi.mock("@/lib/authStorage", async orig => ({
 vi.mock("@/components/dispatch/ShortageProductPicker", () => ({
   ShortageProductPicker: () => <div data-testid="shortage-product-picker"/>,
 }));
+// The separately signed vehicle read is not part of D05 grouped command tests.
+vi.mock("@/features/dispatch/useShortageVehicleAvailability", () => ({
+  useShortageVehicleAvailability: () => ({
+    status: "UNKNOWN", reason: "NO_ACCEPTED_VEHICLE_CUSTODY",
+    byProduct: new Map(), loading: false, refresh: vi.fn(),
+  }),
+}));
 
 const heldLocks = new Set<string>();
 const fakeLocks = {
@@ -736,6 +743,9 @@ describe("D05 shortage grouped operation recovery AR/EN responsive UI", () => {
           onDeleteShortageGroup={vi.fn()} onEditShortageGroup={vi.fn()}
           editingShortageIds={ids} onCancelEdit={vi.fn()}
           drivers={[]} shortageDriverId="9" onDriverChange={vi.fn()}
+          commandRecovery={{
+            pending: null, blocked: false, busy: false, feedback: null, onRetry: vi.fn(), onVerify: vi.fn(),
+          }}
           groupRecovery={{
             pending: { requestId: "ded0c901-babc-4455-9abc-000000000003", payload: intent },
             blocked: false, restoring: false, busy: false,

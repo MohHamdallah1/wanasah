@@ -2,17 +2,20 @@ import { useEffect, useMemo, useRef, useState, type UIEvent } from "react";
 import { Check, Package, Plus, Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useDispatchProductWindow } from "@/features/dispatch/useDispatchProductWindow";
-import { dispatchUiText } from "@/features/dispatch/dispatchUiText";
+import { compareShortageVehicleBase, dispatchUiText } from "@/features/dispatch/dispatchUiText";
 import { apiErrorMessage } from "@/lib/apiErrors";
 import { MeasuredProductPage } from "./DispatchProductWindow";
+import { useShortageVehicleAvailability } from "@/features/dispatch/useShortageVehicleAvailability";
+import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 
 /** Continuous 50k-safe browsing: only 3×80 signed products are mounted at once. */
 export function ShortageProductPicker({
-  scope, drafted, onAdd, disabled = false,
+  scope, drafted, onAdd, disabled = false, driverId = "",
 }: {
   scope: string | null;
-  drafted: { productId: string; productName: string; quantity: number }[];
-  onAdd: (id: string, name: string) => void;
+  driverId?: string;
+  drafted: ShortageDraftRow[];
+  onAdd: (id: string, name: string, baseUomCode?: string | null) => void;
   disabled?: boolean;
 }) {
   const { i18n, t: translation } = useTranslation();
@@ -47,7 +50,10 @@ export function ShortageProductPicker({
     }
   };
 
-  const counts = useMemo(() => new Map(drafted.map(item => [item.productId, item.quantity])), [drafted]);
+  const pinned = useMemo(() => new Map(drafted.map(item => [item.productId, item])), [drafted]);
+  const vehicle = useShortageVehicleAvailability({
+    driverId, scope, productIds: page.items.map(product => product.id),
+  });
   const firstLoad = page.loading && !page.pages.length;
   const hasProducts = page.items.length > 0;
 
@@ -93,10 +99,38 @@ export function ShortageProductPicker({
                 className="grid grid-cols-1 gap-2 pb-2 sm:grid-cols-2"
               >
                 {windowPage.items.map(product => {
-                  const count = counts.get(product.id) || 0;
+                  const pinnedRow = pinned.get(product.id);
+                  const count = pinnedRow?.quantity ?? 0;
+                  const stock = vehicle.byProduct.get(product.id);
+                  // Never retrofit a legacy/foreign draft row with a freshly
+                  // browsed SKU's UOM without explicit new product selection.
+                  const comparableUnit = pinnedRow
+                    ? pinnedRow.baseUomCode && pinnedRow.baseUomCode === product.baseUomCode
+                      ? pinnedRow.baseUomCode : null
+                    : product.baseUomCode;
+                  const result = compareShortageVehicleBase({
+                    requested: count > 0 ? count : 1,
+                    requestBaseUomCode: comparableUnit,
+                    stock,
+                    verified: vehicle.status === "VERIFIED",
+                  });
+                  const values = {
+                    potential: result.potentialBase ?? "0",
+                    outstanding: result.outstandingBase ?? "0",
+                    unit: comparableUnit ?? "",
+                  };
+                  const quoteText = result.kind === "UNKNOWN" ? t("shortageVehicleUnknown")
+                    : count > 0
+                      ? result.kind === "FULL" ? t("shortageVehicleFull", values)
+                        : result.kind === "PARTIAL" ? t("shortageVehiclePartial", values)
+                        : t("shortageVehicleZero", values)
+                      : result.kind === "ZERO" ? t("shortageVehicleNeedsSupply")
+                        : t("shortageVehicleAvailable", {
+                            count: stock!.available_base, unit: comparableUnit ?? "",
+                          });
                   return <button key={product.id} type="button" disabled={disabled}
                     aria-label={t("shortageQuickAddOne", {product: product.name})}
-                    onClick={() => onAdd(product.id, product.name)}
+                    onClick={() => onAdd(product.id, product.name, product.baseUomCode)}
                     className={`group flex min-h-[4rem] min-w-0 items-center gap-2.5 rounded-xl border px-3 py-2.5 text-start transition-colors focus-visible:ring-2 focus-visible:ring-sky-300 ${count
                       ? "border-sky-200 bg-sky-50/70 hover:bg-sky-100" :
                         "border-slate-200 bg-white hover:border-sky-300 hover:bg-sky-50"} disabled:opacity-50`}>
@@ -108,6 +142,12 @@ export function ShortageProductPicker({
                       <span className="block line-clamp-2 text-xs font-semibold leading-5 text-slate-800">{product.name}</span>
                       {count > 0 && <span className="block text-[11px] font-bold text-sky-700">
                         {t("shortageStudioAdded", {count: new Intl.NumberFormat(i18n.language.startsWith("ar") ? "ar" : "en").format(count)})}
+                      </span>}
+                      {product.baseUomCode && <span className="block text-[11px] text-slate-500">
+                        {t("shortageVehicleBaseUnit", {unit: product.baseUomCode})}
+                      </span>}
+                      {driverId && <span className="block text-[11px] font-semibold text-slate-600">
+                        {quoteText}
                       </span>}
                     </span>
                     <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-sky-700 text-white shadow-sm group-hover:bg-sky-800">

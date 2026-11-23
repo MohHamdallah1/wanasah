@@ -6,6 +6,13 @@ import type { Shop, Zone } from "@/types/dispatch";
 import { ShortageShopPicker } from "@/components/dispatch/ShortageShopPicker";
 import { ShortageRequestComposer } from "@/components/dispatch/ShortageRequestComposer";
 
+vi.mock("@/features/dispatch/useShortageVehicleAvailability", () => ({
+  useShortageVehicleAvailability: () => ({
+    status: "UNKNOWN", reason: "NO_ACCEPTED_VEHICLE_CUSTODY",
+    byProduct: new Map(), loading: false, refresh: vi.fn(),
+  }),
+}));
+
 vi.mock("@/features/dispatch/useDispatchProductWindow", () => ({
   useDispatchProductWindow: () => ({
     mode: "windowed", queryKey: "test-company:search", firstPageReady: true,

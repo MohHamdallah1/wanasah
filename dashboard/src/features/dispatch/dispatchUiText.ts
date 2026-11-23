@@ -1,3 +1,4 @@
+import type { VehicleAvailabilityLine } from "./useShortageVehicleAvailability";
 /** D13: business-facing Dispatch copy, kept out of the large dispatch components. */
 const copy = {
   "ar": {
@@ -44,6 +45,17 @@ const copy = {
     "shortageStudioNoDrivers": "لا يوجد مندوب مطابق.",
     "shortageStudioUnassigned": "حفظ دون مندوب",
     "shortageStudioCustodyNote": "الطلب لا يخصم من مخزون السيارة؛ التنفيذ الفعلي من عهدة المندوب.",
+    "shortageVehicleAvailable": "بالسيارة: {count} {unit}",
+    "shortageVehicleNeedsSupply": "لا يوجد رصيد قابل للتسليم بالسيارة",
+    "shortageVehicleUnknown": "رصيد السيارة غير مؤكد",
+    "shortageVehicleSummary": "تغطية تقديرية: كامل {full} · جزئي {partial} · بلا رصيد {zero} · غير مؤكد {unknown}",
+    "shortageVehicleRequested": "مطلوب: {count} {unit}",
+    "shortageVehicleRequestUnitUnknown": "وحدة الطلب غير مؤكدة (طلب سابق أو كتالوج غير مكتمل)",
+    "shortageVehicleBaseUnit": "الوحدة الأساسية: {unit}",
+    "shortageVehicleFull": "متاح محتملًا: {potential} {unit} · المتبقي: {outstanding}",
+    "shortageVehiclePartial": "متاح محتملًا: {potential} {unit} · المتبقي: {outstanding} {unit}",
+    "shortageVehicleZero": "متاح محتملًا: 0 {unit} · المتبقي: {outstanding} {unit}",
+    "shortageVehicleIndicative": "تقدير فقط، وليس حجزًا أو ضمان تسليم. يُعاد التحقق عند التنفيذ.",
     "shortageStudioCatalog": "كتالوج المنتجات",
     "shortageStudioOnPage": "{count} منتج",
     "shortageStudioSearchProduct": "ابحث بالاسم أو رمز المنتج (اختياري)",
@@ -61,7 +73,7 @@ const copy = {
     "shortageStudioEmptyOrder": "لم تختر منتجات بعد",
     "shortageStudioTapProduct": "اضغط على أي منتج من الكتالوج لإضافته مباشرة.",
     "shortageStudioRemoveProduct": "إزالة {product} من الطلب",
-    "shortageStudioSend": "إرسال الطلب للمندوب",
+    "shortageStudioSend": "حفظ طلب النواقص",
     "shortageStudioSaveUnassigned": "حفظ الطلب دون مندوب",
     "shortageSendReasonPermission": "لا توجد صلاحية لإرسال الطلب.",
     "shortageSendReasonPending": "يوجد طلب سابق قيد التحقق.",
@@ -86,7 +98,7 @@ const copy = {
     "shortageQuickDraftTitle": "طلبك ({count} منتجات)",
     "shortageQuickDraftEmpty": "ابحث عن منتج واضغط عليه لإضافته.",
     "shortageQuickDriverStep": "وجّه الطلب للمندوب",
-    "shortageQuickUnassignedNotice": "إن لم تختر مندوبًا، قد يوجه النظام الطلب لمندوب نشط في منطقة المحل؛ وإلا يُحفظ دون مندوب. اختر المندوب للطلب المستعجل خارج المنطقة.",
+    "shortageQuickUnassignedNotice": "الطلب يسجل احتياجًا معلقًا فقط؛ اختيار المندوب لا يطلق زيارة عاجلة ولا يحجز مخزونًا.",
     "shortageQuickSend": "حفظ الطلب ({count} منتجات)",
     "shortageQuickChooseShopFirst": "حدد محلًا من البحث قبل حفظ الطلب.",
     "shortageQuickQuantityOf": "كمية {product}",
@@ -121,6 +133,18 @@ const copy = {
     "shortageConfirm": "تأكيد الطلب وحفظ ({count})",
     "shortageSaveEdit": "حفظ التعديلات ({count} منتجات)",
     "shortageCancelEdit": "إلغاء التعديل",
+    "shortageDemandPending": "طلب معلّق",
+    "shortageDemandProgress": "مطلوب {requested} · تم تسليم {fulfilled} · متبقّي {outstanding} (مؤكد من الخادم)",
+    "shortageDemandLegacyUnknown": "التسليم والمتبقي غير موثقين لهذا الطلب التاريخي",
+    "shortageCommandUnknown": "نتيجة حفظ الطلب غير مؤكدة. احتفظنا بنفس المرجع والكميات، ولم نفترض نجاح العملية.",
+    "shortageCommandRetry": "التحقق بإعادة إرسال نفس الطلب",
+    "shortageCommandLookup": "قراءة إيصال الخادم الموقّع",
+    "shortageCommandLookupDenied": "لا تملك صلاحية قراءة الإيصال؛ يمكنك إعادة إرسال نفس الطلب الأصلي دون تغيير رمزه.",
+    "shortageCommandPendingOnly": "هذا احتياج معلّق، وليس زيارة عاجلة أو بضاعة محجوزة.",
+    "shortageCommandConflict": "تعارض مرجع المحاولة مع البيانات. لا يمكن إنشاء طلب جديد قبل المراجعة.",
+    "shortageCommandDenied": "تغيّرت صلاحيات الجلسة. لا يمكن عرض أو إعادة إرسال المحاولة من هذه الجلسة.",
+    "shortageCommandStorage": "تعذّر حفظ مرجع الطلب بأمان؛ لم يُرسل طلب جديد.",
+    "shortageCommandCommitted": "أكد الخادم حفظ طلب الاحتياج المعلّق بالمرجع الأصلي.",
     "shortagePending": "الطلبات المعلقة",
     "shortageTotal": "{count} منتج إجمالاً",
     "shortageNone": "لا توجد طلبات معلقة",
@@ -243,6 +267,17 @@ const copy = {
     "shortageStudioNoDrivers": "No matching representative.",
     "shortageStudioUnassigned": "Save without representative",
     "shortageStudioCustodyNote": "The request does not deduct vehicle stock. Fulfilment uses the representative's authorized custody.",
+    "shortageVehicleAvailable": "In vehicle: {count} {unit}",
+    "shortageVehicleNeedsSupply": "No deliverable vehicle stock",
+    "shortageVehicleUnknown": "Vehicle stock unverified",
+    "shortageVehicleSummary": "Indicative coverage: full {full} · partial {partial} · zero {zero} · unknown {unknown}",
+    "shortageVehicleRequested": "Requested: {count} {unit}",
+    "shortageVehicleRequestUnitUnknown": "Request base unit unverified (older draft or missing catalog metadata)",
+    "shortageVehicleBaseUnit": "Base unit: {unit}",
+    "shortageVehicleFull": "Potentially available: {potential} {unit} · outstanding: {outstanding}",
+    "shortageVehiclePartial": "Potentially available: {potential} {unit} · outstanding: {outstanding} {unit}",
+    "shortageVehicleZero": "Potentially available: 0 {unit} · outstanding: {outstanding} {unit}",
+    "shortageVehicleIndicative": "Estimate only, not reserved or guaranteed. Recheck before fulfilment.",
     "shortageStudioCatalog": "Product catalog",
     "shortageStudioOnPage": "{count} products",
     "shortageStudioSearchProduct": "Search name or product code (optional)",
@@ -260,7 +295,7 @@ const copy = {
     "shortageStudioEmptyOrder": "No products selected yet",
     "shortageStudioTapProduct": "Select a catalog product to add it instantly.",
     "shortageStudioRemoveProduct": "Remove {product} from request",
-    "shortageStudioSend": "Send to representative",
+    "shortageStudioSend": "Save shortage demand",
     "shortageStudioSaveUnassigned": "Save without representative",
     "shortageSendReasonPermission": "You don't have permission to send this request.",
     "shortageSendReasonPending": "A previous request is still being verified.",
@@ -285,7 +320,7 @@ const copy = {
     "shortageQuickDraftTitle": "Your request ({count} items)",
     "shortageQuickDraftEmpty": "Search for a product and select it to add.",
     "shortageQuickDriverStep": "Assign a representative",
-    "shortageQuickUnassignedNotice": "Without a selected representative, the server may assign the active representative for this shop's zone, or save the request unassigned. Select a representative for cross-zone urgent work.",
+    "shortageQuickUnassignedNotice": "This saves pending demand only. Selecting a representative does not dispatch an urgent visit or reserve stock.",
     "shortageQuickSend": "Save request ({count} items)",
     "shortageQuickChooseShopFirst": "Choose a shop before saving.",
     "shortageQuickQuantityOf": "Quantity of {product}",
@@ -320,6 +355,18 @@ const copy = {
     "shortageConfirm": "Confirm and save ({count})",
     "shortageSaveEdit": "Save changes ({count} products)",
     "shortageCancelEdit": "Cancel editing",
+    "shortageDemandPending": "Pending demand",
+    "shortageDemandProgress": "Requested {requested} · fulfilled {fulfilled} · outstanding {outstanding} (server verified)",
+    "shortageDemandLegacyUnknown": "Fulfilled and outstanding are unverified for this historical request",
+    "shortageCommandUnknown": "The save result is unconfirmed. The original ID and quantities are preserved; no success was assumed.",
+    "shortageCommandRetry": "Retry the exact original request",
+    "shortageCommandLookup": "Look up the signed original receipt",
+    "shortageCommandLookupDenied": "Receipt lookup requires read access. You can retry the original request with the same UUID.",
+    "shortageCommandPendingOnly": "This is pending demand, not an urgent visit or reserved inventory.",
+    "shortageCommandConflict": "The stored request ID conflicts with its payload. Review it before creating another request.",
+    "shortageCommandDenied": "Session authority changed. This session cannot view or retry the command.",
+    "shortageCommandStorage": "Could not durably store the request ID. No new request was sent.",
+    "shortageCommandCommitted": "The server confirmed the original pending-demand receipt.",
     "shortagePending": "Pending requests",
     "shortageTotal": "{count} products total",
     "shortageNone": "No pending requests",
@@ -405,4 +452,47 @@ export function dispatchUiText(language: string, key: DispatchUiKey, values: Rec
   const text: string = copy[language.toLowerCase().startsWith("ar") ? "ar" : "en"][key];
   return text.replace(/\{([a-zA-Z]+)\}/g, (match, name: string) =>
     Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match);
+}
+
+/** Comparison only: a shortage integer is a count of SKU base UOM (§17.6.1).
+ * Vehicle decimals are exact strings. No Number rounding, guessed UOM,
+ * inventory reservation, or evidence borrowed from an old actor/driver.
+ */
+export type ShortageVehicleComparison =
+  | { kind: "UNKNOWN"; potentialBase: null; outstandingBase: null }
+  | { kind: "FULL" | "PARTIAL" | "ZERO"; potentialBase: string; outstandingBase: string };
+
+export function compareShortageVehicleBase({
+  requested, requestBaseUomCode, stock, verified,
+}: {
+  requested: number;
+  requestBaseUomCode?: string | null;
+  stock?: VehicleAvailabilityLine;
+  verified: boolean;
+}): ShortageVehicleComparison {
+  const unknown: ShortageVehicleComparison = {
+    kind: "UNKNOWN", potentialBase: null, outstandingBase: null,
+  };
+  if (!verified || !Number.isSafeInteger(requested) || requested <= 0 ||
+      typeof requestBaseUomCode !== "string" || !requestBaseUomCode ||
+      !stock || stock.base_uom !== requestBaseUomCode ||
+      typeof stock.available_base !== "string" ||
+      stock.available_base.length > 70 ||
+      !/^(?:0|[1-9]\d*)(?:\.\d{1,24})?$/.test(stock.available_base)) return unknown;
+  const [whole, decimals = ""] = stock.available_base.split(".");
+  const factor = 10n ** BigInt(decimals.length);
+  const available = BigInt(whole) * factor + BigInt(decimals || "0");
+  const wanted = BigInt(requested) * factor;
+  const potential = available < wanted ? available : wanted;
+  const outstanding = wanted - potential;
+  const format = (n: bigint): string => {
+    if (!decimals.length) return String(n);
+    const integer = String(n / factor);
+    const fractional = String(n % factor).padStart(decimals.length, "0").replace(/0+$/, "");
+    return fractional ? integer + "." + fractional : integer;
+  };
+  return {
+    kind: available === 0n ? "ZERO" : available >= wanted ? "FULL" : "PARTIAL",
+    potentialBase: format(potential), outstandingBase: format(outstanding),
+  };
 }
