@@ -88,6 +88,14 @@ async def read_selected_vehicle_stock(
     if type(company_id) is not int or company_id <= 0 or type(vehicle_id) is not int or vehicle_id <= 0:
         raise CustodyRejected("CUSTODY_SELECTED_SCOPE_INVALID", 422)
     wanted = _selected_scope(product_ids)
+    # Never let a promotion/approval reader omit the signed assignment to
+    # a specific epoch + FIELD representative + principal. Quote calls may
+    # omit these when no manager mutation is being authorized.
+    if for_approval and (
+        expected_epoch_id is None or expected_representative_id is None
+        or expected_principal_id is None
+    ):
+        raise CustodyRejected("CUSTODY_APPROVAL_SIGNED_SCOPE_REQUIRED", 422)
     if expected_epoch_id is not None and (type(expected_epoch_id) is not int or expected_epoch_id <= 0):
         raise CustodyRejected("CUSTODY_EPOCH_INVALID", 422)
     if expected_representative_id is not None and (
