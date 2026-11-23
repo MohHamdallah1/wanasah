@@ -1170,7 +1170,28 @@ SHORTAGE_1057_DISTINCT = frozenset({
     "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
 })
 assert len(SHORTAGE_1057_EXACT) == 27
-
+SHORTAGE_1057_RELEASE_EXACT = SHORTAGE_1057_EXACT | frozenset({
+    "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+    "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+    "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+    "wa_backend/domains/dispatch_shortage_selected_stock.py",
+    "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+    "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+    "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+    "wa_backend/api/dispatch_shortage_commands.py",
+    "wa_backend/api/dispatch_shortages_group.py",
+    "wa_backend/api/driver.py",
+    "wa_backend/domains/dispatch_shortage_fulfillment.py",
+    "wa_backend/domains/dispatch_shortage_visits.py",
+    "wa_backend/domains/dispatch_shortages_group.py",
+    "wa_backend/models.py",
+    "wa_backend/services.py",
+    "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+    "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+    "wa_backend/tests/test_driver_session_field_context_cutover.py",
+    "wa_backend/tests/test_legacy_field_transport_boundary.py",
+})
+assert len(SHORTAGE_1057_RELEASE_EXACT) == 46
 URGENT_1055_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
     '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -1239,6 +1260,8 @@ URGENT_1050_DISTINCT = frozenset({
 assert len(URGENT_1050_EXACT) == 15
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    if changed == SHORTAGE_1057_RELEASE_EXACT:
+        return ("not-applicable",[]) if mode=="r3" else ("shortage-1057-release-exact",[])
     if changed == SHORTAGE_1057_EXACT:
         return ("not-applicable",[]) if mode=="r3" else ("shortage-1057-exact",[])
     if changed & SHORTAGE_1057_DISTINCT:
@@ -1707,6 +1730,14 @@ def selftest() -> None:
         for mixed in (ARV1_F_1044_EXACT,ARV1_B_1045_EXACT,ZONES_1039_EXACT):
             _expect_fail(mode,set(SHORTAGE_1057_EXACT)|set(mixed),policy_sem)
     print("SHORTAGE_1057_LIVE_STOCK_SELFTEST=PASS modes=3 missing=81 foreign=9 mixed=9")
+    for mode in ("ux","r3","operational"):
+        expected_release=("not-applicable",[]) if mode=="r3" else ("shortage-1057-release-exact",[])
+        assert classify(mode,set(SHORTAGE_1057_RELEASE_EXACT),policy_sem)==expected_release
+        for missing in SHORTAGE_1057_RELEASE_EXACT:
+            _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)-{missing},policy_sem)
+        for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
+            _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)|{foreign},policy_sem)
+    print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=46 missing=138 foreign=6")
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])

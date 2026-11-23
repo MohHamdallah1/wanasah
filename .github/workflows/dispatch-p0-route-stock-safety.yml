@@ -859,6 +859,28 @@ jobs:
               "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
           }
           assert len(shortage_1057_exact)==27
+          shortage_1057_release_exact = shortage_1057_exact | {
+              "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+              "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+              "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+              "wa_backend/domains/dispatch_shortage_selected_stock.py",
+              "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+              "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+              "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+              "wa_backend/api/dispatch_shortage_commands.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/dispatch_shortage_fulfillment.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/models.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+          }
+          assert len(shortage_1057_release_exact) == 46
           urgent_1055_exact = {
               '.github/scripts/live_stock_ci_ownership.py',
               '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -924,6 +946,7 @@ jobs:
           }
           assert len(urgent_1050_exact) == 15
           def ownership_mode(candidate):
+              if candidate == shortage_1057_release_exact: return 'SHORTAGE_1057_RELEASE_EXACT'
               if candidate == shortage_1057_exact: return 'SHORTAGE_1057_EXACT'
               if candidate & shortage_1057_distinct:
                   raise AssertionError('SHORTAGE_1057 partial/foreign: '+repr(sorted(candidate)))
@@ -1135,6 +1158,16 @@ jobs:
               except AssertionError: pass
               else: raise AssertionError('SHORTAGE_1057 mixed: '+repr(mixed))
           print('SHORTAGE_1057_SCOPE_SELFTEST=PASS exact=27 missing=27 foreign=3 mixed=3')
+          assert ownership_mode(shortage_1057_release_exact) == 'SHORTAGE_1057_RELEASE_EXACT'
+          for missing in shortage_1057_release_exact:
+              try: valid = ownership_mode(shortage_1057_release_exact - {missing})
+              except AssertionError: continue
+              raise AssertionError("release missing-scope admitted: "+str(missing))
+          for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
+              try: valid = ownership_mode(shortage_1057_release_exact | {foreign})
+              except AssertionError: continue
+              raise AssertionError("release foreign-scope admitted: "+str(foreign))
+          print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=46 missing=46 foreign=2")
           assert ownership_mode(urgent_1055_exact) == 'URGENT_1055_EXACT'
           for missing in urgent_1055_exact:
               try: ownership_mode(urgent_1055_exact-{missing})
