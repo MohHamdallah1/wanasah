@@ -860,6 +860,7 @@ jobs:
           }
           assert len(shortage_1057_exact)==27
           shortage_1057_release_exact = shortage_1057_exact | {
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
               "dashboard/src/features/dispatch/shortageCommand/contract.ts",
               "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
               "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
@@ -880,7 +881,7 @@ jobs:
               "wa_backend/tests/test_driver_session_field_context_cutover.py",
               "wa_backend/tests/test_legacy_field_transport_boundary.py",
           }
-          assert len(shortage_1057_release_exact) == 46
+          assert len(shortage_1057_release_exact) == 47
           urgent_1055_exact = {
               '.github/scripts/live_stock_ci_ownership.py',
               '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -1167,7 +1168,7 @@ jobs:
               try: valid = ownership_mode(shortage_1057_release_exact | {foreign})
               except AssertionError: continue
               raise AssertionError("release foreign-scope admitted: "+str(foreign))
-          print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=46 missing=46 foreign=2")
+          print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=47 missing=47 foreign=2")
           assert ownership_mode(urgent_1055_exact) == 'URGENT_1055_EXACT'
           for missing in urgent_1055_exact:
               try: ownership_mode(urgent_1055_exact-{missing})

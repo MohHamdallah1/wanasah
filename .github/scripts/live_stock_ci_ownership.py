@@ -1171,6 +1171,7 @@ SHORTAGE_1057_DISTINCT = frozenset({
 })
 assert len(SHORTAGE_1057_EXACT) == 27
 SHORTAGE_1057_RELEASE_EXACT = SHORTAGE_1057_EXACT | frozenset({
+    ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
     "dashboard/src/features/dispatch/shortageCommand/contract.ts",
     "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
     "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
@@ -1191,7 +1192,7 @@ SHORTAGE_1057_RELEASE_EXACT = SHORTAGE_1057_EXACT | frozenset({
     "wa_backend/tests/test_driver_session_field_context_cutover.py",
     "wa_backend/tests/test_legacy_field_transport_boundary.py",
 })
-assert len(SHORTAGE_1057_RELEASE_EXACT) == 46
+assert len(SHORTAGE_1057_RELEASE_EXACT) == 47
 URGENT_1055_EXACT = frozenset({
     '.github/scripts/live_stock_ci_ownership.py',
     '.github/workflows/dispatch-p0-route-stock-safety.yml',
@@ -1737,7 +1738,7 @@ def selftest() -> None:
             _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)-{missing},policy_sem)
         for foreign in ("wa_backend/api/warehouse.py","wanasah_frontend/lib/main.dart"):
             _expect_fail(mode,set(SHORTAGE_1057_RELEASE_EXACT)|{foreign},policy_sem)
-    print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=46 missing=138 foreign=6")
+    print("SHORTAGE_1057_RELEASE_SELFTEST=PASS exact=47 missing=141 foreign=6")
 
     for mode in ('ux','r3','operational'):
         expect=('not-applicable',[]) if mode=='r3' else ('urgent-1055-exact',[])

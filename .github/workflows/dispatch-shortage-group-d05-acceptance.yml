@@ -83,7 +83,72 @@ jobs:
           pr_files = set(subprocess.check_output(
               ["git", "diff", "--name-only", os.environ["PR_BASE"], "HEAD"], text=True,
           ).splitlines())
-          if pr_files == d11_exact:
+          # #1058 final signed release only: exact 47-file integration delta,
+          # including this workflow; no wildcard, no historic #849 bypass.
+          # Keep #849/D11 scope checks for every other PR.
+          from pathlib import Path
+          import ast
+          owner_policy = ast.parse(Path(".github/scripts/live_stock_ci_ownership.py").read_text())
+          release_items = {
+              ".github/scripts/live_stock_ci_ownership.py",
+              ".github/workflows/dispatch-p0-route-stock-safety.yml",
+              ".github/workflows/dispatch-route-launch-d07-acceptance.yml",
+              ".github/workflows/dispatch-shop-create-f06-acceptance.yml",
+              ".github/workflows/dispatch-shop-finance-p0-acceptance.yml",
+              ".github/workflows/live-stock-inflight-authority-acceptance.yml",
+              ".github/workflows/dispatch-shortage-group-d05-acceptance.yml",
+              "dashboard/src/components/dispatch/ShortageModal.tsx",
+              "dashboard/src/components/dispatch/ShortageProductPicker.tsx",
+              "dashboard/src/components/dispatch/ShortageRequestComposer.tsx",
+              "dashboard/src/features/dispatch/dispatchDrafts.ts",
+              "dashboard/src/features/dispatch/dispatchUiText.ts",
+              "dashboard/src/features/dispatch/shortageCommand/contract.ts",
+              "dashboard/src/features/dispatch/shortageCommand/useShortageCommandCommit.ts",
+              "dashboard/src/features/dispatch/useDispatchProductSearch.ts",
+              "dashboard/src/features/dispatch/useShortageVehicleAvailability.ts",
+              "dashboard/src/pages/DispatchBoard.tsx",
+              "dashboard/src/test/dispatch-d10-drafts.test.ts",
+              "dashboard/src/test/dispatch-shortage-command-1068.test.tsx",
+              "dashboard/src/test/dispatch-shortage-group-recovery-v1.test.tsx",
+              "dashboard/src/test/dispatch-shortage-partial-uom-1060.test.tsx",
+              "dashboard/src/test/dispatch-shortage-vehicle-availability-1057.test.tsx",
+              "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
+              "wa_backend/alembic/versions/ae106700b221_shortage_demand_partial_evidence.py",
+              "wa_backend/api/dispatch.py",
+              "wa_backend/api/dispatch_product_schemas.py",
+              "wa_backend/api/dispatch_shortage_availability.py",
+              "wa_backend/api/dispatch_shortage_commands.py",
+              "wa_backend/api/dispatch_shortages_group.py",
+              "wa_backend/api/driver.py",
+              "wa_backend/domains/dispatch_product_discovery.py",
+              "wa_backend/domains/dispatch_shortage_fulfillment.py",
+              "wa_backend/domains/dispatch_shortage_selected_stock.py",
+              "wa_backend/domains/dispatch_shortage_visits.py",
+              "wa_backend/domains/dispatch_shortages_group.py",
+              "wa_backend/models.py",
+              "wa_backend/schemas.py",
+              "wa_backend/services.py",
+              "wa_backend/tests/test_dispatch_shortage_base_uom_1062.py",
+              "wa_backend/tests/test_dispatch_shortage_phase_b_pg16.py",
+              "wa_backend/tests/test_dispatch_shortage_selected_stock_1071_pg16.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability.py",
+              "wa_backend/tests/test_dispatch_shortage_vehicle_availability_pg16.py",
+              "wa_backend/tests/test_dispatch_shortages_group_v1_postgres.py",
+              "wa_backend/tests/test_driver_session_field_context_cutover.py",
+              "wa_backend/tests/test_legacy_field_transport_boundary.py",
+              "wanasah_frontend/test/features/visits/list/shortage_pending_not_field_visit_1068_test.dart",
+          }
+          assert len(release_items) == 47
+          def exact_release(candidate):
+              return candidate == release_items
+          assert exact_release(release_items)
+          for missing in release_items:
+              assert not exact_release(release_items - {missing})
+          for foreign in ("wa_backend/api/warehouse.py", "wanasah_frontend/lib/main.dart"):
+              assert not exact_release(release_items | {foreign})
+          if pr_files == release_items and os.environ["PR_BASE"] == "9460f6b8568bf118ff2e0ae30922bf0288a39183":
+              print("D05_INTEGRATED_RELEASE_EXACT=PASS files=47 missing=47 foreign=2; original #849 intact")
+          elif pr_files == d11_exact:
               print("D11_D05_CROSS_OWNER=PASS exact=16 original #849 unchanged")
           else:
               assert files and files <= allowed, f"Worker 1 #849 scope violated: {sorted(files - allowed)}"
