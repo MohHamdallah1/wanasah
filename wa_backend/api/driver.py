@@ -1077,7 +1077,10 @@ async def update_visit(
         # Custody/vehicle precedence is security authority. Never query an
         # optional shortage assignment before resolving current FIELD custody:
         # that changes negative error codes and may consume mocked/real reads.
-        # Demand alone is not a cross-zone Visit grant.
+        # Demand alone is not a cross-zone Visit grant. Keep this initialized
+        # on same-zone and historic authorized visits too: downstream signed
+        # Visit projection uses the value after validation.
+        assigned_urgent = None
         if shop.zone_id != current_route.zone_id and not visit.is_emergency:
             assigned_urgent = await db.scalar(
                 select(ShortageUrgentAssignment.id).where(

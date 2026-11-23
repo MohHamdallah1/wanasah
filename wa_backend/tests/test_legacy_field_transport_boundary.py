@@ -652,8 +652,10 @@ class LegacyFieldTransportBoundaryTests(unittest.TestCase):
             # #1067 owner-approved FIELD shortage correctness seam. Preserve
             # exact allowlist rather than relaxing unrelated FIELD assertions.
             "models": {"ShortageUrgentAssignment"},
+            # Compensating reversal now lives in shared invoice-reversal
+            # service; the FIELD transport only imports signed sale allocation.
             "domains.dispatch_shortage_fulfillment": {
-                "apply_signed_shortage_sale", "reverse_signed_shortage_sale",
+                "apply_signed_shortage_sale",
             },
         })
 
