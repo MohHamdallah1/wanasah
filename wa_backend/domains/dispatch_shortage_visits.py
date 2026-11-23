@@ -58,6 +58,11 @@ async def settle_shortage_pending_visit(
             Visit.driver_id == driver_id,
             Visit.status == "Pending",
             Visit.is_emergency.is_(True),
+            # A scheduled Visit already started by FIELD or linked to a session
+            # is historical operational evidence and is never auto-cancelled.
+            Visit.work_session_id.is_(None),
+            Visit.execution_period_id.is_(None),
+            Visit.current_sales_revision_id.is_(None),
         ).order_by(Visit.id.asc()).with_for_update()
     )).scalars().all()
     active_route = (await db.execute(

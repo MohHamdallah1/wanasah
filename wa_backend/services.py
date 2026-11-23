@@ -6798,6 +6798,7 @@ async def reverse_previous_visit_state(
     active_session: Optional[WorkSession],
     shop: Shop,
     admin_id: int,
+    request_id: Optional[str] = None,
 ) -> None:
     try:
         company_id = _strict_int(shop.company_id, "company_id", minimum=1)
@@ -7055,12 +7056,23 @@ async def reverse_previous_visit_state(
     for ret in active_returns:
         ret.is_cancelled = True
 
+    # One reversal authority for ALL callers (FIELD correction and legacy
+    # invoice correction). Its signed quantity deltas and stock/finance reversal
+    # must commit atomically, before clearing the Visit's frozen sale pointer.
+    # Never run the old binary reset on a quantitative V1 demand.
+    from domains.dispatch_shortage_fulfillment import reverse_signed_shortage_sale
+    await reverse_signed_shortage_sale(
+        db_session, company_id=company_id, visit_id=int(locked_visit.id),
+        request_id=request_id or str(uuid4()),
+    )
     await db_session.execute(
         update(ShortageRequest)
         .where(
             ShortageRequest.company_id == company_id,
             ShortageRequest.fulfilled_by_visit_id == locked_visit.id,
             ShortageRequest.status == "fulfilled",
+            or_(ShortageRequest.fulfillment_version.is_(None),
+                ShortageRequest.fulfillment_version != 1),
         )
         .values(
             status="pending",
