@@ -138,7 +138,30 @@ export function clearConfirmedShortage(scope: string | null, requestId: string):
  * canonical base quantities. A message-only response / GET list is UNKNOWN.
  * No inferred allocation or implied visit/urgent state.
  */
-export function parseShortageReceipt(raw: unknown, intent: ShortageCommandBody): ShortageCommandReceipt | null {
+/**
+ * Exactly mirror W1 #1067 _demand_hash(): Python json.dumps(sort_keys=True,
+ * separators=(",", ":")) over the five ORIGINAL immutable business fields.
+ * The server's request_hash is an intent-binding checksum, NOT a bearer token
+ * or a substitute for TLS, actor authorization, or the persisted receipt.
+ */
+export async function shortageIntentHash(intent: ShortageCommandBody): Promise<string> {
+  const canonical = {
+    lines: intent.lines.map(line => [line.product_id, line.quantity_base])
+      .sort((a, b) => a[0] - b[0]),
+    requested_driver_id: intent.requested_driver_id,
+    shop_id: intent.shop_id,
+    version: intent.version,
+    zone_id: intent.zone_id,
+  };
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical));
+  const hash = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(hash), byte =>
+    byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function parseShortageReceipt(
+  raw: unknown, intent: ShortageCommandBody,
+): Promise<ShortageCommandReceipt | null> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
   const root = raw as Record<string, unknown>;
   const response = root.receipt && typeof root.receipt === "object" &&
@@ -152,6 +175,9 @@ export function parseShortageReceipt(raw: unknown, intent: ShortageCommandBody):
       typeof response.request_hash !== "string" ||
       !/^[a-f0-9]{64}$/.test(response.request_hash) ||
       !Array.isArray(response.lines)) return null;
+  // A valid-looking random SHA-256 string is insufficient: confirm the server
+  // persisted EXACT original intent, including all product/base quantities.
+  if (response.request_hash !== await shortageIntentHash(intent)) return null;
   const received = response.lines as Array<Record<string, unknown>>;
   if (received.length !== intent.lines.length) return null;
   const expected = new Map(intent.lines.map(line => [line.product_id, line.quantity_base]));
