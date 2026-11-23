@@ -285,6 +285,72 @@ async def read_shortage_command_receipt(
     return response
 
 
+async def _authorize_promotion_replay(
+    db: AsyncSession, access: BackofficeCapabilityAccess,
+    *, shortage_id: int, driver_id: int, response: dict,
+) -> None:
+    """A past receipt is not a permanent Shop/vehicle access token.
+
+    Use immutable assignment identity to re-derive the exact Shop, driver,
+    vehicle and signed custody. The receipt is returned only while the actor
+    still has currently persisted authority over all of them.
+    """
+    company = int(access.company_id)
+    assignment = await db.scalar(select(ShortageUrgentAssignment).where(
+        ShortageUrgentAssignment.company_id == company,
+        ShortageUrgentAssignment.id == response.get("assignment_id"),
+        ShortageUrgentAssignment.shortage_id == shortage_id,
+        ShortageUrgentAssignment.visit_id == response.get("visit_id"),
+        ShortageUrgentAssignment.driver_id == driver_id,
+        ShortageUrgentAssignment.custody_epoch_id == response.get("custody_epoch_id"),
+    ))
+    demand = await db.scalar(select(ShortageRequest).where(
+        ShortageRequest.company_id == company, ShortageRequest.id == shortage_id,
+    ))
+    if (assignment is None or demand is None
+            or response.get("shortage_id") != shortage_id
+            or int(assignment.approved_base) != response.get("approved_base")):
+        raise _rejected(404, "SHORTAGE_RECEIPT_NOT_FOUND", "Receipt not accessible.")
+    await _authorize_shop(db, access, int(demand.shop_id), int(demand.zone_id))
+    await require_vehicle(access, "dispatch.execute", int(assignment.vehicle_id))
+    await require_vehicle(access, "dispatch.read", int(assignment.vehicle_id))
+    if not await _driver_is_canonical(db, company, driver_id):
+        raise _rejected(404, "SHORTAGE_RECEIPT_NOT_FOUND", "Representative no longer available.")
+    representative_id = await db.scalar(select(
+        IdentityLegacyDriverMap.field_representative_id,
+    ).where(
+        IdentityLegacyDriverMap.company_id == company,
+        IdentityLegacyDriverMap.legacy_driver_id == driver_id,
+    ))
+    epoch = await db.scalar(select(VehicleCustodyEpoch).where(
+        VehicleCustodyEpoch.company_id == company,
+        VehicleCustodyEpoch.id == int(assignment.custody_epoch_id),
+        VehicleCustodyEpoch.vehicle_id == int(assignment.vehicle_id),
+        VehicleCustodyEpoch.field_representative_id == representative_id,
+        VehicleCustodyEpoch.custodian_kind == "FIELD_REPRESENTATIVE",
+        VehicleCustodyEpoch.state == "ACCEPTED",
+        VehicleCustodyEpoch.ended_at.is_(None),
+    ))
+    if epoch is None:
+        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody no longer authorized.")
+    route = await db.scalar(select(DispatchRoute.id).where(
+        DispatchRoute.company_id == company,
+        DispatchRoute.driver_id == driver_id,
+        DispatchRoute.vehicle_id == int(assignment.vehicle_id),
+        DispatchRoute.status == "active",
+    ).limit(1))
+    if route is None:
+        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Route no longer authorized.")
+    try:
+        state = await read_vehicle_state(db, company, int(assignment.vehicle_id))
+    except CustodyRejected as exc:
+        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody changed.") from exc
+    if (state.epoch is None or int(state.epoch.id) != int(epoch.id)
+            or int(state.location_id) != int(epoch.vehicle_location_id)
+            or int(state.epoch.custodian_principal_id or 0) != int(epoch.custodian_principal_id or 0)):
+        raise _rejected(403, "SHORTAGE_PROMOTION_SCOPE_DENIED", "Signed custody changed.")
+
+
 @router.post("/dispatch/shortages/{shortage_id}/promote-urgent", status_code=201)
 async def promote_shortage_with_signed_stock(
     payload: ShortageUrgentPromotion,
@@ -311,6 +377,10 @@ async def promote_shortage_with_signed_stock(
             digest=digest,
         )
         if replay is not None:
+            await _authorize_promotion_replay(
+                db, access, shortage_id=shortage_id,
+                driver_id=int(payload.driver_id), response=replay,
+            )
             await db.rollback()
             return replay
         # Probe identifiers only; real authority and scopes are checked after locks.

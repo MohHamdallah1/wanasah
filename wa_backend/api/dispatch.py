@@ -12,7 +12,7 @@ from api.authentication.backoffice_authorization import (
 from api.authentication.backoffice_compatibility import (
     get_current_backoffice_legacy_driver,
 )
-from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess, BackofficeCapabilityAccessRejected
 from domains.dispatch_shop_read_scope import (
     company_shop_directory, can_read_shop_financials,
     visible_shop_filter, visible_zone_filter, project_shop,
@@ -5464,6 +5464,28 @@ async def edit_shop_details(
         raise HTTPException(status_code=500, detail="حدث خطأ داخلي في الخادم أثناء تعديل المحل.") from exc
 
 
+async def _require_legacy_shortage_shop_scope(
+    db: AsyncSession, access: BackofficeCapabilityAccess, shop_ids: set[int],
+) -> None:
+    """Legacy write authorization must match the versioned Shop directory."""
+    try:
+        await access.require("dispatch.read", any_location=True)
+    except BackofficeCapabilityAccessRejected as exc:
+        raise HTTPException(status_code=403, detail={
+            "code": "SHORTAGE_SHOP_SCOPE_DENIED", "context": {},
+        }) from exc
+    directory = await company_shop_directory(access)
+    visible = (await db.scalars(select(Shop.id).where(
+        Shop.company_id == access.company_id,
+        Shop.id.in_(sorted(shop_ids)),
+        visible_shop_filter(access, company_directory=directory),
+    ))).all()
+    if {int(shop_id) for shop_id in visible} != shop_ids:
+        raise HTTPException(status_code=404, detail={
+            "code": "SHORTAGE_SHOP_UNAVAILABLE", "context": {},
+        })
+
+
 # =========================================
 # 23. جلب الطلبات العاجلة (شاشة النواقص) - GET
 # =========================================
@@ -5566,6 +5588,7 @@ async def add_shortages(
             db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}" for shop_id in shop_ids]
         )
         bulk_shops = await _dispatch_lock_shop_rows(db, company_id=company_id, shop_ids=shop_ids)
+        await _require_legacy_shortage_shop_scope(db, access, set(shop_ids))
         if any(shop.is_archived or not shop.is_active for shop in bulk_shops.values()):
             raise HTTPException(status_code=404, detail="أحد المحلات غير فعال/مؤرشف أو لا يتبع شركتك.")
 
@@ -5743,6 +5766,7 @@ async def delete_shortage(
             return {"message": "الطلب غير موجود أصلاً."}
         shop_id, zone_id = int(pre.shop_id), int(pre.zone_id)
         driver_id = int(pre.driver_id) if pre.driver_id is not None else None
+        await _require_legacy_shortage_shop_scope(db, access, {shop_id})
 
         await _dispatch_lock_zone_rows(db, company_id=company_id, zone_ids=[zone_id])
         await _dispatch_advisory_locks(db, company_id=company_id, keys=[f"dispatch-shop:{shop_id}"])

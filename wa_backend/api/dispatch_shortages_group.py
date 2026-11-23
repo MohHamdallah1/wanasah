@@ -35,6 +35,7 @@ async def replace_shortages_group(
     # Reading the group never implies authority to cancel or create shortages.
     try:
         await access.require("shortage.cancel")
+        await access.require("dispatch.read", any_location=True)
         if payload.items:
             await access.require("shortage.create")
     except BackofficeCapabilityAccessRejected:
@@ -47,7 +48,7 @@ async def replace_shortages_group(
     try:
         result, mutated = await replace_shortage_group(
             db, company_id=access.company_id, actor_id=int(legacy_actor.id),
-            command=payload,
+            command=payload, access=access,
         )
         if mutated:
             asyncio.create_task(dispatch_manager.broadcast(

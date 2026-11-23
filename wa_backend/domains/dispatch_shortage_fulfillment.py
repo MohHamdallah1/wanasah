@@ -143,24 +143,18 @@ async def reverse_signed_shortage_sale(
             ShortageDeliveryEvent.visit_id == visit_id,
             ShortageDeliveryEvent.event_type == "DELIVERY",
         ).order_by(ShortageDeliveryEvent.id.asc())
-        .with_for_update()
     )).scalars().all()
     if not delivered:
         return []
-    already_reversed = set((await db.scalars(
-        select(ShortageDeliveryEvent.reverses_event_id).where(
-            ShortageDeliveryEvent.company_id == company_id,
-            ShortageDeliveryEvent.visit_id == visit_id,
-            ShortageDeliveryEvent.event_type == "REVERSAL",
-        )
-    )).all())
+    # Historical delivery and assignment rows are immutable. Lock mutable
+    # demands FIRST (same ordering as manager promotion and FIELD delivery)
+    # so a correction cannot deadlock a concurrent urgent authorization.
     assignments = (await db.execute(
         select(ShortageUrgentAssignment)
         .where(
             ShortageUrgentAssignment.company_id == company_id,
             ShortageUrgentAssignment.id.in_({int(e.assignment_id) for e in delivered}),
         ).order_by(ShortageUrgentAssignment.id.asc())
-        .with_for_update()
     )).scalars().all()
     assignment_map = {int(a.id): a for a in assignments}
     shortages = (await db.execute(
@@ -172,6 +166,13 @@ async def reverse_signed_shortage_sale(
         .with_for_update()
     )).scalars().all()
     shortage_map = {int(s.id): s for s in shortages}
+    already_reversed = set((await db.scalars(
+        select(ShortageDeliveryEvent.reverses_event_id).where(
+            ShortageDeliveryEvent.company_id == company_id,
+            ShortageDeliveryEvent.visit_id == visit_id,
+            ShortageDeliveryEvent.event_type == "REVERSAL",
+        )
+    )).all())
     changed = []
     for event in delivered:
         if event.id in already_reversed:

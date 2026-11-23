@@ -16,6 +16,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from domains.dispatch_representatives import has_canonical_field_identity
+from domains.authorization.backoffice_access import BackofficeCapabilityAccess
+from domains.dispatch_shop_read_scope import company_shop_directory, visible_shop_filter
 from domains.dispatch_shortage_visits import (
     ensure_shortage_pending_visit, settle_shortage_pending_visit,
 )
@@ -74,6 +76,18 @@ def _hash_payload(command: GroupShortageMutation) -> str:
         sort_keys=True, separators=(",", ":"), ensure_ascii=True,
     )
     return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def _require_group_shop_scope(
+    db: AsyncSession, access: BackofficeCapabilityAccess, shop_id: int,
+) -> None:
+    directory = await company_shop_directory(access)
+    visible = await db.scalar(select(Shop.id).where(
+        Shop.company_id == access.company_id, Shop.id == shop_id,
+        visible_shop_filter(access, company_directory=directory),
+    ))
+    if visible is None:
+        _reject(404, "SHORTAGE_SHOP_NOT_FOUND", "المحل غير متاح ضمن نطاق المسارات.")
 
 
 async def _shop_lock(db: AsyncSession, *, company_id: int, shop_id: int):
@@ -172,7 +186,7 @@ async def _pending_visits(
 
 async def replace_shortage_group(
     db: AsyncSession, *, company_id: int, actor_id: int,
-    command: GroupShortageMutation,
+    command: GroupShortageMutation, access: BackofficeCapabilityAccess,
 ) -> tuple[dict, bool]:
     """Return (persisted response, was_new_mutation). Caller maps/rolls back exceptions."""
     record, replay = await begin_idempotent_operation(
@@ -182,9 +196,15 @@ async def replace_shortage_group(
         request_hash=_hash_payload(command),
     )
     if replay is not None:
-        # Re-auth happened before this function. Release replay row/advisory locks.
+        # Selection rows may have been deleted by this committed mutation.
+        # Store original Shop scope privately in the immutable idempotency
+        # receipt; recheck current route grants without altering old HTTP wire.
+        replay_shop = replay.get("_scope_shop_id")
+        if not isinstance(replay_shop, int) or replay_shop <= 0:
+            _reject(403, "SHORTAGE_GROUP_SCOPE_UNVERIFIED", "تعذر إثبات صلاحية المحل.")
+        await _require_group_shop_scope(db, access, replay_shop)
         await db.rollback()
-        return replay, False
+        return {key: val for key, val in replay.items() if key != "_scope_shop_id"}, False
 
     ids = set(map(int, command.shortage_ids))
     pre = (await db.execute(
@@ -203,6 +223,7 @@ async def replace_shortage_group(
     shop_id = next(iter(shop_ids))
     zone_id = next(iter(zone_ids))
     old_driver_id = next(iter(old_owners))
+    await _require_group_shop_scope(db, access, shop_id)
 
     items = command.items
     if any(int(i.shopId) != shop_id or int(i.zoneId) != zone_id for i in items):
@@ -337,6 +358,6 @@ async def replace_shortage_group(
             "quantity": int(row.quantity), "driver_id": row.driver_id,
         } for row in new_rows], sort_keys=True),
     ))
-    complete_idempotent_operation(record, response)
+    complete_idempotent_operation(record, {**response, "_scope_shop_id": shop_id})
     await db.commit()
     return response, True

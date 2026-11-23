@@ -252,6 +252,11 @@ async def test_capabilities_and_rejected_lines_leave_all_records_unchanged(pg):
         )).status_code == 404
         assert await _snapshot(pg, tenant, shop) == before
 
+        # The same selected-Shop authorization now also requires persisted
+        # dispatch.read; this role is company-scoped for this positive case.
+        await _grant_company_dispatch_capability(
+            pg, tenant, tenant.ordinary, "dispatch.read",
+        )
         # Cancel permission without create is sufficient only for Delete All.
         delete = {"request_id": str(uuid4()), "shortage_ids": ids, "items": []}
         permitted = await client.put(

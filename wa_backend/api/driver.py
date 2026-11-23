@@ -98,7 +98,7 @@ from domains.sales_calculation.driver_sale import (
 from domains.sales_evidence.core import SalesEvidenceError
 from domains.sales_evidence.service import freeze_sales_evidence
 from domains.dispatch_shortage_fulfillment import (
-    apply_signed_shortage_sale, reverse_signed_shortage_sale,
+    apply_signed_shortage_sale,
 )
 from domains.inventory_costing.service import resolve_linked_return_cost_sources
 from domains.work_session_multi_route.context import (
@@ -1067,29 +1067,6 @@ async def update_visit(
                 detail="خط السير الحالي غير مربوط بسيارة صالحة للمخزون.",
             )
 
-        # #1067: a pending replenishment demand is NOT a FIELD visit grant.
-        # A client-supplied is_emergency flag is never an authorization proof.
-        # Existing persisted historic emergency Visits remain executable,
-        # but new cross-zone urgency requires a manager-created Visit assignment.
-        assigned_urgent = None
-        if shop.zone_id != current_route.zone_id:
-            assigned_urgent = await db.scalar(
-                select(ShortageUrgentAssignment.id).where(
-                    ShortageUrgentAssignment.company_id == company_id,
-                    ShortageUrgentAssignment.visit_id == visit.id,
-                    ShortageUrgentAssignment.driver_id == driver_id,
-                ).limit(1)
-            )
-        is_emergency_request = visit.is_emergency or assigned_urgent is not None
-        if shop.zone_id != current_route.zone_id and not is_emergency_request:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة "
-                    "إلا بتصريح طلب عاجل."
-                ),
-            )
-
         veh_loc_id = await _driver_vehicle_custody_location_id(
             db,
             company_id=company_id,
@@ -1097,6 +1074,29 @@ async def update_visit(
             expected_location_id=execution.vehicle_location_id,
             require_operational=True,
         )
+        # Custody/vehicle precedence is security authority. Never query an
+        # optional shortage assignment before resolving current FIELD custody:
+        # that changes negative error codes and may consume mocked/real reads.
+        # Demand alone is not a cross-zone Visit grant.
+        if shop.zone_id != current_route.zone_id and not visit.is_emergency:
+            assigned_urgent = await db.scalar(
+                select(ShortageUrgentAssignment.id).where(
+                    ShortageUrgentAssignment.company_id == company_id,
+                    ShortageUrgentAssignment.visit_id == visit.id,
+                    ShortageUrgentAssignment.driver_id == driver_id,
+                    ShortageUrgentAssignment.vehicle_id == int(
+                        execution.period.vehicle_id if execution.canonical else current_route.vehicle_id
+                    ),
+                ).limit(1)
+            )
+            if assigned_urgent is None:
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "مرفوض أمنياً: لا يمكنك البيع لمحل خارج منطقة عملك المخصصة "
+                        "إلا بتصريح طلب عاجل."
+                    ),
+                )
         if execution.canonical:
             await acquire_inventory_location_guard(
                 db, company_id, veh_loc_id, exclusive=True,
@@ -1241,11 +1241,6 @@ async def update_visit(
                 active_session,
                 shop,
                 admin_id=driver_id,
-            )
-            # #1067: compensating quantity evidence for only this signed Visit.
-            # Legacy unlinked shortages remain unquantified; no SKU-only inference.
-            await reverse_signed_shortage_sale(
-                db, company_id=company_id, visit_id=int(visit.id),
                 request_id=str(payload.request_id),
             )
             db.add(
