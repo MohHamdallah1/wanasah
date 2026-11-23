@@ -21,7 +21,7 @@ export type ShortageCommandState = {
   pending: ShortagePendingCommand | null;
   busy: boolean;
   blocked: boolean;
-  feedback: "unknown" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
+  feedback: "unknown" | "lookup-denied" | "conflict" | "denied" | "invalid" | "another-tab" | "storage" | null;
 };
 
 /** UUID replay is the only resolution of an ambiguous create, never a fresh GET. */
@@ -153,12 +153,18 @@ export function useShortageCommandCommit({
           } catch (error) {
             if (!live()) return false;
             const status = apiErrorStatus(error);
-            const denied = status === 401 || status === 403;
+            // A read-only receipt lookup can be 403 for shortage.read while
+            // the same signed actor STILL holds shortage.create. Redacting or
+            // blocking POST replay here would strand a valid original UUID.
+            // A denied mutation, by contrast, MUST redact immediately.
+            const lookupReadDenied = receiptLookup && status === 403;
+            const denied = (status === 401 || status === 403) && !lookupReadDenied;
             setState(s => ({
               ...s,
               pending: denied ? null : original,
-              feedback: denied ? "denied" : status === 409 ? "conflict" : "unknown",
-              blocked: denied || status === 409,
+              feedback: lookupReadDenied ? "lookup-denied" :
+                denied ? "denied" : status === 409 ? "conflict" : "unknown",
+              blocked: denied || (status === 409 && !receiptLookup),
             }));
             // Do not clear stored command for any 409, 5xx, timeout, lost 201.
             return false;
