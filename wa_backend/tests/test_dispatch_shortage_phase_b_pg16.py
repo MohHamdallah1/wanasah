@@ -319,7 +319,10 @@ async def test_real_signed_manager_partial_field_sale_correction_and_multiple_vi
         async def sale(visit, quantity):
             r = await client.put(f"/visits/{visit}", headers=signed_headers, json={
                 "request_id": str(uuid4()), "outcome": "Sale",
-                "cash_collected": "0", "debt_paid": "0",
+                # Signed FIELD fixture has cash-sale permission, not credit
+                # authority. Published zero-tax base price is exactly 1 JOD
+                # per sold unit: collect the actual price, never grant credit.
+                "cash_collected": str(quantity), "debt_paid": "0",
                 "cart_items": [{"product_variant_id": tenant.variant_id,
                                 "packs_quantity": quantity}],
             })
