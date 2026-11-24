@@ -1,0 +1,1715 @@
+|-- .cursor
+|   `-- rules
+|       `-- business-workflow-protection.mdc
+|-- .github
+|   `-- workflows
+|       |-- company-currency-immutability-v1.yml
+|       |-- database-bootstrap.yml
+|       |-- field-authorization-phase1.yml
+|       |-- field-authorization-phase2.yml
+|       |-- field-authorization-phase3.yml
+|       |-- field-phase4-security-acceptance.yml
+|       |-- flutter-v1-app-bootstrap-theme-foundation.yml
+|       |-- flutter-v1-auth-session-recovery.yml
+|       |-- flutter-v1-backend-field-contracts.yml
+|       |-- flutter-v1-custody-behavioral-closure.yml
+|       |-- flutter-v1-error-observability-closure.yml
+|       |-- flutter-v1-field-seams-client-adapters.yml
+|       |-- flutter-v1-final-ci-android-acceptance.yml
+|       |-- flutter-v1-local-custody-projection.yml
+|       |-- flutter-v1-local-visit-projection-persistence-split.yml
+|       |-- flutter-v1-network-foundation.yml
+|       |-- flutter-v1-offline-durable.yml
+|       |-- flutter-v1-projection-integrity-closure.yml
+|       |-- flutter-v1-recovery-sync-ux-closure.yml
+|       |-- flutter-v1-session-custody-decomposition.yml
+|       |-- flutter-v1-session-route-authority-closure.yml
+|       |-- flutter-v1-shop-create-reconciliation.yml
+|       |-- flutter-v1-sync-recovery-reconciliation-closure.yml
+|       |-- flutter-v1-transfer-batch-failure-identity.yml
+|       |-- flutter-v1-transfer-handshake-closure.yml
+|       |-- flutter-v1-typed-location-failure-closure.yml
+|       |-- flutter-v1-visit-command-correction.yml
+|       |-- flutter-v1-visit-commercial-decomposition.yml
+|       |-- flutter-v1-visit-decomposition.yml
+|       |-- flutter-v1-visit-list-route-closure.yml
+|       |-- flutter-v1-work-session-behavioral-closure.yml
+|       |-- global-legacy-admin-authorization-regression.yml
+|       |-- inventory-cp1-acceptance.yml
+|       |-- inventory-cp10-ledger-acceptance.yml
+|       |-- inventory-cp11-access-acceptance.yml
+|       |-- inventory-cp12-security-performance.yml
+|       |-- inventory-cp12-ui-quality.yml
+|       |-- inventory-cp13-batches-presentation.yml
+|       |-- inventory-cp13-operations-consistency.yml
+|       |-- inventory-cp13-shell-polish.yml
+|       |-- inventory-cp13-warehouse-presentation.yml
+|       |-- inventory-cp14-device-ux.yml
+|       |-- inventory-cp14a1-warehouse-setup.yml
+|       |-- inventory-cp14a2-product-readiness.yml
+|       |-- inventory-cp14a3-inbound-operational.yml
+|       |-- inventory-cp14b-batch-quality-transfers.yml
+|       |-- inventory-cp14c-stocktake-lifecycle.yml
+|       |-- inventory-cp15-batch-focus-test-debt.yml
+|       |-- inventory-cp15-final-closure.yml
+|       |-- inventory-cp2-batch-index-acceptance.yml
+|       |-- inventory-cp2-batches-dashboard-acceptance.yml
+|       |-- inventory-cp3-batch-actions-acceptance.yml
+|       |-- inventory-cp3-combined-final-acceptance.yml
+|       |-- inventory-cp3-quality-terminal-acceptance.yml
+|       |-- inventory-cp4-branch-dashboard-acceptance.yml
+|       |-- inventory-cp5-product-location-dashboard-acceptance.yml
+|       |-- inventory-cp6-minimum-stock-acceptance.yml
+|       |-- inventory-cp6-minimum-stock-dashboard-acceptance.yml
+|       |-- inventory-cp6-policy-closure.yml
+|       |-- inventory-cp7-live-stock-acceptance.yml
+|       |-- inventory-cp8-transfers-acceptance.yml
+|       |-- inventory-cp9-stocktake-acceptance.yml
+|       |-- inventory-representative-settlement-backend.yml
+|       |-- product-import-post423-50k-cost-perf.yml
+|       |-- product-import-purchase-cost-v1.yml
+|       |-- purchase-cost-reference-backend.yml
+|       |-- purchase-cost-reference-inbound-ui.yml
+|       |-- purchase-cost-reference-integration.yml
+|       |-- purchase-cost-reference-product-ui.yml
+|       |-- purchase-reference-e2e-postgres.yml
+|       |-- purchase-reference-final-v1.yml
+|       |-- purchase-reference-product-create.yml
+|       |-- suppliers-v1.yml
+|       `-- v1-local-remainder-convergence.yml
+|-- .gitignore
+|-- .rules
+|-- .vscode
+|   `-- settings.json
+|-- AGENTS.md
+|-- ARCHITECTURE.md
+|-- DRIVER_DISPATCH_MODULARIZATION_PLAN.md
+|-- DRIVER_DISPATCH_SEAM_INVENTORY.md
+|-- FLUTTER_V1_END_TO_END_CLOSURE_PLAN.md
+|-- INVENTORY_COMMERCIAL_FOUNDATION_PLAN.md
+|-- INVENTORY_COSTING_OPENING_VALUATION_PRODUCTION_PLAN.md
+|-- INVENTORY_DAMAGED_GOODS_RETURNS_AND_REPRESENTATIVE_SETTLEMENT_PLAN.md
+|-- INVENTORY_PURCHASE_COST_REFERENCE_AND_DRAFT_CLOSURE_PLAN.md
+|-- PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md
+|-- RUN.txt
+|-- SKILL.md
+|-- V1_COMPLETION_AUDIT.md
+|-- V1_SCOPE_FREEZE.md
+|-- VERSION_2_FUTURE_FEATURES.md
+|-- ci
+|   |-- legacy_admin_authorization_guard.py
+|   `-- tests
+|       `-- test_legacy_admin_authorization_guard.py
+|-- dashboard
+|   |-- .env
+|   |-- .env.example
+|   |-- .gitignore
+|   |-- README.md
+|   |-- bun.lockb
+|   |-- components.json
+|   |-- dashboard_structure.txt
+|   |-- dist
+|   |   |-- favicon.ico
+|   |   |-- index.html
+|   |   |-- placeholder.svg
+|   |   `-- robots.txt
+|   |-- e2e
+|   |   |-- README.md
+|   |   |-- batch-focus-cross-page.spec.ts
+|   |   |-- batch-focus.config.ts
+|   |   |-- batch-focus.spec.ts
+|   |   |-- inventory-cp14-device-ux.config.ts
+|   |   |-- inventory-cp14-device-ux.spec.ts
+|   |   |-- quality-readiness.config.ts
+|   |   `-- quality-readiness.spec.ts
+|   |-- eslint.config.js
+|   |-- index.html
+|   |-- offer_ui_current_diff.txt
+|   |-- package-lock.json
+|   |-- package.json
+|   |-- phase19-browser.html
+|   |-- phase19-real-browser.html
+|   |-- postcss.config.js
+|   |-- public
+|   |   |-- favicon.ico
+|   |   |-- placeholder.svg
+|   |   `-- robots.txt
+|   |-- scripts
+|   |   `-- check-types-against-baseline.mjs
+|   |-- src
+|   |   |-- App.css
+|   |   |-- App.tsx
+|   |   |-- components
+|   |   |   |-- NavLink.tsx
+|   |   |   |-- dashboard
+|   |   |   |   |-- HeroSettlement.tsx
+|   |   |   |   |-- WorkspaceTopBar.css
+|   |   |   |   `-- WorkspaceTopBar.tsx
+|   |   |   |-- dispatch
+|   |   |   |   |-- AdjustInventoryModal.tsx
+|   |   |   |   |-- BulkTransferModal.tsx
+|   |   |   |   |-- PendingRoutesTable.tsx
+|   |   |   |   |-- PostponedRoutesModal.tsx
+|   |   |   |   |-- RecycleBinModal.tsx
+|   |   |   |   |-- RouteManagementModal.tsx
+|   |   |   |   |-- ScheduleModal.tsx
+|   |   |   |   |-- ShopBulkImportModal.tsx
+|   |   |   |   |-- ShopFormModal.tsx
+|   |   |   |   |-- ShopTable.tsx
+|   |   |   |   |-- ShortageModal.tsx
+|   |   |   |   |-- TransfersRadarModal.tsx
+|   |   |   |   |-- ZoneModal.tsx
+|   |   |   |   `-- ZoneRecycleBinModal.tsx
+|   |   |   |-- forms
+|   |   |   |   `-- ReasonPresetField.tsx
+|   |   |   |-- operations
+|   |   |   |   |-- CommandCenter.tsx
+|   |   |   |   |-- DashboardLayout.tsx
+|   |   |   |   |-- FleetRadar.tsx
+|   |   |   |   |-- OperationsSidebar.tsx
+|   |   |   |   |-- PulseBar.tsx
+|   |   |   |   |-- SettlementModal.tsx
+|   |   |   |   |-- TopBar.tsx
+|   |   |   |   |-- commercial-rules.css
+|   |   |   |   `-- dashboard.css
+|   |   |   `-- ui
+|   |   |       |-- accordion.tsx
+|   |   |       |-- alert-dialog.tsx
+|   |   |       |-- alert.tsx
+|   |   |       |-- aspect-ratio.tsx
+|   |   |       |-- avatar.tsx
+|   |   |       |-- badge-variants.ts
+|   |   |       |-- badge.tsx
+|   |   |       |-- breadcrumb.tsx
+|   |   |       |-- button-variants.ts
+|   |   |       |-- button.tsx
+|   |   |       |-- calendar.tsx
+|   |   |       |-- card.tsx
+|   |   |       |-- carousel.tsx
+|   |   |       |-- chart.tsx
+|   |   |       |-- checkbox.tsx
+|   |   |       |-- collapsible.tsx
+|   |   |       |-- command.tsx
+|   |   |       |-- context-menu.tsx
+|   |   |       |-- custom-select.tsx
+|   |   |       |-- dialog.tsx
+|   |   |       |-- drawer.tsx
+|   |   |       |-- dropdown-menu.tsx
+|   |   |       |-- form.tsx
+|   |   |       |-- hover-card.tsx
+|   |   |       |-- input-otp.tsx
+|   |   |       |-- input.tsx
+|   |   |       |-- label.tsx
+|   |   |       |-- menubar.tsx
+|   |   |       |-- modal.test.tsx
+|   |   |       |-- modal.tsx
+|   |   |       |-- navigation-menu-variants.ts
+|   |   |       |-- navigation-menu.tsx
+|   |   |       |-- pagination.tsx
+|   |   |       |-- popover.tsx
+|   |   |       |-- progress.tsx
+|   |   |       |-- quantity-input.tsx
+|   |   |       |-- radio-group.tsx
+|   |   |       |-- resizable.tsx
+|   |   |       |-- scroll-area.tsx
+|   |   |       |-- select.tsx
+|   |   |       |-- separator.tsx
+|   |   |       |-- sequence-input.tsx
+|   |   |       |-- sheet.tsx
+|   |   |       |-- sidebar.tsx
+|   |   |       |-- skeleton.tsx
+|   |   |       |-- slider.tsx
+|   |   |       |-- sonner.tsx
+|   |   |       |-- switch.tsx
+|   |   |       |-- table.tsx
+|   |   |       |-- tabs.tsx
+|   |   |       |-- textarea.tsx
+|   |   |       |-- toast.tsx
+|   |   |       |-- toaster.tsx
+|   |   |       |-- toggle-group.tsx
+|   |   |       |-- toggle-variants.ts
+|   |   |       |-- toggle.tsx
+|   |   |       |-- tooltip.tsx
+|   |   |       `-- use-toast.ts
+|   |   |-- data
+|   |   |   `-- operations-data.ts
+|   |   |-- features
+|   |   |   |-- catalog
+|   |   |   |   |-- archive
+|   |   |   |   |-- contracts.ts
+|   |   |   |   |-- lifecycle
+|   |   |   |   `-- status
+|   |   |   |-- commercialRules
+|   |   |   |   |-- CommercialRulesWorkspace.tsx
+|   |   |   |   |-- DeleteDialog.tsx
+|   |   |   |   |-- EditorDialog.tsx
+|   |   |   |   |-- OfferManagement.tsx
+|   |   |   |   |-- PreviewLab.tsx
+|   |   |   |   |-- TaxManagement.tsx
+|   |   |   |   |-- api.ts
+|   |   |   |   |-- contracts.ts
+|   |   |   |   |-- editors
+|   |   |   |   |-- formUtils.ts
+|   |   |   |   `-- hooks.ts
+|   |   |   |-- dispatch
+|   |   |   |   |-- navigation.ts
+|   |   |   |   `-- useOwnerNavigation.ts
+|   |   |   |-- inventory
+|   |   |   |   |-- batchFocusNavigation.ts
+|   |   |   |   |-- navigation.ts
+|   |   |   |   |-- productLocations
+|   |   |   |   |-- quality
+|   |   |   |   `-- workspaceFocusNavigation.ts
+|   |   |   |-- operations
+|   |   |   |   |-- navigation.ts
+|   |   |   |   |-- representativeSettlement
+|   |   |   |   `-- useSettlementOwnerNavigation.ts
+|   |   |   |-- platform
+|   |   |   |   |-- api.ts
+|   |   |   |   |-- contracts.ts
+|   |   |   |   `-- session.ts
+|   |   |   |-- salesReturns
+|   |   |   |   |-- api.ts
+|   |   |   |   `-- contracts.ts
+|   |   |   |-- suppliers
+|   |   |   |   |-- SupplierSelector.tsx
+|   |   |   |   |-- contracts.ts
+|   |   |   |   `-- useSupplierSearch.ts
+|   |   |   `-- tenantIdentity
+|   |   |       |-- contracts.ts
+|   |   |       `-- useTenantIdentity.ts
+|   |   |-- hooks
+|   |   |   |-- use-mobile.tsx
+|   |   |   |-- use-toast.ts
+|   |   |   |-- useAuthFetch.ts
+|   |   |   |-- useDialogFocusTrap.ts
+|   |   |   |-- useInventoryAccess.ts
+|   |   |   |-- useMediaQuery.ts
+|   |   |   `-- useNetworkStatus.ts
+|   |   |-- i18n
+|   |   |   |-- archiveOwners.ts
+|   |   |   |-- batchFocus.ts
+|   |   |   |-- index.ts
+|   |   |   |-- productQualityInline.ts
+|   |   |   |-- productQualityWorkspace.ts
+|   |   |   |-- qualityActionReasons.ts
+|   |   |   |-- representativesVehicles.ts
+|   |   |   |-- resources.ts
+|   |   |   |-- suppliers.ts
+|   |   |   `-- terminalQualityActions.ts
+|   |   |-- index.css
+|   |   |-- lib
+|   |   |   |-- apiErrors.test.ts
+|   |   |   |-- apiErrors.ts
+|   |   |   |-- authStorage.ts
+|   |   |   |-- durableOperations.ts
+|   |   |   |-- exactMoney.ts
+|   |   |   |-- locale.ts
+|   |   |   |-- localeNumbers.ts
+|   |   |   |-- money.ts
+|   |   |   |-- productDisplayPreferences.ts
+|   |   |   |-- quantity.ts
+|   |   |   `-- utils.ts
+|   |   |-- main.tsx
+|   |   |-- pages
+|   |   |   |-- CommercialRulesDashboard.tsx
+|   |   |   |-- DispatchBoard.tsx
+|   |   |   |-- Login.contract.test.mjs
+|   |   |   |-- Login.tsx
+|   |   |   |-- NotFound.tsx
+|   |   |   |-- OperationsDashboard.tsx
+|   |   |   |-- PlatformDashboard.tsx
+|   |   |   |-- PlatformLogin.tsx
+|   |   |   |-- PricingDashboard.tsx
+|   |   |   |-- SalesReturnsDashboard.tsx
+|   |   |   |-- inventory
+|   |   |   |   |-- InventoryPage.tsx
+|   |   |   |   |-- InventoryTopDock.tsx
+|   |   |   |   |-- MainInventory.tsx
+|   |   |   |   |-- StockMinimumManager.tsx
+|   |   |   |   |-- Tab1LiveStock.tsx
+|   |   |   |   |-- Tab2Inbound.tsx
+|   |   |   |   |-- Tab3Stocktake.tsx
+|   |   |   |   |-- Tab4Ledger.tsx
+|   |   |   |   |-- TabBatches.tsx
+|   |   |   |   |-- TabInventoryAccess.representatives.test.ts
+|   |   |   |   |-- TabInventoryAccess.tsx
+|   |   |   |   |-- TabInventoryAccess.vehicles.test.ts
+|   |   |   |   |-- TabTransfers.tsx
+|   |   |   |   |-- TabWarehouseLocations.tsx
+|   |   |   |   |-- access
+|   |   |   |   |-- archive
+|   |   |   |   |-- batches
+|   |   |   |   |-- catalogParsers.ts
+|   |   |   |   |-- cp14DeviceUx.css
+|   |   |   |   |-- inbound
+|   |   |   |   |-- inventory.css
+|   |   |   |   |-- inventorySessionCache.ts
+|   |   |   |   |-- inventoryShellPolish.css
+|   |   |   |   |-- inventoryTopDockController.ts
+|   |   |   |   |-- inventoryUtils.ts
+|   |   |   |   |-- ledger
+|   |   |   |   |-- liveStock
+|   |   |   |   |-- publicBatchDate.ts
+|   |   |   |   |-- publicBatchNumber.ts
+|   |   |   |   |-- quality
+|   |   |   |   |-- quantity.ts
+|   |   |   |   |-- stock-policy
+|   |   |   |   |-- stocktake
+|   |   |   |   |-- transfers
+|   |   |   |   `-- warehouse-locations
+|   |   |   |-- login.css
+|   |   |   |-- products
+|   |   |   |   |-- PRODUCT_IDENTITY.md
+|   |   |   |   |-- ProductsPage.tsx
+|   |   |   |   |-- ProductsPageHeader.tsx
+|   |   |   |   |-- advanced-uom
+|   |   |   |   |-- barcode
+|   |   |   |   |-- contracts.ts
+|   |   |   |   |-- create
+|   |   |   |   |-- deriveProductsCapabilities.ts
+|   |   |   |   |-- detail
+|   |   |   |   |-- display-preferences
+|   |   |   |   |-- family
+|   |   |   |   |-- header
+|   |   |   |   |-- import
+|   |   |   |   |-- lifecycle
+|   |   |   |   |-- list
+|   |   |   |   |-- pricing
+|   |   |   |   |-- product-locations
+|   |   |   |   |-- productDurableScope.ts
+|   |   |   |   |-- purchaseReference
+|   |   |   |   |-- rename
+|   |   |   |   |-- shared
+|   |   |   |   |-- status
+|   |   |   |   |-- tracking
+|   |   |   |   `-- useProductsIdentityScopeReset.ts
+|   |   |   |-- representatives-vehicles
+|   |   |   |   |-- RepresentativesVehiclesPage.test.tsx
+|   |   |   |   |-- RepresentativesVehiclesPage.tsx
+|   |   |   |   |-- representatives
+|   |   |   |   `-- vehicles
+|   |   |   `-- suppliers
+|   |   |       |-- SupplierEditor.tsx
+|   |   |       |-- SupplierTable.tsx
+|   |   |       |-- SuppliersPage.tsx
+|   |   |       |-- useSupplierCommands.ts
+|   |   |       `-- useSupplierListSearch.ts
+|   |   |-- routes
+|   |   |   `-- routePreloaders.ts
+|   |   |-- test
+|   |   |   |-- advanced-uom-p5.test.tsx
+|   |   |   |-- advanced-uom-wiring-p5.test.ts
+|   |   |   |-- api-error-safe-4xx.test.ts
+|   |   |   |-- archive-owner-navigation.test.tsx
+|   |   |   |-- archive-owner-receivers.test.tsx
+|   |   |   |-- auth-session-refresh.test.tsx
+|   |   |   |-- batch-focus-workspace.test.tsx
+|   |   |   |-- batch-terminal-actions.test.tsx
+|   |   |   |-- catalog-inventory-boundary.test.ts
+|   |   |   |-- commercial-rules-offers.test.ts
+|   |   |   |-- cp34-quality-durable.test.tsx
+|   |   |   |-- cp5-product-location-dashboard.test.tsx
+|   |   |   |-- cp5-product-location-modal.test.tsx
+|   |   |   |-- cp8-quality-destinations.test.tsx
+|   |   |   |-- dispatch-navigation.test.ts
+|   |   |   |-- durable-operations-p3.test.ts
+|   |   |   |-- durable-operations-p4.test.ts
+|   |   |   |-- exact-money-p5.test.ts
+|   |   |   |-- example.test.ts
+|   |   |   |-- fixtures
+|   |   |   |   |-- batchFocus.ts
+|   |   |   |   `-- productQuality.ts
+|   |   |   |-- inventory-access-canonical-contract.test.ts
+|   |   |   |-- inventory-access.test.ts
+|   |   |   |-- inventory-batch-disposition.test.ts
+|   |   |   |-- inventory-batch-stock-sources.test.ts
+|   |   |   |-- inventory-batches-expiry-semantics.test.tsx
+|   |   |   |-- inventory-batches-pagination.test.ts
+|   |   |   |-- inventory-cost-policy-explicit-c1.test.tsx
+|   |   |   |-- inventory-cp10-ledger-contract.test.ts
+|   |   |   |-- inventory-cp10-ledger-dashboard.test.tsx
+|   |   |   |-- inventory-cp10-ledger-keyboard.test.tsx
+|   |   |   |-- inventory-cp11-access-dashboard.test.tsx
+|   |   |   |-- inventory-cp12-accessibility.test.tsx
+|   |   |   |-- inventory-cp12-i18n.test.tsx
+|   |   |   |-- inventory-cp12-responsive-contract.test.ts
+|   |   |   |-- inventory-cp13-batches-browser.mjs
+|   |   |   |-- inventory-cp13-batches-presentation.test.tsx
+|   |   |   |-- inventory-cp13-operations-consistency.test.tsx
+|   |   |   |-- inventory-cp13-shell-polish.test.tsx
+|   |   |   |-- inventory-cp13-warehouse-presentation.test.tsx
+|   |   |   |-- inventory-cp2-batches-dashboard.test.tsx
+|   |   |   |-- inventory-cp3-batch-actions.test.tsx
+|   |   |   |-- inventory-cp4-branch-dashboard.test.tsx
+|   |   |   |-- inventory-cp6-minimum-stock-dashboard.test.tsx
+|   |   |   |-- inventory-cp6-policy-closure.test.tsx
+|   |   |   |-- inventory-cp7-live-stock-parity.test.tsx
+|   |   |   |-- inventory-cp7-live-stock.test.tsx
+|   |   |   |-- inventory-live-stock-readonly-boundary.test.ts
+|   |   |   |-- inventory-product-batch-date-parity.test.ts
+|   |   |   |-- inventory-public-batch-number-parity.test.ts
+|   |   |   |-- inventory-session-cache.test.ts
+|   |   |   |-- live-stock-local-failure.test.tsx
+|   |   |   |-- live-stock-minimum.test.ts
+|   |   |   |-- live-stock-ui-stability.test.ts
+|   |   |   |-- locale-resolver-p7.test.ts
+|   |   |   |-- phase19-browser-fixture.tsx
+|   |   |   |-- phase19-real-browser-entry.tsx
+|   |   |   |-- product-accessibility-p7.test.tsx
+|   |   |   |-- product-barcode-manager-p3.test.tsx
+|   |   |   |-- product-create-purchase-reference.test.tsx
+|   |   |   |-- product-display-preferences-p7.test.tsx
+|   |   |   |-- product-families-manager-p4.test.tsx
+|   |   |   |-- product-family-combobox-p9.test.tsx
+|   |   |   |-- product-family-reassign-picker-p9.test.tsx
+|   |   |   |-- product-import-browser-regressions-p19.test.tsx
+|   |   |   |-- product-import-cancel-command-j.test.tsx
+|   |   |   |-- product-import-correction-file-p19.test.tsx
+|   |   |   |-- product-import-inflight-file-guard-j.test.tsx
+|   |   |   |-- product-import-inline-editor-p19.test.tsx
+|   |   |   |-- product-import-realtime-lifecycle-j.test.tsx
+|   |   |   |-- product-import-rejected-rows-p19.test.tsx
+|   |   |   |-- product-quality-inline-location.test.ts
+|   |   |   |-- product-rename-p9.test.tsx
+|   |   |   |-- product-responsive-p7.test.tsx
+|   |   |   |-- product-rtl-ltr-p7.test.ts
+|   |   |   |-- product-translations-p7.test.ts
+|   |   |   |-- products-create-family-intent-p9.test.ts
+|   |   |   |-- products-create-family-mode-runtime-p9.test.tsx
+|   |   |   |-- products-create-import-detail-completeness-p9.test.ts
+|   |   |   |-- products-delete-archive-policy-p9.test.ts
+|   |   |   |-- products-enter-recall-ux.test.ts
+|   |   |   |-- products-family-reassign-p9.test.ts
+|   |   |   |-- products-functional-acceptance-p9.test.ts
+|   |   |   |-- products-import-file-preflight-p9.test.ts
+|   |   |   |-- products-import-localization-p6.test.ts
+|   |   |   |-- products-import-phase13-realtime.test.ts
+|   |   |   |-- products-import-phase7-best-effort.test.ts
+|   |   |   |-- products-import-receipt.test.tsx
+|   |   |   |-- products-infinite-scroll-p9.test.tsx
+|   |   |   |-- products-keyboard-quick-actions.test.ts
+|   |   |   |-- products-lifecycle-focus-barcode-ux.test.ts
+|   |   |   |-- products-lifecycle-guided-recovery.test.ts
+|   |   |   |-- products-p9-4-barcodes.test.ts
+|   |   |   |-- products-p9-4-create-flow.test.ts
+|   |   |   |-- products-p9-4-detail-drawer.test.ts
+|   |   |   |-- products-p9-4-families.test.ts
+|   |   |   |-- products-p9-4-filters.test.tsx
+|   |   |   |-- products-p9-4-import.test.ts
+|   |   |   |-- products-p9-4-lifecycle.test.ts
+|   |   |   |-- products-p9-4-mobile-cards.test.ts
+|   |   |   |-- products-p9-4-polish.test.ts
+|   |   |   |-- products-p9-4-pricing.test.ts
+|   |   |   |-- products-p9-4-states.test.tsx
+|   |   |   |-- products-p9-4-table.test.ts
+|   |   |   |-- products-p9-4-tracking.test.ts
+|   |   |   |-- products-p9-4-workspace.test.ts
+|   |   |   |-- products-package-structure-p9.test.ts
+|   |   |   |-- products-production-gate-p8.test.ts
+|   |   |   |-- products-read-contract-p2.test.ts
+|   |   |   |-- products-search-families-p4.test.ts
+|   |   |   |-- products-status-summary.test.tsx
+|   |   |   |-- products-status-warehouse-filter.test.ts
+|   |   |   |-- products-table-p3.test.tsx
+|   |   |   |-- products-tracking-import.test.ts
+|   |   |   |-- products-tracking-lifecycle-pricing-p9.test.ts
+|   |   |   |-- products-tracking-ui.test.ts
+|   |   |   |-- products-ux-p3.test.ts
+|   |   |   |-- purchase-reference-contract.test.ts
+|   |   |   |-- quality-safety-v1-closure.test.ts
+|   |   |   |-- react-router-v7-future-flags.test.ts
+|   |   |   |-- reason-preset-enter.test.tsx
+|   |   |   |-- representative-settlement-custody-journey.test.tsx
+|   |   |   |-- representative-settlement-dashboard-v1.test.tsx
+|   |   |   |-- setup.ts
+|   |   |   |-- suppliers-v1.test.tsx
+|   |   |   |-- websocket-d5-security.test.ts
+|   |   |   `-- whole-product-quality-preview.test.ts
+|   |   |-- types
+|   |   |   `-- dispatch.ts
+|   |   `-- vite-env.d.ts
+|   |-- tailwind.config.ts
+|   |-- tsconfig.app.json
+|   |-- tsconfig.json
+|   |-- tsconfig.node.json
+|   |-- vite.browser-acceptance.config.ts
+|   |-- vite.config.ts
+|   |-- vite.phase19-real-browser.config.ts
+|   `-- vitest.config.ts
+|-- design
+|   `-- wanasah_v1
+|       |-- DESIGN_HANDOFF.md
+|       |-- FIELD_FUNCTION_SURFACE_MAP.md
+|       `-- daylight_signal_tokens.json
+|-- docs
+|   |-- architecture
+|   |   |-- CATALOG_IDENTITY_GLOSSARY.md
+|   |   |-- CATALOG_INVENTORY_WORKFLOW_BOUNDARIES.md
+|   |   |-- INVENTORY_COSTING_FINANCIAL_TRUTH_DECISION.md
+|   |   |-- PRODUCT_VARIANT_IDENTITY_AUDIT.md
+|   |   |-- PURCHASE_COST_REFERENCE_BACKEND_FOUNDATION.md
+|   |   |-- PURCHASE_COST_REFERENCE_INBOUND_ATOMIC_V1.md
+|   |   |-- SUPPLIER_INVOICE_RETROACTIVE_COST_CORRECTION.md
+|   |   |-- VEHICLES_V1_IMPLEMENTATION_CONTRACT.md
+|   |   `-- VEHICLE_MASTER_SCOPE_AND_VISIBILITY_DECISION.md
+|   |-- contracts
+|   |   `-- BATCH_RESERVATION_OWNER_EVIDENCE.md
+|   |-- operations
+|   |   |-- AUTH_SESSION.md
+|   |   |-- DEVELOPMENT_WORKERS.md
+|   |   |-- HTTP_5XX_OBSERVABILITY.md
+|   |   |-- PRODUCT_IMPORT_FINAL_ACCEPTANCE_2026-10-02.md
+|   |   |-- PRODUCT_IMPORT_V1_RELEASE_RUNBOOK_2026-09-30.md
+|   |   |-- SUPPLIER_MASTER_V1_DELIVERY_2026-10-07.md
+|   |   |-- WANASAH_D7S_MIXED_LOAD_TOOL.md
+|   |   |-- WEBSOCKET_SECURITY_D5.md
+|   |   `-- WORKER_FOUNDATION_AUDIT.md
+|   `-- products
+|       `-- PRODUCTS_P9_BEHAVIOR_BASELINE.md
+|-- ops
+|   `-- development
+|       |-- run_operational_worker.ps1
+|       |-- run_product_import_worker.ps1
+|       |-- run_reports_worker.ps1
+|       `-- wanasah_doctor.ps1
+|-- wa_backend
+|   |-- .concurrency_audit_baseline.json
+|   |-- .env
+|   |-- alembic
+|   |   |-- README
+|   |   |-- env.py
+|   |   |-- script.py.mako
+|   |   `-- versions
+|   |       |-- 000000000001_initial_schema_baseline.py
+|   |       |-- 07210d8e524e_stage4e_explicit_transfer_purpose_and_.py
+|   |       |-- 12f4a8c7d9e3_products_common_filters_seek.py
+|   |       |-- 19c740dc40e8_stage4d_batch_disposition_and_portion_.py
+|   |       |-- 57e120ab83c1_stage4_batch_expiry.py
+|   |       |-- 6a1f9c2e4d70_stage6a_offers_foundation.py
+|   |       |-- 6f0b8d3c2a91_fix_visit_item_currency_regex.py
+|   |       |-- 7ab3d98601f6_align_model_indexes_for_clean_bootstrap.py
+|   |       |-- 7c2a8b4d6e91_stage6c_tax_foundation.py
+|   |       |-- 8b7d2c4e9f61_refresh_token_rotation_concurrency.py
+|   |       |-- 8d4c6a2f1b90_stage6f_immutable_sales_evidence.py
+|   |       |-- 91d6f0e3c8a2_runtime_access_and_legacy_rls_baseline.py
+|   |       |-- 91e6b4c8d2f0_stage6h1_commercial_authority_lock.py
+|   |       |-- 9b1a6d4c2e70_stage4_contract_correction.py
+|   |       |-- 9c4f8a2d7e31_inventory_opening_valuation_foundation.py
+|   |       |-- 9c820e89ea24_stage4e2a_harden_transfer_policy_.py
+|   |       |-- a1d7f0c6e5b2_product_tracking_optional_platform_defaults.py
+|   |       |-- a31c7e5d9b42_stage5c_route_commercial_context_lock.py
+|   |       |-- a42c9f17e6b3_product_import_orphan_recovery.py
+|   |       |-- a4c9e7d2f631_allow_inplace_quality_stage.py
+|   |       |-- a4d2e7c9b630_identity_legacy_driver_bridge.py
+|   |       |-- a5d7c2e4f901_sovereign_uom_reference_data.py
+|   |       |-- a6d1c8e4f2b7_inventory_batch_page_seek_index.py
+|   |       |-- a7d3e5f1c9b2_stage6_tax_rule_version_hardening.py
+|   |       |-- a8c11d4e7f20_inventory_permission_catalog_parity.py
+|   |       |-- a9e2c7d4f610_pricing_entry_publication_index.py
+|   |       |-- ae9c4d8b62f0_product_master_name_200.py
+|   |       |-- b2f6c8e4a901_field_role_assignment_guards.py
+|   |       |-- b3e91c7a4d20_stage82_live_stock_projection_foundation.py
+|   |       |-- b48467088c16_stage4e2b1_special_transfer_policy_.py
+|   |       |-- b6e3a1f9c4d2_products_search_trgm_indexes.py
+|   |       |-- b7a4c2d9e105_representative_permissions.py
+|   |       |-- b7d3e9f1c204_stage10_import_retention_lineage.py
+|   |       |-- b7e3f6a1c902_principal_refresh_session_expand.py
+|   |       |-- b7f2a9c4d681_supplier_master_v1.py
+|   |       |-- b8e4c6d2f1a3_stage6_sales_line_evidence_semantics.py
+|   |       |-- b8e4d7a91c52_legacy_fifo_state_bridge.py
+|   |       |-- b9c5e18a0f42_merge_tracking_and_purchase_reference.py
+|   |       |-- c1f4e8a2d6b9_simple_products_native_trgm_search.py
+|   |       |-- c3f4e5a6b7d8_stage4_batch_metadata.py
+|   |       |-- c3f8a1d6e2b4_stage6h2a_mixed_uom_flexible_rewards.py
+|   |       |-- c4d9e7a1b623_stage7_import_states_taxonomy.py
+|   |       |-- c6f1a4d8e203_repair_partial_procrastinate_queue_schema.py
+|   |       |-- c74f1a2e6d90_stage5c1_preserve_locked_commercial_history.py
+|   |       |-- c7d4a91e6f32_cost_history_guard_exactness.py
+|   |       |-- c7f3a8e5d912_company_currency_immutable_v1.py
+|   |       |-- c8a41d9e6f20_inventory_minimum_stock_manage_permission.py
+|   |       |-- c9e5f2a7d310_stage12_import_source_store.py
+|   |       |-- c9e7a41d2b60_vehicle_v1_foundation.py
+|   |       |-- c9f5a7b3d2e4_stage6_financial_snapshot_authority.py
+|   |       |-- ce41f0a92b68_inventory_cost_choice_provenance.py
+|   |       |-- d1a5f0c7e2b4_simple_products_barcode_effective_seek.py
+|   |       |-- d1a8f6c3b742_vehicle_next_maintenance_date.py
+|   |       |-- d1f4a8c6e2b9_stage13_import_runtime.py
+|   |       |-- d2a6c8e4f1b7_stage6_return_reversal_original_lines.py
+|   |       |-- d31c7a940e62_product_import_schedule_candidates.py
+|   |       |-- d3b7e1a4c920_branch_permissions.py
+|   |       |-- d4a7c9e2f1b5_live_stock_native_trgm_search.py
+|   |       |-- d7a4c9e21b30_warehouse_v1_address_location.py
+|   |       |-- d7c4a8e1f205_family_name_rls_resolver.py
+|   |       |-- d7e4b2c9a6f1_stage6h2b1_immutable_mixed_uom_price_evidence.py
+|   |       |-- d8f2a6c4b190_live_stock_warehouse_transition_seek.py
+|   |       |-- dfe93e142cea_stage4e2a_tenant_transfer_destination_.py
+|   |       |-- e2c7b5d9a413_stage13_import_worker_registry.py
+|   |       |-- e31f6c2a9d74_inventory_terminal_quality_permissions.py
+|   |       |-- e3b7a9c1d4f6_pricing_offer_interaction_policy.py
+|   |       |-- e42b7c9d5a13_stage5e_remove_legacy_variant_prices.py
+|   |       |-- e4b7a2c9d310_live_stock_read_path_indexes.py
+|   |       |-- e4c8a1d6b203_dispatch_auth_permissions.py
+|   |       |-- e5a1c9d4b7f2_stage5_temporal_pricing_foundation.py
+|   |       |-- e5a7c1d9f042_product_import_purchase_reference.py
+|   |       |-- e6b4c2d9a731_quality_destination_inplace_purposes.py
+|   |       |-- e6f2a8c9d410_sales_return_create_permission.py
+|   |       |-- e7a1c4d9b2f6_import_tracking_constraints_repair.py
+|   |       |-- e8b4c1d7a6f2_stage7_import_barcode_staging.py
+|   |       |-- e9a7c4d1b5f2_stage6h2b2a_reward_evidence_auxiliary_freeze.py
+|   |       |-- e9c4b1a7d620_identity_schema_expand.py
+|   |       |-- f1a6c8e2b940_purchase_cost_reference_foundation.py
+|   |       |-- f2a6d8c4b901_stage8_import_row_identity.py
+|   |       |-- f2a9c4e7d1b6_stage5b2_pricing_workflow_guards.py
+|   |       |-- f2c7a9d4e611_drop_driver_is_admin.py
+|   |       |-- f3b8c1d6a240_stage15_import_table_health.py
+|   |       |-- f3c8a1d4e6b2_product_import_tracking_defaults.py
+|   |       |-- f4c10a7e2d31_ledger_permissions.py
+|   |       |-- f4c8d2a7b6e3_stage6h2b2b1_correction_safe_sales_revisions.py
+|   |       |-- f7a1c3d5e9b2_stage7_async_product_import.py
+|   |       |-- f8c4e6a2b1d9_install_procrastinate_queue_schema.py
+|   |       |-- f9d2b4c6a8e1_stage73_product_ux_i18n_network.py
+|   |       |-- fa6c1e8d2b73_field_authorization_foundation.py
+|   |       `-- fa7c9d3e1b24_stage74_inventory_costing.py
+|   |-- alembic.ini
+|   |-- api
+|   |   |-- auth.py
+|   |   |-- authentication
+|   |   |   |-- __init__.py
+|   |   |   |-- backoffice_authorization.py
+|   |   |   |-- backoffice_compatibility.py
+|   |   |   |-- dependencies.py
+|   |   |   |-- field_authorization.py
+|   |   |   |-- field_compatibility.py
+|   |   |   |-- field_transfer_authorization.py
+|   |   |   |-- login.py
+|   |   |   |-- login_orchestration.py
+|   |   |   |-- login_routes.py
+|   |   |   |-- login_transport.py
+|   |   |   |-- login_transport_routes.py
+|   |   |   |-- logout.py
+|   |   |   |-- logout_routes.py
+|   |   |   |-- refresh.py
+|   |   |   |-- refresh_routes.py
+|   |   |   `-- schemas.py
+|   |   |-- branches.py
+|   |   |-- catalog.py
+|   |   |-- commercial_policy.py
+|   |   |-- dependencies.py
+|   |   |-- dispatch.py
+|   |   |-- driver.py
+|   |   |-- field_contracts.py
+|   |   |-- field_transfer_contracts.py
+|   |   |-- field_visit_contracts.py
+|   |   |-- inventory_permissions.py
+|   |   |-- inventory_stock_policy.py
+|   |   |-- offers.py
+|   |   |-- platform_manager.py
+|   |   |-- pricing.py
+|   |   |-- product_locations.py
+|   |   |-- product_tracking.py
+|   |   |-- reconciliation.py
+|   |   |-- representative_settlement.py
+|   |   |-- representatives
+|   |   |   |-- __init__.py
+|   |   |   |-- credentials.py
+|   |   |   |-- field_roles.py
+|   |   |   |-- lifecycle.py
+|   |   |   |-- management.py
+|   |   |   |-- read.py
+|   |   |   `-- schemas.py
+|   |   |-- sales_returns.py
+|   |   |-- simple_products.py
+|   |   |-- suppliers.py
+|   |   |-- taxation.py
+|   |   |-- tenant.py
+|   |   |-- vehicles
+|   |   |   |-- __init__.py
+|   |   |   |-- lifecycle.py
+|   |   |   |-- management.py
+|   |   |   |-- read.py
+|   |   |   `-- schemas.py
+|   |   `-- warehouse
+|   |       |-- __init__.py
+|   |       |-- _shared.py
+|   |       |-- batch_index.py
+|   |       |-- inbound.py
+|   |       |-- inbound_adjustments.py
+|   |       |-- ledger.py
+|   |       |-- live_stock.py
+|   |       |-- live_stock_source_detail.py
+|   |       |-- locations.py
+|   |       |-- status.py
+|   |       |-- stocktake.py
+|   |       |-- transfer_policy.py
+|   |       |-- transfers.py
+|   |       |-- whole_product_quality.py
+|   |       |-- whole_product_quality_identity.py
+|   |       `-- whole_product_quality_preview.py
+|   |-- audit_concurrency.py
+|   |-- backups
+|   |   |-- wanasah-local-pre-opening-valuation-20261023-045135.dump
+|   |   `-- wanasah-local-pre-opening-valuation-20261023-053559.dump
+|   |-- bootstrap_platform_admin.py
+|   |-- config.py
+|   |-- context.py
+|   |-- database.py
+|   |-- dispatch_access.py
+|   |-- domains
+|   |   |-- __init__.py
+|   |   |-- auth_sessions
+|   |   |   |-- __init__.py
+|   |   |   |-- access_revocation.py
+|   |   |   |-- claims.py
+|   |   |   |-- codec.py
+|   |   |   |-- context.py
+|   |   |   |-- invalidation.py
+|   |   |   |-- legacy_cutover.py
+|   |   |   |-- login_attempts.py
+|   |   |   |-- models.py
+|   |   |   `-- refresh_sessions.py
+|   |   |-- authorization
+|   |   |   |-- __init__.py
+|   |   |   |-- backoffice_access.py
+|   |   |   |-- backoffice_subject.py
+|   |   |   |-- capabilities.py
+|   |   |   |-- dashboard_admission.py
+|   |   |   |-- field_access.py
+|   |   |   |-- field_models.py
+|   |   |   |-- field_provisioning.py
+|   |   |   |-- field_role_management.py
+|   |   |   |-- field_role_policy.py
+|   |   |   |-- field_role_targets.py
+|   |   |   |-- field_subject.py
+|   |   |   `-- guards.py
+|   |   |-- barcode_identity.py
+|   |   |-- batch_actions
+|   |   |   |-- __init__.py
+|   |   |   `-- status_change.py
+|   |   |-- batch_reservation_contracts.py
+|   |   |-- batch_reservation_evidence.py
+|   |   |-- catalog_identity.py
+|   |   |-- credential_confirmation.py
+|   |   |-- dispatch_archive_navigation.py
+|   |   |-- dispatch_representatives.py
+|   |   |-- dispatch_reservations.py
+|   |   |-- field_operations
+|   |   |   |-- README.md
+|   |   |   |-- __init__.py
+|   |   |   |-- context.py
+|   |   |   |-- contracts.py
+|   |   |   |-- custody.py
+|   |   |   |-- invoice.py
+|   |   |   |-- returns.py
+|   |   |   `-- tokens.py
+|   |   |-- identity
+|   |   |   |-- __init__.py
+|   |   |   |-- authentication.py
+|   |   |   |-- backoffice_legacy_actor.py
+|   |   |   |-- channels.py
+|   |   |   |-- contracts.py
+|   |   |   |-- credentials.py
+|   |   |   |-- legacy_compatibility.py
+|   |   |   |-- migration
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- backfill.py
+|   |   |   |   |-- errors.py
+|   |   |   |   |-- evidence.py
+|   |   |   |   |-- mapping.py
+|   |   |   |   `-- models.py
+|   |   |   |-- models.py
+|   |   |   |-- repository.py
+|   |   |   `-- types.py
+|   |   |-- inventory_access
+|   |   |   |-- __init__.py
+|   |   |   `-- administration.py
+|   |   |-- inventory_archive_navigation.py
+|   |   |-- inventory_batch_restrictions
+|   |   |   |-- README.md
+|   |   |   |-- __init__.py
+|   |   |   |-- contracts.py
+|   |   |   `-- queries.py
+|   |   |-- inventory_catalog_presence.py
+|   |   |-- inventory_costing
+|   |   |   |-- __init__.py
+|   |   |   |-- opening_valuation.py
+|   |   |   |-- purchase_reference
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- api.py
+|   |   |   |   |-- authorization.py
+|   |   |   |   |-- contracts.py
+|   |   |   |   |-- errors.py
+|   |   |   |   |-- inbound.py
+|   |   |   |   |-- models.py
+|   |   |   |   |-- public.py
+|   |   |   |   |-- repository.py
+|   |   |   |   |-- service.py
+|   |   |   |   `-- values.py
+|   |   |   `-- service.py
+|   |   |-- inventory_quality_confirmation.py
+|   |   |-- inventory_quality_handling.py
+|   |   |-- inventory_quality_reads.py
+|   |   |-- inventory_quality_source_bounds.py
+|   |   |-- inventory_rules.py
+|   |   |-- inventory_stock_policy
+|   |   |   |-- __init__.py
+|   |   |   `-- read.py
+|   |   |-- inventory_supplier_evidence.py
+|   |   |-- inventory_supplier_resolution.py
+|   |   |-- inventory_terminal_provenance.py
+|   |   |-- inventory_terminal_quality.py
+|   |   |-- inventory_terminal_vendor.py
+|   |   |-- inventory_whole_product_quality_policy.py
+|   |   |-- ledger
+|   |   |   |-- __init__.py
+|   |   |   |-- inbound_adjustment.py
+|   |   |   `-- read.py
+|   |   |-- live_stock_projection
+|   |   |   |-- __init__.py
+|   |   |   `-- service.py
+|   |   |-- offers
+|   |   |   |-- __init__.py
+|   |   |   |-- contracts.py
+|   |   |   |-- core.py
+|   |   |   |-- eligibility.py
+|   |   |   |-- engine.py
+|   |   |   |-- handlers
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- bundle.py
+|   |   |   |   |-- common.py
+|   |   |   |   |-- cross_product.py
+|   |   |   |   |-- quantity.py
+|   |   |   |   `-- simple.py
+|   |   |   |-- models.py
+|   |   |   |-- publishing.py
+|   |   |   |-- schemas.py
+|   |   |   |-- service.py
+|   |   |   `-- validation.py
+|   |   |-- operations_archive_navigation.py
+|   |   |-- pricing
+|   |   |   |-- __init__.py
+|   |   |   |-- context.py
+|   |   |   |-- core.py
+|   |   |   |-- driver_authority.py
+|   |   |   |-- driver_display.py
+|   |   |   |-- publishing.py
+|   |   |   |-- resolver.py
+|   |   |   `-- validation_lookups.py
+|   |   |-- product_tracking.py
+|   |   |-- representatives
+|   |   |   |-- __init__.py
+|   |   |   |-- contracts.py
+|   |   |   |-- credentials.py
+|   |   |   |-- lifecycle.py
+|   |   |   |-- lifecycle_guards.py
+|   |   |   |-- management.py
+|   |   |   |-- queries.py
+|   |   |   |-- repository.py
+|   |   |   `-- validation.py
+|   |   |-- sales_calculation
+|   |   |   |-- __init__.py
+|   |   |   |-- contracts.py
+|   |   |   |-- core.py
+|   |   |   |-- driver_sale.py
+|   |   |   |-- pipeline.py
+|   |   |   |-- policy.py
+|   |   |   |-- rounding.py
+|   |   |   `-- service.py
+|   |   |-- sales_evidence
+|   |   |   |-- __init__.py
+|   |   |   |-- core.py
+|   |   |   |-- models.py
+|   |   |   `-- service.py
+|   |   |-- sales_returns
+|   |   |   |-- __init__.py
+|   |   |   |-- core.py
+|   |   |   |-- models.py
+|   |   |   |-- schemas.py
+|   |   |   `-- service.py
+|   |   |-- simple_products
+|   |   |   |-- __init__.py
+|   |   |   |-- catalog_summary.py
+|   |   |   |-- imports
+|   |   |   |   |-- EXECUTION_PROFILING.md
+|   |   |   |   |-- PHASE13_RUNTIME.md
+|   |   |   |   |-- PHASE15_DATABASE.md
+|   |   |   |   |-- PHASE19_HTTP_CORRECTION_ACCEPTANCE.md
+|   |   |   |   |-- PHASE19_STAGING_RECOVERY.md
+|   |   |   |   |-- README.md
+|   |   |   |   |-- RUNBOOK.md
+|   |   |   |   |-- SOURCE_STORE.md
+|   |   |   |   |-- STAGING_BUFFER.md
+|   |   |   |   |-- __init__.py
+|   |   |   |   |-- api
+|   |   |   |   |-- application
+|   |   |   |   |-- domain
+|   |   |   |   `-- infrastructure
+|   |   |   |-- observability.py
+|   |   |   |-- service.py
+|   |   |   `-- status_reason.py
+|   |   |-- stocktake
+|   |   |   |-- __init__.py
+|   |   |   |-- contracts.py
+|   |   |   `-- idempotency.py
+|   |   |-- suppliers
+|   |   |   |-- __init__.py
+|   |   |   |-- application.py
+|   |   |   |-- contracts.py
+|   |   |   |-- errors.py
+|   |   |   |-- models.py
+|   |   |   |-- public.py
+|   |   |   `-- repository.py
+|   |   |-- taxation
+|   |   |   |-- __init__.py
+|   |   |   |-- calculator.py
+|   |   |   |-- contracts.py
+|   |   |   |-- core.py
+|   |   |   |-- models.py
+|   |   |   |-- publishing.py
+|   |   |   |-- resolver.py
+|   |   |   |-- schemas.py
+|   |   |   |-- service.py
+|   |   |   `-- validation.py
+|   |   |-- transfers
+|   |   |   |-- __init__.py
+|   |   |   `-- replay.py
+|   |   |-- uom_authority.py
+|   |   `-- vehicles
+|   |       |-- __init__.py
+|   |       |-- contracts.py
+|   |       |-- custody.py
+|   |       |-- eligibility.py
+|   |       |-- lifecycle.py
+|   |       |-- lifecycle_guards.py
+|   |       |-- management.py
+|   |       |-- queries.py
+|   |       |-- repository.py
+|   |       `-- validation.py
+|   |-- error.log
+|   |-- gs1.py
+|   |-- locustfile.py
+|   |-- main.py
+|   |-- models.py
+|   |-- observability
+|   |   |-- __init__.py
+|   |   `-- http_errors.py
+|   |-- perf_reports
+|   |   |-- live_stock_explain_alerts_limit50_page1.json
+|   |   |-- live_stock_explain_live_limit200_page1.json
+|   |   |-- live_stock_explain_live_limit50_page1.json
+|   |   |-- live_stock_explain_live_limit50_page2.json
+|   |   |-- live_stock_explain_only-alerts_limit50_page1.json
+|   |   |-- live_stock_explain_search_limit50_page1.json
+|   |   |-- phase11_baseline_warehouse.py
+|   |   |-- phase11_final
+|   |   |   `-- perf_reports
+|   |   |       |-- live_stock_explain_live_limit200_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page2.json
+|   |   |       |-- live_stock_explain_only-alerts_limit50_page1.json
+|   |   |       `-- live_stock_explain_search_limit50_page1.json
+|   |   |-- phase11_scale.txt
+|   |   |-- phase11_warm_plans.json
+|   |   |-- phase1_after
+|   |   |   `-- perf_reports
+|   |   |       |-- live_stock_explain_live_limit200_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page2.json
+|   |   |       |-- live_stock_explain_only-alerts_limit50_page1.json
+|   |   |       `-- live_stock_explain_search_limit50_page1.json
+|   |   |-- phase1_baseline
+|   |   |   |-- MainInventory.tsx
+|   |   |   |-- Tab1LiveStock.tsx
+|   |   |   |-- contracts.ts
+|   |   |   |-- live_stock_explain_alerts_limit50_page1.json
+|   |   |   |-- live_stock_explain_live_limit200_page1.json
+|   |   |   |-- live_stock_explain_live_limit50_page1.json
+|   |   |   |-- live_stock_explain_live_limit50_page2.json
+|   |   |   |-- live_stock_explain_only-alerts_limit50_page1.json
+|   |   |   |-- live_stock_explain_search_limit50_page1.json
+|   |   |   |-- profile_live_stock_explain.py
+|   |   |   |-- schemas.py
+|   |   |   `-- warehouse.py
+|   |   |-- phase1_equivalence.json
+|   |   |-- phase1_explain_after.txt
+|   |   |-- phase1_final
+|   |   |   `-- perf_reports
+|   |   |       |-- live_stock_explain_live_limit200_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page1.json
+|   |   |       |-- live_stock_explain_live_limit50_page2.json
+|   |   |       |-- live_stock_explain_only-alerts_limit50_page1.json
+|   |   |       `-- live_stock_explain_search_limit50_page1.json
+|   |   |-- phase1_scale_after.txt
+|   |   |-- phase1_scale_final.txt
+|   |   |-- phase1_warm_plan_diagnosis.json
+|   |   `-- phase1_warm_plan_final.json
+|   |-- product_lifecycle.py
+|   |-- pytest.ini
+|   |-- pytest_report.txt
+|   |-- quantity.py
+|   |-- realtime
+|   |   |-- __init__.py
+|   |   |-- auth.py
+|   |   |-- worker_event_relay.py
+|   |   `-- ws_security.py
+|   |-- requirements.txt
+|   |-- schemas.py
+|   |-- scripts
+|   |   |-- audit_identity_cutover_preflight.py
+|   |   |-- audit_identity_phase5_cutover_readiness.py
+|   |   |-- audit_product_import_d8_readonly.py
+|   |   |-- audit_product_import_phase15_scale.py
+|   |   |-- audit_products_p4_performance.py
+|   |   |-- audit_products_p8_common_filters_growth.py
+|   |   |-- b37_family_race_disposable.py
+|   |   |-- b38_profile_real_import_disposable.py
+|   |   |-- b3_profile_catalog_service.py
+|   |   |-- b4_catalog_index_churn_disposable.py
+|   |   |-- backfill_identity_from_legacy.py
+|   |   |-- backup_db.sh
+|   |   |-- capture_product_import_perf_snapshot.py
+|   |   |-- cleanup_products_p8_concurrency_residue.py
+|   |   |-- cleanup_products_p8_scale_residue.py
+|   |   |-- diagnose_stage821_concurrency_knee.py
+|   |   |-- diagnose_stage823_uvicorn_layers.py
+|   |   |-- diagnose_stage823_uvicorn_transport.py
+|   |   |-- gate_auth_session_refresh.py
+|   |   |-- gate_auth_session_refresh_runtime.py
+|   |   |-- gate_dev_operational_worker.py
+|   |   |-- gate_error_contract.py
+|   |   |-- gate_error_contract_runtime.py
+|   |   |-- gate_http_5xx_observability.py
+|   |   |-- gate_http_5xx_observability_runtime.py
+|   |   |-- gate_inventory_batches_page.py
+|   |   |-- gate_inventory_batches_pagination_performance.py
+|   |   |-- gate_inventory_batches_roundtrip.py
+|   |   |-- gate_inventory_expiry_semantics.py
+|   |   |-- gate_live_stock_filter_contract.py
+|   |   |-- gate_live_stock_minimum_policy.py
+|   |   |-- gate_live_stock_phase11.py
+|   |   |-- gate_live_stock_scale.py
+|   |   |-- gate_live_stock_scale_v2.py
+|   |   |-- gate_mutation_idempotency_contract.py
+|   |   |-- gate_pricing_offer_interaction.py
+|   |   |-- gate_product_import_architecture.py
+|   |   |-- gate_product_import_d2_lock_matrix_child.py
+|   |   |-- gate_product_import_d31_event_scheduler.py
+|   |   |-- gate_product_import_d32_resources.py
+|   |   |-- gate_product_import_d4_recovery.py
+|   |   |-- gate_product_import_d8_backup_restore_disposable.py
+|   |   |-- gate_product_import_phase10_retention_audit.py
+|   |   |-- gate_product_import_phase11_source_semantics.py
+|   |   |-- gate_product_import_phase12_source_store.py
+|   |   |-- gate_product_import_phase13_runtime.py
+|   |   |-- gate_product_import_phase14_security.py
+|   |   |-- gate_product_import_phase16_api.py
+|   |   |-- gate_product_import_phase17_final.py
+|   |   |-- gate_product_import_phase18_cleanup.py
+|   |   |-- gate_product_import_phase4_streaming.py
+|   |   |-- gate_product_import_phase5_validation.py
+|   |   |-- gate_product_import_phase6_query_plans.py
+|   |   |-- gate_product_import_phase7_best_effort.py
+|   |   |-- gate_product_import_phase8_idempotency_correction.py
+|   |   |-- gate_product_import_phase9_execution_isolation.py
+|   |   |-- gate_product_import_state_taxonomy.py
+|   |   |-- gate_product_import_tracking.py
+|   |   |-- gate_product_tracking_authority.py
+|   |   |-- gate_product_tracking_production.py
+|   |   |-- gate_product_tracking_runtime.py
+|   |   |-- gate_products_p5_uom_safety.py
+|   |   |-- gate_products_p6_import_localization.py
+|   |   |-- gate_products_p8_concurrency_idempotency.py
+|   |   |-- gate_products_p8_existing_products.py
+|   |   |-- gate_products_p8_isolation.py
+|   |   |-- gate_products_p8_performance.py
+|   |   |-- gate_products_p8_price_publication_scale.py
+|   |   |-- gate_products_p8_production.py
+|   |   |-- gate_products_p9_delete_archive_policy.py
+|   |   |-- gate_products_p9_family_reassignment.py
+|   |   |-- gate_products_p9_rename.py
+|   |   |-- gate_products_read_contract_p2.py
+|   |   |-- gate_products_search_families_p4.py
+|   |   |-- gate_stage3_lifecycle.py
+|   |   |-- gate_stage4_batch_expiry.py
+|   |   |-- gate_stage4_final.py
+|   |   |-- gate_stage4e2a_policy.py
+|   |   |-- gate_stage5_commercial_pricing.py
+|   |   |-- gate_stage6_financial_snapshots.py
+|   |   |-- gate_stage6_offer_tax_snapshot.py
+|   |   |-- gate_stage6_return_reversal.py
+|   |   |-- gate_stage6_sales_line_evidence.py
+|   |   |-- gate_stage6_tax_rule_versions.py
+|   |   |-- gate_stage6_typed_offer_engine.py
+|   |   |-- gate_stage73_product_ux_i18n_network.py
+|   |   |-- gate_stage74_inventory_costing.py
+|   |   |-- gate_stage75_isolation_runtime.py
+|   |   |-- gate_stage75_product_location_inbound.py
+|   |   |-- gate_stage76_inventory_ux_cost_visibility.py
+|   |   |-- gate_stage77_live_stock_production.py
+|   |   |-- gate_stage7_simple_products.py
+|   |   |-- gate_stage821_live_stock_projector_core.py
+|   |   |-- gate_stage821_live_stock_projector_runtime.py
+|   |   |-- gate_stage821_projector_stress.py
+|   |   |-- gate_stage822_full_regression.py
+|   |   |-- gate_stage822_live_stock_rebuild_core.py
+|   |   |-- gate_stage822_live_stock_rebuild_runtime.py
+|   |   |-- gate_stage823_live_stock_read_model.py
+|   |   |-- gate_stage823_live_stock_read_model_core.py
+|   |   |-- gate_stage823_mapper_startup.py
+|   |   |-- gate_stage82_live_stock_projection_foundation.py
+|   |   |-- gate_warehouse_final_forensic.py
+|   |   |-- gate_warehouse_route_manifest.py
+|   |   |-- gate_warehouse_runtime_cutover.py
+|   |   |-- gate_warehouse_split_integrity.py
+|   |   |-- gate_websocket_d5_uvicorn_logs.py
+|   |   |-- gate_worker_foundation.py
+|   |   |-- gate_worker_foundation_runtime.py
+|   |   |-- generate_migration.sh
+|   |   |-- live_stock_scale_provenance.py
+|   |   |-- nuclear_stress_test.js
+|   |   |-- product_import_business_integrity_gate.py
+|   |   |-- product_import_d1_business_matrix.py
+|   |   |-- product_import_d1_real_business_child.py
+|   |   |-- product_import_d32_isolated_child.py
+|   |   |-- product_import_d4_isolated_child.py
+|   |   |-- product_import_d6_disposable_profile.py
+|   |   |-- product_import_d6_price_probe.py
+|   |   |-- product_import_d6_profile_worker.py
+|   |   |-- product_import_d7_burst_child.py
+|   |   |-- product_import_d_projection_lock_child.py
+|   |   |-- product_import_phase19_contention_child.py
+|   |   |-- product_import_phase19_edge_isolated_child.py
+|   |   |-- product_import_phase19_http_cancel_stall_child.py
+|   |   |-- product_import_phase19_http_isolated_child.py
+|   |   |-- product_import_phase19_http_selector_server.py
+|   |   |-- product_import_phase19_medium_isolated_child.py
+|   |   |-- product_import_phase19_pg_wire_fault.py
+|   |   |-- product_import_phase19_real_browser_child.py
+|   |   |-- product_import_phase19_retention_retry_child.py
+|   |   |-- product_import_phase19_worker_fault_child.py
+|   |   |-- product_import_real_rehearsal_observer.py
+|   |   |-- profile_live_stock.py
+|   |   |-- profile_live_stock_explain.py
+|   |   |-- rls_stage3.sql
+|   |   |-- run_b3_index_growth_gate.py
+|   |   |-- run_c2_isolated_committed_gate.py
+|   |   |-- run_migration.sh
+|   |   |-- run_product_import_d1_isolated_gate.py
+|   |   |-- run_product_import_d32_isolated_gate.py
+|   |   |-- run_product_import_d4_isolated_gate.py
+|   |   |-- run_product_import_phase19_http_isolated_gate.py
+|   |   |-- run_product_import_phase19_live_load.py
+|   |   |-- run_product_import_v1_source_gate.ps1
+|   |   |-- run_product_import_worker.ps1
+|   |   |-- seed_live_stock_demo.py
+|   |   |-- seed_live_stock_scale.py
+|   |   |-- stage4d_database.py
+|   |   |-- stage4d_model_ddl_audit.py
+|   |   |-- stage4d_rls_audit.py
+|   |   |-- stage4d_role_permissions.sql
+|   |   |-- stage823_benchmark_app.py
+|   |   |-- stage823_transport_probe_app.py
+|   |   |-- stage823_uvicorn_probe_app.py
+|   |   |-- staging_load_guard.py
+|   |   |-- test_e2e_stress_simulation.py
+|   |   |-- test_rls_security.py
+|   |   |-- test_smoke.py
+|   |   |-- test_stage4d_api.py
+|   |   |-- test_stage4d_postgres.py
+|   |   |-- test_stage4d_security.py
+|   |   |-- verify_restore_backup.sh
+|   |   |-- wanasah_doctor_probe.py
+|   |   |-- warehouse_route_manifest_baseline.json
+|   |   `-- warehouse_route_manifest_extensions.json
+|   |-- seed_dev.py
+|   |-- services.py
+|   |-- tests
+|   |   |-- IDENTITY_PHASE34_BACKFILL_VALIDATION.md
+|   |   |-- IDENTITY_SCHEMA_EXPAND_VALIDATION.md
+|   |   |-- PRINCIPAL_REFRESH_SESSION_EXPAND_VALIDATION.md
+|   |   |-- __init__.py
+|   |   |-- canonical_actor_fixtures.py
+|   |   |-- field_authorization_phase2_fixture.py
+|   |   |-- field_authorization_phase3_fixture.py
+|   |   |-- field_authorization_phase3_matrix.py
+|   |   |-- field_contract_postgres_fixture.py
+|   |   |-- field_phase4_fixture.py
+|   |   |-- purchase_reference_pg_support.py
+|   |   |-- run_canonical_backoffice_capability_access_gate.py
+|   |   |-- run_driver_is_admin_physical_drop_gate.py
+|   |   |-- run_identity_legacy_backfill_gate.py
+|   |   |-- run_identity_schema_expand_gate.py
+|   |   |-- run_principal_logout_gate.py
+|   |   |-- run_principal_logout_routes_gate.py
+|   |   |-- run_principal_refresh_session_expand_gate.py
+|   |   |-- run_principal_refresh_sessions_gate.py
+|   |   |-- supplier_fixtures.py
+|   |   |-- test_archive_navigation_canonical_access.py
+|   |   |-- test_archive_owner_navigation.py
+|   |   |-- test_auth_session_token_contract.py
+|   |   |-- test_authenticated_access_carrier.py
+|   |   |-- test_authorization_core_compatibility.py
+|   |   |-- test_batch_disposition_authority.py
+|   |   |-- test_batch_multilocation_read_acceptance.py
+|   |   |-- test_batch_reservation_owner_contract.py
+|   |   |-- test_batch_stock_sources_contract.py
+|   |   |-- test_branch_canonical_authorization_cutover.py
+|   |   |-- test_canonical_access_revocation.py
+|   |   |-- test_canonical_auth_core_boundary.py
+|   |   |-- test_canonical_auth_core_cutover.py
+|   |   |-- test_canonical_auth_transport_boundary.py
+|   |   |-- test_canonical_backoffice_authorization_dependency.py
+|   |   |-- test_canonical_backoffice_authorization_subject.py
+|   |   |-- test_canonical_backoffice_capability_access.py
+|   |   |-- test_canonical_backoffice_runtime_compatibility.py
+|   |   |-- test_canonical_field_authorization_subject.py
+|   |   |-- test_canonical_field_runtime_compatibility.py
+|   |   |-- test_canonical_field_runtime_compatibility_boundary.py
+|   |   |-- test_canonical_login_no_legacy_boundary.py
+|   |   |-- test_catalog_batch_uom_cache_b3.py
+|   |   |-- test_catalog_canonical_boundary.py
+|   |   |-- test_catalog_canonical_cutover.py
+|   |   |-- test_catalog_family_batch_b37_db.py
+|   |   |-- test_catalog_identity_a3_db.py
+|   |   |-- test_catalog_recall_cancel_guard.py
+|   |   |-- test_catalog_sales_identity_a3.py
+|   |   |-- test_catalog_tracking_batch_b3.py
+|   |   |-- test_commercial_policy_canonical_auth_cutover.py
+|   |   |-- test_committed_costed_inbound_race_c2_isolated.py
+|   |   |-- test_company_currency_immutability_postgres.py
+|   |   |-- test_cost_policy_lock_contention_c2_db.py
+|   |   |-- test_costed_driver_customer_return_c2_db.py
+|   |   |-- test_costed_driver_sale_correction_real_c2_db.py
+|   |   |-- test_costed_inbound_asgi_http_c2_db.py
+|   |   |-- test_cp10_ledger_backend.py
+|   |   |-- test_cp10_ledger_postgres.py
+|   |   |-- test_cp10_ledger_postgres_multibatch.py
+|   |   |-- test_cp11_inventory_access_backend.py
+|   |   |-- test_cp11_inventory_access_postgres.py
+|   |   |-- test_cp12_inventory_performance_postgres.py
+|   |   |-- test_cp12_inventory_security_postgres.py
+|   |   |-- test_cp14a1_warehouse_setup_postgres.py
+|   |   |-- test_cp14a2_product_readiness_postgres.py
+|   |   |-- test_cp14a3_inbound_operational_postgres.py
+|   |   |-- test_cp14b_batch_quality_transfers_postgres.py
+|   |   |-- test_cp14c_stocktake_lifecycle_postgres.py
+|   |   |-- test_cp34_quality_terminal_backend.py
+|   |   |-- test_cp34_quality_terminal_postgres.py
+|   |   |-- test_cp3_batch_actions_contract.py
+|   |   |-- test_cp3_batch_actions_postgres.py
+|   |   |-- test_cp4_warehouse_branch_lifecycle_closure.py
+|   |   |-- test_cp4_warehouse_branch_lifecycle_postgres.py
+|   |   |-- test_cp4_warehouse_deactivation_blockers_postgres.py
+|   |   |-- test_cp6_policy_closure.py
+|   |   |-- test_cp6_policy_postgres.py
+|   |   |-- test_cp7_live_stock_contract.py
+|   |   |-- test_cp7_live_stock_postgres.py
+|   |   |-- test_cp8_transfers_backend.py
+|   |   |-- test_cp8_transfers_postgres.py
+|   |   |-- test_cp9_stocktake_closure_contract.py
+|   |   |-- test_cp9_stocktake_postgres.py
+|   |   |-- test_current_schema_scripts_is_admin_retirement.mjs
+|   |   |-- test_dashboard_admission_bridge.py
+|   |   |-- test_dev_seed_canonical_identity.py
+|   |   |-- test_dispatch_canonical_authorization_cutover.py
+|   |   |-- test_dispatch_representatives.py
+|   |   |-- test_dispatch_representatives_boundary.py
+|   |   |-- test_driver_fixture_retirement.py
+|   |   |-- test_driver_mixed_visit_authorization_cutover.py
+|   |   |-- test_driver_session_field_context_boundary.py
+|   |   |-- test_driver_session_field_context_cutover.py
+|   |   |-- test_field_authorization_phase1_postgres.py
+|   |   |-- test_field_authorization_phase2_http.py
+|   |   |-- test_field_authorization_phase2_races.py
+|   |   |-- test_field_authorization_phase3_http.py
+|   |   |-- test_field_authorization_phase3_routes.py
+|   |   |-- test_field_contracts_postgres.py
+|   |   |-- test_field_phase4_channels.py
+|   |   |-- test_field_phase4_journeys.py
+|   |   |-- test_field_read_contracts.py
+|   |   |-- test_field_return_resolution.py
+|   |   |-- test_field_transfer_batch_identity.py
+|   |   |-- test_field_transfer_batch_identity_postgres.py
+|   |   |-- test_http_error_bcrypt_redaction.py
+|   |   |-- test_identity_authentication_foundation.py
+|   |   |-- test_identity_legacy_backfill.py
+|   |   |-- test_identity_login_legacy_compatibility.py
+|   |   |-- test_identity_migration_tooling_is_admin_retirement.py
+|   |   |-- test_identity_schema_expand.py
+|   |   |-- test_inbound_adjustments_canonical_auth_cutover.py
+|   |   |-- test_inbound_audit_lock_backend.py
+|   |   |-- test_inbound_lot_expiry_checkpoint1.py
+|   |   |-- test_inbound_no_lot_frozen_contract.py
+|   |   |-- test_inbound_no_lot_frozen_postgres.py
+|   |   |-- test_inbound_reference_required_contract.py
+|   |   |-- test_inventory_access_canonical_boundary.py
+|   |   |-- test_inventory_access_canonical_cutover.py
+|   |   |-- test_inventory_batch_index_authorization.py
+|   |   |-- test_inventory_batch_index_contract.py
+|   |   |-- test_inventory_batch_index_postgres_acceptance.py
+|   |   |-- test_inventory_cost_policy_explicit_c1.py
+|   |   |-- test_inventory_cost_policy_explicit_c1_db.py
+|   |   |-- test_inventory_cost_source_history_c3_db.py
+|   |   |-- test_inventory_minimum_stock_capability_parity.py
+|   |   |-- test_inventory_multi_location_authority.py
+|   |   |-- test_inventory_opening_valuation_api.py
+|   |   |-- test_inventory_opening_valuation_contract.py
+|   |   |-- test_inventory_opening_valuation_workbook.py
+|   |   |-- test_inventory_quality_action_availability.py
+|   |   |-- test_inventory_quality_source_bounds.py
+|   |   |-- test_legacy_field_transport.py
+|   |   |-- test_legacy_field_transport_boundary.py
+|   |   |-- test_legacy_refresh_cutover_boundary.py
+|   |   |-- test_live_stock_batch_detail_disposition_contract.py
+|   |   |-- test_live_stock_canonical_boundary.py
+|   |   |-- test_live_stock_canonical_cutover.py
+|   |   |-- test_live_stock_scale_seed_contract.py
+|   |   |-- test_live_stock_summary_delta_batching.py
+|   |   |-- test_login_attempt_policy.py
+|   |   |-- test_login_is_admin_retirement_contract.py
+|   |   |-- test_minimum_stock_canonical_authorization_cutover.py
+|   |   |-- test_offers_canonical_authorization_cutover.py
+|   |   |-- test_platform_tenant_bootstrap_canonical_identity.py
+|   |   |-- test_pricing_bulk_catalog_b3_db.py
+|   |   |-- test_pricing_canonical_auth_cutover.py
+|   |   |-- test_pricing_company_keyshare_d21_db.py
+|   |   |-- test_principal_auth_http_contracts.py
+|   |   |-- test_principal_http_dependencies.py
+|   |   |-- test_principal_login_http_boundary.py
+|   |   |-- test_principal_login_orchestration.py
+|   |   |-- test_principal_login_route_adapter.py
+|   |   |-- test_principal_logout.py
+|   |   |-- test_principal_logout_routes.py
+|   |   |-- test_principal_refresh_http_boundary.py
+|   |   |-- test_principal_refresh_route_adapter.py
+|   |   |-- test_principal_refresh_session_expand.py
+|   |   |-- test_principal_refresh_sessions.py
+|   |   |-- test_principal_request_context.py
+|   |   |-- test_principal_session_invalidation.py
+|   |   |-- test_product_batch_restrictions.py
+|   |   |-- test_product_catalog_summary.py
+|   |   |-- test_product_import_correction_file_locale.py
+|   |   |-- test_product_import_d31_schedule_candidates_db.py
+|   |   |-- test_product_import_d32_resource_budget.py
+|   |   |-- test_product_import_d4_recovery.py
+|   |   |-- test_product_import_d6_profile_contract.py
+|   |   |-- test_product_import_d7_contract.py
+|   |   |-- test_product_import_d8_target_binding.py
+|   |   |-- test_product_import_inline_correction.py
+|   |   |-- test_product_import_multilingual.py
+|   |   |-- test_product_import_phase10_retention_audit.py
+|   |   |-- test_product_import_phase11_source_semantics.py
+|   |   |-- test_product_import_phase12_source_store.py
+|   |   |-- test_product_import_phase13_runtime.py
+|   |   |-- test_product_import_phase14_security.py
+|   |   |-- test_product_import_phase16_api.py
+|   |   |-- test_product_import_phase17_failure_gates.py
+|   |   |-- test_product_import_phase19_fixture_generator.py
+|   |   |-- test_product_import_phase19_staging_integrity.py
+|   |   |-- test_product_import_phase2_services.py
+|   |   |-- test_product_import_phase3_state_machine.py
+|   |   |-- test_product_import_phase4_streaming.py
+|   |   |-- test_product_import_phase5_validation.py
+|   |   |-- test_product_import_phase6_barcode_sql.py
+|   |   |-- test_product_import_phase7_best_effort.py
+|   |   |-- test_product_import_phase8_idempotency_correction.py
+|   |   |-- test_product_import_phase9_execution_isolation.py
+|   |   |-- test_product_import_purchase_cost_50k_streaming.py
+|   |   |-- test_product_import_purchase_cost_contract.py
+|   |   |-- test_product_import_websocket_canonical_cutover.py
+|   |   |-- test_product_import_worker_canonical_reauth.py
+|   |   |-- test_product_locations_canonical_auth_cutover.py
+|   |   |-- test_product_permanent_stop_capabilities.py
+|   |   |-- test_product_tracking_canonical_auth.py
+|   |   |-- test_product_tracking_default_policy.py
+|   |   |-- test_purchase_cost_reference_postgres.py
+|   |   |-- test_purchase_cost_reference_values.py
+|   |   |-- test_purchase_reference_e2e_postgres.py
+|   |   |-- test_purchase_reference_inbound_contract.py
+|   |   |-- test_purchase_reference_inbound_postgres.py
+|   |   |-- test_purchase_reference_product_create_postgres.py
+|   |   |-- test_realtime_websocket_canonical_auth_cutover.py
+|   |   |-- test_recall_readiness_contract.py
+|   |   |-- test_reconciliation_field_canonical_auth.py
+|   |   |-- test_representative_credit_policy_runtime_db.py
+|   |   |-- test_representative_settlement_custody_postgres.py
+|   |   |-- test_representatives_architecture.py
+|   |   |-- test_representatives_audit_security_runtime_db.py
+|   |   |-- test_representatives_contract.py
+|   |   |-- test_representatives_form_identity_contract.py
+|   |   |-- test_representatives_lifecycle_credentials.py
+|   |   |-- test_representatives_management_idempotency_symmetry.py
+|   |   |-- test_representatives_role_provisioning_runtime_db.py
+|   |   |-- test_representatives_runtime_db.py
+|   |   |-- test_sales_returns_canonical_boundary.py
+|   |   |-- test_sales_returns_canonical_cutover.py
+|   |   |-- test_simple_product_family_batch_flush_p19.py
+|   |   |-- test_simple_product_family_intent_a2.py
+|   |   |-- test_simple_products_canonical_boundary.py
+|   |   |-- test_simple_products_canonical_cutover.py
+|   |   |-- test_simple_products_status_reason.py
+|   |   |-- test_simple_products_warehouse_filter.py
+|   |   |-- test_special_action_reason_contract.py
+|   |   |-- test_special_transfer_action_options.py
+|   |   |-- test_staging_d7s_mixed_load_contract.py
+|   |   |-- test_staging_load_guard.py
+|   |   |-- test_stocktake_canonical_auth_cutover.py
+|   |   |-- test_stocktake_nullable_expiry_serialization.py
+|   |   |-- test_supplier_inbound_quality_canonical_auth_cutover.py
+|   |   |-- test_supplier_master_db.py
+|   |   |-- test_supplier_module_boundaries.py
+|   |   |-- test_system_transit_provision_guard.py
+|   |   |-- test_taxation_canonical_authorization_cutover.py
+|   |   |-- test_tenant_identity_canonical_auth_cutover.py
+|   |   |-- test_terminal_action_availability_contract.py
+|   |   |-- test_terminal_disposal_contract.py
+|   |   |-- test_terminal_disposal_effect_evidence.py
+|   |   |-- test_terminal_disposal_service.py
+|   |   |-- test_terminal_provenance.py
+|   |   |-- test_terminal_provenance_read_bounds.py
+|   |   |-- test_terminal_quality_workflow_chain.py
+|   |   |-- test_terminal_vendor_contract.py
+|   |   |-- test_terminal_vendor_service.py
+|   |   |-- test_vehicle_custody_caller_coverage.py
+|   |   |-- test_vehicle_dispatch_access_custody.py
+|   |   |-- test_vehicle_next_maintenance_date_contract.py
+|   |   |-- test_vehicle_oil_change_target_contract.py
+|   |   |-- test_vehicle_operational_eligibility_integration.py
+|   |   |-- test_vehicle_reconciliation_lock_order.py
+|   |   |-- test_vehicle_reconciliation_lock_order_postgres.py
+|   |   |-- test_vehicle_reconciliation_service_contracts.py
+|   |   |-- test_vehicle_reconciliation_strict_custody.py
+|   |   |-- test_vehicles_architecture.py
+|   |   |-- test_vehicles_foundation_contract.py
+|   |   |-- test_vehicles_http_contract.py
+|   |   |-- test_wanasah_doctor.py
+|   |   |-- test_warehouse_costed_inbound_c2_db.py
+|   |   |-- test_warehouse_inbound_concurrent_recovery_c2_db.py
+|   |   |-- test_warehouse_inbound_requires_cost_policy_c2_db.py
+|   |   |-- test_warehouse_ledger_status_canonical_auth_cutover.py
+|   |   |-- test_warehouse_locations_canonical_auth_cutover.py
+|   |   |-- test_warehouse_transfers_canonical_auth_cutover.py
+|   |   |-- test_warehouse_v1_master_data_contract.py
+|   |   |-- test_websocket_d5_security.py
+|   |   |-- test_whole_product_quality_direct_stage.py
+|   |   |-- test_whole_product_quality_global_contract.py
+|   |   |-- test_whole_product_quality_inplace_constraint.py
+|   |   |-- test_whole_product_quality_issue_sources.py
+|   |   |-- test_whole_product_quality_preview_canonical_auth_cutover.py
+|   |   |-- test_whole_product_quality_preview_contract.py
+|   |   |-- test_whole_product_quality_stage4_legacy_fifo.py
+|   |   |-- test_whole_product_quality_terminal_completion.py
+|   |   `-- test_windows_product_import_startup_contract.py
+|   |-- token_identity.py
+|   |-- tools
+|   |   |-- __init__.py
+|   |   |-- product_import
+|   |   |   `-- phase19_fixture.py
+|   |   `-- staging_load
+|   |       |-- README.md
+|   |       |-- __init__.py
+|   |       |-- wanasah_d7s_mixed_load_config.py
+|   |       `-- wanasah_d7s_mixed_load_driver.py
+|   |-- workers
+|   |   |-- README.md
+|   |   |-- __init__.py
+|   |   |-- app.py
+|   |   |-- bootstrap.py
+|   |   |-- events.py
+|   |   |-- recover_cli.py
+|   |   |-- recovery.py
+|   |   |-- scheduling.py
+|   |   |-- settings.py
+|   |   |-- tasks
+|   |   |   |-- __init__.py
+|   |   |   |-- core.py
+|   |   |   |-- handshake.py
+|   |   |   |-- integrity.py
+|   |   |   |-- live_stock.py
+|   |   |   |-- maintenance.py
+|   |   |   |-- reports.py
+|   |   |   `-- session_monitor.py
+|   |   `-- tenant.py
+|   `-- ws_manager.py
+`-- wanasah_frontend
+    |-- .env
+    |-- .flutter-plugins
+    |-- .flutter-plugins-dependencies
+    |-- .gitignore
+    |-- .metadata
+    |-- README.md
+    |-- analysis_options.yaml
+    |-- frontend_tree.txt
+    |-- lib
+    |   |-- app
+    |   |   |-- app.dart
+    |   |   |-- app_auth_navigation.dart
+    |   |   |-- bootstrap
+    |   |   |   |-- app_bootstrap.dart
+    |   |   |   |-- app_environment.dart
+    |   |   |   |-- app_error_handlers.dart
+    |   |   |   `-- app_error_strings.dart
+    |   |   |-- localization
+    |   |   |   `-- app_copy.dart
+    |   |   `-- theme
+    |   |       |-- app_system_ui.dart
+    |   |       |-- app_theme.dart
+    |   |       `-- app_tokens.dart
+    |   |-- blocs
+    |   |   |-- auth
+    |   |   |   |-- auth_bloc.dart
+    |   |   |   |-- auth_event.dart
+    |   |   |   |-- auth_state.dart
+    |   |   |   `-- offline_owner_guard.dart
+    |   |   |-- dashboard
+    |   |   |   |-- dashboard_bloc.dart
+    |   |   |   |-- dashboard_event.dart
+    |   |   |   `-- dashboard_state.dart
+    |   |   |-- visit
+    |   |   |   `-- visit_bloc.dart
+    |   |   `-- visit_list
+    |   |       |-- visit_list_bloc.dart
+    |   |       |-- visit_list_event.dart
+    |   |       `-- visit_list_state.dart
+    |   |-- core
+    |   |   |-- db
+    |   |   |   |-- local_database.dart
+    |   |   |   `-- visit
+    |   |   |-- errors
+    |   |   |   `-- api_failure_exception.dart
+    |   |   |-- network
+    |   |   |   |-- api_client.dart
+    |   |   |   |-- api_failure.dart
+    |   |   |   |-- auth_interceptor.dart
+    |   |   |   |-- auth_token_store.dart
+    |   |   |   `-- retry_policy.dart
+    |   |   |-- observability
+    |   |   |   |-- app_observability.dart
+    |   |   |   |-- safe_sentry_context.dart
+    |   |   |   `-- sentry_privacy_policy.dart
+    |   |   |-- serialization
+    |   |   |   `-- json_contract.dart
+    |   |   |-- sync
+    |   |   |   |-- durable_command.dart
+    |   |   |   |-- durable_command_owner.dart
+    |   |   |   |-- pending_command_store.dart
+    |   |   |   `-- sync_reconciliation_failure.dart
+    |   |   `-- visit
+    |   |       |-- local_inventory_projection.dart
+    |   |       `-- visit_command_serializer.dart
+    |   |-- features
+    |   |   |-- auth
+    |   |   |   |-- README.md
+    |   |   |   |-- application
+    |   |   |   |-- data
+    |   |   |   `-- presentation
+    |   |   |-- custody
+    |   |   |   |-- README.md
+    |   |   |   |-- application
+    |   |   |   |-- custody_contracts.dart
+    |   |   |   |-- data
+    |   |   |   |-- domain
+    |   |   |   `-- presentation
+    |   |   |-- recovery
+    |   |   |   |-- application
+    |   |   |   |-- data
+    |   |   |   `-- presentation
+    |   |   |-- shops
+    |   |   |   |-- application
+    |   |   |   |-- data
+    |   |   |   |-- domain
+    |   |   |   `-- presentation
+    |   |   |-- visits
+    |   |   |   |-- COMMERCIAL_ACTION_CLOSURE.md
+    |   |   |   |-- README.md
+    |   |   |   |-- application
+    |   |   |   |-- data
+    |   |   |   |-- domain
+    |   |   |   |-- list
+    |   |   |   |-- presentation
+    |   |   |   `-- visit_field_contracts.dart
+    |   |   `-- work_session
+    |   |       |-- application
+    |   |       |-- data
+    |   |       `-- presentation
+    |   |-- main.dart
+    |   |-- models
+    |   |   |-- cart_item_model.dart
+    |   |   |-- product_model.dart
+    |   |   `-- visit_model.dart
+    |   |-- repositories
+    |   |   |-- dashboard_repository.dart
+    |   |   `-- sync_repository.dart
+    |   |-- screens
+    |   |   |-- add_shop_screen.dart
+    |   |   |-- dashboard_screen.dart
+    |   |   |-- login_screen.dart
+    |   |   |-- splash_screen.dart
+    |   |   |-- visit_list_screen.dart
+    |   |   `-- visit_screen.dart
+    |   `-- services
+    |       |-- api_constants.dart
+    |       |-- location_failure.dart
+    |       `-- location_service.dart
+    |-- pubspec.lock
+    |-- pubspec.yaml
+    `-- test
+        |-- app
+        |   `-- app_bootstrap_theme_foundation_test.dart
+        |-- core
+        |   |-- db
+        |   |   `-- visit_local_persistence_decomposition_test.dart
+        |   |-- network
+        |   |   |-- api_failure_test.dart
+        |   |   |-- auth_interceptor_test.dart
+        |   |   `-- retry_policy_characterization_test.dart
+        |   |-- observability
+        |   |   `-- error_observability_closure_test.dart
+        |   |-- sync
+        |   |   `-- durable_command_owner_test.dart
+        |   `-- visit
+        |       |-- local_inventory_projection_integrity_test.dart
+        |       `-- visit_command_correction_test.dart
+        |-- features
+        |   |-- auth
+        |   |   |-- application
+        |   |   |-- data
+        |   |   |-- fixtures
+        |   |   `-- presentation
+        |   |-- custody
+        |   |   |-- BATCH_FAILURE_IDENTITY_CONTRACT.md
+        |   |   |-- custody_behavioral_closure_test.dart
+        |   |   |-- data
+        |   |   |-- domain
+        |   |   |-- pending_return_custody_projection_test.dart
+        |   |   |-- transfer_batch_failure_identity_test.dart
+        |   |   `-- transfer_handshake_closure_test.dart
+        |   |-- dashboard
+        |   |   `-- dashboard_refresh_issue_test.dart
+        |   |-- recovery
+        |   |   |-- recovery_behavioral_closure_test.dart
+        |   |   `-- sync_recovery_reconciliation_closure_test.dart
+        |   |-- session_custody_decomposition_test.dart
+        |   |-- shops
+        |   |   |-- shop_creation_reconciliation_test.dart
+        |   |   `-- shop_location_feedback_test.dart
+        |   |-- visits
+        |   |   |-- application
+        |   |   |-- data
+        |   |   |-- domain
+        |   |   |-- list
+        |   |   |-- visit_commercial_decomposition_test.dart
+        |   |   |-- visit_decomposition_test.dart
+        |   |   `-- wiring
+        |   `-- work_session
+        |       |-- session_route_authority_closure_test.dart
+        |       `-- work_session_behavioral_closure_test.dart
+        |-- offline_durable_command_test.dart
+        |-- offline_owner_guard_test.dart
+        |-- repositories
+        |   |-- generate_legacy_transfer_test.py
+        |   `-- legacy_transfer_compatibility.dart.template
+        |-- services
+        |   |-- TYPED_FAILURE_AUDIT.md
+        |   `-- location_service_test.dart
+        `-- widget_test.dart

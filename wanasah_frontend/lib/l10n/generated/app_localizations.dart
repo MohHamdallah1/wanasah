@@ -95,49 +95,233 @@ abstract class AppLocalizations {
     Locale('en')
   ];
 
+  /// No description provided for @stockVehicleTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'مخزون سيارة المندوب:'**
+  String get stockVehicleTitle;
+
+  /// No description provided for @stockEmptyVerified.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يوجد مخزون متاح للبيع في السيارة حالياً.'**
+  String get stockEmptyVerified;
+
+  /// No description provided for @stockUnavailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر التحقق من مخزون السيارة؛ الرصيد غير معروف.'**
+  String get stockUnavailable;
+
+  /// No description provided for @stockDenied.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد صلاحية لعرض العهدة الحالية.'**
+  String get stockDenied;
+
+  /// No description provided for @stockStale.
+  ///
+  /// In ar, this message translates to:
+  /// **'مخزون محفوظ للاستخدام دون اتصال؛ ليس رصيداً حالياً مؤكداً.'**
+  String get stockStale;
+
+  /// No description provided for @stockReceived.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستلام'**
+  String get stockReceived;
+
+  /// No description provided for @stockSold.
+  ///
+  /// In ar, this message translates to:
+  /// **'المباع'**
+  String get stockSold;
+
+  /// No description provided for @stockRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتبقي'**
+  String get stockRemaining;
+
+  /// No description provided for @stockCarton.
+  ///
+  /// In ar, this message translates to:
+  /// **'كرتونة'**
+  String get stockCarton;
+
+  /// No description provided for @stockPack.
+  ///
+  /// In ar, this message translates to:
+  /// **'باكيت'**
+  String get stockPack;
+
+  /// No description provided for @stockPiece.
+  ///
+  /// In ar, this message translates to:
+  /// **'حبة'**
+  String get stockPiece;
+
+  /// No description provided for @stockPendingReturns.
+  ///
+  /// In ar, this message translates to:
+  /// **'مرتجعات محلية بانتظار الحسم:'**
+  String get stockPendingReturns;
+
+  /// No description provided for @stockPendingReturnsHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه أدلة محلية معلقة وليست رصيد العهدة النهائي من السيرفر.'**
+  String get stockPendingReturnsHint;
+
+  /// No description provided for @stockNonSellableTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'عهدة غير قابلة للبيع:'**
+  String get stockNonSellableTitle;
+
+  /// No description provided for @stockStatusDamaged.
+  ///
+  /// In ar, this message translates to:
+  /// **'تالف'**
+  String get stockStatusDamaged;
+
+  /// No description provided for @stockStatusQuarantined.
+  ///
+  /// In ar, this message translates to:
+  /// **'محجور'**
+  String get stockStatusQuarantined;
+
+  /// No description provided for @stockStatusBlocked.
+  ///
+  /// In ar, this message translates to:
+  /// **'محظور'**
+  String get stockStatusBlocked;
+
+  /// No description provided for @stockStatusRecalled.
+  ///
+  /// In ar, this message translates to:
+  /// **'مستدعى'**
+  String get stockStatusRecalled;
+
+  /// No description provided for @stockStatusDisposalPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار الإتلاف'**
+  String get stockStatusDisposalPending;
+
+  /// No description provided for @stockPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار المزامنة'**
+  String get stockPending;
+
+  /// No description provided for @stockInFlight.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيد الإرسال'**
+  String get stockInFlight;
+
+  /// No description provided for @stockNeedsAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'يحتاج معالجة'**
+  String get stockNeedsAction;
+
+  /// No description provided for @stockReasonExpired.
+  ///
+  /// In ar, this message translates to:
+  /// **'منتهي الصلاحية'**
+  String get stockReasonExpired;
+
+  /// No description provided for @stockReasonFactory.
+  ///
+  /// In ar, this message translates to:
+  /// **'عيب مصنعي'**
+  String get stockReasonFactory;
+
+  /// No description provided for @stockAvailableLocal.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوفر محلياً (غير مؤكد حالياً)'**
+  String get stockAvailableLocal;
+
+  /// No description provided for @stockSearchHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابحث عن صنف...'**
+  String get stockSearchHint;
+
+  /// No description provided for @stockConfirmQuantities.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعتماد الكميات والعودة للفاتورة'**
+  String get stockConfirmQuantities;
+
+  /// No description provided for @stockSaleCartons.
+  ///
+  /// In ar, this message translates to:
+  /// **'كراتين المبيع'**
+  String get stockSaleCartons;
+
+  /// No description provided for @stockSalePacks.
+  ///
+  /// In ar, this message translates to:
+  /// **'حبات المبيع'**
+  String get stockSalePacks;
+
+  /// No description provided for @stockSampleCartons.
+  ///
+  /// In ar, this message translates to:
+  /// **'كراتين العينات (🎁)'**
+  String get stockSampleCartons;
+
+  /// No description provided for @stockSamplePacks.
+  ///
+  /// In ar, this message translates to:
+  /// **'حبات العينات (🎁)'**
+  String get stockSamplePacks;
+
+  /// No description provided for @stockSampleReasonHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر سبب صرف العينة (إجباري)'**
+  String get stockSampleReasonHint;
+
+  /// No description provided for @stockSampleReasonDetailsHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب السبب بالتفصيل...'**
+  String get stockSampleReasonDetailsHint;
+
+  /// No description provided for @stockSampleReasonPromo.
+  ///
+  /// In ar, this message translates to:
+  /// **'ترويج منتج جديد'**
+  String get stockSampleReasonPromo;
+
+  /// No description provided for @stockSampleReasonFree.
+  ///
+  /// In ar, this message translates to:
+  /// **'عينة مجانية للزبائن'**
+  String get stockSampleReasonFree;
+
+  /// No description provided for @stockSampleReasonCompensation.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعويض ودي للمحل'**
+  String get stockSampleReasonCompensation;
+
+  /// No description provided for @stockSampleReasonOther.
+  ///
+  /// In ar, this message translates to:
+  /// **'أخرى'**
+  String get stockSampleReasonOther;
+
   /// No description provided for @appTitle.
   ///
   /// In ar, this message translates to:
   /// **'وناسة'**
   String get appTitle;
-
-  String get stockVehicleTitle;
-  String get stockEmptyVerified;
-  String get stockUnavailable;
-  String get stockDenied;
-  String get stockStale;
-  String get stockReceived;
-  String get stockSold;
-  String get stockRemaining;
-  String get stockCarton;
-  String get stockPack;
-  String get stockPiece;
-  String get stockPendingReturns;
-  String get stockPendingReturnsHint;
-  String get stockNonSellableTitle;
-  String get stockStatusDamaged;
-  String get stockStatusQuarantined;
-  String get stockStatusBlocked;
-  String get stockStatusRecalled;
-  String get stockStatusDisposalPending;
-  String get stockPending;
-  String get stockInFlight;
-  String get stockNeedsAction;
-  String get stockReasonExpired;
-  String get stockReasonFactory;
-  String get stockAvailableLocal;
-  String get stockSearchHint;
-  String get stockConfirmQuantities;
-  String get stockSaleCartons;
-  String get stockSalePacks;
-  String get stockSampleCartons;
-  String get stockSamplePacks;
-  String get stockSampleReasonHint;
-  String get stockSampleReasonDetailsHint;
-  String get stockSampleReasonPromo;
-  String get stockSampleReasonFree;
-  String get stockSampleReasonCompensation;
-  String get stockSampleReasonOther;
 
   /// No description provided for @dashboardConnectivityCached.
   ///
@@ -844,7 +1028,7 @@ abstract class AppLocalizations {
   /// No description provided for @workSessionRateLimited.
   ///
   /// In ar, this message translates to:
-  /// **'عدد الطلبات مرتفع حالياً. أعد المحاولة بعد قليل.'**
+  /// **'عدد الطلبات مرتفع ونتيجة إجراء الجلسة غير مؤكدة. حدّث حالة الجلسة قبل إعادة المحاولة.'**
   String get workSessionRateLimited;
 
   /// No description provided for @workSessionNetworkUnresolved.
@@ -922,7 +1106,7 @@ abstract class AppLocalizations {
   /// No description provided for @workSessionIssueRateLimited.
   ///
   /// In ar, this message translates to:
-  /// **'تم تأجيل إجراء الجلسة بسبب حد الطلبات. أعد المحاولة بعد قليل.'**
+  /// **'تجاوز الإجراء حد الطلبات وقد يكون نُفذ. تحقّق من حالة الجلسة قبل إعادة المحاولة.'**
   String get workSessionIssueRateLimited;
 
   /// No description provided for @workSessionIssueConnectivity.
