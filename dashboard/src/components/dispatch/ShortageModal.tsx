@@ -374,7 +374,7 @@ export function ShortageModal({
                   text("shortageStudioSend") : text("shortageStudioSaveUnassigned")}
               </button>
               {!canSubmit && disabledReason && <span id={sendReasonId} role="tooltip"
-                className="pointer-events-none invisible absolute bottom-full start-1/2 z-30 mb-2 w-max max-w-[min(20rem,80vw)] -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-center text-xs font-semibold leading-5 text-white opacity-0 shadow-xl transition-none group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100">
+                className="pointer-events-none invisible absolute bottom-full end-0 z-30 mb-2 w-max max-w-[min(20rem,80vw)] rounded-lg bg-slate-900 px-3 py-2 text-center text-xs font-semibold leading-5 text-white opacity-0 shadow-xl transition-none group-hover:visible group-hover:opacity-100 group-focus:visible group-focus:opacity-100">
                 {disabledReason}
               </span>}
             </span>

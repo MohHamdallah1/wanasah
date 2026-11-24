@@ -81,6 +81,22 @@ describe("#1055 authorized shortage infinite product catalog", () => {
     expect(fake.fetch.mock.calls.every(([url])=>url.includes("purpose=SHORTAGE")&&url.includes("limit=80"))).toBe(true);
   });
 
+  it("keeps the actual catalog viewport stable before the first signed page, without animated fake rows", async () => {
+    let finish!: (page: {items: typeof products; has_more: boolean; next_cursor: null}) => void;
+    fake.fetch.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(<ShortageProductPicker scope="company:g1" drafted={[]} onAdd={vi.fn()}/>);
+    const list = screen.getByTestId("shortage-visible-products");
+    expect(list).toHaveClass("h-[23rem]");
+    expect(list).toHaveAttribute("aria-busy", "true");
+    expect(list.querySelector(".animate-pulse")).toBeNull();
+    expect(within(list).queryByRole("button")).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+    finish({items: products.slice(0,1), has_more:false, next_cursor:null});
+    await screen.findByText("SKU 001");
+    expect(list).toHaveClass("h-[23rem]");
+    expect(list).toHaveAttribute("aria-busy", "false");
+  });
+
   it("invalidates the visible window on search change without old company results", async () => {
     render(<ShortageProductPicker scope="company:g1" drafted={[]} onAdd={vi.fn()}/>);
     await screen.findByText("SKU 001");
@@ -106,18 +122,19 @@ describe("#1055 disabled request reason", () => {
   ])("gives instant hover/focus feedback for %s",(_,overrides,reason)=>{
     render(<ShortageModal {...initial} {...overrides}/>);
     const hint=screen.getByRole("tooltip");
-    const action=screen.getByRole("button",{name:/Send to representative|Save without representative/});
+    const action=screen.getByRole("button",{name:/Save shortage demand|Save without representative/});
     expect(action).toBeDisabled();
     expect(hint).toHaveTextContent(reason);
     expect(action).toHaveAttribute("aria-describedby",hint.id);
-    expect(hint).toHaveClass("group-hover:visible","group-focus:visible");
+    expect(hint).toHaveClass("group-hover:visible","group-focus:visible","end-0");
+    expect(hint).not.toHaveClass("-translate-x-1/2");
     expect(screen.getByTestId("shortage-send-hint-anchor")).toHaveAttribute("tabindex","0");
   });
 
   it("enables send with valid scope and item, without showing a tooltip",()=>{
     render(<ShortageModal {...initial} shortageZoneId="1" shortageShopId="2"
       shortageDriverId="31" shortageDraft={[{productId:"41",productName:"Chips",quantity:2}]}/>);
-    expect(screen.getByRole("button",{name:"Send to representative"})).toBeEnabled();
+    expect(screen.getByRole("button",{name:"Save shortage demand"})).toBeEnabled();
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 });
