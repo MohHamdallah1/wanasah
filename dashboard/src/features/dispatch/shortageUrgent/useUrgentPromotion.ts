@@ -9,6 +9,7 @@ type Fetch = (path:string, options?:RequestInit) => Promise<unknown>;
 type Feedback = "unknown" | "conflict" | "denied" | "storage" | "another-tab" | "stale" | "committed" | "refresh";
 type Props = { session:DashboardSession; scope:string|null; authorized:boolean; ready:boolean; fetch:Fetch;
   rows:readonly Shortage[]; drivers:readonly EligibleDriver[]; canSee:(row:Shortage)=>boolean;
+  canRecover:(original:UrgentPending)=>boolean;
   onRestore:()=>void; refresh:()=>Promise<void> };
 type State = { key:string; pending:UrgentPending|null; busy:boolean; feedback:Feedback|null; blocked:boolean };
 const empty = (key:string):State => ({key,pending:null,busy:false,feedback:null,blocked:false});
@@ -21,10 +22,19 @@ export function useUrgentPromotion(props:Props) {
   const generation = useRef(0);
   const denied = useRef(false);
   const mounted = useRef(true);
-  const scoped = (p:Props, original:UrgentPending) => p.rows.some(row =>
-    row.id === String(original.shortageId) && row.shopId === String(original.shopId) &&
-    row.zoneId === String(original.zoneId) && row.productId === String(original.productId) &&
-    p.canSee(row) && p.drivers.some(driver => driver.id === String(original.body.driver_id) && allowedUrgentDriver(row,driver)));
+  // Pending-list membership is NOT an authorization or a receipt. The
+  // server can replay a historical completed demand under current scope.
+  // Check the independently admitted shop/zone and executable driver, and
+  // reject any contradictory identity if the pending row is still visible.
+  const scoped = (p:Props, original:UrgentPending) => {
+    if (original.scope !== p.scope || !p.canRecover(original)) return false;
+    const driver = p.drivers.find(d => d.id === String(original.body.driver_id));
+    if (!driver) return false;
+    const row = p.rows.find(r => r.id === String(original.shortageId));
+    return !row || (row.shopId === String(original.shopId) &&
+      row.zoneId === String(original.zoneId) && row.productId === String(original.productId) &&
+      p.canSee(row) && allowedUrgentDriver(row,driver));
+  };
   const live = useCallback((ownKey:string, ownGeneration:number, requireReady=true) => {
     const now=current.current;
     return mounted.current && now.key===ownKey && generation.current===ownGeneration && !denied.current &&
@@ -45,7 +55,7 @@ export function useUrgentPromotion(props:Props) {
     try{
       const saved=readUrgent(props.scope);
       if(saved){
-        if(!scoped(props,saved)){setState({...empty(key),blocked:true,feedback:"denied"});return;}
+        if(!scoped(props,saved)){setState({...empty(key),pending:saved,feedback:"denied"});return;}
         setState({...empty(key),pending:saved,feedback:"unknown"});props.onRestore();
       }
     }catch{setState({...empty(key),blocked:true,feedback:"storage"});}
@@ -71,7 +81,7 @@ export function useUrgentPromotion(props:Props) {
         try{
           original=readUrgent(scope);
           if(original){
-            if(!scoped(current.current.props,original)){publish({pending:null,blocked:true,feedback:"denied"});return false;}
+            if(!scoped(current.current.props,original)){publish({pending:original,feedback:"denied"});return false;}
             if(newRequest){publish({pending:original,feedback:"unknown"});return false;}
           }else{
             if(!newRequest){publish({pending:null,feedback:"stale"});return false;}
