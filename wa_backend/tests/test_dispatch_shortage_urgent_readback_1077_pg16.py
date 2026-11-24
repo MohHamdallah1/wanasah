@@ -5,12 +5,12 @@ import os
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import delete, event, insert, select, text, update
+from sqlalchemy import delete, event, func, insert, literal, select, text, update
 
 from database import engine as http_engine
 from models import (
     InventoryLocation, ShortageRequest, ShortageUrgentAssignment,
-    UserLocationAccess, Visit,
+    UserLocationAccess, Visit, utc_now,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
 from tests.test_dispatch_shortage_phase_b_pg16 import (
@@ -196,65 +196,271 @@ async def test_1077_real_pending_terminal_partial_scope_and_history(pg):
         _progress(await row(), 1, 9, 2, 7)
         _progress(await row(ordinary), 1, 9, 2, 7)
 
-        # Same-demand terminal history is deliberately much larger than the
-        # live set. Seed by batches only in the isolated test database.
-        history = 2000
+        # A corrupt cross-Shop assignment cannot be silently filtered away.
+        unrelated_shop, _ = await _add_shop(
+            client, owner, zone, balance="0", cap="100000",
+            jurisdiction_id=jurisdiction,
+        )
         async with pg.session() as db:
-            for start in range(0, history, 200):
-                ids = (await db.scalars(insert(Visit).returning(Visit.id), [
-                    dict(company_id=tenant.company_id, shop_id=shop,
-                         driver_id=driver, operational_date=date.today() - timedelta(days=1+i),
-                         status="Cancelled", is_emergency=True)
-                    for i in range(start, min(start+200, history))
-                ])).all()
-                await db.execute(insert(ShortageUrgentAssignment), [
-                    dict(company_id=tenant.company_id, shortage_id=demand_id, visit_id=v,
-                         driver_id=driver, vehicle_id=vehicle, custody_epoch_id=epoch,
-                         approved_base=1) for v in ids
-                ])
+            await db.execute(update(Visit).where(
+                Visit.company_id == tenant.company_id, Visit.id == hidden_visit,
+            ).values(status="Pending", shop_id=unrelated_shop))
+            await db.execute(update(ShortageUrgentAssignment).where(
+                ShortageUrgentAssignment.company_id == tenant.company_id,
+                ShortageUrgentAssignment.shortage_id == demand_id,
+                ShortageUrgentAssignment.visit_id == hidden_visit,
+            ).values(approved_base=1))
             await db.commit()
-        # Capture ACTUAL HTTP SQL, not an invented EXPLAIN surrogate.
-        captured = []
-        def record(conn, cursor, statement, parameters, context, executemany):
-            captured.append((statement, parameters))
-        event.listen(http_engine.sync_engine, "before_cursor_execute", record)
-        try:
-            _progress(await row(), 1, 9, 2, 7)
-            exact_calls = list(captured)
-            captured.clear()
-            whole = await client.get("/dispatch/shortages", headers=owner)
-            assert whole.status_code == 200, whole.text
-            _progress(next(x for x in whole.json() if int(x["id"]) == demand_id),
-                      1, 9, 2, 7)
-            list_calls = list(captured)
-        finally:
-            event.remove(http_engine.sync_engine, "before_cursor_execute", record)
-        for calls in (exact_calls, list_calls):
-            projections = [(sql, args) for sql, args in calls if "pending_shortage_urgent" in sql]
-            assert len(projections) == 1
-            assert not any("inventory_movements" in sql.lower() for sql, _ in calls)
-            statement, params = projections[0]
+        _progress(await row(), 1, 9, None, None)
+        async with pg.session() as db:
+            await db.execute(update(Visit).where(
+                Visit.company_id == tenant.company_id, Visit.id == hidden_visit,
+            ).values(shop_id=shop, driver_id=driver,
+                     operational_date=date.today() - timedelta(days=600)))
+            await db.commit()
+        _progress(await row(), 1, 9, None, None)
+        async with pg.session() as db:
+            await db.execute(update(Visit).where(
+                Visit.company_id == tenant.company_id, Visit.id == hidden_visit,
+            ).values(status="Cancelled", driver_id=int(second_field.driver.id)))
+            await db.commit()
+        _progress(await row(), 1, 9, 2, 7)
+
+        # W2 signed seam: the initial response is captured as evidence, but
+        # the business caller does not use it to infer completion. A terminal
+        # sale removes the demand from GET; exact UUID retry must still return
+        # the original immutable approval receipt.
+        seam_shop, _ = await _add_shop(
+            client, owner, zone, balance="0", cap="100000",
+            jurisdiction_id=jurisdiction,
+        )
+        seam_demand = await client.post("/dispatch/shortage-commands", headers=owner,
+            json=_command(uuid4(), seam_shop, zone, driver, tenant.variant_id, 2))
+        assert seam_demand.status_code == 201, seam_demand.text
+        seam_id = int(seam_demand.json()["lines"][0]["shortage_id"])
+        seam_path = f"/dispatch/shortages?shortage_id={seam_id}"
+        before = (await client.get(seam_path, headers=owner)).json()[0]
+        _progress(before, 0, 2, 0, 2)
+        quote_response = await client.get("/dispatch/shortages/vehicle-availability",
+            headers=owner, params={"driver_id": driver, "product_ids": tenant.variant_id})
+        assert quote_response.status_code == 200, quote_response.text
+        quote = quote_response.json()
+        assert quote["status"] == "VERIFIED", quote
+        intent = {"request_id": str(uuid4()), "driver_id": driver, "quantity_base": 2}
+        seam_endpoint = f"/dispatch/shortages/{seam_id}/promote-urgent"
+        seam_first = await client.post(seam_endpoint, headers=owner, json=intent)
+        assert seam_first.status_code == 201, seam_first.text
+        receipt = seam_first.json()
+        assert receipt["request_id"] == intent["request_id"]
+        assert receipt["shortage_id"] == seam_id and receipt["approved_base"] == 2
+        after = (await client.get(seam_path, headers=owner)).json()[0]
+        _progress(after, 0, 2, 2, 0)
+        seam_sale = await client.put(f"/visits/{receipt['visit_id']}", headers=signed, json={
+            "request_id": str(uuid4()), "outcome": "Sale",
+            "cash_collected": "2", "debt_paid": "0",
+            "cart_items": [{"product_variant_id": tenant.variant_id, "packs_quantity": 2}],
+        })
+        assert seam_sale.status_code == 200, seam_sale.text
+        assert (await client.get(seam_path, headers=owner)).json() == []
+        seam_replay = await client.post(seam_endpoint, headers=owner, json=intent)
+        assert seam_replay.status_code == 201 and seam_replay.json() == receipt, seam_replay.text
+        final_rows = (await client.get("/dispatch/shortages", headers=owner)).json()
+        assert str(seam_id) not in {r["id"] for r in final_rows}
+        if os.getenv("WANASAH_1078_SEAM_JSON"):
+            from pathlib import Path
+            Path(os.environ["WANASAH_1078_SEAM_JSON"]).write_text(json.dumps({
+                "before": before, "quote": quote, "request": intent,
+                "receipt": receipt, "after": after, "replay": seam_replay.json(),
+                "finalRows": final_rows,
+            }, ensure_ascii=False), encoding="utf-8")
+        print("1077_SIGNED_SEAM", seam_id, "same UUID/receipt after terminal GET []")
+
+        # Scale independently: 500 unrelated visible signed demands and 500
+        # unrelated live Visits, only 20 matched. Every unrelated demand must
+        # still appear in the list, never silently truncated.
+        breadth = 500
+        matched = 20
+        async with pg.session() as db:
+            demand_ids = (await db.scalars(insert(ShortageRequest).returning(
+                ShortageRequest.id), [
+                dict(company_id=tenant.company_id, zone_id=zone,
+                     shop_id=unrelated_shop, product_variant_id=tenant.variant_id,
+                     quantity=10, status="pending", fulfillment_version=1,
+                     fulfilled_base=0)
+                for _ in range(breadth)
+            ])).all()
+            visit_ids = (await db.scalars(insert(Visit).returning(Visit.id), [
+                dict(company_id=tenant.company_id, shop_id=unrelated_shop,
+                     driver_id=driver, operational_date=date.today() - timedelta(days=1+i),
+                     status="Pending", is_emergency=True)
+                for i in range(breadth)
+            ])).all()
+            await db.execute(insert(ShortageUrgentAssignment), [
+                dict(company_id=tenant.company_id, shortage_id=did, visit_id=vid,
+                     driver_id=driver, vehicle_id=vehicle, custody_epoch_id=epoch,
+                     approved_base=2)
+                for did, vid in zip(demand_ids[:matched], visit_ids[:matched])
+            ])
+            await db.commit()
+
+        async def add_history(count, offset):
+            # INSERT..SELECT uses one statement per table; no Python history
+            # loop and no live mutation implementation bypass outside fixture.
             async with pg.session() as db:
-                conn = await db.connection()
-                raw = (await conn.exec_driver_sql(
-                    "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + statement, params,
-                )).scalar_one()
+                series = func.generate_series(1, count).table_valued("n").render_derived()
+                visits = insert(Visit).from_select(
+                    ["company_id", "shop_id", "driver_id", "operational_date",
+                     "status", "is_emergency"],
+                    select(literal(tenant.company_id), literal(shop), literal(driver),
+                           literal(date.today() - timedelta(days=offset)) - series.c.n,
+                           literal("Cancelled"), literal(True)).select_from(series),
+                ).returning(Visit.id).cte("seed_terminal_visits")
+                await db.execute(insert(ShortageUrgentAssignment).from_select(
+                    ["company_id", "shortage_id", "visit_id", "driver_id",
+                     "vehicle_id", "custody_epoch_id", "approved_base", "created_at"],
+                    select(literal(tenant.company_id), literal(demand_id), visits.c.id,
+                           literal(driver), literal(vehicle), literal(epoch), literal(1),
+                           literal(utc_now())),
+                ))
+                await db.commit()
+
+        async def analyze():
+            # Test-only statistics refresh, not part of request or migration.
+            async with pg.admin_engine.begin() as conn:
+                await conn.execute(text("ANALYZE visits;"))
+                await conn.execute(text("ANALYZE shortage_urgent_assignments;"))
+                await conn.execute(text("ANALYZE shortage_requests;"))
+
+        async def prove(label, history):
+            captured = []
+            def record(conn, cursor, statement, parameters, context, executemany):
+                captured.append((statement, parameters))
+            event.listen(http_engine.sync_engine, "before_cursor_execute", record)
+            try:
+                _progress(await row(), 1, 9, 2, 7)
+                exact_calls = list(captured)
+                captured.clear()
+                whole = await client.get("/dispatch/shortages", headers=owner)
+                assert whole.status_code == 200, whole.text
+                rows = {int(x["id"]): x for x in whole.json()}
+                assert set(demand_ids) <= rows.keys()
+                _progress(rows[demand_id], 1, 9, 2, 7)
+                for did in demand_ids[:matched]:
+                    _progress(rows[did], 0, 10, 2, 8)
+                for did in demand_ids[matched:]:
+                    _progress(rows[did], 0, 10, 0, 10)
+                list_calls = list(captured)
+            finally:
+                event.remove(http_engine.sync_engine, "before_cursor_execute", record)
+            assert len(list_calls) == len(exact_calls), (len(exact_calls), len(list_calls))
+            for kind, calls in (("exact", exact_calls), ("list", list_calls)):
+                projections = [(sql, args) for sql, args in calls if "pending_shortage_urgent" in sql]
+                assert len(projections) == 1
+                assert not any("inventory_movements" in sql.lower() for sql, _ in calls)
+                statement, params = projections[0]
+                async with pg.session() as db:
+                    conn = await db.connection()
+                    raw = (await conn.exec_driver_sql(
+                        "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) " + statement, params,
+                    )).scalar_one()
+                    # Test-only generic prepared plan; production never changes
+                    # planner settings. Bind values are synthetic scalars.
+                    def sql_value(v):
+                        if v is None:
+                            return "NULL"
+                        if isinstance(v, bool):
+                            return "TRUE" if v else "FALSE"
+                        if isinstance(v, int):
+                            return str(v)
+                        assert isinstance(v, str), type(v)
+                        return "'" + v.replace("'", "''") + "'"
+                    await conn.exec_driver_sql("SET LOCAL plan_cache_mode = force_generic_plan")
+                    await conn.exec_driver_sql("PREPARE w1077_plan AS " + statement)
+                    generic = (await conn.exec_driver_sql(
+                        "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) EXECUTE w1077_plan("
+                        + ",".join(map(sql_value, params)) + ")"
+                    )).scalar_one()
+                    counts = (await conn.exec_driver_sql(
+                        "SELECT generic_plans, custom_plans FROM pg_prepared_statements "
+                        "WHERE name='w1077_plan'"
+                    )).one()
+                    assert counts[0] >= 1 and counts[1] == 0, counts
+                    await conn.exec_driver_sql("DEALLOCATE w1077_plan")
+
+                for mode, result in (("custom", raw), ("generic", generic)):
+                    doc = json.loads(result) if isinstance(result, str) else result
+                    nodes = list(_walk(doc[0]["Plan"]))
+                    def work(n):
+                        return (n.get("Actual Rows", 0) + n.get("Rows Removed by Filter", 0)
+                                + n.get("Rows Removed by Index Recheck", 0)) * n.get("Actual Loops", 0)
+                    relevant = [n for n in nodes if n.get("Relation Name") in
+                                ("shortage_urgent_assignments", "visits")]
+                    scans = [{k: n.get(k) for k in ("Relation Name", "Node Type", "Index Name",
+                              "Actual Rows", "Actual Loops", "Rows Removed by Filter",
+                              "Index Cond", "Shared Hit Blocks", "Shared Read Blocks")}
+                             for n in relevant]
+                    print("1077_SCALE", label, kind, mode, history, breadth, matched,
+                          doc[0]["Execution Time"], json.dumps(scans))
+                    assignment_nodes = [n for n in relevant if n["Relation Name"] == "shortage_urgent_assignments"]
+                    visit_nodes = [n for n in relevant if n["Relation Name"] == "visits"]
+                    assert len(assignment_nodes) == 1, scans
+                    assert "visit_id" in assignment_nodes[0].get("Index Cond", ""), scans
+                    assert assignment_nodes[0]["Actual Loops"] <= breadth + 10, scans
+                    assert work(assignment_nodes[0]) <= matched + 10, scans
+                    # Each ordered batch must use both tenant and status in
+                    # its index condition, never filter historical rows.
+                    pending_nodes = [n for n in visit_nodes if "status" in n.get("Index Cond", "")]
+                    assert len(pending_nodes) == 2, scans
+                    assert all("company_id" in n.get("Index Cond", "") for n in pending_nodes), scans
+                    assert all(n.get("Rows Removed by Filter", 0) == 0 for n in pending_nodes), scans
+                    assert sum(work(n) for n in pending_nodes) <= breadth + 40, scans
+                    assert sum(n["Actual Loops"] for n in pending_nodes) <= 20, scans
+                    pending_buffers = sum(n.get("Shared Hit Blocks", 0) + n.get("Shared Read Blocks", 0)
+                                          for n in pending_nodes)
+                    assert pending_buffers <= 150, scans
+                    evidence_nodes = [n for n in visit_nodes if n not in pending_nodes]
+                    assert len(evidence_nodes) == 1, scans
+                    assert "id" in evidence_nodes[0].get("Index Cond", ""), scans
+                    assert work(evidence_nodes[0]) <= matched + 10, scans
+                    assert evidence_nodes[0]["Actual Loops"] <= matched + 10, scans
+                    # EXPLAIN rounds per-loop rows; producer count is exact.
+                    producers = [n for n in nodes if n.get("Subplan Name") == "CTE current_pending_assignments"]
+                    assert len(producers) == 1 and producers[0]["Actual Rows"] == matched + 1, scans
+                    print("1077_BOUNDED", label, kind, mode, "pending_buffers", pending_buffers,
+                          "live_assignments", producers[0]["Actual Rows"])
+            return len(rows)
+
+        await add_history(2000, 1000)
+        await analyze()
+        await prove("small-fresh", 2000)
+        # Deliberately grow history after ANALYZE; repeat without refreshing
+        # stats, then with fresh stats, same genuine signed HTTP requests.
+        await add_history(50000, 10000)
+        await prove("large-stale", 52000)
+        await analyze()
+        await prove("large-fresh", 52000)
+        # Compare actual mutation's existing locked all-history lookup;
+        # read-only plan evidence, no mutation implementation change.
+        async with pg.session() as db:
+            conn = await db.connection()
+            mutation = select(ShortageUrgentAssignment).where(
+                ShortageUrgentAssignment.company_id == tenant.company_id,
+                ShortageUrgentAssignment.shortage_id == demand_id,
+            ).order_by(ShortageUrgentAssignment.id.asc()).with_for_update()
+            from sqlalchemy.dialects import postgresql
+            sql = str(mutation.compile(dialect=postgresql.dialect(),
+                                       compile_kwargs={"literal_binds": True}))
+            raw = (await conn.exec_driver_sql(
+                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql
+            )).scalar_one()
             doc = json.loads(raw) if isinstance(raw, str) else raw
-            nodes = list(_walk(doc[0]["Plan"]))
-            scans = [(n.get("Relation Name"), n.get("Index Name"),
-                      n.get("Actual Rows"), n.get("Actual Loops"))
-                     for n in nodes if n.get("Relation Name") in
-                     ("shortage_urgent_assignments", "visits")]
-            print("1077_HISTORY_PLAN", history, doc[0]["Execution Time"], scans)
-            assignment_nodes = [n for n in nodes
-                                if n.get("Relation Name") == "shortage_urgent_assignments"]
-            assert assignment_nodes, scans
-            assert all(n.get("Index Name") == "uq_shortage_assignment_visit"
-                       for n in assignment_nodes), scans
-            assert sum((n.get("Actual Rows", 0) + n.get("Rows Removed by Filter", 0))
-                       * n.get("Actual Loops", 0) for n in assignment_nodes) < 20, scans
-            assert sum(n.get("Actual Loops", 0) for n in assignment_nodes) < 20, scans
-        assert len(list_calls) == len(exact_calls), (len(exact_calls), len(list_calls))
+            print("1077_MUTATION_HISTORY", doc[0]["Execution Time"],
+                  doc[0]["Plan"]["Actual Rows"], doc[0]["Plan"].get("Shared Hit Blocks"),
+                  doc[0]["Plan"].get("Shared Read Blocks"))
+            assert doc[0]["Plan"]["Actual Rows"] >= 52000
+            await db.rollback()
+        _progress(await row(ordinary), 1, 9, 2, 7)
+        assert (await client.get(path, headers=other)).json() == []
 
         # Revoke the actual vehicle read scope under the same signed token.
         async with pg.session() as db:
