@@ -1719,7 +1719,6 @@ function DispatchSession() {
         setReadParts(parts => ({...parts,routes:true}));
       }).catch(() => undefined);
     return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isShortageModalOpen,urgentAuthorized,readParts.routes,authenticatedFetch]);
   const urgentDrivers = useMemo(() => eligibleUrgentDrivers(pendingRoutes, drivers), [pendingRoutes, drivers]);
   const shortageUrgent = useUrgentPromotion({
