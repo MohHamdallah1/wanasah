@@ -121,7 +121,10 @@ export function useUrgentPromotion(props:Props) {
           return true;
         }catch(error){
           const status=apiErrorStatus(error);
-          if(status===401||status===403){publish({pending:null,blocked:true,feedback:"denied"});}
+          // The signed replay endpoint also returns 404 when the original receipt
+          // or canonical representative is no longer accessible. Hide details;
+          // the original durable envelope must survive for a later admission.
+          if(status===401||status===403||status===404){publish({pending:null,blocked:true,feedback:"denied"});}
           else publish({pending:original,feedback:status===409?"conflict":"unknown"});
           return false;
         }
