@@ -119,7 +119,7 @@ export function useUrgentPromotion(props:Props) {
     finally{flight.current=false;publish({busy:false});}
   };
   return {
-    authorized:visible, drivers:props.drivers, fetch:props.fetch, pending:pendingVisible,
+    authorized:visible, drivers:props.drivers, fetch:props.fetch, canSee:props.canSee, pending:pendingVisible,
     busy:visible&&active.busy, blocked:active.blocked||hiddenPending,
     feedback:visible?(hiddenPending?"denied" as const:active.feedback):null,
     unresolved:!!active.pending||active.blocked||active.busy,
