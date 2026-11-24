@@ -118,13 +118,27 @@ export function useUrgentPromotion(props:Props) {
     }catch{publish({blocked:true,feedback:"storage"});return false;}
     finally{flight.current=false;publish({busy:false});}
   };
+  const refreshList = async () => {
+    const ownKey=key, ownGeneration=generation.current;
+    if (!live(ownKey,ownGeneration) || active.feedback!=="refresh" || flight.current) return;
+    flight.current=true;
+    setState(s=>({...s,busy:true}));
+    try {
+      await current.current.props.refresh();
+      if(live(ownKey,ownGeneration))setState({...empty(key),feedback:"committed"});
+    } catch { /* The verified receipt is not a new command. Keep refresh blocked. */ }
+    finally {
+      flight.current=false;
+      if(live(ownKey,ownGeneration,false))setState(s=>({...s,busy:false}));
+    }
+  };
   return {
     authorized:visible, drivers:props.drivers, fetch:props.fetch, canSee:props.canSee, pending:pendingVisible,
     busy:visible&&active.busy, blocked:active.blocked||hiddenPending,
     feedback:visible?(hiddenPending?"denied" as const:active.feedback):null,
     unresolved:!!active.pending||active.blocked||active.busy,
     submit:(shortageId:string,driverId:string,quantity:number)=>perform({shortageId,driverId,quantity}),
-    retry:()=>perform(),
+    retry:()=>perform(), refreshList,
   };
 }
 export type UrgentPromotion = ReturnType<typeof useUrgentPromotion>;
