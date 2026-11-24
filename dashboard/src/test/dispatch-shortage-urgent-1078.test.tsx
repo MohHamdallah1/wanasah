@@ -27,7 +27,7 @@ beforeEach(async()=>{
 });
 afterEach(()=>{vi.unstubAllGlobals();Object.defineProperty(navigator,"locks",{configurable:true,value:undefined});});
 const props=(fetch:(path:string,options?:RequestInit)=>Promise<unknown>)=>({
-  session,scope,authorized:true,ready:true,fetch,rows:[row],drivers:[driver,other],canSee:()=>true,onRestore:vi.fn(),refresh:vi.fn(async()=>{}),
+  session,scope,authorized:true,ready:true,fetch,rows:[row],drivers:[driver,other],canSee:()=>true,canRecover:()=>true,onRestore:vi.fn(),refresh:vi.fn(async()=>{}),
 });
 const err=(status:number)=>Object.assign(new Error("private"),{status});
 const getBody=(options?:RequestInit)=>JSON.parse(String(options?.body)) as UrgentIntent;
@@ -122,6 +122,47 @@ describe("#1078 durable POST",()=>{
     await act(async()=>{expect(await h.result.current.submit("7","9",4)).toBe(false);});
     expect(h.result.current.pending).toBeNull();expect(h.result.current.blocked).toBe(true);expect(readUrgent(scope)).not.toBeNull();
     expect(readUrgent("1:99:3")).toBeNull();
+  });
+  it("lost 201 then fulfilled row disappears: independent current scope permits only original UUID replay",async()=>{
+    const posts:string[]=[];
+    const f=vi.fn(async(path:string,opts?:RequestInit)=>{
+      if(path.includes("vehicle-availability"))return quote();
+      posts.push(String(opts?.body));
+      if(posts.length===1)throw Error("lost response");
+      return receipt(getBody(opts));
+    });
+    const p=props(f),h=renderHook(()=>useUrgentPromotion(p));
+    await act(async()=>{expect(await h.result.current.submit("7","9",4)).toBe(false);});
+    const original=readUrgent(scope);h.unmount();
+    const restored=renderHook(()=>useUrgentPromotion({...p,rows:[]}));
+    expect(restored.result.current.pending).toEqual(original);
+    await act(async()=>{expect(await restored.result.current.submit("7","9",1)).toBe(false);});
+    expect(posts).toHaveLength(1);
+    await act(async()=>{expect(await restored.result.current.retry()).toBe(true);});
+    expect(posts).toEqual([posts[0],posts[0]]);
+    expect(readUrgent(scope)).toBeNull();
+    expect(p.refresh).toHaveBeenCalledOnce();
+  });
+  it("absent row with revoked independent scope or wrong actor hides details and sends nothing",async()=>{
+    const original=storeUrgent(scope,row,driver,4);
+    const f=vi.fn(async()=>receipt(original.body));
+    const p=props(f);
+    const h=renderHook(({allowed,actor})=>useUrgentPromotion({...p,scope:actor,rows:[],canRecover:()=>allowed}),
+      {initialProps:{allowed:false,actor:scope}});
+    expect(h.result.current.pending).toBeNull();expect(h.result.current.blocked).toBe(true);
+    await act(async()=>{expect(await h.result.current.retry()).toBe(false);expect(await h.result.current.submit("7","9",1)).toBe(false);});
+    h.rerender({allowed:true,actor:"1:99:3"});
+    expect(h.result.current.pending).toBeNull();
+    await act(async()=>{expect(await h.result.current.retry()).toBe(false);});
+    expect(f).not.toHaveBeenCalled();expect(readUrgent(scope)).toEqual(original);
+  });
+  it("contradictory pending identity cannot grant historical replay",async()=>{
+    const original=storeUrgent(scope,row,driver,4);
+    const f=vi.fn(async()=>receipt(original.body));
+    const h=renderHook(()=>useUrgentPromotion({...props(f),rows:[{...row,shopId:"99"}]}));
+    expect(h.result.current.pending).toBeNull();expect(h.result.current.blocked).toBe(true);
+    await act(async()=>{expect(await h.result.current.retry()).toBe(false);});
+    expect(f).not.toHaveBeenCalled();expect(readUrgent(scope)).toEqual(original);
   });
   it("corrupt ledger fails closed before any network call",async()=>{
     localStorage.setItem(pendingUrgentKey(scope),"{bad");const f=vi.fn(async()=>quote());
