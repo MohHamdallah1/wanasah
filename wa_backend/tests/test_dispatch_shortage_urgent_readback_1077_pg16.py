@@ -414,7 +414,8 @@ async def test_1077_real_pending_terminal_partial_scope_and_history(pg):
                     # Each ordered batch must use both tenant and status in
                     # its index condition, never filter historical rows.
                     pending_nodes = [n for n in visit_nodes if "status" in n.get("Index Cond", "")]
-                    assert len(pending_nodes) == 2, scans
+                    # Empty constant anchor; all batches share one recursive index scan.
+                    assert len(pending_nodes) == 1, scans
                     assert all("company_id" in n.get("Index Cond", "") for n in pending_nodes), scans
                     assert all(n.get("Rows Removed by Filter", 0) == 0 for n in pending_nodes), scans
                     assert sum(work(n) for n in pending_nodes) <= breadth + 40, scans
@@ -520,7 +521,7 @@ async def test_1077_real_pending_terminal_partial_scope_and_history(pg):
                 if kind == "budget":
                     visits = [n for n in relevant if n["Relation Name"] == "visits"]
                     assignments = [n for n in relevant if n["Relation Name"] == "shortage_urgent_assignments"]
-                    assert len(visits) == 2 and len(assignments) == 1, scans
+                    assert len(visits) == 1 and len(assignments) == 1, scans
                     assert all("company_id" in n.get("Index Cond", "") and
                                "status" in n.get("Index Cond", "") for n in visits), scans
                     assert sum(work(n) for n in visits) <= breadth + 40, scans

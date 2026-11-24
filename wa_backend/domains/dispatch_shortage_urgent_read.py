@@ -3,7 +3,7 @@
 The existing demand/Visit write contract is unchanged. An approved quantity is
 neither delivery nor a reservation. One query snapshot preserves conservation.
 """
-from sqlalchemy import and_, func, literal, literal_column, or_, select, true, tuple_
+from sqlalchemy import BigInteger, and_, cast, func, literal, literal_column, or_, select, true, tuple_
 from sqlalchemy.sql.selectable import CTE
 
 from dispatch_access import route_filter, vehicle_filter
@@ -17,31 +17,34 @@ def current_pending_visit_keys(company_id: int) -> CTE:
     # snapshot. A broad scan can choose a tenant-only historical index when
     # stats are stale; keyset batches keep the work on the live range.
     # The recursive cursor is strictly increasing; no final result cap.
-    def key_batch(after=None):
-        # Within the tenant, order status and id, not id alone. Express an exact
-        # closed status range as row comparisons so the planner cannot
-        # treat the global Visit primary key as an already ordered live range.
-        # Visit.id is INTEGER; both bounds include its entire domain.
+    # A constant empty seed makes the first and all subsequent reads use
+    # the SAME parameterized recursive seek. A separately planned anchor
+    # scan can choose a tenant-only index under generic prepared plans.
+    # The bigint cursor below INTEGER's minimum covers even its lowest id.
+    batches = select(
+        literal_column("ARRAY[]::integer[]").label("ids"),
+        literal_column("(-2147483649)::bigint").label("last_id"),
+    ).cte("pending_visit_batches", recursive=True)
+
+    def key_batch(after):
+        # Seek within the exact tenant/status/id range; ordering by status
+        # and id keeps the global Visit primary key from serving the order.
         key = tuple_(Visit.status, Visit.id)
         status = literal_column("'Pending'")
-        lower = tuple_(status, after if after is not None else literal_column("-2147483648"))
-        upper = tuple_(status, literal_column("2147483647"))
-        keys = select(Visit.id).where(
+        return select(Visit.id).where(
             Visit.company_id == company_id,
-            key > lower if after is not None else key >= lower,
-            key <= upper,
-        )
-        if after is not None:
-            keys = keys.correlate(batches)
-        return keys.order_by(Visit.status, Visit.id).limit(literal_column("32")).subquery()
+            key > tuple_(status, after),
+            key <= tuple_(status, literal_column("2147483647")),
+        ).correlate(batches).order_by(Visit.status, Visit.id).limit(
+            literal_column("32"),
+        ).subquery()
 
     def collect(keys):
         return select(
             func.array_agg(keys.c.id).label("ids"),
-            func.max(keys.c.id).label("last_id"),
+            cast(func.max(keys.c.id), BigInteger).label("last_id"),
         ).select_from(keys).having(func.count() > 0)
 
-    batches = collect(key_batch()).cte("pending_visit_batches", recursive=True)
     following = collect(key_batch(batches.c.last_id)).lateral()
     batches = batches.union_all(
         select(following.c.ids, following.c.last_id)
