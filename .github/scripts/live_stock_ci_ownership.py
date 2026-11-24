@@ -1280,6 +1280,7 @@ SHORTAGE_1077_1078_EXACT = frozenset({
     'dashboard/src/types/dispatch.ts',
     'wa_backend/alembic/versions/ae107700b222_shortage_pending_read_indexes.py',
     'wa_backend/api/dispatch.py',
+    'wa_backend/api/dispatch_shortage_commands.py',
     'wa_backend/domains/dispatch_shortage_urgent_read.py',
     'wa_backend/models.py',
     'wa_backend/schemas.py',
@@ -1294,7 +1295,7 @@ SHORTAGE_1077_1078_DISTINCT = frozenset({
     "dashboard/src/features/dispatch/shortageUrgent/useUrgentPromotion.ts",
     "dashboard/src/test/dispatch-shortage-urgent-1078.test.tsx",
 })
-assert len(SHORTAGE_1077_1078_EXACT) == 20
+assert len(SHORTAGE_1077_1078_EXACT) == 21
 assert SHORTAGE_1077_1078_DISTINCT <= SHORTAGE_1077_1078_EXACT
 
 def shortage_1077_1078_mode(candidate):
@@ -1321,7 +1322,7 @@ def shortage_1077_1078_selftest():
             pass
         else:
             raise AssertionError("Incomplete/foreign urgent release admitted: "+repr(sorted(candidate)))
-    print("SHORTAGE_1077_1078_SCOPE_SELFTEST=PASS exact=20 missing=20 foreign=4")
+    print("SHORTAGE_1077_1078_SCOPE_SELFTEST=PASS exact=21 missing=21 foreign=4")
 
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
     try:
@@ -1644,7 +1645,7 @@ def selftest() -> None:
         for foreign in ("wa_backend/api/driver.py", "wanasah_frontend/lib/main.dart",
                         "wa_backend/domains/inventory/services.py", ".github/workflows/unreviewed.yml"):
             _expect_fail(mode, set(SHORTAGE_1077_1078_EXACT)|{foreign}, release_sem)
-    print("SHORTAGE_1077_1078_CLASSIFY_SELFTEST=PASS modes=3 missing=60 foreign=12")
+    print("SHORTAGE_1077_1078_CLASSIFY_SELFTEST=PASS modes=3 missing=63 foreign=12")
     # The exact #847 three-file policy PR must pass unrelated Live Stock
     # entrypoints without granting any general Dispatch CI workflow bypass.
     policy_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
