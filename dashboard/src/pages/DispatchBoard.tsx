@@ -1728,6 +1728,9 @@ function DispatchSession() {
     fetch: authenticatedFetch, rows: shortages, drivers: urgentDrivers,
     canSee: row => zones.some(z => z.id === row.zoneId) &&
       shops.some(s => s.id === row.shopId && s.zoneId === row.zoneId && !s.archived),
+    canRecover: original => zones.some(z => z.id === String(original.zoneId)) &&
+      shops.some(s => s.id === String(original.shopId) && s.zoneId === String(original.zoneId) && !s.archived) &&
+      urgentDrivers.some(d => d.id === String(original.body.driver_id)),
     onRestore: () => setIsShortageModalOpen(true),
     refresh: async () => {
       const admitted = captureUiRead();
