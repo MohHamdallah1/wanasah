@@ -6,6 +6,8 @@ import {
   Trash2, Pencil, ChevronDown, ChevronUp, Package, Clock,
 } from "lucide-react";
 import { ShortageRequestComposer } from "./ShortageRequestComposer";
+import { ShortageUrgentAction, ShortageUrgentRecovery } from "./ShortageUrgentAction";
+import type { UrgentPromotion } from "@/features/dispatch/shortageUrgent/useUrgentPromotion";
 import type { ShortageDraftRow } from "@/features/dispatch/dispatchDrafts";
 import { signedShortageProgress, type ShortagePendingCommand } from "@/features/dispatch/shortageCommand/contract";
 import { groupText, type GroupIntent } from "@/features/dispatch/shortageGroup/contract";
@@ -43,6 +45,7 @@ interface ShortageModalProps {
   drivers: { id: string; name: string }[];
   shortageDriverId: string;
   onDriverChange: (id: string) => void;
+  urgentPromotion?: UrgentPromotion;
   commandRecovery?: {
     pending: ShortagePendingCommand | null;
     blocked: boolean;
@@ -122,7 +125,7 @@ function formatTimestamp(isoStr: string | null | undefined, language: string): s
 // ─── Shop Accordion Card ──────────────────────────────────────────────────────
 function ShopCard({
   focusShortageId, group, language, isBeingEdited, isEditModeActive,
-  canEdit, canCancel, onEdit, onDeleteAll, onDeleteOne,
+  canEdit, canCancel, onEdit, onDeleteAll, onDeleteOne, urgentPromotion, promotionDisabled,
 }: {
   focusShortageId?: string | null;
   group: ReturnType<typeof groupByShop>[number];
@@ -134,6 +137,8 @@ function ShopCard({
   onEdit: () => void;
   onDeleteAll: () => void;
   onDeleteOne: (id: string) => void;
+  urgentPromotion?: UrgentPromotion;
+  promotionDisabled: boolean;
 }) {
   const listId = useId();
   const [open, setOpen] = useState(() => group.items.some(item => item.id === focusShortageId));
@@ -233,9 +238,9 @@ function ShopCard({
       <div id={listId} hidden={!open} className="divide-y divide-slate-100 bg-white">
         {group.items.map((item, idx) => (
           <div key={item.id} data-shortage-id={item.id}
-            className={`group flex items-center gap-2 px-3 py-2 sm:gap-3 sm:px-5 ${item.id === focusShortageId ? "bg-amber-50 ring-2 ring-inset ring-amber-300" : ""}`}>
+            className={`group flex items-start gap-2 px-3 py-2 sm:gap-3 sm:px-5 ${item.id === focusShortageId ? "bg-amber-50 ring-2 ring-inset ring-amber-300" : ""}`}>
             <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">{idx + 1}</span>
-            <span className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">
+            <div className="min-w-0 flex-1 break-words text-sm font-semibold text-slate-700">
               {item.productName}
               {(() => {
                 const signed = signedShortageProgress(item);
@@ -248,7 +253,8 @@ function ShopCard({
                   }) : text("shortageDemandLegacyUnknown")}
                 </span>;
               })()}
-            </span>
+              {urgentPromotion && open && <ShortageUrgentAction row={item} promotion={urgentPromotion} language={language} disabled={promotionDisabled}/>}
+            </div>
             <span className="min-w-10 shrink-0 rounded-xl border border-[#1e87bb]/20 bg-[#1e87bb]/10 px-2 py-1 text-center text-sm font-bold text-[#1e87bb]">{item.quantity}</span>
             {canCancel && (
               <button type="button" onClick={event => requestDelete(event, { kind: "one", id: item.id, product: item.productName })}
@@ -295,6 +301,7 @@ export function ShortageModal({
   shortageDriverId,
   onDriverChange,
   groupRecovery,
+  urgentPromotion,
   commandRecovery = {
     pending: null, blocked: false, busy: false, feedback: null,
     onRetry: () => undefined, onVerify: () => undefined,
@@ -311,15 +318,15 @@ export function ShortageModal({
     if (!isOpen) return;
     // An unknown-result command stays visible with its pending rows and retry.
     if (commandRecovery.pending || commandRecovery.blocked) setShowPending(false);
-    else if (groupRecovery.pending || groupRecovery.blocked) setShowPending(true);
+    else if (groupRecovery.pending || groupRecovery.blocked || urgentPromotion?.unresolved) setShowPending(true);
     else if (isEditMode) setShowPending(false);
     else if (focusShortageId) setShowPending(true);
-  }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked, commandRecovery.pending, commandRecovery.blocked]);
+  }, [isOpen, isEditMode, focusShortageId, groupRecovery.pending, groupRecovery.blocked, commandRecovery.pending, commandRecovery.blocked, urgentPromotion?.unresolved]);
   const text = (key: DispatchUiKey, values: Record<string, string | number> = {}) =>
     dispatchUiText(i18n.language, key, values);
   const blocked = Boolean(commandRecovery.pending || commandRecovery.blocked ||
     commandRecovery.busy || groupRecovery.pending || groupRecovery.blocked ||
-    groupRecovery.busy || groupRecovery.restoring);
+    groupRecovery.busy || groupRecovery.restoring || urgentPromotion?.unresolved);
   const validShop = activeShops.some(shop => shop.id === shortageShopId &&
     shop.zoneId === shortageZoneId && !shop.archived &&
     zones.some(zone => zone.id === shop.zoneId));
@@ -489,6 +496,7 @@ export function ShortageModal({
           />
         )}
 
+        {urgentPromotion && <ShortageUrgentRecovery promotion={urgentPromotion} language={i18n.language}/>}
         {/* One canonical pending list, separate from the quick composer. */}
         {(showPending || !canCreate) && <div className="space-y-3">
           <div className="flex items-center justify-between px-1">
@@ -519,8 +527,10 @@ export function ShortageModal({
               {grouped.map(group => (
                 <ShopCard
                   focusShortageId={focusShortageId}
-                  canEdit={canEdit}
-                  canCancel={canCancel}
+                  canEdit={canEdit && !urgentPromotion?.unresolved}
+                  canCancel={canCancel && !urgentPromotion?.unresolved}
+                  urgentPromotion={urgentPromotion}
+                  promotionDisabled={blocked || isEditMode}
                   key={`${group.shopId}:${group.driverId}`}
                   group={group}
                   language={i18n.language}
