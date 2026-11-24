@@ -155,6 +155,30 @@ describe("#1078 bilingual line action",()=>{
     await waitFor(()=>expect(p.refresh).toHaveBeenCalledOnce());
     expect(screen.getByTestId("shortage-urgent-recovery")).toHaveTextContent(language==="ar"?"لم تُسجّل":"no delivery was recorded");
   });
+  it("unassigned demand requires explicit authorized representative selection and rejects unknown stock",async()=>{
+    const unassigned={...row,driverId:"",driverName:""};
+    const f=vi.fn(async(path:string)=>path.includes("driver_id=10")?{status:"UNKNOWN",reason:"CUSTODY",items:[]}:quote());
+    const p={...props(f),rows:[unassigned]};
+    function Harness(){const promotion=useUrgentPromotion(p);return <ShortageUrgentAction row={unassigned} promotion={promotion} language="en" disabled={false}/>;}
+    render(<Harness/>);fireEvent.click(screen.getByTestId("shortage-urgent-open-7"));
+    const select=screen.getByTestId("shortage-urgent-driver-7");
+    expect(select).toHaveValue("");expect(select).toHaveFocus();
+    expect(f).not.toHaveBeenCalled();expect(screen.getByTestId("shortage-urgent-confirm-7")).toBeDisabled();
+    fireEvent.change(select,{target:{value:"10"}});
+    await waitFor(()=>expect(screen.getByTestId("shortage-urgent-quote-7")).toHaveTextContent("unverified"));
+    expect(screen.getByTestId("shortage-urgent-quantity-7")).toBeDisabled();
+    fireEvent.change(select,{target:{value:"9"}});
+    await waitFor(()=>expect(screen.getByTestId("shortage-urgent-quote-7")).toHaveTextContent("4 PACK"));
+    expect(screen.getByTestId("shortage-urgent-quantity-7")).toBeEnabled();
+    expect(f.mock.calls.every(([path])=>path.includes("vehicle-availability"))).toBe(true);
+  });
+  it("missing signed assignment projection cannot expose an approval button even with manager grants",()=>{
+    const unknown={...row,unassignedBase:null};
+    const p={...props(async()=>quote()),rows:[unknown]};
+    function Harness(){const promotion=useUrgentPromotion(p);return <ShortageUrgentAction row={unknown} promotion={promotion} language="en" disabled={false}/>;}
+    render(<Harness/>);expect(screen.queryByTestId("shortage-urgent-open-7")).toBeNull();
+    expect(screen.getByTestId("shortage-urgent-budget-7")).toHaveTextContent("not verified");
+  });
   it("unknown evidence and unauthorized actor have no approval action",()=>{
     const p=props(async()=>quote());
     function Harness(){const promotion=useUrgentPromotion({...p,authorized:false});return <><ShortageUrgentAction row={row} promotion={promotion} language="en" disabled={false}/><ShortageUrgentAction row={{...row,id:"8",unassignedBase:null}} promotion={promotion} language="en" disabled={false}/></>;}
