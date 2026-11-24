@@ -54,7 +54,8 @@ export function ShortageProductPicker({
   const vehicle = useShortageVehicleAvailability({
     driverId, scope, productIds: page.items.map(product => product.id),
   });
-  const firstLoad = page.loading && !page.pages.length;
+  // A new query is not empty until its signed first page completes.
+  const firstLoad = !page.firstPageReady && !page.pages.length;
   const hasProducts = page.items.length > 0;
 
   return <section data-testid="shortage-product-catalog"
@@ -73,8 +74,8 @@ export function ShortageProductPicker({
     </div>
 
     <div ref={scrollRef} onScroll={handleScroll}
-      className="min-h-[14rem] max-h-[23rem] min-w-0 flex-1 overflow-y-auto overscroll-contain px-2.5 py-2.5 sm:px-3"
-      aria-busy={page.loading || page.loadingWindow}
+      className="h-[23rem] min-w-0 shrink-0 overflow-y-auto overscroll-contain px-2.5 py-2.5 sm:px-3"
+      aria-busy={Boolean(scope && !disabled && !page.error && (firstLoad || page.loading || page.loadingWindow))}
       aria-label={t("shortageStudioCatalog")}
       tabIndex={0}
       data-testid="shortage-visible-products">
@@ -84,9 +85,8 @@ export function ShortageProductPicker({
           <button type="button" onClick={page.retry}
             className="block min-h-9 rounded-lg border border-red-300 bg-white px-3 text-xs font-bold">{translation("common.retry")}</button>
         </div> :
-          firstLoad ? <div role="status" className="space-y-2 px-2 py-4">
-            {[0, 1, 2, 3].map(i => <div key={i} className="h-12 animate-pulse rounded-xl bg-slate-100"/>)}
-            <span className="sr-only">{translation("common.loading")}</span>
+          firstLoad ? <div role="status" className="grid h-full place-items-center text-xs text-slate-500">
+            {translation("common.loading")}
           </div> :
             !hasProducts && !page.loading ? <div className="grid place-items-center gap-2 py-12 text-center">
               <Package className="h-8 w-8 text-slate-300" aria-hidden="true"/>
