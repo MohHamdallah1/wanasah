@@ -15,7 +15,7 @@ export function ShortageUrgentAction({row, promotion, language, disabled}:{
   const [quantity,setQuantity]=useState("");
   const [quoteState,setQuoteState]=useState<{key:string;quote:UrgentQuote|null;loading:boolean}>({key:"",quote:null,loading:false});
   const driver=drivers.find(d=>d.id===(row.driverId||choice));
-  const permitted=Boolean(promotion?.authorized && budget && budget.unassigned>0 && drivers.length && !disabled && !promotion.unresolved);
+  const permitted=Boolean(promotion?.authorized && promotion.canSee(row) && budget && budget.unassigned>0 && drivers.length && !disabled && !promotion.unresolved);
   const key=JSON.stringify([row.id,row.productId,row.driverId,budget?.unassigned,driver?.id,driver?.vehicle]);
   const quote=quoteState.key===key ? quoteState.quote : null;
   const loading=!!driver && (quoteState.key!==key||quoteState.loading);
