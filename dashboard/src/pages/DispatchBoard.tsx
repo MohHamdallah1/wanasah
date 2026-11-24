@@ -1730,7 +1730,15 @@ function DispatchSession() {
     canSee: row => zones.some(z => z.id === row.zoneId) &&
       shops.some(s => s.id === row.shopId && s.zoneId === row.zoneId && !s.archived),
     onRestore: () => setIsShortageModalOpen(true),
-    refresh: refreshShortages,
+    refresh: async () => {
+      const admitted = captureUiRead();
+      const snapshot = captureDashboardSession();
+      const rows: unknown = await authenticatedFetch("/dispatch/shortages", {cache:"no-store"});
+      if (!admitted() || !isDashboardSessionCurrent(snapshot) || !Array.isArray(rows)) {
+        throw Error("SHORTAGE_URGENT_REFRESH_UNVERIFIED");
+      }
+      setShortages(rows);
+    },
   });
 
   const handleAddShortage = async () => {
@@ -1759,7 +1767,7 @@ function DispatchSession() {
       quantity: Number(item.quantity),
     }));
 
-    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+    if (shortageUrgent.unresolved || shortageMutationInFlightRef.current || shortageGroup.isBusy ||
       shortageGroup.hasUnresolved || shortageGroup.blocked || shortageCommand.hasUnresolved ||
       shortageCommand.busy) {
       toast.info(dispatchUiText(i18n.language, "shortageCommandUnknown"));
@@ -1807,7 +1815,7 @@ function DispatchSession() {
   ) => {
     if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId)) ||
       !productName || productName.length > 300) return;
-    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+    if (shortageUrgent.unresolved || shortageMutationInFlightRef.current || shortageGroup.isBusy ||
       shortageGroup.hasUnresolved || shortageGroup.blocked ||
       shortageCommand.hasUnresolved || shortageCommand.busy) return;
     if (shortageDraft.length >= 80 && !shortageDraft.some(row => row.productId === productId)) {
@@ -2703,7 +2711,7 @@ function DispatchSession() {
             toast.info(groupText(i18n.language, "different")); return;
           }
           setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try {
-            if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+            if (shortageUrgent.unresolved || shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
               toast.info(groupText(i18n.language, "different")); return;
             }
             await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
