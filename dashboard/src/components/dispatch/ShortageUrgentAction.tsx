@@ -87,6 +87,7 @@ export function ShortageUrgentRecovery({promotion,language}:{promotion:UrgentPro
     promotion.feedback==="refresh"?"shortageUrgentRefresh":"shortageUrgentUnknown";
   return <section role="status" data-testid="shortage-urgent-recovery" className="min-w-0 space-y-2 rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs text-slate-800">
     <p className="font-semibold">{text(key)}</p>
+    {promotion.feedback==="refresh"&&<button type="button" disabled={promotion.busy} onClick={()=>{void promotion.refreshList();}} className="min-h-11 rounded-lg border bg-white px-3 font-bold">{text("shortageUrgentRefreshList")}</button>}
     {promotion.pending&&<>
       <p dir="ltr" className="break-all font-mono" data-testid="shortage-urgent-uuid">{promotion.pending.body.request_id}</p>
       <p>{dispatchUiText(language,"shortageUrgentOriginal",{quantity:promotion.pending.body.quantity_base,driver:promotion.pending.body.driver_id})}</p>
