@@ -156,6 +156,9 @@ from domains.dispatch_route_load import (
     route_load_uom_metadata, route_vehicle_base_totals,
 )
 from domains.dispatch_adjust_load_read import read_adjust_load_inventory
+from domains.dispatch_shortage_urgent_read import (
+    pending_urgent_projection, project_urgent_quantities,
+)
 from domains.dispatch_load_plan import lock_session_load_plan, lock_route_adjustment_context, pending_handshake_base_net, synchronize_session_load_plans
 from domains.inventory_vehicle_load.return_safety import safe_unload_terminal_statuses
 from domains.dispatch_transfer_quantity import CANONICAL_BASE_V1, is_canonical_base_handshake, canonical_field_base_quantity
@@ -5498,29 +5501,39 @@ async def get_shortages(
     
 
     # +++ التدمير الحقيقي لـ N+1 (O(1) Fetch) مع الدرع المفقود +++
-    stmt = select(ShortageRequest).options(
-        joinedload(ShortageRequest.zone),
-        joinedload(ShortageRequest.shop),
-        joinedload(ShortageRequest.driver),
-        joinedload(ShortageRequest.product_variant)
-    ).filter_by(
-        company_id=access.company_id,
-        status='pending'
-    ).order_by(ShortageRequest.created_at.asc())
-    
-    # Shortage names can identify a Shop: shortage.read must not silently
-    # elevate a warehouse-only dispatch viewer into a company directory.
+    # Freeze the visible pending demand set before adding assignment evidence.
+    # Demand and Visit state share one SQL statement/snapshot.
     company_directory = await company_shop_directory(access)
-    stmt = stmt.where(
+    visible = select(
+        ShortageRequest.id, ShortageRequest.company_id, ShortageRequest.shop_id,
+        ShortageRequest.driver_id, ShortageRequest.fulfillment_version,
+    ).where(
+        ShortageRequest.company_id == access.company_id,
+        ShortageRequest.status == "pending",
         select(1).select_from(Shop).where(
             Shop.id == ShortageRequest.shop_id,
             visible_shop_filter(access, company_directory=company_directory),
-        ).exists()
+        ).exists(),
     )
     if shortage_id is not None:
-        stmt = stmt.where(ShortageRequest.id == shortage_id)
-    shortages = (await db.execute(stmt)).scalars().all()
-    
+        visible = visible.where(ShortageRequest.id == shortage_id)
+    visible = visible.cte("visible_pending_shortages")
+    urgent = pending_urgent_projection(access, visible, company_directory=company_directory)
+    stmt = select(
+        ShortageRequest, urgent.c.active_base, urgent.c.evidence_allowed,
+    ).join(
+        visible, and_(visible.c.company_id == ShortageRequest.company_id,
+                      visible.c.id == ShortageRequest.id),
+    ).outerjoin(
+        urgent, urgent.c.shortage_id == ShortageRequest.id,
+    ).options(
+        joinedload(ShortageRequest.zone),
+        joinedload(ShortageRequest.shop),
+        joinedload(ShortageRequest.driver),
+        joinedload(ShortageRequest.product_variant),
+    ).order_by(ShortageRequest.created_at.asc())
+    shortages = (await db.execute(stmt)).all()
+
     result = [{
         "id": str(s.id),
         "productId": str(s.product_variant_id),
@@ -5539,10 +5552,11 @@ async def get_shortages(
             if s.fulfillment_version == 1 and s.fulfilled_base is not None else None
         ),
         "fulfillmentEvidence": "SIGNED_V1" if s.fulfillment_version == 1 else "LEGACY_UNKNOWN",
+        **project_urgent_quantities(s, active_base, evidence_allowed),
         "waitTime": s.wait_time,
         # +++ نسف لغم الـ Timezone الأخير في السيستم: توحيد توقيت الطوارئ مع جرينتش لمنع كراش الموبايل +++
         "createdAt": s.created_at.replace(tzinfo=timezone.utc).isoformat() if s.created_at else None
-    } for s in shortages]
+    } for s, active_base, evidence_allowed in shortages]
     
     return result
 
