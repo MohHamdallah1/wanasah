@@ -22,6 +22,7 @@ export function ShortageUrgentAction({row, promotion, language, disabled}:{
   const triggerRef=useRef<HTMLButtonElement>(null);
   const inputRef=useRef<HTMLInputElement>(null);
   const selectionRef=useRef<HTMLSelectElement>(null);
+  const confirmationRef=useRef<HTMLDivElement>(null);
   const id=useId();
   const fetch=promotion?.fetch;
   useEffect(()=>{
@@ -38,7 +39,13 @@ export function ShortageUrgentAction({row, promotion, language, disabled}:{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[open,permitted,key,fetch]);
   useEffect(()=>{if(!permitted){setOpen(false);setQuoteState({key:"",quote:null,loading:false});setChoice("");setQuantity("");}},[permitted]);
-  useEffect(()=>{if(open){if(row.driverId)inputRef.current?.focus();else selectionRef.current?.focus();}},[open,row.driverId]);
+  // The quantity input is disabled during the signed quote. Keep keyboard
+  // focus inside the confirmation rather than dropping it to document.body.
+  useEffect(()=>{if(open){if(row.driverId)confirmationRef.current?.focus();else selectionRef.current?.focus();}},[open,row.driverId]);
+  useEffect(()=>{
+    if(open && quote && !loading && quote.limit>0 && document.activeElement===confirmationRef.current)
+      inputRef.current?.focus();
+  },[open,quote,loading]);
   const close=()=>{setOpen(false);setQuoteState({key:"",quote:null,loading:false});setChoice("");setQuantity("");requestAnimationFrame(()=>triggerRef.current?.focus());};
   const qty=/^[1-9]\d*$/.test(quantity)?Number(quantity):0;
   const valid=permitted&&!!quote&&!loading&&Number.isSafeInteger(qty)&&qty>0&&qty<=quote.limit&&!!driver;
@@ -47,11 +54,11 @@ export function ShortageUrgentAction({row, promotion, language, disabled}:{
       {budget?text("shortageUrgentBudget",{active:budget.active,unassigned:budget.unassigned}):text("shortageUrgentBudgetUnknown")}
     </p>
     {permitted&&!open&&<button type="button" ref={triggerRef} onClick={()=>setOpen(true)}
-      data-testid={"shortage-urgent-open-"+row.id}
+      aria-expanded={false} data-testid={"shortage-urgent-open-"+row.id}
       className="min-h-9 rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-bold text-sky-800 hover:bg-sky-100 focus-visible:ring-2 focus-visible:ring-sky-400">
       {text("shortageUrgentOpen")}
     </button>}
-    {open&&permitted&&<div role="group" aria-label={text("shortageUrgentOpen")} className="min-w-0 space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs font-normal"
+    {open&&permitted&&<div ref={confirmationRef} tabIndex={-1} role="group" aria-label={text("shortageUrgentOpen")} className="min-w-0 space-y-2 rounded-lg border border-sky-200 bg-sky-50 p-2 text-xs font-normal"
       onKeyDown={event=>{if(event.key==="Escape"){event.preventDefault();event.stopPropagation();close();}}}>
       {!row.driverId?<label className="block">{text("shortageUrgentDriver")}
         <select ref={selectionRef} value={choice} onChange={e=>setChoice(e.target.value)} className="mt-1 block min-h-10 w-full min-w-0 rounded border bg-white px-2" data-testid={"shortage-urgent-driver-"+row.id}>
