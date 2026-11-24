@@ -1,4 +1,5 @@
 import { webcrypto } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppLanguage } from "@/i18n";
@@ -226,3 +227,49 @@ describe("#1078 bilingual line action",()=>{
     render(<Harness/>);expect(screen.queryByTestId("shortage-urgent-open-7")).toBeNull();expect(screen.queryByTestId("shortage-urgent-open-8")).toBeNull();
   });
 });
+
+// Required by the combined release PG16 job: the backend fixture exports
+// actual Bearer HTTP responses, never a fabricated success fixture. Ordinary
+// local unit runs do not require a disposable database.
+if (process.env.WANASAH_1078_SEAM_JSON) {
+  it("real PG16 signed receipt seam: lost 201, fulfilled demand disappears, replay original identity",async()=>{
+    const evidence = JSON.parse(readFileSync(process.env.WANASAH_1078_SEAM_JSON!,"utf8")) as {
+      before:Shortage; quote:unknown; request:UrgentIntent; receipt:unknown;
+      after:Shortage; replay:unknown; finalRows:Shortage[];
+    };
+    const before=evidence.before, body=evidence.request;
+    expect(before.fulfillmentEvidence).toBe("SIGNED_V1");
+    expect(urgentBudget(before)?.unassigned).toBeGreaterThanOrEqual(body.quantity_base);
+    const vehicle=(evidence.quote as {vehicle_id:number}).vehicle_id;
+    const actualDriver={id:String(body.driver_id),name:"Synthetic signed representative",vehicle:String(vehicle)};
+    expect(parseUrgentQuote(evidence.quote,before,actualDriver)?.limit).toBeGreaterThanOrEqual(body.quantity_base);
+    expect(evidence.after.fulfilledBase).toBe(before.fulfilledBase);
+    expect(urgentBudget(evidence.after)?.active).toBe((urgentBudget(before)?.active??0)+body.quantity_base);
+    expect(evidence.finalRows.some(r=>r.id===before.id)).toBe(false);
+    expect(evidence.replay).toEqual(evidence.receipt);
+    const posts:string[]=[];
+    const f=vi.fn(async(path:string,options?:RequestInit)=>{
+      if(path.includes("vehicle-availability"))return evidence.quote;
+      expect(path).toBe("/dispatch/shortages/"+before.id+"/promote-urgent");
+      expect(getBody(options)).toEqual(body);
+      posts.push(String(options?.body));
+      if(posts.length===1)throw Error("lost actual 201");
+      return evidence.replay;
+    });
+    const p={...props(f),rows:[before],drivers:[actualDriver]};
+    const random=vi.spyOn(globalThis.crypto,"randomUUID").mockReturnValue(body.request_id as ReturnType<Crypto["randomUUID"]>);
+    try {
+      const h=renderHook(()=>useUrgentPromotion(p));
+      await act(async()=>{expect(await h.result.current.submit(before.id,actualDriver.id,body.quantity_base)).toBe(false);});
+      const saved=readUrgent(scope)!;
+      expect(parseUrgentReceipt(evidence.receipt,saved)).not.toBeNull();
+      h.unmount();
+      const recovered=renderHook(()=>useUrgentPromotion({...p,rows:evidence.finalRows}));
+      expect(recovered.result.current.pending).toEqual(saved);
+      await act(async()=>{expect(await recovered.result.current.retry()).toBe(true);});
+      expect(posts).toEqual([posts[0],posts[0]]);
+      expect(readUrgent(scope)).toBeNull();expect(p.refresh).toHaveBeenCalledOnce();
+      console.info("SIGNED_PG16_DASHBOARD_SEAM=PASS");
+    } finally { random.mockRestore(); }
+  });
+}
