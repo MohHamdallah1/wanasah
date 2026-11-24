@@ -1,5 +1,8 @@
 """#1077 focused restricted PG16 readback; no mutation implementation changes."""
+import asyncio
+from contextvars import ContextVar
 from datetime import date, timedelta
+from time import perf_counter
 import json
 import os
 from uuid import uuid4
@@ -9,7 +12,7 @@ from sqlalchemy import delete, event, func, insert, literal, select, text, updat
 
 from database import engine as http_engine
 from models import (
-    InventoryLocation, ShortageRequest, ShortageUrgentAssignment,
+    InventoryLocation, OperationIdempotency, Shop, ShortageRequest, ShortageUrgentAssignment,
     UserLocationAccess, Visit, utc_now,
 )
 from tests.test_inbound_no_lot_frozen_postgres import pg  # noqa: F401
@@ -304,24 +307,25 @@ async def test_1077_real_pending_terminal_partial_scope_and_history(pg):
             await db.commit()
 
         async def add_history(count, offset):
-            # INSERT..SELECT uses one statement per table; no Python history
-            # loop and no live mutation implementation bypass outside fixture.
+            # Bounded INSERT..SELECT batches in one transaction keep fixture
+            # seeding below statement timeout; no per-row Python loop.
             async with pg.session() as db:
-                series = func.generate_series(1, count).table_valued("n").render_derived()
-                visits = insert(Visit).from_select(
-                    ["company_id", "shop_id", "driver_id", "operational_date",
-                     "status", "is_emergency"],
-                    select(literal(tenant.company_id), literal(shop), literal(driver),
-                           literal(date.today() - timedelta(days=offset)) - series.c.n,
-                           literal("Cancelled"), literal(True)).select_from(series),
-                ).returning(Visit.id).cte("seed_terminal_visits")
-                await db.execute(insert(ShortageUrgentAssignment).from_select(
-                    ["company_id", "shortage_id", "visit_id", "driver_id",
-                     "vehicle_id", "custody_epoch_id", "approved_base", "created_at"],
-                    select(literal(tenant.company_id), literal(demand_id), visits.c.id,
-                           literal(driver), literal(vehicle), literal(epoch), literal(1),
-                           literal(utc_now())),
-                ))
+                for start in range(0, count, 5000):
+                    series = func.generate_series(start + 1, min(start + 5000, count)).table_valued("n").render_derived()
+                    visits = insert(Visit).from_select(
+                        ["company_id", "shop_id", "driver_id", "operational_date",
+                         "status", "is_emergency"],
+                        select(literal(tenant.company_id), literal(shop), literal(driver),
+                               literal(date.today() - timedelta(days=offset)) - series.c.n,
+                               literal("Cancelled"), literal(True)).select_from(series),
+                    ).returning(Visit.id).cte("seed_terminal_visits")
+                    await db.execute(insert(ShortageUrgentAssignment).from_select(
+                        ["company_id", "shortage_id", "visit_id", "driver_id",
+                         "vehicle_id", "custody_epoch_id", "approved_base", "created_at"],
+                        select(literal(tenant.company_id), literal(demand_id), visits.c.id,
+                               literal(driver), literal(vehicle), literal(epoch), literal(1),
+                               literal(utc_now())),
+                    ))
                 await db.commit()
 
         async def analyze():
@@ -430,35 +434,249 @@ async def test_1077_real_pending_terminal_partial_scope_and_history(pg):
                           "live_assignments", producers[0]["Actual Rows"])
             return len(rows)
 
+        endpoint = f"/dispatch/shortages/{demand_id}/promote-urgent"
+
+        def intent_for(qty):
+            return {"request_id": str(uuid4()), "driver_id": driver,
+                    "quantity_base": qty}
+
+        async def no_sale_visit(visit_id):
+            response = await client.put(f"/visits/{visit_id}", headers=signed, json={
+                "request_id": str(uuid4()), "outcome": "NoSale",
+                "notes": "Synthetic scale closure", "cart_items": [],
+                "cash_collected": "0", "debt_paid": "0",
+            })
+            assert response.status_code == 200, response.text
+
+        async def prove_promotion(label, history, previous_visit):
+            await no_sale_visit(previous_visit)
+            _progress(await row(), 1, 9, 0, 9)
+            captured = []
+            def record(conn, cursor, statement, parameters, context, executemany):
+                captured.append((statement, parameters))
+            # An independent transaction holds an actual terminal assignment
+            # row lock. The old all-history FOR UPDATE would block here.
+            async with pg.session() as blocker:
+                terminal = await blocker.scalar(select(ShortageUrgentAssignment.id).where(
+                    ShortageUrgentAssignment.company_id == tenant.company_id,
+                    ShortageUrgentAssignment.shortage_id == demand_id,
+                    ShortageUrgentAssignment.visit_id == first_visit,
+                ).with_for_update())
+                assert terminal is not None
+                event.listen(http_engine.sync_engine, "before_cursor_execute", record)
+                try:
+                    start = perf_counter()
+                    payload = intent_for(2)
+                    response = await asyncio.wait_for(client.post(
+                        endpoint, headers=owner, json=payload), timeout=20)
+                    elapsed = (perf_counter() - start) * 1000
+                finally:
+                    event.remove(http_engine.sync_engine, "before_cursor_execute", record)
+                    await blocker.rollback()
+            assert response.status_code == 201, response.text
+            receipt = response.json()
+            assert receipt["approved_base"] == 2
+            _progress(await row(), 1, 9, 2, 7)
+            replay = await client.post(endpoint, headers=owner, json=payload)
+            assert replay.status_code == 201 and replay.json() == receipt, replay.text
+            duplicate = await client.post(endpoint, headers=owner, json=intent_for(1))
+            assert duplicate.status_code == 409, duplicate.text
+            assert duplicate.json()["error"]["code"] == "SHORTAGE_ALREADY_ASSIGNED_TO_VISIT"
+            queries = [(sql, args) for sql, args in captured
+                       if "shortage_urgent_assignments" in sql.lower() and "select" in sql.lower()]
+            assert len(queries) == 2, [(sql[:200], len(args)) for sql, args in queries]
+            assert not any("FOR UPDATE" in sql.upper() for sql, _ in queries)
+            assert not any("inventory_movements" in sql.lower() for sql, _ in captured)
+            assert max(len(args) for sql, args in captured) < 100
+            assert len([sql for sql, _ in queries if "promotion_pending_assignment" in sql]) == 1
+            visit_locks = [(sql,args) for sql,args in captured if "FROM visits" in sql and "FOR UPDATE" in sql.upper()]
+            assert len(visit_locks) == 1, [sql for sql,_ in visit_locks]
+            print("1077_POST_HTTP", label, history, "ms", round(elapsed, 3),
+                  "sql", len(captured), "assignment_selects", len(queries),
+                  "terminal_row_lock_not_blocking", terminal)
+            for statement, params in queries + visit_locks:
+                kind = ("budget" if "promotion_pending_assignment" in statement else
+                        "visit-lock" if "FOR UPDATE" in statement.upper() else "duplicate")
+                async with pg.session() as db:
+                    conn = await db.connection()
+                    raw = (await conn.exec_driver_sql(
+                        "EXPLAIN (ANALYZE, VERBOSE, BUFFERS, FORMAT JSON) "
+                        + statement, params,
+                    )).scalar_one()
+                    await db.rollback()
+                doc = json.loads(raw) if isinstance(raw, str) else raw
+                nodes = list(_walk(doc[0]["Plan"]))
+                relevant = [n for n in nodes if n.get("Relation Name") in
+                            ("shortage_urgent_assignments", "visits")]
+                scans = [{k:n.get(k) for k in ("Relation Name", "Node Type",
+                          "Index Name", "Index Cond", "Actual Rows", "Actual Loops",
+                          "Rows Removed by Filter", "Shared Hit Blocks", "Shared Read Blocks")}
+                         for n in relevant]
+                print("1077_POST_PLAN", label, kind, history,
+                      doc[0]["Execution Time"], json.dumps(scans))
+                def work(n):
+                    return (n.get("Actual Rows", 0) + n.get("Rows Removed by Filter", 0)
+                            + n.get("Rows Removed by Index Recheck", 0)) * n.get("Actual Loops", 0)
+                if kind == "budget":
+                    visits = [n for n in relevant if n["Relation Name"] == "visits"]
+                    assignments = [n for n in relevant if n["Relation Name"] == "shortage_urgent_assignments"]
+                    assert len(visits) == 2 and len(assignments) == 1, scans
+                    assert all("company_id" in n.get("Index Cond", "") and
+                               "status" in n.get("Index Cond", "") for n in visits), scans
+                    assert sum(work(n) for n in visits) <= breadth + 40, scans
+                    assert all(n.get("Rows Removed by Filter", 0) == 0 for n in visits), scans
+                    assert assignments[0]["Actual Loops"] <= breadth + 10, scans
+                    assert all(x in assignments[0].get("Index Cond", "") for x in
+                               ("company_id", "shortage_id", "visit_id")), scans
+                    assert work(assignments[0]) <= 2, scans
+                    assert not any(n.get("Node Type") == "LockRows" for n in nodes), scans
+                elif kind == "duplicate":
+                    assert len(relevant) == 1, scans
+                    assert all(x in relevant[0].get("Index Cond", "") for x in
+                               ("company_id", "shortage_id", "visit_id")), scans
+                    assert work(relevant[0]) <= 1, scans
+                else:
+                    assert doc[0]["Plan"]["Actual Rows"] <= 2, scans
+                    assert sum(work(n) for n in relevant) <= 10, scans
+            return int(receipt["visit_id"]), len(captured)
+
         await add_history(2000, 1000)
         await analyze()
         await prove("small-fresh", 2000)
-        # Deliberately grow history after ANALYZE; repeat without refreshing
-        # stats, then with fresh stats, same genuine signed HTTP requests.
+        active_visit, small_sql = await prove_promotion("small-fresh", 2000, active_visit)
         await add_history(50000, 10000)
         await prove("large-stale", 52000)
+        active_visit, stale_sql = await prove_promotion("large-stale", 52000, active_visit)
         await analyze()
         await prove("large-fresh", 52000)
-        # Compare actual mutation's existing locked all-history lookup;
-        # read-only plan evidence, no mutation implementation change.
+        active_visit, fresh_sql = await prove_promotion("large-fresh", 52000, active_visit)
+        assert small_sql == stale_sql == fresh_sql, (small_sql, stale_sql, fresh_sql)
+
+        # Independent genuine HTTP requests contend on the same demand, not
+        # mocks. Concurrent identical UUIDs must resolve to one receipt.
+        race_shop, _ = await _add_shop(client, owner, zone, balance="0", cap="100000",
+                                       jurisdiction_id=jurisdiction)
+        created = await client.post("/dispatch/shortage-commands", headers=owner,
+            json=_command(uuid4(), race_shop, zone, driver, tenant.variant_id, 3))
+        assert created.status_code == 201, created.text
+        race_id = int(created.json()["lines"][0]["shortage_id"])
+        race_path = f"/dispatch/shortages/{race_id}/promote-urgent"
+        same = intent_for(1)
+        left, right = await asyncio.wait_for(asyncio.gather(
+            client.post(race_path, headers=owner, json=same),
+            client.post(race_path, headers=owner, json=same),
+        ), timeout=35)
+        assert left.status_code == right.status_code == 201, (left.text, right.text)
+        assert left.json() == right.json()
+        await no_sale_visit(int(left.json()["visit_id"]))
+        different = [intent_for(2), intent_for(2)]
+        results = await asyncio.wait_for(asyncio.gather(*(
+            client.post(race_path, headers=owner, json=body) for body in different
+        )), timeout=35)
+        assert sorted(r.status_code for r in results) == [201, 409], [r.text for r in results]
+        winner = next(r.json() for r in results if r.status_code == 201)
+        loser = next(body for body, r in zip(different, results) if r.status_code == 409)
+        rejected = await client.post(race_path, headers=owner, json=loser)
+        assert rejected.status_code == 409, rejected.text
+        assert rejected.json()["error"]["code"] == "SHORTAGE_URGENT_EXCEEDS_OUTSTANDING"
+        race_rows = (await client.get(f"/dispatch/shortages?shortage_id={race_id}", headers=owner)).json()
+        _progress(race_rows[0], 0, 3, 2, 1)
+        # Race a real FIELD terminal transition with another manager approval.
+        # The manager either rejects the original budget or sees the released
+        # budget; neither order can create two live assignments or exceed 3.
+        closing = {"request_id": str(uuid4()), "outcome": "NoSale",
+                   "notes": "Concurrent terminal", "cart_items": [],
+                   "cash_collected": "0", "debt_paid": "0"}
+        candidate = intent_for(2)
+        field_result, manager_result = await asyncio.wait_for(asyncio.gather(
+            client.put(f"/visits/{winner['visit_id']}", headers=signed, json=closing),
+            client.post(race_path, headers=owner, json=candidate),
+        ), timeout=35)
+        if field_result.status_code != 200:
+            assert field_result.status_code == 409, field_result.text
+            field_result = await client.put(f"/visits/{winner['visit_id']}", headers=signed, json=closing)
+        assert field_result.status_code == 200, field_result.text
+        if manager_result.status_code != 201:
+            assert manager_result.status_code == 409, manager_result.text
+            manager_result = await client.post(race_path, headers=owner, json=candidate)
+        assert manager_result.status_code == 201, manager_result.text
+        race_rows = (await client.get(f"/dispatch/shortages?shortage_id={race_id}", headers=owner)).json()
+        _progress(race_rows[0], 0, 3, 2, 1)
         async with pg.session() as db:
-            conn = await db.connection()
-            mutation = select(ShortageUrgentAssignment).where(
+            assignments = (await db.scalars(select(ShortageUrgentAssignment).where(
                 ShortageUrgentAssignment.company_id == tenant.company_id,
-                ShortageUrgentAssignment.shortage_id == demand_id,
-            ).order_by(ShortageUrgentAssignment.id.asc()).with_for_update()
-            from sqlalchemy.dialects import postgresql
-            sql = str(mutation.compile(dialect=postgresql.dialect(),
-                                       compile_kwargs={"literal_binds": True}))
-            raw = (await conn.exec_driver_sql(
-                "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " + sql
-            )).scalar_one()
-            doc = json.loads(raw) if isinstance(raw, str) else raw
-            print("1077_MUTATION_HISTORY", doc[0]["Execution Time"],
-                  doc[0]["Plan"]["Actual Rows"], doc[0]["Plan"].get("Shared Hit Blocks"),
-                  doc[0]["Plan"].get("Shared Read Blocks"))
-            assert doc[0]["Plan"]["Actual Rows"] >= 52000
-            await db.rollback()
+                ShortageUrgentAssignment.shortage_id == race_id,
+            ))).all()
+            assert sorted(a.approved_base for a in assignments) == [1, 2, 2]
+            assert len({a.visit_id for a in assignments}) == 3
+            receipts = await db.scalar(select(func.count()).select_from(OperationIdempotency).where(
+                OperationIdempotency.company_id == tenant.company_id,
+                OperationIdempotency.operation == "DISPATCH_SHORTAGE_PROMOTE_V1",
+                OperationIdempotency.request_id.in_([same["request_id"], candidate["request_id"],
+                                                    *[d["request_id"] for d in different]]),
+            ))
+            assert receipts == 3
+        print("1077_POST_CONCURRENCY same UUID=1 receipt, distinct UUID=one winner,"
+              " concurrent FIELD NoSale=conserved, 3 immutable assignments/receipts")
+
+        # Reproduce the stale pre-lock ORM hazard deterministically: FIELD
+        # and then manager both queue on a held Shop lock. The manager has
+        # already probed the demand before the FIELD sale commits. A qty=3
+        # approval must reject after observing the newly locked fulfilled=1.
+        live_visit = int(manager_result.json()["visit_id"])
+        label = ContextVar("shortage_race_actor", default="")
+        waiting = {name: asyncio.Event() for name in ("field", "manager")}
+        def on_shop_lock(conn, cursor, statement, parameters, context, executemany):
+            actor = label.get()
+            if actor in waiting and "FROM shops" in statement and "FOR UPDATE" in statement.upper():
+                waiting[actor].set()
+
+        async def tagged(actor, method, path, auth, body):
+            token = label.set(actor)
+            try:
+                return await client.request(method, path, headers=auth, json=body)
+            finally:
+                label.reset(token)
+
+        sale_body = {"request_id": str(uuid4()), "outcome": "Sale",
+                     "cash_collected": "1", "debt_paid": "0",
+                     "cart_items": [{"product_variant_id": tenant.variant_id,
+                                     "packs_quantity": 1}]}
+        excessive = intent_for(3)
+        async with pg.session() as blocker:
+            locked = await blocker.scalar(select(Shop.id).where(
+                Shop.company_id == tenant.company_id, Shop.id == race_shop,
+            ).with_for_update())
+            assert locked == race_shop
+            event.listen(http_engine.sync_engine, "before_cursor_execute", on_shop_lock)
+            tasks = []
+            try:
+                tasks.append(asyncio.create_task(tagged(
+                    "field", "PUT", f"/visits/{live_visit}", signed, sale_body)))
+                await asyncio.wait_for(waiting["field"].wait(), timeout=15)
+                # Yield to the actual PostgreSQL query before queuing manager.
+                await asyncio.sleep(0.05)
+                tasks.append(asyncio.create_task(tagged(
+                    "manager", "POST", race_path, owner, excessive)))
+                await asyncio.wait_for(waiting["manager"].wait(), timeout=15)
+                await asyncio.sleep(0.05)
+                assert not any(task.done() for task in tasks)
+                await blocker.rollback()
+                sold, overshoot = await asyncio.wait_for(asyncio.gather(*tasks), timeout=35)
+            finally:
+                event.remove(http_engine.sync_engine, "before_cursor_execute", on_shop_lock)
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+        assert sold.status_code == 200, sold.text
+        assert overshoot.status_code == 409, overshoot.text
+        assert overshoot.json()["error"]["code"] == "SHORTAGE_URGENT_EXCEEDS_OUTSTANDING", overshoot.text
+        race_rows = (await client.get(f"/dispatch/shortages?shortage_id={race_id}", headers=owner)).json()
+        _progress(race_rows[0], 1, 2, 0, 2)
+        print("1077_POST_SERIALIZED_PARTIAL queued FIELD then manager, fulfilled=1, outstanding=2, rejected qty=3")
+
         _progress(await row(ordinary), 1, 9, 2, 7)
         assert (await client.get(path, headers=other)).json() == []
 

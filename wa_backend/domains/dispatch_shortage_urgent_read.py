@@ -11,21 +11,15 @@ from domains.authorization.backoffice_access import BackofficeCapabilityAccess
 from models import DispatchRoute, ShortageRequest, ShortageUrgentAssignment, Visit
 
 
-def pending_urgent_projection(
-    access: BackofficeCapabilityAccess, visible: CTE, *, company_directory: bool,
-):
-    """Aggregate only the existing visible demand IDs and current Pending Visits.
-
-    No assignment is omitted on a vehicle-scope failure: redact the entire
-    projection instead of reporting a misleading partial sum.
-    """
+def current_pending_visit_keys(company_id: int) -> CTE:
+    """All tenant Pending Visit keys, bounded keyset batches, one snapshot."""
     # Read all live keys in ordered, index-friendly batches within one SQL
     # snapshot. A broad scan can choose a tenant-only historical index when
     # stats are stale; keyset batches keep the work on the live range.
     # The recursive cursor is strictly increasing; no final result cap.
     def key_batch(after=None):
         keys = select(Visit.id).where(
-            Visit.company_id == access.company_id,
+            Visit.company_id == company_id,
             Visit.status == literal_column("'Pending'"),
         )
         if after is not None:
@@ -44,10 +38,21 @@ def pending_urgent_projection(
         select(following.c.ids, following.c.last_id)
         .select_from(batches).join(following, true()),
     )
-    pending = select(
+    return select(
         func.unnest(batches.c.ids).label("id"),
-        literal(access.company_id).label("company_id"),
+        literal(company_id).label("company_id"),
     ).select_from(batches).cte("current_pending_visits").prefix_with("MATERIALIZED")
+
+
+def pending_urgent_projection(
+    access: BackofficeCapabilityAccess, visible: CTE, *, company_directory: bool,
+):
+    """Aggregate only the existing visible demand IDs and current Pending Visits.
+
+    No assignment is omitted on a vehicle-scope failure: redact the entire
+    projection instead of reporting a misleading partial sum.
+    """
+    pending = current_pending_visit_keys(access.company_id)
     assignment = ShortageUrgentAssignment
     # Visit-leading indexed range, not demand x Visit point probes. OFFSET 0
     # is an optimization fence (no truncation) against history-first flattening.
