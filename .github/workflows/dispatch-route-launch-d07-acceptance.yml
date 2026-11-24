@@ -462,6 +462,9 @@ jobs:
               "dashboard/src/test/dispatch-urgent-quick-composer-v1.test.tsx",
           }
           assert len(urgent_1050_exact) == 15
+          shortage_release_policy = __import__("runpy").run_path(".github/scripts/live_stock_ci_ownership.py")
+          shortage_release_mode = shortage_release_policy["shortage_1077_1078_mode"]
+          shortage_release_policy["shortage_1077_1078_selftest"]()
           def shortage_1057_mode(candidate):
               if candidate == shortage_1057_release_exact: return True
               if candidate == shortage_1057_exact: return True
@@ -615,7 +618,7 @@ jobs:
               # D06 is independently approved and frozen to exact security paths.
               # D07/F06 historical scope is unchanged for all other PRs.
               release_mode = __import__("runpy").run_path(".github/scripts/dispatch_c03_x01_release_scope.py")["release_mode"]
-          assert (shortage_1057_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files) or arv1_f_1044_mode(files) or arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
+          assert (shortage_release_mode(files) or shortage_1057_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files) or arv1_f_1044_mode(files) or arv1_b_1045_mode(files) or zones_1038_mode(files) or zones_1039_mode(files) or release_mode(files) or files == u02_u03_969_exact or files == d21_launch_exact or files == u01_carton_codec_exact or files == d20_input_exact or files == d19_961_exact or files == d18_959_exact or files == d17_957_exact or files == d16_955_exact or m05_authorized or m04_authorized or files == d07_complete_exact or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d15_real_content_scope.py"
               )["d15_real_content_mode"](files) or __import__("runpy").run_path(
                   ".github/scripts/dispatch_d06_ci_scope.py"
@@ -639,7 +642,7 @@ jobs:
               "dashboard/src/features/dispatch/sessionScope.ts",
               "wa_backend/models.py", "dashboard/src/components/dispatch/ShortageModal.tsx",
           ):
-              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (files in (shortage_1057_exact, shortage_1057_release_exact) or files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
+              assert foreign not in files or (os.environ.get("PR_NUMBER") != "884" and (shortage_release_mode(files) or files in (shortage_1057_exact, shortage_1057_release_exact) or files == u02_u03_969_exact or m04_mode(files) or urgent_1055_mode(files) or urgent_1053_mode(files) or urgent_1050_mode(files))), f"D07 forbidden foreign path: {foreign}"
           print("D07_COMPLETE_OWNERSHIP=PASS exact=14 foreign=4")
           PY
           git diff --check "$BASE" HEAD
@@ -764,6 +767,41 @@ jobs:
           assert len(cases) == 6, f"U03 expected six physical signed cases, got {len(cases)}"
           assert not invalid, f"U03 physical PG16 failed/skipped: {invalid}"
           PY
+      - name: Genuine restricted PG16 urgent readback and receipt replay
+        working-directory: wa_backend
+        env:
+          WANASAH_SHORTAGE_1077_PG_GATE: "1"
+          WANASAH_1078_SEAM_JSON: ${{ runner.temp }}/shortage-1078-signed-seam.json
+        run: |
+          rm -f "$WANASAH_1078_SEAM_JSON"
+          python -B -m pytest -p no:cacheprovider -q -s --tb=short tests/test_dispatch_shortage_urgent_readback_1077_pg16.py --junitxml=shortage-1077-pg16.xml
+          python - <<'PY'
+          import json, os, xml.etree.ElementTree as ET
+          cases = list(ET.parse("shortage-1077-pg16.xml").getroot().iter("testcase"))
+          assert cases and not any(case.find(state) is not None for case in cases for state in ("failure","error","skipped")), "Signed PG16 test missing, failed or skipped"
+          with open(os.environ["WANASAH_1078_SEAM_JSON"], encoding="utf-8") as source:
+              evidence = json.load(source)
+          assert {"before","quote","request","receipt","after","replay","finalRows"} <= evidence.keys()
+          assert evidence["receipt"] == evidence["replay"]
+          print("SHORTAGE_1077_PG16_CASES=" + str(len(cases)))
+          PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install locked Dashboard for signed seam
+        working-directory: dashboard
+        run: npm ci --no-audit --no-fund
+      - name: Verify real signed PG16 receipt in Dashboard recovery hook
+        working-directory: dashboard
+        env:
+          WANASAH_1078_SEAM_JSON: ${{ runner.temp }}/shortage-1078-signed-seam.json
+        run: |
+          test -s "$WANASAH_1078_SEAM_JSON"
+          set -o pipefail
+          npx vitest run src/test/dispatch-shortage-urgent-1078.test.tsx --maxWorkers=1 --testTimeout=20000 | tee shortage-1078-seam.log
+          grep -F "SIGNED_PG16_DASHBOARD_SEAM=PASS" shortage-1078-seam.log
       - name: Publish test evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
@@ -772,6 +810,8 @@ jobs:
           path: |
             wa_backend/d07-real-pg16.xml
             wa_backend/u03-real-pg16.xml
+            wa_backend/shortage-1077-pg16.xml
+            dashboard/shortage-1078-seam.log
           if-no-files-found: warn
       - name: Disposable PG diagnostic on failure only
         if: failure()

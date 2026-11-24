@@ -68,6 +68,11 @@ export interface Shortage {
   driverName?: string;
   productName: string;
   quantity: number;
+  fulfilledBase?: number | null;
+  outstandingBase?: number | null;
+  fulfillmentEvidence?: "SIGNED_V1" | "LEGACY_UNKNOWN";
+  activeUrgentBase?: number | null;
+  unassignedBase?: number | null;
   status: "pending" | "fulfilled";
   waitTime?: string | null;
   createdAt?: string | null;

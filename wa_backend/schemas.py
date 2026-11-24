@@ -1457,6 +1457,9 @@ class ShortageResponseItem(BaseModel):
     fulfilledBase: Optional[int] = None
     outstandingBase: Optional[int] = None
     fulfillmentEvidence: str = "LEGACY_UNKNOWN"
+    # Approved Pending Visit quantity is NOT delivery or stock reservation.
+    activeUrgentBase: Optional[int] = None
+    unassignedBase: Optional[int] = None
     waitTime: Optional[str] = None
     createdAt: Optional[str] = None
 

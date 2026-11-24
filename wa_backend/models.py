@@ -1993,6 +1993,7 @@ class Visit(Base):
             name='visit_financial_evidence_shape'
         ),
         Index('ix_visit_shop_timestamp', 'shop_id', 'visit_timestamp'),
+        Index('ix_visits_company_status_id', 'company_id', 'status', 'id'),
         Index('ix_visit_session_outcome', 'work_session_id', 'outcome'),
         Index(
             'uq_visit_one_pending_owner_day',
@@ -2308,6 +2309,7 @@ class ShortageUrgentAssignment(Base):
     __table_args__ = (
         UniqueConstraint('company_id', 'id', name='uq_shortage_assignment_company_id'),
         Index('ix_shortage_assignment_company_demand', 'company_id', 'shortage_id'),
+        Index('ix_shortage_assignment_company_visit_demand', 'company_id', 'visit_id', 'shortage_id'),
         UniqueConstraint('company_id', 'shortage_id', 'visit_id', name='uq_shortage_assignment_visit'),
         ForeignKeyConstraint(['company_id', 'shortage_id'],
                              ['shortage_requests.company_id', 'shortage_requests.id'],

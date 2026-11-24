@@ -14,7 +14,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import ConfigDict, Field, model_validator
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, func, literal_column, select, text, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, DBAPIError
 
@@ -44,6 +44,7 @@ from services import (
     complete_idempotent_operation, get_company_local_date,
 )
 from domains.dispatch_shortage_visits import ensure_shortage_pending_visit
+from domains.dispatch_shortage_urgent_read import current_pending_visit_keys
 
 router = APIRouter(tags=["Dispatch shortage durable commands"])
 _demand_create = require_backoffice_capability("shortage.create")
@@ -398,11 +399,12 @@ async def promote_shortage_with_signed_stock(
             await db.rollback()
             return replay
         # Probe identifiers only; real authority and scopes are checked after locks.
-        pre = await db.scalar(
-            select(ShortageRequest).where(
+        pre = (await db.execute(
+            select(ShortageRequest.shop_id, ShortageRequest.zone_id,
+                   ShortageRequest.product_variant_id).where(
                 ShortageRequest.company_id == company, ShortageRequest.id == shortage_id,
             )
-        )
+        )).one_or_none()
         if pre is None:
             raise _rejected(404, "SHORTAGE_NOT_FOUND", "No such demand.")
         # Lifecycle guards must precede Zone/Shop/vehicle locks. A product
@@ -510,27 +512,29 @@ async def promote_shortage_with_signed_stock(
         actual = available[product_id]
         if Decimal(int(payload.quantity_base)) > actual:
             raise _rejected(409, "SHORTAGE_STOCK_INSUFFICIENT", "Vehicle does not cover proposed urgent quantity.")
-        assignments = (await db.scalars(
-            select(ShortageUrgentAssignment).where(
-                ShortageUrgentAssignment.company_id == company,
-                ShortageUrgentAssignment.shortage_id == shortage_id,
-            ).order_by(ShortageUrgentAssignment.id.asc()).with_for_update()
-        )).all()
-        # Historical approved amounts never vanish, but a terminal Sale /
-        # NoSale/Cancelled Visit is no longer an outstanding dispatch task.
-        # Its actually credited base units remain protected by fulfilled_base;
-        # only still-Pending assignments consume a new urgency budget.
-        pending_visit_ids = set((await db.scalars(
-            select(Visit.id).where(
-                Visit.company_id == company,
-                Visit.id.in_([int(a.visit_id) for a in assignments]),
-                Visit.status == "Pending",
-            )
-        )).all()) if assignments else set()
+        # Assignment evidence is immutable. All creators own this demand
+        # FOR UPDATE; FIELD sale/reversal take the Shop and demand locks
+        # before changing credited quantity, and FIELD/administrative
+        # reversal also own the Shop before reopening the Visit. Group/delete
+        # writers own the demand and refuse any historical assignment.
+        # Route cancellations only release budget; they cannot increase it.
+        # Thus historical assignment row locks provide no serialization.
+        # Scan tenant Pending keys first, then the exact unique demand/Visit
+        # key (no lifetime IN list, no historical row lock). Keep even
+        # cross-Shop/driver evidence in the budget, as the old path did.
+        pending = current_pending_visit_keys(company)
+        assignment = ShortageUrgentAssignment
+        active = select(assignment.approved_base).where(
+            assignment.company_id == pending.c.company_id,
+            assignment.shortage_id == shortage_id,
+            assignment.visit_id == pending.c.id,
+        ).correlate(pending).limit(1).lateral("promotion_pending_assignment")
+        active_base = await db.scalar(
+            select(func.coalesce(func.sum(active.c.approved_base), 0))
+            .select_from(pending).join(active, true())
+        )
         remaining_unassigned = (
-            int(shortage.quantity) - int(shortage.fulfilled_base)
-            - sum(int(a.approved_base) for a in assignments
-                  if int(a.visit_id) in pending_visit_ids)
+            int(shortage.quantity) - int(shortage.fulfilled_base) - int(active_base)
         )
         if int(payload.quantity_base) > remaining_unassigned:
             raise _rejected(409, "SHORTAGE_URGENT_EXCEEDS_OUTSTANDING", "Requested urgent amount exceeds unassigned demand.")
@@ -541,8 +545,11 @@ async def promote_shortage_with_signed_stock(
         pending_visits = (await db.scalars(
             select(Visit).where(
                 Visit.company_id == company, Visit.driver_id == int(payload.driver_id),
-                Visit.shop_id == int(shop.id), Visit.status == "Pending",
-            ).order_by(Visit.id.asc()).with_for_update(nowait=True)
+                Visit.shop_id == int(shop.id), Visit.status == literal_column("'Pending'"),
+            # The existing unique partial owner/day index is already
+            # ordered by operational_date after tenant/driver/Shop keys.
+            # At most one row is accepted; any two establish ambiguity.
+            ).order_by(Visit.operational_date.asc()).limit(2).with_for_update(nowait=True)
         )).all()
         if len(pending_visits) > 1:
             raise _rejected(409, "SHORTAGE_PENDING_VISIT_AMBIGUOUS", "Duplicate pending visits.")
@@ -559,7 +566,12 @@ async def promote_shortage_with_signed_stock(
             existing=pending_visits[0] if pending_visits else None,
         )
         await db.flush()
-        if any(int(a.visit_id) == int(visit.id) for a in assignments):
+        duplicate = await db.scalar(select(ShortageUrgentAssignment.id).where(
+            ShortageUrgentAssignment.company_id == company,
+            ShortageUrgentAssignment.shortage_id == shortage_id,
+            ShortageUrgentAssignment.visit_id == int(visit.id),
+        ).limit(1))
+        if duplicate is not None:
             raise _rejected(409, "SHORTAGE_ALREADY_ASSIGNED_TO_VISIT", "This Visit already owns this shortage.")
         assignment = ShortageUrgentAssignment(
             company_id=company, shortage_id=shortage_id, visit_id=int(visit.id),

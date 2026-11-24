@@ -25,6 +25,8 @@ import {
 import { useShopFormCommit } from "@/features/dispatch/shopForm/useShopFormCommit";
 import { useShortageGroupCommit } from "@/features/dispatch/shortageGroup/useShortageGroupCommit";
 import { useShortageCommandCommit } from "@/features/dispatch/shortageCommand/useShortageCommandCommit";
+import { useUrgentPromotion } from "@/features/dispatch/shortageUrgent/useUrgentPromotion";
+import { eligibleUrgentDrivers } from "@/features/dispatch/shortageUrgent/contract";
 import { groupText } from "@/features/dispatch/shortageGroup/contract";
 import { useRouteLaunchRecovery } from "@/features/dispatch/routeLaunch/useRouteLaunchRecovery";
 import { useCommercialPreflight } from "@/features/dispatch/commercialPreflight/useCommercialPreflight";
@@ -1698,6 +1700,49 @@ function DispatchSession() {
     },
   });
 
+  // Promotion has its own immutable command. Only current authorized active
+  // routes are offered; the Backend rechecks the exact vehicle/shop grants.
+  const urgentAuthorized = Boolean(actorScope && accessState === "ready" && dispatchReadState === "ready" &&
+    grants.shortages && grants.shortageCreate && grants.launch && onDispatchRoute && !dispatchDeniedRef.current);
+  const urgentReadReady = urgentAuthorized && readParts.init && readParts.shops && readParts.routes && readParts.shortages &&
+    !reentryPending && !reentryReadPending && !inventoryAccess.isFetching;
+  // Routes are intentionally not a primary read on Zones/Launch. Read them
+  // only on the actual shortage-modal admission, never delay tab first paint.
+  useEffect(() => {
+    if (!isShortageModalOpen || !urgentAuthorized || readParts.routes) return;
+    const controller = new AbortController();
+    const admitted = captureUiRead();
+    void authenticatedFetch("/dispatch/active_routes", {signal:controller.signal,cache:"no-store"})
+      .then(raw => {
+        if (controller.signal.aborted || !admitted() || !Array.isArray(raw)) return;
+        setPendingRoutes(raw);
+        setReadParts(parts => ({...parts,routes:true}));
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [isShortageModalOpen,urgentAuthorized,readParts.routes,authenticatedFetch]);
+  const urgentDrivers = useMemo(() => eligibleUrgentDrivers(pendingRoutes, drivers), [pendingRoutes, drivers]);
+  const shortageUrgent = useUrgentPromotion({
+    session: session!, scope: actorScope, authorized: urgentAuthorized,
+    ready: Boolean(urgentReadReady && !shortageGroup.hasUnresolved && !shortageGroup.isBusy &&
+      !shortageGroup.blocked && !shortageCommand.hasUnresolved && !shortageCommand.busy && !editingShortageIds.length),
+    fetch: authenticatedFetch, rows: shortages, drivers: urgentDrivers,
+    canSee: row => zones.some(z => z.id === row.zoneId) &&
+      shops.some(s => s.id === row.shopId && s.zoneId === row.zoneId && !s.archived),
+    canRecover: original => zones.some(z => z.id === String(original.zoneId)) &&
+      shops.some(s => s.id === String(original.shopId) && s.zoneId === String(original.zoneId) && !s.archived) &&
+      urgentDrivers.some(d => d.id === String(original.body.driver_id)),
+    onRestore: () => setIsShortageModalOpen(true),
+    refresh: async () => {
+      const admitted = captureUiRead();
+      const snapshot = captureDashboardSession();
+      const rows: unknown = await authenticatedFetch("/dispatch/shortages", {cache:"no-store"});
+      if (!admitted() || !isDashboardSessionCurrent(snapshot) || !Array.isArray(rows)) {
+        throw Error("SHORTAGE_URGENT_REFRESH_UNVERIFIED");
+      }
+      setShortages(rows);
+    },
+  });
+
   const handleAddShortage = async () => {
     const admitted = captureUiRead();
     if (!shortageZoneId || !shortageShopId || shortageDraft.length === 0) {
@@ -1724,7 +1769,7 @@ function DispatchSession() {
       quantity: Number(item.quantity),
     }));
 
-    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+    if (shortageUrgent.unresolved || shortageMutationInFlightRef.current || shortageGroup.isBusy ||
       shortageGroup.hasUnresolved || shortageGroup.blocked || shortageCommand.hasUnresolved ||
       shortageCommand.busy) {
       toast.info(dispatchUiText(i18n.language, "shortageCommandUnknown"));
@@ -1772,7 +1817,7 @@ function DispatchSession() {
   ) => {
     if (!/^[1-9]\d*$/.test(productId) || !Number.isSafeInteger(Number(productId)) ||
       !productName || productName.length > 300) return;
-    if (shortageMutationInFlightRef.current || shortageGroup.isBusy ||
+    if (shortageUrgent.unresolved || shortageMutationInFlightRef.current || shortageGroup.isBusy ||
       shortageGroup.hasUnresolved || shortageGroup.blocked ||
       shortageCommand.hasUnresolved || shortageCommand.busy) return;
     if (shortageDraft.length >= 80 && !shortageDraft.some(row => row.productId === productId)) {
@@ -1799,7 +1844,7 @@ function DispatchSession() {
         (item.driverId || "") === (driverId || "")
     );
     if (shopShortages.length === 0) return;
-    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked ||
+    if (shortageUrgent.unresolved || shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked ||
         shortageCommand.hasUnresolved || shortageCommand.busy) {
       toast.info(groupText(i18n.language, "different"));
       return;
@@ -1836,7 +1881,7 @@ function DispatchSession() {
   };
 
   const handleDeleteShortageGroup = (ids: string[]) => {
-    if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+    if (shortageUrgent.unresolved || shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
       toast.info(groupText(i18n.language, "different"));
       return;
     }
@@ -2664,16 +2709,17 @@ function DispatchSession() {
         editingShortageIds={editingShortageIds}
         onCancelEdit={() => { setShortageDraft([]); setEditingShortageIds([]); setShortageZoneId(""); setShortageShopId(""); setShortageDriverId(""); }}
         onDeleteShortage={id => {
-          if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+          if (shortageUrgent.unresolved || shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
             toast.info(groupText(i18n.language, "different")); return;
           }
           setConfirmDialog({ isOpen: true, title: "تأكيد الحذف", message: "هل أنت متأكد من حذف هذا الطلب نهائياً؟", onConfirm: async () => { try {
-            if (shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
+            if (shortageUrgent.unresolved || shortageGroup.hasUnresolved || shortageGroup.isBusy || shortageGroup.blocked) {
               toast.info(groupText(i18n.language, "different")); return;
             }
             await authenticatedFetch(`/dispatch/shortages/${id}`, { method: "DELETE" }); setShortages(prev => prev.filter(s => s.id !== id)); toast.success("تم حذف الطلب بنجاح"); } catch (e: unknown) { toast.error("خطأ في الحذف: " + getErrorMessage(e)); } finally { setConfirmDialog(d => ({ ...d, isOpen: false })); } } }); }}
         onDeleteShortageGroup={handleDeleteShortageGroup}
         onEditShortageGroup={handleEditShortageGroup}
+        urgentPromotion={shortageUrgent}
         commandRecovery={{
           pending: shortageCommand.pending,
           blocked: shortageCommand.blocked,

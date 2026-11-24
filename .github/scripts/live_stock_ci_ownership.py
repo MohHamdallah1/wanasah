@@ -1261,7 +1261,75 @@ URGENT_1050_DISTINCT = frozenset({
 })
 assert len(URGENT_1050_EXACT) == 15
 
+# LEAD #1079/#1080: finite combined release from the approved main.
+# Distinct new files may never fall through to a historical broader mode.
+SHORTAGE_1077_1078_EXACT = frozenset({
+    '.github/scripts/live_stock_ci_ownership.py',
+    '.github/workflows/dispatch-p0-route-stock-safety.yml',
+    '.github/workflows/dispatch-route-launch-d07-acceptance.yml',
+    '.github/workflows/dispatch-shop-create-f06-acceptance.yml',
+    '.github/workflows/dispatch-shop-finance-p0-acceptance.yml',
+    '.github/workflows/live-stock-inflight-authority-acceptance.yml',
+    'dashboard/src/components/dispatch/ShortageModal.tsx',
+    'dashboard/src/components/dispatch/ShortageUrgentAction.tsx',
+    'dashboard/src/features/dispatch/dispatchUiText.ts',
+    'dashboard/src/features/dispatch/shortageUrgent/contract.ts',
+    'dashboard/src/features/dispatch/shortageUrgent/useUrgentPromotion.ts',
+    'dashboard/src/pages/DispatchBoard.tsx',
+    'dashboard/src/test/dispatch-shortage-urgent-1078.test.tsx',
+    'dashboard/src/types/dispatch.ts',
+    'wa_backend/alembic/versions/ae107700b222_shortage_pending_read_indexes.py',
+    'wa_backend/api/dispatch.py',
+    'wa_backend/api/dispatch_shortage_commands.py',
+    'wa_backend/domains/dispatch_shortage_urgent_read.py',
+    'wa_backend/models.py',
+    'wa_backend/schemas.py',
+    'wa_backend/tests/test_dispatch_shortage_urgent_readback_1077_pg16.py',
+})
+SHORTAGE_1077_1078_DISTINCT = frozenset({
+    "wa_backend/domains/dispatch_shortage_urgent_read.py",
+    "wa_backend/tests/test_dispatch_shortage_urgent_readback_1077_pg16.py",
+    "wa_backend/alembic/versions/ae107700b222_shortage_pending_read_indexes.py",
+    "dashboard/src/components/dispatch/ShortageUrgentAction.tsx",
+    "dashboard/src/features/dispatch/shortageUrgent/contract.ts",
+    "dashboard/src/features/dispatch/shortageUrgent/useUrgentPromotion.ts",
+    "dashboard/src/test/dispatch-shortage-urgent-1078.test.tsx",
+})
+assert len(SHORTAGE_1077_1078_EXACT) == 21
+assert SHORTAGE_1077_1078_DISTINCT <= SHORTAGE_1077_1078_EXACT
+
+def shortage_1077_1078_mode(candidate):
+    files = frozenset(candidate)
+    if not files & SHORTAGE_1077_1078_DISTINCT:
+        return False
+    assert files == SHORTAGE_1077_1078_EXACT, (
+        f"SHORTAGE_1077_1078 exact ownership denied missing={sorted(SHORTAGE_1077_1078_EXACT-files)} "
+        f"foreign={sorted(files-SHORTAGE_1077_1078_EXACT)}"
+    )
+    return True
+
+def shortage_1077_1078_selftest():
+    assert shortage_1077_1078_mode(SHORTAGE_1077_1078_EXACT)
+    for candidate in (
+        *(SHORTAGE_1077_1078_EXACT-{missing} for missing in SHORTAGE_1077_1078_EXACT),
+        *(SHORTAGE_1077_1078_EXACT|{foreign} for foreign in (
+            "wa_backend/api/driver.py", "wa_backend/domains/inventory/services.py",
+            "wanasah_frontend/lib/main.dart", ".github/workflows/unreviewed.yml")),
+    ):
+        try:
+            shortage_1077_1078_mode(candidate)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError("Incomplete/foreign urgent release admitted: "+repr(sorted(candidate)))
+    print("SHORTAGE_1077_1078_SCOPE_SELFTEST=PASS exact=21 missing=21 foreign=4")
+
 def classify(mode: str, changed: set[str], semantic: dict[str, bool]) -> tuple[str, list[str]]:
+    try:
+        if shortage_1077_1078_mode(changed):
+            return ("not-applicable", []) if mode == "r3" else ("shortage-1077-1078-exact", [])
+    except AssertionError as exc:
+        return "fail", [str(exc)]
     if changed == SHORTAGE_1057_RELEASE_EXACT:
         return ("not-applicable",[]) if mode=="r3" else ("shortage-1057-release-exact",[])
     if changed == SHORTAGE_1057_EXACT:
@@ -1567,6 +1635,17 @@ def _expect_fail(mode: str, changed: set[str], semantic: dict[str, bool]) -> Non
     assert state == "fail" and messages, (mode, state, messages)
 
 def selftest() -> None:
+    shortage_1077_1078_selftest()
+    release_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}
+    for mode in ("ux", "r3", "operational"):
+        expected = "not-applicable" if mode == "r3" else "shortage-1077-1078-exact"
+        assert classify(mode, set(SHORTAGE_1077_1078_EXACT), release_sem) == (expected, [])
+        for missing in SHORTAGE_1077_1078_EXACT:
+            _expect_fail(mode, set(SHORTAGE_1077_1078_EXACT)-{missing}, release_sem)
+        for foreign in ("wa_backend/api/driver.py", "wanasah_frontend/lib/main.dart",
+                        "wa_backend/domains/inventory/services.py", ".github/workflows/unreviewed.yml"):
+            _expect_fail(mode, set(SHORTAGE_1077_1078_EXACT)|{foreign}, release_sem)
+    print("SHORTAGE_1077_1078_CLASSIFY_SELFTEST=PASS modes=3 missing=63 foreign=12")
     # The exact #847 three-file policy PR must pass unrelated Live Stock
     # entrypoints without granting any general Dispatch CI workflow bypass.
     policy_sem = {SHARED_RESOURCES: False, SHARED_SCHEMA: False, SHARED_DISPATCH: False}

@@ -162,7 +162,11 @@ jobs:
           assert len(shortage_1057_release_exact) == 48
           m04_mode = __import__("runpy").run_path(".github/scripts/m04_ci_scope.py")["m04_mode"]
           m05_mode = __import__("runpy").run_path(".github/scripts/m05_ci_scope.py")["m05_mode"]
+          shortage_release_policy = __import__("runpy").run_path(".github/scripts/live_stock_ci_ownership.py")
+          shortage_release_mode = shortage_release_policy["shortage_1077_1078_mode"]
+          shortage_release_policy["shortage_1077_1078_selftest"]()
           def ownership_mode(candidate):
+              if shortage_release_mode(candidate): return 'SHORTAGE_1077_1078_EXACT'
               if candidate == shortage_1057_release_exact: return 'SHORTAGE_1057_RELEASE_EXACT'
               if candidate == shortage_1057_exact: return 'SHORTAGE_1057_EXACT'
               if candidate & shortage_1057_distinct:
