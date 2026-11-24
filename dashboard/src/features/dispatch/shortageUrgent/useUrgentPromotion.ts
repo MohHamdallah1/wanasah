@@ -32,9 +32,10 @@ export function useUrgentPromotion(props:Props) {
   },[]);
   useEffect(()=>{
     mounted.current=true;
-    const revoke=()=>{generation.current++;denied.current=true;setState({...empty(current.current.key),blocked:true,feedback:"denied"});};
+    const invalidate=()=>{generation.current++;};
+    const revoke=()=>{invalidate();denied.current=true;setState({...empty(current.current.key),blocked:true,feedback:"denied"});};
     window.addEventListener("inventory-permission-denied",revoke);
-    return ()=>{mounted.current=false;generation.current++;window.removeEventListener("inventory-permission-denied",revoke);};
+    return ()=>{mounted.current=false;invalidate();window.removeEventListener("inventory-permission-denied",revoke);};
   },[]);
   useEffect(()=>{
     generation.current++;
