@@ -3,7 +3,7 @@
 The existing demand/Visit write contract is unchanged. An approved quantity is
 neither delivery nor a reservation. One query snapshot preserves conservation.
 """
-from sqlalchemy import and_, func, literal, literal_column, or_, select, true
+from sqlalchemy import and_, func, literal, literal_column, or_, select, true, tuple_
 from sqlalchemy.sql.selectable import CTE
 
 from dispatch_access import route_filter, vehicle_filter
@@ -18,13 +18,22 @@ def current_pending_visit_keys(company_id: int) -> CTE:
     # stats are stale; keyset batches keep the work on the live range.
     # The recursive cursor is strictly increasing; no final result cap.
     def key_batch(after=None):
+        # Within the tenant, order status and id, not id alone. Express an exact
+        # closed status range as row comparisons so the planner cannot
+        # treat the global Visit primary key as an already ordered live range.
+        # Visit.id is INTEGER; both bounds include its entire domain.
+        key = tuple_(Visit.status, Visit.id)
+        status = literal_column("'Pending'")
+        lower = tuple_(status, after if after is not None else literal_column("-2147483648"))
+        upper = tuple_(status, literal_column("2147483647"))
         keys = select(Visit.id).where(
             Visit.company_id == company_id,
-            Visit.status == literal_column("'Pending'"),
+            key > lower if after is not None else key >= lower,
+            key <= upper,
         )
         if after is not None:
-            keys = keys.where(Visit.id > after).correlate(batches)
-        return keys.order_by(Visit.id).limit(literal_column("32")).subquery()
+            keys = keys.correlate(batches)
+        return keys.order_by(Visit.status, Visit.id).limit(literal_column("32")).subquery()
 
     def collect(keys):
         return select(
