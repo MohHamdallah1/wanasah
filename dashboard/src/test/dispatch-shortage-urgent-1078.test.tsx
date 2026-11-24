@@ -157,6 +157,30 @@ describe("#1078 durable POST",()=>{
     await act(async()=>{expect(await h.result.current.retry()).toBe(false);});
     expect(f).not.toHaveBeenCalled();expect(readUrgent(scope)).toEqual(original);
   });
+  it("temporarily hidden historical command remains blocked until scope is independently restored",async()=>{
+    const original=storeUrgent(scope,row,driver,4);
+    const f=vi.fn(async()=>receipt(original.body));const p=props(f);
+    const h=renderHook(({allowed})=>useUrgentPromotion({...p,rows:[],canRecover:()=>allowed}),
+      {initialProps:{allowed:false}});
+    expect(h.result.current.pending).toBeNull();expect(h.result.current.unresolved).toBe(true);
+    await act(async()=>{expect(await h.result.current.retry()).toBe(false);});
+    expect(f).not.toHaveBeenCalled();
+    h.rerender({allowed:true});
+    expect(h.result.current.pending).toEqual(original);
+    await act(async()=>{expect(await h.result.current.retry()).toBe(true);});
+    expect(f).toHaveBeenCalledExactlyOnceWith("/dispatch/shortages/7/promote-urgent",{method:"POST",body:JSON.stringify(original.body)});
+    expect(readUrgent(scope)).toBeNull();expect(p.refresh).toHaveBeenCalledOnce();
+  });
+  it("historical replay 404 redacts inaccessible receipt and never creates a new command",async()=>{
+    const original=storeUrgent(scope,row,driver,4);
+    const f=vi.fn(async()=>{throw err(404);});
+    const p=props(f),h=renderHook(()=>useUrgentPromotion({...p,rows:[]}));
+    await act(async()=>{expect(await h.result.current.retry()).toBe(false);});
+    expect(h.result.current.pending).toBeNull();expect(h.result.current.blocked).toBe(true);
+    expect(h.result.current.feedback).toBe("denied");
+    await act(async()=>{expect(await h.result.current.submit("7","9",1)).toBe(false);});
+    expect(f).toHaveBeenCalledOnce();expect(readUrgent(scope)).toEqual(original);
+  });
   it("contradictory pending identity cannot grant historical replay",async()=>{
     const original=storeUrgent(scope,row,driver,4);
     const f=vi.fn(async()=>receipt(original.body));
