@@ -136,10 +136,11 @@ vi.mock(
 );
 
 import { ProductFamilyReassignDialog } from "@/pages/products/family/ProductFamilyReassignDialog";
-import { singleUnitProductDefaults } from "./fixtures/productRows";
+import { emptyProductStatusEvidence, singleUnitProductDefaults } from "./fixtures/productRows";
 
 const product: SimpleProduct = {
   ...singleUnitProductDefaults,
+  ...emptyProductStatusEvidence,
   id: 10,
   product_id: 1,
   name: "Cola 330ml",

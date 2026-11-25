@@ -15,13 +15,14 @@ import type {
 import {
   useProductsInfiniteRows,
 } from "@/pages/products/list/useProductsInfiniteRows";
-import { singleUnitProductDefaults } from "./fixtures/productRows";
+import { emptyProductStatusEvidence, singleUnitProductDefaults } from "./fixtures/productRows";
 
 const product = (
   id: number,
   name: string,
 ): SimpleProduct => ({
   ...singleUnitProductDefaults,
+  ...emptyProductStatusEvidence,
   id,
   product_id: id,
   name,

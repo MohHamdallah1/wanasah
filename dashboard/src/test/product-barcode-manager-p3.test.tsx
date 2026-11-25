@@ -17,7 +17,7 @@ import type {
   ProductBarcodeRecord,
   SimpleProduct,
 } from "../pages/products/contracts";
-import { packagedProductDefaults } from "./fixtures/productRows";
+import { emptyProductStatusEvidence, packagedProductDefaults } from "./fixtures/productRows";
 
 vi.mock(
   "react-i18next",
@@ -46,6 +46,7 @@ const product = (
   overrides: Partial<SimpleProduct> = {},
 ): SimpleProduct => ({
   ...packagedProductDefaults,
+  ...emptyProductStatusEvidence,
   id: 7,
   product_id: 70,
   name: "Test product",

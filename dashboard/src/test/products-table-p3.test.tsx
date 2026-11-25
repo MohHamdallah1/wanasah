@@ -37,10 +37,11 @@ import { ProductTableRow } from "../pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "../pages/products/contracts";
-import { packagedProductDefaults } from "./fixtures/productRows";
+import { emptyProductStatusEvidence, packagedProductDefaults } from "./fixtures/productRows";
 
 const product: SimpleProduct = {
   ...packagedProductDefaults,
+  ...emptyProductStatusEvidence,
   id: 10,
   product_id: 4,
   name: "Precision Product",

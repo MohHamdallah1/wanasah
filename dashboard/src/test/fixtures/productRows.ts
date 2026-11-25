@@ -29,3 +29,8 @@ export const packagedProductDefaults = {
   package_uom_code: "CARTON",
   lot_control_mode: "OPTIONAL",
 } as const satisfies Partial<SimpleProduct>;
+
+export const emptyProductStatusEvidence = {
+  status_reason: null,
+  batch_restrictions: null,
+} as const satisfies Pick<SimpleProduct, "status_reason" | "batch_restrictions">;
