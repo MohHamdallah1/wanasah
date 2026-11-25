@@ -13,6 +13,10 @@ changes. `ARCHITECTURE.md` is the canonical architecture constitution for the en
 The workflow-protection rule applies to the entire repository and all future tasks.
 No business workflow change is authorized without explicit prior discussion and approval from the project owner.
 
+## Proportionate verification and maintenance - mandatory for every new conversation
+
+Read the permanent owner directive **Proportionate verification, CI and development hygiene** in ARCHITECTURE.md before starting any task, and PARALLEL_EXECUTION_LEADERSHIP_PROTOCOL.md before coordinating workers. Small non-behavioral edits do not automatically require new tests, gates, workflows, or broad suites; use the smallest risk-appropriate existing verification and merge promptly after the required checks. Reuse evidence and existing suites. Never weaken security, financial/inventory truth, isolation, migration, concurrency or release checks. New permanent CI gates need a demonstrated gap and lead approval. Keep worktrees external and isolated, preserve all unknown/unmerged/dirty work, and clean safe merged task artifacts at handoff. Do not create new bureaucracy to enforce this rule.
+
 ## Backend-owned complexity / minimum operator input — mandatory
 
 - If Wanasah can safely derive or reconcile a fact from authoritative backend evidence, the operator must not be asked to supply the technical answer.

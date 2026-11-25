@@ -46,6 +46,12 @@ If code and plan appear inconsistent, do not improvise. Surface the conflict to 
 - After a branch is reviewed and merged, delete it.
 - The next task starts from the new latest `main`, not from an old merged branch.
 
+### Mandatory risk-based acceptance and task cleanup (owner directive 2026-11-25)
+
+- Apply ARCHITECTURE.md's Proportionate verification, CI and development hygiene directive to every assignment and review. The lead chooses the smallest relevant verification, reuses evidence and approves new permanent gates only for an uncovered risk. Do not commission new tests for each cosmetic edit or split one coherent acceptance into ceremonial stages; required checks and critical guarantees remain mandatory.
+- Keep worker worktrees outside the owner checkout; assign disjoint write scopes and an exact base. Workers report created paths/artifacts and clean only their own safe, inactive merged artifacts after lead acceptance. The lead owns safe post-merge cleanup; never force-remove, reset, or delete dirty, unique, unmerged, unknown or active work, local databases, backups or secrets.
+- Fresh lead conversations must read this protocol, AGENTS.md and the permanent directive before delegating; do not introduce another CI workflow or checklist simply to enforce this rule.
+
 ## 4. Parallel-work safety
 
 The lead owns the parallelization map.
