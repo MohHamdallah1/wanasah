@@ -15,6 +15,12 @@ ARCHITECTURE CONSTITUTION (MANDATORY):
 - No feature implementation may weaken its tenant/company isolation, location isolation, module ownership, or boundary rules.
 - The approved target is a Strict Modular Monolith (Modulith): monolith operational simplicity/performance with microservice-grade domain boundaries and isolation. Microservices require explicit evidence and approval.
 
+PROPORTIONATE VERIFICATION / CI / DEVELOPMENT HYGIENE (MANDATORY):
+- Read the permanent owner directive in ARCHITECTURE.md and AGENTS.md before every task.
+- No automatic new tests, gates, Workflows or broad acceptance for small presentation/documentation-only edits. Reuse the smallest relevant checks and existing suites; add meaningful regression coverage only for a demonstrated gap. Preserve all required safety, correctness and release checks.
+- New permanent CI gates require demonstrated need and lead approval; consolidate repeated setup and preserve coverage. One coherent risk-based review, no unrelated repeated runs.
+- Isolate active worktrees outside the main repo; clean inactive merged task artifacts safely after review. Preserve dirty, unique, unmerged and unknown work, secrets, backups and database files. No force cleanup. Keep development artifacts untracked.
+
 BACKEND-OWNED COMPLEXITY / MINIMUM OPERATOR INPUT (MANDATORY):
 - If authoritative backend evidence can safely derive, resolve, validate, allocate, or reconcile a fact, do not ask the operator to provide it.
 - Ask only for the smallest human business fact needed when safe automatic resolution is genuinely impossible. Never expose technical database IDs or internal allocation choices as operator work.
