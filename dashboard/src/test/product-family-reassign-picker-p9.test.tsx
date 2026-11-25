@@ -136,31 +136,15 @@ vi.mock(
 );
 
 import { ProductFamilyReassignDialog } from "@/pages/products/family/ProductFamilyReassignDialog";
+import { singleUnitProductDefaults } from "./fixtures/productRows";
 
 const product: SimpleProduct = {
+  ...singleUnitProductDefaults,
   id: 10,
   product_id: 1,
   name: "Cola 330ml",
   family_name: "Cola",
   sku: "SKU-10",
-  units_per_package: 1,
-  legacy_packs_per_carton: 1,
-  base_uom_id: 1,
-  base_uom_code: "EACH",
-  package_uom_id: null,
-  package_uom_code: null,
-  currency_code: "JOD",
-  package_price: null,
-  unit_price: null,
-  unit_barcode: null,
-  package_barcode: null,
-  package_uses_base_barcode: false,
-  version: 3,
-  lot_control_mode: "NONE",
-  expiry_control_mode: "NONE",
-  lifecycle_status: "ACTIVE",
-  operational_hold: "NONE",
-  simple_compatible: true,
 };
 
 describe(

@@ -6,6 +6,7 @@ import {
   parseProductTrackingMutation,
   parseSimpleProductPage,
 } from "../pages/products/contracts";
+import { packagedProductDefaults } from "./fixtures/productRows";
 
 const readSource = (relativePath: string): string =>
   readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -45,29 +46,16 @@ describe("products tracking UI contracts", () => {
       pricing_visible: true,
       items: [
         {
+          ...packagedProductDefaults,
           id: 10,
           product_id: 4,
           name: "Sample",
           family_name: "Sample",
           sku: "SKU-10",
-          units_per_package: 50,
-          legacy_packs_per_carton: 50,
-          base_uom_id: 1,
-          base_uom_code: "EACH",
-          package_uom_id: 2,
-          package_uom_code: "CARTON",
-          currency_code: "JOD",
           package_price: "10.000000",
           unit_price: "0.200000",
-          unit_barcode: null,
-          package_barcode: null,
-          package_uses_base_barcode: false,
-          version: 3,
           lot_control_mode: "REQUIRED",
           expiry_control_mode: "REQUIRED",
-          lifecycle_status: "ACTIVE",
-          operational_hold: "NONE",
-          simple_compatible: true,
         },
       ],
       next_cursor: null,
