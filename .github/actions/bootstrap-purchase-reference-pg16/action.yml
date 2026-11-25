@@ -1,0 +1,22 @@
+name: Bootstrap purchase reference PostgreSQL acceptance
+description: Create the existing restricted runtime role, apply canonical migrations, and verify model parity on the caller's disposable PostgreSQL service.
+runs:
+  using: composite
+  steps:
+    - name: Create restricted disposable runtime role
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        python - <<'PY'
+        import psycopg
+        with psycopg.connect("postgresql://purchase_reference_gate@127.0.0.1:5432/wanasah_purchase_reference_gate", autocommit=True) as db:
+            db.execute("CREATE ROLE purchase_reference_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS")
+        PY
+    - name: Migrate empty database through canonical Alembic graph
+      shell: bash
+      working-directory: ${{ github.workspace }}/wa_backend
+      run: alembic upgrade head
+    - name: Model migration parity
+      shell: bash
+      working-directory: ${{ github.workspace }}/wa_backend
+      run: alembic check
