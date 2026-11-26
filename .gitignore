@@ -1,4 +1,3 @@
-```
 # Dependencies
 .pub/
 .build/
@@ -68,10 +67,15 @@ wa_backend/venv_wsl/
 # Test Reports & Dynamic outputs
 wa_backend/scripts/*_report.txt
 wa_backend/scripts/*_summary.json
-```
 
 # Surgical patch backups are temporary only
 **/.patch_backups/
 
 # Local product-import performance evidence (kept on the owner device, not committed)
 IMPORT_PERFORMANCE_EVIDENCE_*/
+
+# Local development worktrees, disposable test environments and backups
+/.worktrees/
+/.test-postgres/
+/.test-tools/
+/wa_backend/backups/
