@@ -15,34 +15,20 @@ import type {
 import {
   useProductsInfiniteRows,
 } from "@/pages/products/list/useProductsInfiniteRows";
+import { emptyProductStatusEvidence, singleUnitProductDefaults } from "./fixtures/productRows";
 
 const product = (
   id: number,
   name: string,
 ): SimpleProduct => ({
+  ...singleUnitProductDefaults,
+  ...emptyProductStatusEvidence,
   id,
   product_id: id,
   name,
   family_name: "Family",
   sku: `SKU-${id}`,
-  units_per_package: 1,
-  legacy_packs_per_carton: 1,
-  base_uom_id: 1,
-  base_uom_code: "EACH",
-  package_uom_id: null,
-  package_uom_code: null,
-  currency_code: "JOD",
-  package_price: null,
-  unit_price: null,
-  unit_barcode: null,
-  package_barcode: null,
-  package_uses_base_barcode: false,
   version: 1,
-  lot_control_mode: "NONE",
-  expiry_control_mode: "NONE",
-  lifecycle_status: "ACTIVE",
-  operational_hold: "NONE",
-  simple_compatible: true,
 });
 
 const page = (

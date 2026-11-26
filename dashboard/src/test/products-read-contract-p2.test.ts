@@ -10,6 +10,7 @@ import {
   parseProductImportState,
   parseSimpleProductPage,
 } from "../pages/products/contracts";
+import { singleUnitProductDefaults } from "./fixtures/productRows";
 
 
 const readSource = (relativePath: string): string =>
@@ -22,29 +23,13 @@ const normalizeWhitespace = (value: string): string =>
   value.replace(/\s+/g, " ").trim();
 
 const baseItem = {
+  ...singleUnitProductDefaults,
   id: 10,
   product_id: 4,
   name: "Sample",
   family_name: "Sample family",
   sku: "SKU-10",
-  units_per_package: 1,
-  legacy_packs_per_carton: 1,
-  base_uom_id: 1,
-  base_uom_code: "EACH",
-  package_uom_id: null,
-  package_uom_code: null,
-  currency_code: "JOD",
-  package_price: null,
-  unit_price: null,
-  unit_barcode: null,
-  package_barcode: null,
-  package_uses_base_barcode: false,
-  version: 3,
   lot_control_mode: "OPTIONAL",
-  expiry_control_mode: "NONE",
-  lifecycle_status: "ACTIVE",
-  operational_hold: "NONE",
-  simple_compatible: true,
 } as const;
 
 describe("products P2 read contract", () => {

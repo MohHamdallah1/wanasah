@@ -9,6 +9,7 @@ import {
 import {
   parseSimpleProductPage,
 } from "../pages/products/contracts";
+import { packagedProductDefaults } from "./fixtures/productRows";
 
 const source = (
   relativePath: string,
@@ -30,29 +31,15 @@ describe("Products P9 package and unit structure", () => {
       pricing_visible: true,
       items: [
         {
+          ...packagedProductDefaults,
           id: 11,
           product_id: 4,
           name: "Packaged Product",
           family_name: "Snacks",
           sku: "PKG-11",
-          units_per_package: 50,
-          legacy_packs_per_carton: 50,
-          base_uom_id: 1,
-          base_uom_code: "EACH",
-          package_uom_id: 2,
-          package_uom_code: "CARTON",
-          currency_code: "JOD",
           package_price: "13.500000",
           unit_price: "0.270000",
-          unit_barcode: null,
-          package_barcode: null,
-          package_uses_base_barcode: false,
           version: 5,
-          lot_control_mode: "OPTIONAL",
-          expiry_control_mode: "NONE",
-          lifecycle_status: "ACTIVE",
-          operational_hold: "NONE",
-          simple_compatible: true,
         },
       ],
       next_cursor: null,

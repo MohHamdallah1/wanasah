@@ -37,40 +37,21 @@ import { ProductTableRow } from "../pages/products/list/ProductTableRow";
 import type {
   SimpleProduct,
 } from "../pages/products/contracts";
+import { emptyProductStatusEvidence, packagedProductDefaults } from "./fixtures/productRows";
 
 const product: SimpleProduct = {
+  ...packagedProductDefaults,
+  ...emptyProductStatusEvidence,
   id: 10,
   product_id: 4,
   name: "Precision Product",
   family_name:
     "Precision Family",
   sku: "SKU-PRECISION",
-  units_per_package: 50,
-  legacy_packs_per_carton: 50,
-  base_uom_id: 1,
-  base_uom_code: "EACH",
-  package_uom_id: 2,
-  package_uom_code:
-    "CARTON",
-  currency_code: "JOD",
   package_price:
     "1000000000000.123456",
   unit_price:
     "20000000000.002469",
-  unit_barcode: null,
-  package_barcode: null,
-  package_uses_base_barcode:
-    false,
-  version: 3,
-  lot_control_mode:
-    "OPTIONAL",
-  expiry_control_mode:
-    "NONE",
-  lifecycle_status:
-    "ACTIVE",
-  operational_hold:
-    "NONE",
-  simple_compatible: true,
 };
 
 describe(

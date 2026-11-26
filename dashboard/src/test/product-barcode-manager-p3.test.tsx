@@ -17,6 +17,7 @@ import type {
   ProductBarcodeRecord,
   SimpleProduct,
 } from "../pages/products/contracts";
+import { emptyProductStatusEvidence, packagedProductDefaults } from "./fixtures/productRows";
 
 vi.mock(
   "react-i18next",
@@ -44,20 +45,14 @@ vi.mock(
 const product = (
   overrides: Partial<SimpleProduct> = {},
 ): SimpleProduct => ({
+  ...packagedProductDefaults,
+  ...emptyProductStatusEvidence,
   id: 7,
   product_id: 70,
   name: "Test product",
   family_name: "Family",
   sku: "SKU-7",
-  units_per_package: 50,
-  legacy_packs_per_carton: 50,
-  base_uom_id: 1,
   base_uom_code: "PIECE",
-  package_uom_id: 2,
-  package_uom_code: "CARTON",
-  currency_code: "JOD",
-  package_price: null,
-  unit_price: null,
   unit_barcode: "123",
   package_barcode: "123",
   package_uses_base_barcode: true,
@@ -65,9 +60,6 @@ const product = (
   lot_control_mode: "REQUIRED",
   expiry_control_mode:
     "REQUIRED",
-  lifecycle_status: "ACTIVE",
-  operational_hold: "NONE",
-  simple_compatible: true,
   ...overrides,
 });
 

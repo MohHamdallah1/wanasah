@@ -142,6 +142,14 @@ const summary = (overrides: Record<string, number> = {}) => ({
   ...overrides,
 });
 
+const serveBatchIndex = (readCursor: (path: string) => ReturnType<typeof page>) => {
+  mocks.authFetch.mockImplementation(async (path: string) => {
+    if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
+    if (path.startsWith("/warehouse/inventory/batches/cursor?")) return readCursor(path);
+    throw new Error(`Unexpected request: ${path}`);
+  });
+};
+
 const renderPage = () =>
   render(
     <TabBatches
@@ -199,11 +207,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
   );
 
   it("loads warehouse-wide batches without product selection and keeps summary independent", async () => {
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([item(1)]);
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    serveBatchIndex(() => page([item(1)]));
 
     renderPage();
 
@@ -252,11 +256,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
   });
 
   it("renders public nullable lot in English and Arabic and rejects internal no-lot leakage", async () => {
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([item(1, { batch_number: null })]);
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    serveBatchIndex(() => page([item(1, { batch_number: null })]));
 
     const english = renderPage();
     expect(await screen.findAllByText("No lot supplied")).not.toHaveLength(0);
@@ -278,15 +278,11 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
   it("appends continuation without duplicate batch_id and does not refresh summary", async () => {
     let cursorReads = 0;
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) {
-        cursorReads += 1;
-        return cursorReads === 1
-          ? page([item(1)], "next-1")
-          : page([item(1), item(2)]);
-      }
-      throw new Error(`Unexpected request: ${path}`);
+    serveBatchIndex(() => {
+      cursorReads += 1;
+      return cursorReads === 1
+        ? page([item(1)], "next-1")
+        : page([item(1), item(2)]);
     });
 
     renderPage();
@@ -301,15 +297,11 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
   it("keeps current rows and provides inline retry after continuation failure", async () => {
     let cursorReads = 0;
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) {
-        cursorReads += 1;
-        if (cursorReads === 1) return page([item(1)], "next-1");
-        if (cursorReads === 2) throw new Error("network");
-        return page([item(2)]);
-      }
-      throw new Error(`Unexpected request: ${path}`);
+    serveBatchIndex(() => {
+      cursorReads += 1;
+      if (cursorReads === 1) return page([item(1)], "next-1");
+      if (cursorReads === 2) throw new Error("network");
+      return page([item(2)]);
     });
 
     renderPage();
@@ -345,17 +337,13 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
 
   it("refresh resets the cursor and reloads first-page data and summary", async () => {
     let firstPageReads = 0;
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) {
-        const params = new URLSearchParams(path.split("?")[1]);
-        if (params.has("cursor")) return page([item(2)]);
-        firstPageReads += 1;
-        return firstPageReads === 1
-          ? page([item(1)], "next-1")
-          : page([item(3, { product_name: "Refreshed Product" })]);
-      }
-      throw new Error(`Unexpected request: ${path}`);
+    serveBatchIndex((path) => {
+      const params = new URLSearchParams(path.split("?")[1]);
+      if (params.has("cursor")) return page([item(2)]);
+      firstPageReads += 1;
+      return firstPageReads === 1
+        ? page([item(1)], "next-1")
+        : page([item(3, { product_name: "Refreshed Product" })]);
     });
 
     renderPage();
@@ -375,11 +363,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
       unavailable_quantity: "9",
       available_for_sale_quantity: "0",
     });
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([blocked]);
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    serveBatchIndex(() => page([blocked]));
 
     const { container } = renderPage();
     expect(await screen.findAllByText("Remaining shelf life is below the selling policy")).not.toHaveLength(0);
@@ -394,14 +378,10 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
   });
 
   it("resets continuation for search and filter changes", async () => {
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) {
-        const params = new URLSearchParams(path.split("?")[1]);
-        if (params.has("cursor")) return page([item(2)]);
-        return page([item(1)], "next-1");
-      }
-      throw new Error(`Unexpected request: ${path}`);
+    serveBatchIndex((path) => {
+      const params = new URLSearchParams(path.split("?")[1]);
+      if (params.has("cursor")) return page([item(2)]);
+      return page([item(1)], "next-1");
     });
 
     renderPage();
@@ -442,11 +422,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
       product_name: "Variant 211",
       family_name: "Family 41",
     });
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([familyRow]);
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    serveBatchIndex(() => page([familyRow]));
 
     renderPage();
     expect(await screen.findAllByText("Variant 211")).not.toHaveLength(0);
@@ -474,11 +450,7 @@ describe("CP2 Batches Dashboard batch-first contract", () => {
   });
 
   it("keeps search, filters, and batch actions on the native keyboard focus path without trapping focus", async () => {
-    mocks.authFetch.mockImplementation(async (path: string) => {
-      if (path.startsWith("/warehouse/inventory/batches/cursor?")) return page([item(1)]);
-      if (path.startsWith("/warehouse/inventory/batches/summary?")) return summary();
-      throw new Error(`Unexpected request: ${path}`);
-    });
+    serveBatchIndex(() => page([item(1)]));
 
     renderPage();
     expect(await screen.findAllByText("Product 1")).not.toHaveLength(0);
