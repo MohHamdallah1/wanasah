@@ -6,6 +6,7 @@ on:
     paths:
       - "wa_backend/tests/test_purchase_reference_e2e_postgres.py"
       - ".github/workflows/purchase-reference-e2e-postgres.yml"
+      - ".github/actions/setup-backend-purchase-tests/action.yml"
       - "wa_backend/api/simple_products.py"
       - "wa_backend/api/warehouse/inbound.py"
       - "wa_backend/domains/inventory_costing/**"
@@ -54,11 +55,8 @@ jobs:
           git rev-parse HEAD
           git merge-base --is-ancestor "$EXPECTED_E2E_BASE" HEAD
           git diff --check "$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")" "$PR_HEAD_SHA"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install locked backend and test dependencies
-        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Set up pinned Backend purchase tests
+        uses: ./.github/actions/setup-backend-purchase-tests
       - name: Create restricted disposable runtime role
         run: |
           python - <<'PY'

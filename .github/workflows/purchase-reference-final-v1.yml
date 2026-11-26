@@ -9,6 +9,7 @@ on:
       - "dashboard/src/features/suppliers/**"
       - "dashboard/src/i18n/resources.ts"
       - ".github/workflows/purchase-reference-final-v1.yml"
+      - ".github/actions/setup-backend-purchase-tests/action.yml"
 permissions:
   contents: read
 jobs:
@@ -69,11 +70,8 @@ jobs:
           # Check only actual PR changes, not later unrelated base-branch edits.
           branch_base="$(git merge-base "$PR_WHITESPACE_BASE" "$PR_HEAD_SHA")"
           git diff --check "$branch_base" "$PR_HEAD_SHA"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install locked backend and test dependencies
-        run: python -m pip install -r wa_backend/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 httpx==0.28.1
+      - name: Set up pinned Backend purchase tests
+        uses: ./.github/actions/setup-backend-purchase-tests
       - name: Create restricted disposable runtime role
         run: |
           python - <<'PY'
